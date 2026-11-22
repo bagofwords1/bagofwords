@@ -52,7 +52,7 @@
                         v-if="forkEligibility?.can_fork"
                         @click="handleFork"
                         :disabled="isForking"
-                        class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors disabled:opacity-50 mt-1"
+                        class="flex items-center gap-1 text-xs text-ink-muted hover:text-ink-2 transition-colors disabled:opacity-50 mt-1"
                     >
                         <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
                         <span>{{ isForking ? $t('sharedConversation.forking') : $t('sharedConversation.fork') }}</span>
@@ -76,7 +76,7 @@
                 <div v-else-if="hasMore" class="flex justify-center py-3 mb-4">
                     <button
                         @click="loadPreviousCompletions"
-                        class="text-xs text-ink-muted hover:text-gray-600 transition-colors"
+                        class="text-xs text-ink-muted hover:text-ink-2 transition-colors"
                     >
                         ↑ {{ $t('sharedConversation.loadOlder') }}
                     </button>
@@ -89,7 +89,7 @@
                             <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-ink-muted rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
                                 <Icon name="heroicons-clock" class="w-3.5 h-3.5" />
                                 <span class="font-medium text-gray-500 dark:text-gray-400">{{ $t('reportView.scheduledRun') }}</span>
-                                <span class="text-gray-300 dark:text-gray-600">{{ formatDateTime(m.created_at) }}</span>
+                                <span class="text-ink-muted">{{ formatDateTime(m.created_at) }}</span>
                             </div>
                         </div>
                         <div v-else class="flex rounded-lg p-1" :class="m.role === 'user' ? 'justify-end' : 'justify-start'" :dir="m.role === 'user' ? undefined : responseDir">
@@ -100,6 +100,7 @@
                                         <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :dir="promptDir(m.prompt?.content)">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
+                                                <ClarifyAnswerCard v-else-if="parseClarifyPrompt(m.prompt.content)" :answers="parseClarifyPrompt(m.prompt.content)!" />
                                                 <InstructionText
                                                     v-else
                                                     :text="m.prompt.content"
@@ -171,7 +172,7 @@
                                             </Transition>
                                             <!-- Keep prose visible when only this verification step is collapsed. -->
                                             <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
-                                                <MarkdownRender :content="citedMarkdown(m, block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || '')" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                                <MarkdownRender :content="citedMarkdown(m, block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || '')" :custom-html-tags="FIGURE_TAGS" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block)">
                                             <!-- 1. Thinking box (reasoning) -->
@@ -206,7 +207,7 @@
                                             <!-- 2. Block content - assistant message -->
                                             <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
                                                 <MarkdownRender
-                                                    :content="citedMarkdown(m, block.content || block.plan_decision?.assistant || '')"
+                                                    :content="citedMarkdown(m, block.content || block.plan_decision?.assistant || '')" :custom-html-tags="FIGURE_TAGS"
                                                     :final="true"
                                                     :typewriter="false"
                                                     :render-code-blocks-as-pre="true"
@@ -255,7 +256,7 @@
                                             <!-- 4. Final answer -->
                                             <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
                                                 <MarkdownRender
-                                                    :content="citedMarkdown(m, block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || '')"
+                                                    :content="citedMarkdown(m, block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || '')" :custom-html-tags="FIGURE_TAGS"
                                                     :final="true"
                                                     :typewriter="false"
                                                     :render-code-blocks-as-pre="true"
@@ -343,7 +344,7 @@
 
             <!-- Footer -->
             <footer class="flex-none border-t border-gray-100 dark:border-gray-800 py-2 text-center bg-white dark:bg-gray-900 z-10">
-                <a href="https://bagofwords.com" target="_blank" class="text-2xs text-gray-300 dark:text-gray-600 hover:text-ink-muted transition-colors">
+                <a href="https://bagofwords.com" target="_blank" class="text-2xs text-ink-muted hover:text-ink-2 transition-colors">
                     {{ $t('sharedConversation.poweredBy', { brand: 'BOW' }) }}
                 </a>
             </footer>
@@ -370,7 +371,8 @@ import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import { placeSteers, isSteerApplied, groupSteersByParent } from '~/composables/useSteerPlacement'
 import { blockHasMessage, describeDataOutput, type RunActivity } from '~/composables/useRunActivity'
 import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
-import { citeText, collectSources, type CitationSource } from '~/composables/useCitations'
+import { citeText, collectSources, FIGURE_TAGS, type CitationSource } from '~/composables/useCitations'
+import { FIGURE_CONTEXT } from '~/composables/figureModel'
 import { useCitationChips } from '~/composables/useCitationChips'
 import type { SourceItem } from '~/components/RunSourcesRow.vue'
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
@@ -460,6 +462,8 @@ import { dominantTextDir, localeTextDir, type TextDir } from '~/utils/textDirect
 import ResponseLanguageScope from '~/components/report/ResponseLanguageScope.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
+import ClarifyAnswerCard from '~/components/report/ClarifyAnswerCard.vue'
+import { parseClarifyPrompt } from '~/utils/clarifyPrompt'
 import { promptMentionsToRefs } from '~/utils/mentions'
 
 // A shared conversation never names the org's agents, but the tool cards do
@@ -771,16 +775,22 @@ const messageCited = computed(() => {
         const cited: CitationSource[] = []
         for (const b of timelineBlocks(m)) {
             const raw = b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || ''
-            if (raw.includes('{')) citeText(raw, citationSources.value, cited)
+            if (raw.includes('{')) citeText(raw, citationSources.value, cited, { figures: true })
         }
         if (cited.length) out.set(String(m.id), cited)
     }
     return out
 })
+// Figures in a shared answer draw from the rows the link carries (a viewer
+// here has no session to load more) and have no side panel to open.
+provide(FIGURE_CONTEXT, {
+    resolve: (key: string) => citationSources.value.find(s => s.key === key) || null,
+    canHydrate: false,
+})
 function citedMarkdown(m: any, raw: string): string {
     if (!raw || !raw.includes('{')) return raw
     // The message's numbering is fixed above; this only looks numbers up.
-    return citeText(raw, citationSources.value, [...(messageCited.value.get(String(m.id)) || [])]).markdown
+    return citeText(raw, citationSources.value, [...(messageCited.value.get(String(m.id)) || [])], { figures: true }).markdown
 }
 function runSources(m: any): SourceItem[] {
     const cited = messageCited.value.get(String(m.id)) || []
@@ -1310,12 +1320,12 @@ onUnmounted(() => {
     font-size: var(--bow-chat-font-size);
     line-height: var(--bow-chat-line-height);
     font-weight: 400;
-    color: #6b7280;
+    color: rgb(var(--bow-ink-muted-rgb));
     user-select: none;
 }
 
 .thinking-header:hover {
-    color: #374151;
+    color: rgb(var(--bow-ink-2-rgb));
 }
 
 /* Logical properties, not physical: the rule mirrors the report view, whose
@@ -1326,10 +1336,10 @@ onUnmounted(() => {
     padding-inline-end: 0;
     margin-top: 2px;
     margin-bottom: 4px;
-    border-inline-start: 1px dashed #e5e7eb;
+    border-inline-start: 1px dashed rgb(var(--bow-line-rgb));
     font-size: 12px !important;
     line-height: 1.4;
-    color: #6b7280;
+    color: rgb(var(--bow-ink-muted-rgb));
 }
 
 .thinking-content :deep(*) {

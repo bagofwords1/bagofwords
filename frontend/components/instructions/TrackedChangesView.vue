@@ -1,49 +1,30 @@
 <template>
-  <div dir="auto" class="tracked-changes-view font-sans">
+  <div class="tracked-changes-view font-sans">
     <template v-if="diffOps.length === 0">
       <span class="text-ink-muted italic text-xs">{{ $t('trackedChanges.noChanges', 'No changes') }}</span>
     </template>
-    <template v-else>
-      <template v-for="(op, i) in diffOps" :key="i">
-        <span v-if="op.type === 0" class="tc-equal">{{ op.text }}</span>
-        <span v-else-if="op.type === 1" class="tc-insert">{{ op.text }}</span>
-        <span v-else-if="op.type === -1" class="tc-delete">{{ op.text }}</span>
-      </template>
-    </template>
+    <!-- Rendered as markdown, like the instruction itself: a raw-text diff
+         showed `**`, `#` and table pipes literally, and its `dir="auto"` put
+         every Hebrew line that opens with an English word left-to-right. -->
+    <InstructionDiffProse v-else :pieces="pieces" variant="highlight" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { DiffOp } from '@/composables/useTrackedChanges'
+import InstructionDiffProse from '~/components/instructions/InstructionDiffProse.vue'
+import { piecesFromDiffOps } from '~/utils/markdownDiff'
 
-defineProps<{
+const props = defineProps<{
   diffOps: DiffOp[]
 }>()
+
+const pieces = computed(() => piecesFromDiffOps(props.diffOps))
 </script>
 
 <style scoped>
 .tracked-changes-view {
-  white-space: pre-wrap;
   word-break: break-word;
-  font-size: 13px;
-  line-height: 1.55;
-  color: #1f2937;
-  /* Per-line auto direction: Hebrew/Arabic lines read RTL while code or
-   * English lines in the same diff stay LTR. */
-  unicode-bidi: plaintext;
-  text-align: start;
-}
-.tc-equal { color: inherit; }
-.tc-insert {
-  background: #dcfce7;
-  color: #166534;
-  text-decoration: none;
-  border-radius: 2px;
-}
-.tc-delete {
-  background: #fee2e2;
-  color: #991b1b;
-  text-decoration: line-through;
-  border-radius: 2px;
 }
 </style>

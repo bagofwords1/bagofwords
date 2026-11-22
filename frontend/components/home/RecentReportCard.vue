@@ -31,7 +31,7 @@
         class="absolute top-2 end-2 opacity-0 group-hover:opacity-100 transition-opacity"
         @click.prevent="onEdit"
       >
-        <div class="p-1.5 bg-white/90 rounded-full hover:bg-white shadow-sm">
+        <div class="p-1.5 bg-white/90 rounded-full hover:bg-surface shadow-sm">
           <Icon name="heroicons:pencil-square" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
         </div>
       </div>

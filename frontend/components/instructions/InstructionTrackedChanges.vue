@@ -69,24 +69,26 @@
             </div>
           </div>
         </div>
-        <!-- dir=auto + plaintext: per-line bidi, same policy as the read view
-             (KnowledgeExplorer), so Hebrew prose lays out RTL while code lines stay LTR.
+        <!-- Rendered as instruction markdown (InstructionDiffProse): headings,
+             lists, tables and code as in the instruction itself, each block's
+             direction from its words (deleted ones excluded) — a raw-text diff
+             with dir=auto put every Hebrew line opening with an English word
+             left-to-right. Hover / click are delegated: a change's fragments
+             carry its index in `data-hunk`.
              Muted while the only pending change switches the instruction off:
              the text is kept, but it is about to stop being used. -->
-        <div v-if="!loading && !loadError && totalHunks" ref="contentEl" dir="auto" style="unicode-bidi: plaintext; text-align: start;" class="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" :class="[compact ? 'text-xs leading-[1.55]' : 'text-sm leading-[1.6]', pendingDeactivation && !actionableHunks.length ? 'opacity-60' : '']">
-          <template v-for="(seg, si) in displaySegments" :key="si">
-            <span v-if="seg.kind === 'gap'" class="block my-1 text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 cursor-pointer select-none" @click="expandedAll = true">··· {{ seg.lines === 1 ? $t('agentsPage.unchangedLineOne', { n: seg.lines }) : $t('agentsPage.unchangedLineMany', { n: seg.lines }) }} ···</span>
-            <template v-else-if="seg.kind === 'context'">
-              <template v-for="(pt, pi) in mentionParts(seg.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template>
-            </template>
-            <span v-else :id="`htc-${seg.previewKey || seg.key}`" :data-hunk-anchor="seg.previewKey || seg.key" class="relative inline align-baseline rounded-[3px] transition-colors"
-                  :class="resolving === seg.key ? 'bg-amber-100 dark:bg-amber-500/20' : 'hover:bg-amber-50 dark:hover:bg-amber-500/10'"
-                  @mousemove="onHunkMove(seg, $event)" @mouseleave="scheduleCardHide()">
-              <del v-if="seg.before" class="text-rose-500/70 line-through decoration-rose-300 decoration-1"><template v-for="(pt, pi) in mentionParts(seg.before)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></del>
-              <ins v-if="seg.after" class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1"><template v-for="(pt, pi) in mentionParts(seg.after)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></ins>
-              <span v-if="resolving === seg.key" class="absolute inset-0 rounded bg-white/50 dark:bg-gray-900/50 flex items-center justify-center"><UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 animate-spin" /></span>
-            </span>
-          </template>
+        <div v-if="!loading && !loadError && totalHunks" ref="contentEl" class="break-words text-gray-800 dark:text-gray-200" :class="[pendingDeactivation && !actionableHunks.length ? 'opacity-60' : '']"
+             @mousemove="onContentMove" @mouseleave="onContentLeave" @click="onContentClick">
+          <InstructionDiffProse
+            :pieces="diffPieces"
+            variant="tracked"
+            :compact="compact"
+            :mentionize="mentionize"
+            :gap-label="gapLabel"
+            :hunk-anchor="hunkAnchor"
+            :active-hunk="hoveredHunk"
+            :busy-hunk="busyHunk"
+          />
         </div>
       </div>
       <!-- Find-in-page style overview markers. They describe the latest-build
@@ -144,10 +146,12 @@ import { useI18n } from 'vue-i18n'
 import { isReviewConflict, sameSelection, selectionStillValid, type ReviewUnit } from '~/utils/reviewRetry'
 import {
   buildMentionMatcher,
-  parseMentionSegments,
+  replaceMentions,
   EMPTY_MENTION_MATCHER,
   type MentionMatcher,
 } from '~/utils/mentions'
+import InstructionDiffProse from '~/components/instructions/InstructionDiffProse.vue'
+import type { DiffPiece } from '~/utils/markdownDiff'
 
 // `buildId` scopes the panel to ONE suggestion: only that build's hunks are
 // shown, and Accept all / Reject all resolve only it. Mount it that way
@@ -263,10 +267,9 @@ function scheduleCardHide(delay = 250) {
   cancelCardHide()
   cardHideTimer = setTimeout(() => { hoverCard.value = null; cardHideTimer = null }, delay)
 }
-function onHunkMove(seg: any, e: MouseEvent) {
+function onHunkMove(seg: any, e: MouseEvent, el: HTMLElement) {
   if (!props.canApprove) return
   cancelCardHide()
-  const el = e.currentTarget as HTMLElement
   const rects = Array.from(el.getClientRects()).filter(r => r.width > 0 && r.height > 0)
   if (!rects.length) return
   // Anchor to the line fragment under the pointer — a wrapped hunk has one
@@ -372,20 +375,25 @@ watch([totalHunks, busy], ([total, b]) => emit('state', { total, busy: b }), { i
 const _df = useFormatDate()
 const fmtWhen = (s?: string) => { if (!s) return ''; try { return _df.format(s, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
 
-// Split text into plain runs + @mention chips so references render like the
-// normal instruction view. Handles both `@name` / `@"label"` and the TipTap
-// `<span data-type="mention" label="x">` HTML form. Multi-word names are
-// resolved against the instruction's own reference names (see utils/mentions.ts).
+// @mentions render as chips, like the normal instruction view. Both `@name` /
+// `@"label"` and the TipTap `<span data-type="mention" label="x">` HTML form
+// are understood; multi-word names are resolved against the instruction's own
+// reference names (see utils/mentions.ts).
 const mentionMatcher = shallowRef<MentionMatcher>(EMPTY_MENTION_MATCHER)
 
-function mentionParts(text: string): Array<{ t?: string; mention?: string }> {
-  const norm = (text || '')
+function normalizeMentionHtml(text: string): string {
+  return (text || '')
     .replace(/<span[^>]*data-type=["']mention["'][^>]*label=["']([^"']+)["'][^>]*>\s*<\/span>/g, '@$1')
     .replace(/<span[^>]*data-type=["']mention["'][^>]*>([^<]*)<\/span>/g, '@$1')
-  if (!norm.includes('@')) return [{ t: norm }]
-  return parseMentionSegments(norm, mentionMatcher.value).map(seg =>
-    seg.type === 'mention' ? { mention: seg.label } : { t: seg.value }
-  )
+}
+
+// Same chip markup as InstructionText's markdown view.
+function mentionize(text: string): string {
+  if (!text.includes('@')) return text
+  return replaceMentions(text, mentionMatcher.value, (label) => {
+    const safe = label.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+    return `<span class="instruction-mention">@${safe}</span>`
+  })
 }
 
 // Interleave every suggestion's hunks (server-positioned by char offset) onto the
@@ -407,28 +415,110 @@ const segments = computed(() => {
 // Collapse mode: hide unchanged regions, keeping ~2 lines of context on each
 // side of a change. Far-from-change context becomes a clickable "N unchanged
 // lines" gap. Expand-all reveals everything.
+// The context is rendered as markdown, so a cut is moved out to the nearest
+// blank line (outside fenced code) when one is close: cutting through a table
+// would leave its rows without the header that makes them a table, and cutting
+// through a code block would leave half a fence. With no blank line nearby the
+// cut falls back to the plain 2-line rule.
 const expandedAll = ref(false)
 const CONTEXT_LINES = 2
+const MAX_BLOCK_EXTEND = 12
+const FENCE_LINE_RE = /^\s{0,3}(`{3,}|~{3,})/
+const fenceStateAfter = (text: string, open: boolean) =>
+  (text || '').split('\n').reduce((o, line) => (FENCE_LINE_RE.test(line) ? !o : o), open)
 const displaySegments = computed(() => {
   if (!props.collapseContext || expandedAll.value) return segments.value
   const segs = segments.value
   const out: any[] = []
+  let inFence = false // over the text as it reads with the changes applied
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i]
-    if (s.kind !== 'context') { out.push(s); continue }
+    if (s.kind !== 'context') { out.push(s); inFence = fenceStateAfter(s.after || '', inFence); continue }
     const hasPrev = i > 0                    // a hunk precedes this context
     const hasNext = i < segs.length - 1      // a hunk follows it
     const lines = (s.text || '').split('\n')
-    const keepHead = hasPrev ? CONTEXT_LINES : 0
-    const keepTail = hasNext ? CONTEXT_LINES : 0
-    const hidden = lines.length - keepHead - keepTail
+    // insideFence[k]: line k sits inside fenced code.
+    const insideFence: boolean[] = []
+    let f = inFence
+    for (const line of lines) { insideFence.push(f); if (FENCE_LINE_RE.test(line)) f = !f }
+    inFence = f
+    const isBoundary = (k: number) => !lines[k].trim() && !insideFence[k]
+    let keepHead = hasPrev ? Math.min(CONTEXT_LINES, lines.length) : 0
+    if (keepHead) {
+      let k = keepHead
+      while (k < lines.length && k - keepHead < MAX_BLOCK_EXTEND && !isBoundary(k)) k++
+      if (k >= lines.length || isBoundary(k)) keepHead = k
+    }
+    let tailStart = hasNext ? Math.max(lines.length - CONTEXT_LINES, 0) : lines.length
+    if (hasNext) {
+      let k = tailStart
+      while (k > 0 && tailStart - k < MAX_BLOCK_EXTEND && !isBoundary(k - 1)) k--
+      if (k <= 0 || isBoundary(k - 1)) tailStart = k
+    }
+    const hidden = tailStart - keepHead
     if (hidden <= 1) { out.push(s); continue }   // nothing meaningful to hide
+    // Never hide part of a code block: a hidden fence line (or a cut inside
+    // one) would let everything after it render as code.
+    if (insideFence[keepHead] || lines.slice(keepHead, tailStart).some(l => FENCE_LINE_RE.test(l))) { out.push(s); continue }
     if (keepHead) out.push({ kind: 'context', text: lines.slice(0, keepHead).join('\n') + '\n' })
     out.push({ kind: 'gap', lines: hidden })
-    if (keepTail) out.push({ kind: 'context', text: '\n' + lines.slice(lines.length - keepTail).join('\n') })
+    if (tailStart < lines.length) out.push({ kind: 'context', text: '\n' + lines.slice(tailStart).join('\n') })
   }
   return out
 })
+
+// The hunks on screen, in order: a change's fragments carry its index here.
+const shownHunks = computed(() => displaySegments.value.filter((s: any) => s.kind === 'hunk'))
+
+const diffPieces = computed<DiffPiece[]>(() => {
+  const pieces: DiffPiece[] = []
+  let h = 0
+  for (const seg of displaySegments.value) {
+    if (seg.kind === 'gap') pieces.push({ kind: 'gap', lines: seg.lines })
+    else if (seg.kind === 'context') pieces.push({ kind: 'equal', text: normalizeMentionHtml(seg.text) })
+    else {
+      if (seg.before) pieces.push({ kind: 'delete', text: normalizeMentionHtml(seg.before), hunk: h })
+      if (seg.after) pieces.push({ kind: 'insert', text: normalizeMentionHtml(seg.after), hunk: h })
+      h++
+    }
+  }
+  return pieces
+})
+
+const gapLabel = (n: number) => `··· ${n === 1 ? t('agentsPage.unchangedLineOne', { n }) : t('agentsPage.unchangedLineMany', { n })} ···`
+const hunkAnchor = (h: number) => {
+  const seg = shownHunks.value[h]
+  return seg ? String(seg.previewKey || seg.key) : null
+}
+
+// Pointer / click delegation over the rendered diff.
+const hoveredHunk = ref<number | null>(null)
+const busyHunk = computed(() => {
+  if (!resolving.value) return null
+  const i = shownHunks.value.findIndex((s: any) => s.key === resolving.value)
+  return i < 0 ? null : i
+})
+function hunkElAt(e: Event): HTMLElement | null {
+  const el = (e.target as HTMLElement | null)?.closest?.('[data-hunk]') as HTMLElement | null
+  return el && contentEl.value?.contains(el) ? el : null
+}
+function onContentMove(e: MouseEvent) {
+  const el = hunkElAt(e)
+  const seg = el ? shownHunks.value[Number(el.dataset.hunk)] : null
+  if (!el || !seg) {
+    if (hoveredHunk.value !== null) { hoveredHunk.value = null; scheduleCardHide() }
+    return
+  }
+  hoveredHunk.value = Number(el.dataset.hunk)
+  onHunkMove(seg, e, el)
+}
+function onContentLeave() {
+  hoveredHunk.value = null
+  scheduleCardHide()
+}
+function onContentClick(e: MouseEvent) {
+  if ((e.target as HTMLElement | null)?.closest?.('[data-diff-gap]')) expandedAll.value = true
+}
 
 watch([displaySegments, expandedAll], () => { nextTick(scheduleMarkerLayout) }, { flush: 'post' })
 watch(contentEl, (next, previous) => {
@@ -619,24 +709,3 @@ onBeforeUnmount(() => {
   if (markerFrame !== null) cancelAnimationFrame(markerFrame)
 })
 </script>
-
-<style scoped>
-.instr-mention {
-  background-color: rgba(99, 102, 241, 0.12);
-  color: #4338ca;
-  border-radius: 4px;
-  padding: 1px 4px;
-  font-weight: 500;
-  font-size: 0.95em;
-  white-space: nowrap;
-}
-
-/* Dark mode: the light-theme indigo-800 above is unreadable on the dark
-   surface. Same chip palette as InstructionText / InstructionEditor. The
-   `.dark` class lives on <html>, outside this component's scope, hence
-   :global matched by the component-unique `.instr-mention` class. */
-:global(.dark .instr-mention) {
-  background-color: rgba(129, 140, 248, 0.18);
-  color: #c7d2fe;
-}
-</style>

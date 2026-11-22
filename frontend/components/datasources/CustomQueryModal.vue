@@ -13,7 +13,7 @@
             <span class="font-medium">{{ activeConnectionName }}</span> every time.
           </p>
         </div>
-        <button class="text-ink-muted hover:text-gray-600" @click="close">
+        <button class="text-ink-muted hover:text-ink-2" @click="close">
           <UIcon name="heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>
@@ -736,6 +736,36 @@
         </div>
       </div>
 
+      <!-- First load of a new table: rows arriving from the source. Starts at
+           zero (the row is created before the source is asked anything) and
+           fills as batches land; a source that cannot be counted shows the
+           running row total with no fraction. -->
+      <div
+        v-if="saving && !editing"
+        data-testid="cq-save-progress"
+        :data-pct="savePct === null ? '' : savePct"
+        class="mt-4 rounded-md border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-900/20 px-3 py-2.5"
+      >
+        <div class="flex items-center justify-between text-xs text-blue-900 dark:text-blue-200">
+          <span class="font-medium" data-testid="cq-save-progress-label">{{ saveProgressLabel }}</span>
+          <span v-if="savePct !== null" class="tabular-nums" data-testid="cq-save-progress-pct">{{ savePct }}%</span>
+        </div>
+        <div
+          class="mt-2 h-1.5 w-full rounded-full bg-blue-100 dark:bg-blue-950 overflow-hidden"
+          role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="savePct ?? undefined"
+        >
+          <div
+            data-testid="cq-save-progress-bar"
+            class="h-full rounded-full bg-blue-600 transition-all duration-500"
+            :class="{ 'animate-pulse': savePct === null && !!saveProgress }"
+            :style="{ width: (savePct === null ? (saveProgress ? 100 : 0) : savePct) + '%' }"
+          ></div>
+        </div>
+        <p class="mt-1.5 text-2xs text-blue-800/80 dark:text-blue-300/80">
+          Reading from <span class="font-medium">{{ activeConnectionName }}</span>. Keep this window open until it finishes.
+        </p>
+      </div>
+
       <!-- Footer -->
       <div class="flex items-center justify-between mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
         <div class="text-2xs text-ink-muted">
@@ -1308,8 +1338,92 @@ async function runPreview() {
   }
 }
 
+// --- First-load progress ----------------------------------------------------
+// Creating a table answers only when its first load has finished, which for a
+// large result is minutes of one pending request. The row exists from the
+// start, so the list route can say how many rows have landed meanwhile.
+const saveProgress = ref<{ rows: number; source_rows: number | null } | null>(null)
+let saveProgressTimer: ReturnType<typeof setInterval> | null = null
+let saveProgressBusy = false
+
+const savePct = computed<number | null>(() => {
+  const p = saveProgress.value
+  if (!p) return 0
+  if (!p.source_rows) return p.rows > 0 ? null : 0
+  // Never 100 before the request itself returns: the file is still being
+  // sealed and published after the last row arrives.
+  return Math.max(0, Math.min(99, Math.floor((p.rows / p.source_rows) * 100)))
+})
+
+const saveProgressLabel = computed(() => {
+  const p = saveProgress.value
+  if (!p) return 'Starting…'
+  if (p.source_rows) {
+    if (p.rows >= p.source_rows) return `Finishing — ${p.rows.toLocaleString()} rows read`
+    return `Caching ${p.rows.toLocaleString()} of ${p.source_rows.toLocaleString()} rows`
+  }
+  return p.rows > 0 ? `Caching — ${p.rows.toLocaleString()} rows so far` : 'Counting rows at the source…'
+})
+
+async function pollSaveProgress(connectionId: string, name: string) {
+  if (saveProgressBusy) return
+  saveProgressBusy = true
+  try {
+    const row = await customTableNamed(connectionId, name)
+    if (!row) return
+    const live = row.refresh_progress
+    const load = row.load_progress
+    if (live) {
+      saveProgress.value = { rows: Number(live.rows || 0), source_rows: live.source_rows ? Number(live.source_rows) : null }
+    } else if (load) {
+      saveProgress.value = { rows: Number(load.rows || 0), source_rows: load.source_rows ? Number(load.source_rows) : null }
+    }
+  } catch {
+    /* progress is a courtesy: the save itself reports success or failure */
+  } finally {
+    saveProgressBusy = false
+  }
+}
+
+// A create that failed during its first load leaves the table behind (with
+// the error on it) so it can be fixed and retried; a create refused before
+// that (bad name, name taken) leaves nothing.
+// One table's state by name. Scoped to that table on purpose: this is polled
+// every second while a load runs, and the full list costs a query per table.
+async function customTableNamed(connectionId: string, name: string): Promise<any | null> {
+  try {
+    const { data, error } = await useMyFetch(
+      `/connections/${connectionId}/custom-queries/progress`, { method: 'GET', query: { name } })
+    const row: any = data.value
+    if (error.value || !row?.exists) return null
+    return row
+  } catch {
+    return null
+  }
+}
+
+function startSaveProgress(connectionId: string, name: string) {
+  stopSaveProgress()
+  saveProgress.value = null
+  saveProgressTimer = setInterval(() => { pollSaveProgress(connectionId, name) }, 1000)
+}
+
+function stopSaveProgress() {
+  if (saveProgressTimer) clearInterval(saveProgressTimer)
+  saveProgressTimer = null
+}
+
+onBeforeUnmount(stopSaveProgress)
+
 async function onSave() {
   saving.value = true
+  // Whether this name was already taken before we tried: a failed create is
+  // only "created, but not loaded" if this attempt is what created the row.
+  let existedBefore = false
+  if (!editing.value) {
+    existedBefore = !!(await customTableNamed(String(activeConnection.value.id), form.name.trim()))
+    startSaveProgress(String(activeConnection.value.id), form.name.trim())
+  }
   try {
     const body: any = {
       name: form.name.trim(),
@@ -1335,7 +1449,24 @@ async function onSave() {
       : `/connections/${activeConnection.value.id}/custom-queries`
     const { data, error } = await useMyFetch(url, { method: editing.value ? 'PUT' : 'POST', body })
     if (error.value) {
-      toast.add({ title: 'Could not save', description: error.value?.data?.detail || 'Failed', color: 'red' })
+      const detail = error.value?.data?.detail || 'Failed'
+      const left = (!editing.value && !existedBefore)
+        ? await customTableNamed(String(activeConnection.value.id), body.name) : null
+      if (left && left.last_refresh_status === 'error') {
+        // The table exists; only its first load failed. Leaving this form
+        // open would invite a second "Create", which can only fail on the
+        // name. Say where the table is and let the list show its error.
+        toast.add({
+          title: 'Table created, but its first load failed',
+          description: `${detail} Open "${body.name}" from the agent's Tables page to retry or change it.`,
+          color: 'red',
+          timeout: 0,
+        })
+        emit('saved')
+        close()
+        return
+      }
+      toast.add({ title: 'Could not save', description: detail, color: 'red' })
       return
     }
     const saved: any = data.value
@@ -1347,6 +1478,7 @@ async function onSave() {
     emit('saved')
     close()
   } finally {
+    stopSaveProgress()
     saving.value = false
   }
 }

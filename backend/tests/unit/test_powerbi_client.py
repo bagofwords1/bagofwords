@@ -556,6 +556,21 @@ class TestInternalColumnFiltering:
         assert "[Measure Name]" in perf
         assert "never as a default exploration step" in guide
 
+    def test_dax_guide_teaches_two_step_aggregation_in_dax(self):
+        """A question that groups twice (a total per order, then an average per
+        segment) has no single SUMMARIZECOLUMNS form. Without an example the
+        model downloads the detail rows and finishes in pandas, which is the
+        slow path and exposed to the API's response limits. The guide must
+        show the in-DAX pattern and say why."""
+        c = _mk_client()
+        guide = c.system_prompt()
+        examples = guide.split("### Examples", 1)[1].split("### Query Cost and Performance", 1)[0]
+        assert "GROUPBY(" in examples
+        assert "CURRENTGROUP()" in examples
+        perf = guide.split("### Query Cost and Performance", 1)[1].split("### Key DAX Syntax Rules", 1)[0]
+        assert "two rounds of grouping" in perf
+        assert "pandas" in perf
+
 
 # ---------- Incremental discovery (prior_tables) ---------- #
 

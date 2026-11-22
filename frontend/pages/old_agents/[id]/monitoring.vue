@@ -46,7 +46,7 @@
                         :class="[
                             selectedFilter.value === filter.value
                                 ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:border-gray-300',
+                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:border-line-strong',
                             'whitespace-nowrap py-2 px-1 border-b-2 text-sm font-medium'
                         ]"
                     >
@@ -54,7 +54,7 @@
                         <span
                             v-if="filter.count !== undefined && filter.count >= 0"
                             :class="[
-                                selectedFilter.value === filter.value ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
+                                selectedFilter.value === filter.value ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
                                 'ms-1.5 py-0.5 px-2 rounded-full text-xs font-medium'
                             ]"
                         >{{ filter.count }}</span>
@@ -101,7 +101,7 @@
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
-                                        :class="item.agent_execution_status === 'error' ? 'bg-red-100 dark:bg-red-900/50 text-red-800' : 'bg-green-100 dark:bg-green-900/50 text-green-800'">
+                                        :class="item.agent_execution_status === 'error' ? 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300' : 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300'">
                                         {{ item.agent_execution_status === 'error' ? $t('monitoring.diagnosis.statusError') : $t('monitoring.diagnosis.statusSuccess') }}
                                     </span>
                                 </td>
@@ -125,7 +125,7 @@
                                 </td>
                                 <td class="px-6 py-4">
                                     <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
-                                        :class="item.feedback_direction > 0 ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : item.feedback_direction < 0 ? 'bg-red-100 dark:bg-red-900/50 text-red-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">
+                                        :class="item.feedback_direction > 0 ? 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300' : item.feedback_direction < 0 ? 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">
                                         {{ item.feedback_direction > 0 ? $t('monitoring.diagnosis.feedbackPositive') : (item.feedback_direction < 0 ? $t('monitoring.diagnosis.feedbackNegative') : $t('monitoring.diagnosis.feedbackNone')) }}
                                     </span>
                                     <div v-if="item.feedback_direction < 0 && item.feedback_message" class="mt-1 text-xs text-gray-500 dark:text-gray-400 max-w-xs truncate">

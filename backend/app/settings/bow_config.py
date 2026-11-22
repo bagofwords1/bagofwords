@@ -714,7 +714,14 @@ class SystemLogsConfig(BaseModel):
     storage every replica shares (the Docker image's ``logs`` volume, or a
     ReadWriteMany volume on Kubernetes) so the page shows every instance's
     lines. A relative path is resolved against the backend's working directory.
+
+    Off unless ``enabled`` is set: then nothing is captured or written, the
+    API answers ``system_logs.disabled`` and the page is not offered.
     """
+    # Env: BOW_SYSTEM_LOGS_ENABLED.
+    enabled: bool = Field(
+        default_factory=lambda: os.getenv("BOW_SYSTEM_LOGS_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on"),
+    )
     # Env: BOW_SYSTEM_LOGS_DIR.
     directory: str = Field(default_factory=lambda: os.getenv("BOW_SYSTEM_LOGS_DIR", "logs/system"))
     # Files whose newest line is older than this are deleted. Env: BOW_SYSTEM_LOGS_RETENTION_DAYS.

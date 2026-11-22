@@ -485,7 +485,7 @@
                       <button
                         @click="mcpCurrentToken && copyMcp(mcpConfig)"
                         :disabled="!mcpCurrentToken"
-                        :class="['flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors', mcpCurrentToken ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600' : 'text-gray-300 dark:text-gray-600 cursor-not-allowed']"
+                        :class="['flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors', mcpCurrentToken ? 'text-ink-muted hover:text-ink-2 hover:bg-gray-200 dark:hover:bg-gray-600' : 'text-gray-300 dark:text-gray-600 cursor-not-allowed']"
                       >
                         <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
                         {{ $t('mcpServerModal.copy') }}
@@ -515,7 +515,7 @@
                       <button
                         @click="mcpCurrentToken && copyMcp(mcpCurrentToken)"
                         :disabled="!mcpCurrentToken"
-                        :class="['flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors', mcpCurrentToken ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600' : 'text-gray-300 dark:text-gray-600 cursor-not-allowed']"
+                        :class="['flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors', mcpCurrentToken ? 'text-ink-muted hover:text-ink-2 hover:bg-gray-200 dark:hover:bg-gray-600' : 'text-gray-300 dark:text-gray-600 cursor-not-allowed']"
                       >
                         <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
                         {{ $t('mcpServerModal.copy') }}
@@ -527,7 +527,7 @@
 
               <!-- Manage tokens -->
               <div v-if="apiKeys.length > 0" class="pt-2 border-t border-gray-100 dark:border-gray-800">
-                <button @click="mcpShowTokens = !mcpShowTokens" class="flex items-center gap-2 text-xs text-ink-muted hover:text-gray-600 transition-colors">
+                <button @click="mcpShowTokens = !mcpShowTokens" class="flex items-center gap-2 text-xs text-ink-muted hover:text-ink-2 transition-colors">
                   <UIcon :name="mcpShowTokens ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3" />
                   {{ $t('mcpServerModal.manageTokens', { n: apiKeys.length }) }}
                 </button>

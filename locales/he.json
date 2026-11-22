@@ -1018,6 +1018,34 @@
         "nothing": "אין עדיין מה לנקות",
         "failed": "לא ניתן היה לנקות את ההקשר"
       }
+    },
+    "permissionMode": {
+      "title": "הרשאות כלים",
+      "tooltip": "הרשאות כלים: {mode}",
+      "default": "ברירת מחדל",
+      "allowAllBanner": "\"לאשר הכול\" פעיל: הסוכן מריץ כלי חיבור בלי לשאול. כלים חסומים או אסורים לעולם לא ירוצו.",
+      "switchToAsk": "לעבור ל\"לשאול\"",
+      "saveFailed": "לא ניתן לשנות את מצב ההרשאות",
+      "modes": {
+        "ask": {
+          "label": "לשאול",
+          "hint": "כל כלי פועל לפי ההגדרה שלו; שואל לפני שינויים."
+        },
+        "auto": {
+          "label": "אוטומטי",
+          "hint": "קריאות לקריאה בלבד רצות; מודל מחליט על השאר ושואל כשאינו בטוח."
+        },
+        "allow_all": {
+          "label": "לאשר הכול",
+          "hint": "כלים שמוגדרים לשאול רצים בלי לשאול, בדוח הזה בלבד."
+        }
+      },
+      "unknown": {
+        "label": "מצב לא ידוע",
+        "hint": "לא הצלחנו לטעון את הגדרות ההרשאות, ולכן לא ידוע באיזה מצב תשתמש ההרצה הבאה."
+      },
+      "loadFailed": "לא הצלחנו לטעון את הגדרות ההרשאות",
+      "retry": "לנסות שוב"
     }
   },
   "reports": {
@@ -1553,6 +1581,7 @@
       "worked": "עבד",
       "working": "עובד",
       "workingFor": "עובד כבר {duration}",
+      "failedCount": "שגיאות: {count}",
       "viewSteps": "הצגת השלבים",
       "hideSteps": "הסתרת השלבים",
       "checks": "{count} בדיקות",
@@ -1885,6 +1914,52 @@
         "openLink": "פתיחת קישור",
         "cancel": "ביטול",
         "contextShared": "האפליקציה שיתפה את הבחירה שלך עם העוזר."
+      },
+      "viaAgent": "דרך {name}",
+      "allowForReport": "לאשר בדוח הזה",
+      "allowForReportHint": "לא לשאול שוב על הכלי הזה בדוח הזה",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "רץ בלי לשאול (לאשר הכול)",
+          "refused": "לא רץ"
+        },
+        "readOnly": {
+          "allowed": "רץ בלי לשאול: קריאה בלבד",
+          "refused": "לא רץ"
+        },
+        "blocklist": {
+          "allowed": "אושר",
+          "refused": "נחסם ברשימת החסימה הבטיחותית"
+        },
+        "rememberedReport": {
+          "allowed": "אושר בדוח הזה",
+          "refused": "נדחה בדוח הזה"
+        },
+        "unattended": {
+          "allowed": "אושר לפי ההגדרה להרצות ללא השגחה",
+          "refused": "לא רץ: נדרש אישור ואף אחד לא צופה"
+        },
+        "unknownTool": {
+          "refused": "לא הורץ: הכלי הזה לא נמצא ברשימת הכלים של החיבור"
+        }
+      }
+    },
+    "remoteOp": {
+      "read_file": {
+        "running": "קורא את {name}…",
+        "done": "נקרא {name}"
+      },
+      "list_directory": {
+        "running": "מציג את תוכן {name}…",
+        "done": "הוצג תוכן {name}"
+      },
+      "search_file": {
+        "running": "מחפש \"{text}\" ב־{name}…",
+        "done": "חיפש \"{text}\" ב־{name}"
+      },
+      "system_status": {
+        "running": "בודק את מצב השרת…",
+        "done": "מצב השרת נבדק"
       }
     },
     "answerQuestion": {
@@ -2022,6 +2097,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "ערוך קוד שאילתה",
+      "saveAsCachedTable": "שמור כטבלה במטמון",
+      "saveAsCachedTableTooltip": "שמור את השאילתה הזו במטמון על החיבור, כך שהסוכנים יענו מעותק מקומי",
+      "saveAsCachedTableFailed": "לא ניתן לפתוח את התוצאה הזו לשמירה במטמון",
       "editCode": "ערוך קוד",
       "edit": "ערוך",
       "rows": "{count} שורות",
@@ -2516,11 +2594,12 @@
       "glob": "תבנית עם תווים כלליים",
       "hint": "הכללים חלים על פקודות מלאות בתיקיית העבודה הזו. הרשאות לפי תחילית אינן כוללות אופרטורים והרחבות של המעטפת.",
       "always": "לאפשר תמיד פקודות תואמות",
-      "session": "לאפשר בשיחה הזו",
+      "session": "לאפשר בדוח הזה (8 שעות)",
       "mine": "כללי המעטפת שלי",
       "override": "הכללים חלים רק עליך. להגדרות לאפשר תמיד או לחסום תמיד של החיבור יש עדיפות.",
       "save": "שמירת כללים",
-      "failed": "לא ניתן לטעון או לשמור כללים. יש לבדוק את ה־JSON ולנסות שוב."
+      "failed": "לא ניתן לטעון או לשמור כללים. יש לבדוק את ה־JSON ולנסות שוב.",
+      "sessionHint": "מריץ פקודות תואמות בדוח הזה בלי לשאול במשך 8 השעות הבאות."
     },
     "readReport": {
       "window": "הודעות {start}–{end} / {total}",
@@ -2543,6 +2622,13 @@
       "unknownState": "ייתכן שהתהליך המרוחק עדיין פועל. יש לבדוק את מצבו לפני ניסיון חוזר.",
       "exitCode": "קוד יציאה: {code}",
       "cancelledBeforeExecution": "בוטל לפני הביצוע."
+    },
+    "requestAgentSignin": {
+      "checking": "בודק סוכנים…",
+      "connect": "התחברות",
+      "connected": "מחובר",
+      "askAgain": "לשאול שוב",
+      "readyHint": "החיבור הושלם. הריצו שוב את השאלה כדי להשתמש בו."
     }
   },
   "entityCreate": {
@@ -2786,7 +2872,18 @@
     "failedToSave": "שמירת הקבוצה נכשלה",
     "failedToAddMember": "הוספת החבר נכשלה",
     "failedToRemoveMember": "הסרת החבר נכשלה",
-    "failedToUpdateRoles": "עדכון תפקידי הקבוצה נכשל"
+    "failedToUpdateRoles": "עדכון תפקידי הקבוצה נכשל",
+    "youManage": "בניהולך",
+    "managerBadge": "מנהל",
+    "makeManager": "הפוך למנהל",
+    "removeManager": "הסר מנהל",
+    "removeMember": "הסר מהקבוצה",
+    "managerHint": "את/ה מנהל/ת קבוצה זו: אפשר להוסיף ולהסיר חברים ולמנות חברים למנהלים.",
+    "managedExternallyHint": "מסונכרנת מספק הזהויות שלך. יש לשנות את החברים בה שם.",
+    "noManagedGroupsHint": "אינך מנהל/ת אף קבוצה.",
+    "toastManagerAdded": "החבר/ה מנהל/ת כעת את הקבוצה",
+    "toastManagerRemoved": "תפקיד המנהל הוסר",
+    "failedToUpdateManager": "עדכון מנהל הקבוצה נכשל"
   },
   "quotaPolicies": {
     "searchPlaceholder": "חיפוש מכסות...",
@@ -3969,6 +4066,22 @@
           "name": "טבלאות מותאמות (בטא)",
           "description": "מאפשר למנהלי חיבורים להגדיר SQL ש-BOW ממַמֵש לעותק מקומי מוצפן לפי לוח זמנים, כך שהסוכנים עונים מהתוצאה השמורה במקום לשאול את המקור בכל תור. בטא: כבוי כברירת מחדל."
         },
+        "custom_table_max_rows": {
+          "name": "מגבלת שורות לטבלה מותאמת",
+          "description": "מספר השורות המרבי שטבלה מותאמת אחת יכולה להכיל. שאילתה שמוערכת או מתגלה כמחזירה יותר נדחית, והנתונים הקודמים ממשיכים לשמש. 1,000 עד 100,000,000."
+        },
+        "custom_table_max_gb": {
+          "name": "מגבלת גודל לטבלה מותאמת (GB)",
+          "description": "התוצאה המוערכת הגדולה ביותר, והקובץ השמור הגדול ביותר, לטבלה מותאמת אחת. 1 עד 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "מגבלת סריקה במקור לטבלה מותאמת (GB)",
+          "description": "כמות הנתונים המרבית שהמקור רשאי לקרוא ברענון אחד, כשהמקור מדווח עליה לפני ההרצה (BigQuery, Snowflake). 1 עד 10,240."
+        },
+        "custom_table_max_requests": {
+          "name": "מגבלת בקשות לטבלה מותאמת",
+          "description": "מספר הבקשות המרבי שרענון אחד רשאי לשלוח למקור שנקרא עמוד אחר עמוד (Power BI, Analysis Services, SAP BusinessObjects, PostHog). יש להעלות אותה יחד עם מגבלת השורות: Power BI מחזיר לכל היותר 100,000 שורות לבקשה ומאפשר כ-120 בקשות בדקה. 16 עד 10,000."
+        },
         "enable_agent_notes": {
           "name": "פתקי סוכן",
           "description": "מאפשר לסוכן לנהל פתקי עבודה לכל דוח (מעין טיוטה) שהוא כותב וקורא תוך כדי מענה — תוכניות, ממצאים ומשימות. הפתקים מוצגים בדוח אך אינם ידע משותף. כשההגדרה כבויה, כלי הפתקים מוסתרים והפתקים אינם מוזרקים להקשר."
@@ -4121,6 +4234,34 @@
           "name": "תצוגת מפת העולם",
           "description": "מציג בעמוד הסוכנים מתג שפותח את מפת העולם: מפה של הסוכנים, הידע, המקורות והעבודה שמחברים את הארגון. כל משתמש רואה רק את מה שיש לו גישה אליו."
         }
+      },
+      "permissionMode": {
+        "title": "מצב הרשאות כלים",
+        "description": "איך הסוכן מחליט אם להריץ כלי חיבור ופקודות מעטפת מרוחקת. המשתמשים בוחרים מצב לכל דוח בתיבת ההודעה; כלים מושבתים ואסורים ורשימת החסימה הבטיחותית חלים בכל מצב.",
+        "defaultMode": "מצב ברירת מחדל לדוחות חדשים",
+        "unattended": "הרצות שאף אחד לא צופה בהן",
+        "unattendedOptions": {
+          "refuse": "לסרב",
+          "settings": "לפי ההגדרה של כל כלי",
+          "allow": "לאשר"
+        },
+        "unattendedHints": {
+          "refuse": "הרצות מתוזמנות, הרצות webhook, הרצות API והרצות אחרות שאף אחד לא צופה בהן מדלגות על כל כלי שהיה מבקש אישור.",
+          "settings": "כלים במצב אוטומטי עוברים בדיקת מודל; כלים במצב לשאול מדולגים.",
+          "allow": "כלים שהיו מבקשים אישור רצים בהרצות מתוזמנות, webhook ו-API. בצ'אטים בערוצים אחרים מדלגים עליהם."
+        },
+        "allowAll": "להתיר את \"לאשר הכול\"",
+        "allowAllDescription": "מאפשר למשתמשים לבטל בקשות אישור בדוח, או להפוך את זה לברירת המחדל לדוחות חדשים. חל רק על הרצות של בעל הדוח עצמו בזמן שהוא צופה.",
+        "judgeModel": "מודל להחלטות במצב אוטומטי",
+        "judgeModelHint": "אוטומטי משתמש במודל ההחלטות של הנתב כשהניתוב משתמש בו, ואחרת במודל הקטן שמוגדר כברירת מחדל.",
+        "judgeModelOptions": {
+          "automatic": "אוטומטי",
+          "small": "המודל הקטן שמוגדר כברירת מחדל",
+          "unavailable": "מודל לא זמין",
+          "notLoaded": "מודל שמור (הרשימה לא נטענה)"
+        },
+        "judgeModelLoadFailed": "לא הצלחנו לטעון את מודלי ההחלטות.",
+        "judgeModelRetry": "לנסות שוב"
       }
     },
     "llms": {
@@ -4417,7 +4558,7 @@
       "orCreateNew": "— או צור חדש —",
       "authBasic": "אימייל + אסימון API",
       "basicUsernameLabel": "אימייל / שם משתמש",
-      "basicUsernamePlaceholder": "you@company.com",
+      "basicUsernamePlaceholder": "you{'@'}company.com",
       "basicPasswordLabel": "אסימון API",
       "basicPasswordPlaceholder": "הדביקו את אסימון ה-API",
       "basicHint": "נשלח כאימות HTTP Basic. עבור Bitbucket, השתמשו באימייל של חשבון Atlassian ובאסימון API של Atlassian; מנהל הארגון צריך לאפשר גישה באסימון API בשרת ה-MCP של Rovo."
@@ -5168,7 +5309,7 @@
       "urlTitle": "כתובת שרת Exchange",
       "urlDescription": "כתובת שרת ה-Exchange שלך, לדוגמה https://mail.example.com. הנתיב של Exchange Web Services ‏(/EWS/Exchange.asmx) מתווסף אם משמיטים אותו.",
       "sharedTitle": "תיבות דואר משותפות",
-      "sharedDescription": "אופציונלי. כתובות של תיבות דואר משותפות או צוותיות שייכללו, מופרדות בפסיקים, לדוגמה support@example.com, sales@example.com. ‏Exchange קובע מי רשאי לפתוח כל תיבה: כל אחד רואה רק את התיבות שלחשבון שלו כבר יש גישה אליהן.",
+      "sharedDescription": "אופציונלי. כתובות של תיבות דואר משותפות או צוותיות שייכללו, מופרדות בפסיקים, לדוגמה support{'@'}example.com, sales{'@'}example.com. ‏Exchange קובע מי רשאי לפתוח כל תיבה: כל אחד רואה רק את התיבות שלחשבון שלו כבר יש גישה אליהן.",
       "ownTitle": "לכלול את תיבת הדואר של החשבון עצמו",
       "ownDescription": "יש לכבות בעת התחברות עם חשבון שירות שתיבת הדואר שלו אינה רלוונטית. התיבה המשותפת הראשונה תהפוך לברירת המחדל."
     },
@@ -5313,7 +5454,21 @@
     "firstPage": "עמוד ראשון",
     "previousPage": "עמוד קודם",
     "nextPage": "עמוד הבא",
-    "lastPage": "עמוד אחרון"
+    "lastPage": "עמוד אחרון",
+    "inRangeStart": "מ־",
+    "inRangeEnd": "עד",
+    "resetFilter": "ניקוי",
+    "noRowsToShow": "אין שורות להצגה",
+    "filteredRows": "{shown} מתוך {total} שורות",
+    "clearFilters": "ניקוי סינונים",
+    "expand": "הגדלת הטבלה",
+    "collapse": "סגירת מסך מלא",
+    "search": "חיפוש…",
+    "selectAll": "בחירת הכול",
+    "blankValue": "(ריק)",
+    "noMatches": "אין ערכים תואמים",
+    "moreValues": "מוצגים {n} הראשונים — הקלידו כדי לצמצם",
+    "alsoFilteredAbove": "העמודה מסוננת גם ב״סינונים״ למעלה"
   },
   "sharedReport": {
     "backToApp": "חזרה לאפליקציה",
@@ -5346,6 +5501,9 @@
     "shell_confirmation.invalid_scope": "היקף הרשאה לא תקין.",
     "shell_confirmation.report_required": "הרשאות סשן דורשות דוח.",
     "shell_confirmation.rule_mismatch": "כלל פקודה לא תקין, או שהתבנית אינה תואמת לפקודה זו.",
+    "tool_permission_mode.allow_all_off": "\"לאשר הכול\" כבוי בארגון הזה.",
+    "tool_permission_mode.allow_all_default_needs_switch": "\"לאשר הכול\" יכול להיות ברירת המחדל רק כשהוא מופעל.",
+    "tool_permission_mode.judge_model_unavailable": "יש לבחור מודל החלטות פעיל לשופט של מצב אוטומטי.",
     "connection.config_invalid": "תצורת חיבור לא תקינה: {detail}",
     "connection.athena_mode_switch": "לא ניתן להחליף חיבור Athena בין מסד נתונים אחד לכמה. צרו חיבור חדש.",
     "catalog_discovery_incomplete": "רענון הקטלוג נכשל כי הגילוי לא הושלם. הקטלוג הקודם ובחירות הטבלאות נשמרו.",
@@ -5387,6 +5545,7 @@
     "system_logs.instance_admin_required": "רק מנהל המופע יכול להשתמש ביומני המערכת.",
     "system_logs.invalid_range": "זמן ההתחלה חייב להיות לפני זמן הסיום.",
     "system_logs.delete_failed": "לא ניתן היה למחוק את קובצי היומן בתיקייה {directory}. בדקו שהתיקייה קיימת ושיש הרשאת כתיבה אליה.",
+    "system_logs.disabled": "יומני המערכת כבויים בשרת זה. כדי להפעיל אותם, הגדירו BOW_SYSTEM_LOGS_ENABLED=true (או system_logs.enabled בקובץ bow-config.yaml) והפעילו מחדש את השרת.",
     "verification.invalid": "אסימון האימות אינו תקף או שפג תוקפו",
     "body.invalid_json": "גוף JSON לא תקין",
     "organization.not_found": "הארגון לא נמצא",
@@ -5405,6 +5564,9 @@
     "role.not_found": "התפקיד לא נמצא",
     "group.not_found": "הקבוצה לא נמצאה",
     "group.managed_by_scim": "קבוצה זו מנוהלת על ידי ספק הזהויות שלך (SCIM). יש לשנות אותה שם.",
+    "group.managed_externally": "קבוצה זו מסונכרנת מספק הזהויות שלך; יש לשנות את החברים בה שם.",
+    "group.manager_not_member": "רק חברים רשומים בקבוצה יכולים להיות מנהלים.",
+    "group.manager_protected": "רק מנהל/ת הארגון יכול/ה להסיר מנהל קבוצה או לבטל את תפקידו.",
     "instruction.not_found": "ההנחיה לא נמצאה",
     "instruction.version_not_found": "גרסת ההנחיה לא נמצאה",
     "instruction.label_not_found": "תווית ההנחיה לא נמצאה",
@@ -5497,6 +5659,10 @@
     "connection.kms_login_rejected": "KMS Lighthouse לא קיבל את פרטי ההתחברות האלה, ולכן הם לא נשמרו. בדקו את שם המשתמש והסיסמה, או את אסימון ה-API, ונסו שוב.",
     "connection.kms_login_paused": "KMS Lighthouse דחה לאחרונה את פרטי ההתחברות האלה, ולכן ניסיונות נוספים איתם מושהים לכמה דקות והם לא נשמרו. בדקו את פרטי ההתחברות או נסו שוב מאוחר יותר.",
     "connection.kms_session_refused": "KMS Lighthouse קיבל את פרטי ההתחברות אבל דחה את הסשן שלהם, ולכן אי אפשר להשתמש בהם והם לא נשמרו. פנו למנהל ה-KMS כדי לבדוק אם החשבון הזה רשאי להשתמש ב-API של KMS.",
+    "connection.confluence_login_rejected": "Confluence לא קיבל את אסימון הגישה האישי או את פרטי ההתחברות, ולכן הם לא נשמרו. בדקו אותם, או צרו אסימון חדש ב-Confluence תחת פרופיל > אסימוני גישה אישיים.",
+    "connection.confluence_login_captcha": "Confluence דורש CAPTCHA לחשבון הזה אחרי ניסיונות התחברות שנכשלו, ולכן הפרטים לא נשמרו. התחברו פעם אחת ל-Confluence בדפדפן כדי לשחרר את החסימה, או השתמשו באסימון גישה אישי.",
+    "connection.jira_login_rejected": "Jira לא קיבל את אסימון הגישה האישי או את פרטי ההתחברות, ולכן הם לא נשמרו. בדקו אותם, או צרו אסימון חדש ב-Jira תחת פרופיל > אסימוני גישה אישיים.",
+    "connection.jira_login_captcha": "Jira דורש CAPTCHA לחשבון הזה אחרי ניסיונות התחברות שנכשלו, ולכן הפרטים לא נשמרו. התחברו פעם אחת ל-Jira בדפדפן כדי לשחרר את החסימה, או השתמשו באסימון גישה אישי.",
     "access_request.disabled": "בקשות גישה כבויות בארגון הזה.",
     "access_request.not_allowed": "הגלריה הזו אינה זקוקה לבקשת גישה.",
     "access_request.already_has_access": "כבר יש לך גישה לגלריה הזו.",
@@ -5768,6 +5934,7 @@
       "published": "פורסם {date}",
       "dataAsOf": "הנתונים עודכנו {time}",
       "refreshFailing": "הרענון נכשל",
+      "refreshFailingAction": "לצפייה בסיבת כשל הרענון",
       "lastEdit": "עריכה אחרונה: {time}",
       "scheduledRefresh": "רענון מתוזמן"
     },
@@ -5867,6 +6034,9 @@
       "failing": "{n} נכשל ברענון | {n} נכשלים ברענון",
       "stale": "{n} לא נערך 90 יום | {n} לא נערכו 90 יום",
       "show": "הציגו אותם"
+    },
+    "refreshes": {
+      "openEditor": "פתיחה בעורך"
     }
   },
   "excel": {
@@ -8111,7 +8281,11 @@
       "publishChanges": "פרסום שינויים",
       "popoverLiveNow": "הצופים רואים כעת את v{n}",
       "popoverReplaceWith": "v{n} תחליף אותה",
-      "popoverCancel": "ביטול"
+      "popoverCancel": "ביטול",
+      "newerTitle": "גרסה חדשה יותר מוכנה (v{n})",
+      "newerBody": "הגלריה עודכנה מאז שפתחת אותה.",
+      "newerRefresh": "רענון ל-v{n}",
+      "newerKeep": "להמשיך לצפות ב-v{n}"
     },
     "access": {
       "signInTitle": "נדרשת התחברות",
@@ -8449,6 +8623,9 @@
     "close": "סגירה",
     "button": "תצוגה מקדימה"
   },
+  "confluenceFileScope": {
+    "allSpaces": "כל המרחבים שהזהות הזו יכולה לראות"
+  },
   "kmsFileScope": {
     "headerSubtitle": "תיקיית הבסיס קובעת מאיפה מתחיל הדפדוף. ההרשאות ב-KMS קובעות מה הסוכן יכול לחפש ולקרוא.",
     "browsingOnly": "דפדוף בלבד",
@@ -8520,7 +8697,14 @@
     "inheritedHint": "האנשים והקבוצות האלה מגיעים לסוכן הזה דרך תיקייה או חיבור. שנו את הגישה שלהם במקור.",
     "viaFolder": "דרך התיקייה {name}",
     "viaConnection": "דרך החיבור {name}",
-    "inheritedHidden": "ייתכן שלאחרים יש גישה דרך תיקייה או חיבור שאינכם מנהלים."
+    "inheritedHidden": "ייתכן שלאחרים יש גישה דרך תיקייה או חיבור שאינכם מנהלים.",
+    "permissionCap": {
+      "title": "הגבלת מצב ההרשאות",
+      "hint": "מגביל את מצב ההרשאות של דוחות שמשתמשים בסוכן הזה. לשאול: כל כלי פועל לפי ההגדרה שלו. אוטומטי: מודל עשוי להחליט.",
+      "none": "ללא הגבלה",
+      "ask": "לשאול",
+      "auto": "אוטומטי"
+    }
   },
   "productUpdates": {
     "checkbox": "שלחו לי עדכוני מוצר",
@@ -8761,5 +8945,103 @@
     "inviteNotSent": "לא ניתן היה לשלוח את ההזמנה אל {email}. אפשר להזמין שוב מעמוד החברים.",
     "adminAdded": "{email} נוסף כמנהל.",
     "failed": "לא ניתן היה ליצור את הארגון."
+  },
+  "vizFilter": {
+    "filter": "סינון",
+    "title": "סינונים",
+    "clear": "ניקוי",
+    "noData": "אין נתונים לסינון",
+    "noFilters": "לא הוחלו סינונים",
+    "addFilter": "הוספת סינון",
+    "column": "עמודה",
+    "value": "ערך",
+    "apply": "החלה",
+    "valuesMore": "{first} ועוד {n}",
+    "op": {
+      "equals": "שווה ל־",
+      "not_equals": "שונה מ־",
+      "contains": "מכיל",
+      "not_contains": "לא מכיל",
+      "starts_with": "מתחיל ב־",
+      "ends_with": "מסתיים ב־",
+      "is_empty": "ריק",
+      "is_not_empty": "לא ריק",
+      "before": "לפני",
+      "after": "אחרי",
+      "is_true": "אמת",
+      "is_false": "שקר",
+      "between": "בין",
+      "in": "אחד מ־",
+      "not_in": "אף אחד מ־"
+    },
+    "or": "או",
+    "and": "וגם"
+  },
+  "figure": {
+    "chart": "תרשים",
+    "table": "טבלה",
+    "open": "פתיחה בחלונית",
+    "more": "פעולות נוספות",
+    "search": "חיפוש ב־{count} שורות",
+    "searchLabel": "חיפוש שורות",
+    "noMatch": "אין שורות תואמות",
+    "showAll": "הצגת כל {count} השורות",
+    "showLess": "הצגת פחות",
+    "loading": "טוען את התוצאה",
+    "untitled": "תוצאה",
+    "caption": "איור {n}.",
+    "topOf": "{shown} המובילים מתוך {total}",
+    "firstOf": "{shown} השורות הראשונות מתוך {total}",
+    "addToDashboard": "הוספה לגלריה",
+    "addedToDashboard": "נוסף לגלריה",
+    "addFailed": "לא ניתן להוסיף לגלריה",
+    "saveQuery": "שמירה כשאילתה",
+    "savedQuery": "נשמר כשאילתה",
+    "downloadCsv": "הורדת CSV",
+    "downloadExcel": "הורדת Excel",
+    "downloadImage": "הורדת תמונה",
+    "exportFailed": "לא ניתן לייצא את התוצאה",
+    "copyData": "העתקת הנתונים",
+    "copied": "הועתק",
+    "copyFailed": "לא ניתן להעתיק",
+    "viewCode": "הצגת הקוד"
+  },
+  "connectionTools": {
+    "tab": "כלים",
+    "intro": "בחרו מה סוכנים יכולים לעשות במערכת הזו. סוכנים ומשתמשים יכולים להחמיר כלי, אבל לעולם לא להקל מעבר להגדרה נעולה כאן.",
+    "empty": "לחיבור הזה עדיין אין כלים.",
+    "loadFailed": "לא ניתן היה לטעון את הכלים.",
+    "saveFailed": "לא ניתן היה לשמור את השינוי.",
+    "on": "פעיל",
+    "off": "כבוי",
+    "enabled": "{name} זמין לסוכנים",
+    "enableGroup": "הפעלת כל הכלים בקבוצה {group}",
+    "policyFor": "מדיניות עבור {name}",
+    "lock": "נעילת המדיניות של {name}",
+    "unlock": "ביטול נעילת המדיניות של {name}",
+    "lockHint": "נעול: סוכנים ומשתמשים יכולים להחמיר, אבל לא להקל.",
+    "needsScope": "דורש {scope}",
+    "missingScopes": "ההתחברות שלך לא כוללת את {scopes}. מנהל מעניק אותן ברישום האפליקציה ב-Entra, ואז מתחברים שוב.",
+    "grantAccess": "התחברות מחדש",
+    "builtinReadHint": "זמינים תמיד: קריאה אף פעם לא משנה דבר.",
+    "effect": {
+      "read": {
+        "title": "קריאה",
+        "hint": "מחפש מידע; לא משנה דבר."
+      },
+      "modify": {
+        "title": "שינוי",
+        "hint": "משנה נתונים של המשתמש עצמו; אפשר לבטל."
+      },
+      "external": {
+        "title": "חיצוני",
+        "hint": "אחרים רואים את זה ואי אפשר לבטל. אין בדיקה אוטומטית."
+      },
+      "destructive": {
+        "title": "הרסני",
+        "hint": "מוחק או נועל דברים. תמיד שואל קודם."
+      }
+    },
+    "builtinBadge": "מובנה"
   }
 }

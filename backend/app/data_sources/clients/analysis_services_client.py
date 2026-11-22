@@ -35,6 +35,29 @@ class AnalysisServicesClient(XmlaClient):
     EMPTY_NOTE = "No databases visible to this user — check permissions."
     QUERY_REQUIRED_MSG = "An MDX or DAX query is required"
 
+    # Custom tables: a DAX query is counted, read in bounded pages and checked
+    # against the count; MDX is read whole as before
+    # (app/data_sources/fast/analysis_services_source.py).
+    @staticmethod
+    def EXTRACTION_SOURCE(client):
+        from app.data_sources.fast.analysis_services_source import AnalysisServicesSource
+
+        return AnalysisServicesSource(client)
+
+    @staticmethod
+    def render_window(query, column, kind, window):
+        """A custom table's refresh window, written into its DAX."""
+        from app.data_sources.fast.analysis_services_source import render_window
+
+        return render_window(query, column, kind, window)
+
+    @staticmethod
+    def filters_query_at_source(query) -> bool:
+        """Only DAX can carry a refresh window; MDX runs whole."""
+        from app.data_sources.fast.analysis_services_source import is_dax
+
+        return is_dax(query)
+
     def __init__(
         self,
         host: str,

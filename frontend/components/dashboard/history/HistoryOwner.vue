@@ -2,7 +2,7 @@
     <!-- Hand the dashboard to one of its editors (collab01): the owner or an
          org admin. The previous owner stays on as an editor. -->
     <div class="space-y-4" data-testid="history-owner">
-        <div v-if="loading" class="flex items-center gap-2 py-6 text-sm text-gray-400">
+        <div v-if="loading" class="flex items-center gap-2 py-6 text-sm text-ink-muted">
             <Spinner class="w-4 h-4" /> {{ $t('common.loading') }}
         </div>
         <div v-else-if="loadError" class="py-6 flex flex-col items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
@@ -18,7 +18,7 @@
                     </div>
                     <div class="flex flex-col min-w-0">
                         <span class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ owner?.name || owner?.email || $t('dashboardCollab.share.unknownPerson') }}</span>
-                        <span v-if="owner?.name && owner?.email" class="text-xs text-gray-400 truncate">{{ owner.email }}</span>
+                        <span v-if="owner?.name && owner?.email" class="text-xs text-ink-muted truncate">{{ owner.email }}</span>
                     </div>
                 </div>
             </div>
@@ -35,7 +35,7 @@
                         <template #option="{ option }">
                             <div class="flex flex-col min-w-0">
                                 <span class="text-sm truncate">{{ option.label }}</span>
-                                <span v-if="option.name && option.email" class="text-xs text-gray-400 truncate">{{ option.email }}</span>
+                                <span v-if="option.name && option.email" class="text-xs text-ink-muted truncate">{{ option.email }}</span>
                             </div>
                         </template>
                     </USelectMenu>

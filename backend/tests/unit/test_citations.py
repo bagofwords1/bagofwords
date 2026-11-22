@@ -103,6 +103,20 @@ def test_the_planner_is_told_the_marker_grammar_this_module_parses():
     assert cited_ids(built.system), "the prompt's own example is not a parseable marker"
 
 
+
+def test_a_saved_query_materialized_by_describe_entity_is_citable():
+    """describe_entity with should_create=True makes a tracked step and
+    visualization, like create_data; the web report lists it as a source, so
+    the planner must be told it may cite it too."""
+    built = PromptBuilderV3.build(PlannerInput(
+        user_message="give me the data from the saved query",
+        organization_name="Acme",
+        organization_ai_analyst_name="Ada",
+    ))
+    assert "describe_entity" in built.system
+    rule = next(line for line in built.system.splitlines() if "Cite your results" in line)
+    assert "create_data" in rule and "describe_entity" in rule
+
 @pytest.mark.parametrize("overrides", [
     {"external_platform": "excel"},
     {"mode": "training"},
@@ -189,3 +203,107 @@ async def test_text_without_markers_needs_no_lookup():
     from app.ai.citations import channel_text
 
     assert await channel_text(_FailingSession(), "report-1", "Plain {{viz:abc}} text.") == "Plain {{viz:abc}} text."
+
+
+# --- figures: {{show:<id>}} ---------------------------------------------------
+# The web report draws the result itself; every other surface has nothing to
+# draw, so the marker goes away together with the line it stood on.
+
+def _figure_text(source_id: str) -> str:
+    return (
+        f"Revenue is concentrated in the USA. {{{{cite:{source_id[:8]}}}}}\n\n"
+        f"{{{{show:{source_id[:8]}}}}}\n\n"
+        "Canada follows."
+    )
+
+
+def test_strip_removes_a_figure_and_the_line_it_stood_on():
+    sid = next(iter(_sources(1)))
+    assert strip_citations(_figure_text(sid)) == "Revenue is concentrated in the USA.\n\nCanada follows."
+
+
+def test_footnotes_keep_citations_and_drop_figures():
+    sources = _sources(1)
+    sid = next(iter(sources))
+    out = footnote_citations(_figure_text(sid), sources)
+    assert "{{" not in out
+    assert out.startswith("Revenue is concentrated in the USA. [1]\n\nCanada follows.")
+    assert out.rstrip().endswith(f"[1] {sources[sid]}")
+
+
+def test_a_figure_marker_inside_a_code_fence_is_quoted_text():
+    text = "Use this marker:\n```\n{{show:3f9a1c2e}}\n```"
+    assert strip_citations(text) == text
+
+
+def _system(**overrides):
+    return PromptBuilderV3.build(PlannerInput(
+        user_message="revenue by country?",
+        organization_name="Acme",
+        organization_ai_analyst_name="Ada",
+        **overrides,
+    )).system
+
+
+def test_the_web_report_is_told_the_figure_grammar_and_its_limits():
+    rule = next(line for line in _system().splitlines() if "{{show:" in line)
+    assert "single number" in rule and "At most 3" in rule
+    # The planner's own example must be a marker this module parses (and so
+    # removes on every surface that has no figure to draw).
+    assert "{{show:3f9a1c2e}}" in rule
+    assert "{{show:3f9a1c2e}}" not in (strip_citations(rule) or "")
+    # The highlight example is a marker the parsers accept too.
+    assert 'highlight="USA"' in rule
+    assert 'highlight="USA"' not in (strip_citations(rule) or "")
+
+
+@pytest.mark.parametrize("overrides", [
+    {"external_platform": "slack"},
+    {"external_platform": "teams"},
+    {"external_platform": "excel"},
+    {"mode": "training"},
+    {"platform_context": {"surface": "app"}},
+])
+def test_surfaces_without_figures_are_not_asked_for_one(overrides):
+    assert "{{show:" not in _system(**overrides)
+
+
+@pytest.mark.parametrize("marker", ["{{show:3f9a1c2e}}", "`{{show:3f9a1c2e}}`", "(`{{show:3f9a1c2e}}`)", "({{show:3f9a1c2e}})"])
+def test_a_figure_named_mid_sentence_leaves_a_clean_sentence(marker):
+    assert strip_citations(f"The chart is above {marker}.\n\nNext.") == "The chart is above.\n\nNext."
+
+
+# --- figures on surfaces without figures: a footnote, not a loss --------------
+
+def test_in_a_channel_a_figure_becomes_a_citation_of_the_paragraph_before_it():
+    """The figure can't be drawn in Teams/WhatsApp/Slack, but the reader must
+    still learn which result backs the text: the paragraph it followed cites it."""
+    sources = _sources(2)
+    a, b = list(sources)
+    text = f"Revenue is concentrated in the USA.\n\n{{{{show:{a[:8]} highlight=\"USA\"}}}}\n\nCanada follows. {{{{cite:{b[:8]}}}}}"
+    out = footnote_citations(text, sources)
+    assert "{{" not in out and "highlight" not in out
+    assert out.startswith("Revenue is concentrated in the USA. [1]\n\nCanada follows. [2]")
+    assert out.rstrip().endswith(f"[1] {sources[a]}\n[2] {sources[b]}")
+
+
+def test_in_a_channel_a_figure_named_mid_sentence_cites_that_sentence_once():
+    sources = _sources(1)
+    a = next(iter(sources))
+    out = footnote_citations(f"The chart (`{{{{show:{a[:8]}}}}}`) shows it. {{{{cite:{a[:8]}}}}}", sources)
+    assert out.startswith("The chart shows it. [1]")
+    assert out.count("[1]") == 2  # once in the text, once as the footnote line
+
+
+def test_a_figure_of_something_not_in_the_report_leaves_no_trace():
+    sources = _sources(1)
+    out = footnote_citations("Text.\n\n{{show:deadbeef}}\n\nMore.", sources)
+    assert out == "Text.\n\nMore."
+
+
+def test_figure_ids_count_as_cited_so_the_channel_lookup_runs():
+    assert cited_ids("Only a figure.\n\n{{show:3f9a1c2e highlight=\"USA\"}}") == ["3f9a1c2e"]
+
+
+def test_strip_removes_a_figure_with_attributes():
+    assert strip_citations('A.\n\n{{show:3f9a1c2e highlight="USA, Canada"}}\n\nB.') == "A.\n\nB."

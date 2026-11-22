@@ -79,10 +79,10 @@
                   </div>
                   <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ tile.title }}</div>
                   <div v-if="tile.isMcp || tile.locked" class="mt-1 flex items-center justify-center gap-1">
-                    <span v-if="tile.isMcp" class="text-2xs font-medium uppercase tracking-wide text-blue-600 bg-blue-100 dark:bg-blue-950 px-1.5 py-0.5 rounded">
+                    <span v-if="tile.isMcp" class="text-2xs font-medium uppercase tracking-wide text-blue-600 dark:text-blue-300 bg-blue-100 dark:bg-blue-950 px-1.5 py-0.5 rounded">
                       {{ $t('data.mcpBadge') }}
                     </span>
-                    <span v-if="tile.locked" class="text-2xs font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
+                    <span v-if="tile.locked" class="text-2xs font-medium uppercase tracking-wide text-purple-600 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
                       {{ $t('data.enterprise') }}
                     </span>
                   </div>
@@ -136,7 +136,7 @@
                 <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
                 <DataSourceIcon v-else class="h-4" :type="demo.type" />
                 {{ demo.name }}
-                <span class="text-2xs font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
+                <span class="text-2xs font-medium uppercase tracking-wide text-purple-600 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-1 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
               </button>
             </div>
           </div>
@@ -218,7 +218,7 @@
               <p v-if="!createdConnection && !formState.busy && !formState.error" class="text-sm leading-6 text-gray-500 dark:text-gray-400 mb-7">{{ $t('data.setupReadyHint') }}</p>
               <ol class="space-y-5 my-6">
                 <li class="flex items-center gap-3 text-sm">
-                  <UIcon :name="createdConnection ? 'i-heroicons-check-circle' : formState.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-circle-stack'" class="w-5 h-5 flex-none" :class="createdConnection ? 'text-green-600' : formState.busy ? 'animate-spin text-gray-600' : 'text-ink-muted'" />
+                  <UIcon :name="createdConnection ? 'i-heroicons-check-circle' : formState.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-circle-stack'" class="w-5 h-5 flex-none" :class="createdConnection ? 'text-green-600' : formState.busy ? 'animate-spin text-ink-muted' : 'text-ink-muted'" />
                   <span>{{ createdConnection ? $t('data.setupSaved') : $t('data.setupConnection') }}</span>
                 </li>
                 <li class="flex items-center gap-3 text-sm" :class="!createdConnection ? 'text-ink-muted' : ''">
@@ -238,9 +238,9 @@
                 class="mb-5"
                 data-test="personal-connector-toggle"
               />
-              <p v-if="formState.busy" class="text-sm text-gray-500 mb-4">{{ $t('data.setupConnecting') }}</p>
+              <p v-if="formState.busy" class="text-sm text-ink-muted mb-4">{{ $t('data.setupConnecting') }}</p>
               <div v-if="formState.error" role="alert" class="text-sm text-red-600 break-words whitespace-pre-wrap mb-4">{{ formState.error }}</div>
-              <p v-if="createdConnection && indexingState?.status === 'failed'" class="text-sm text-gray-500 mb-3">{{ $t('data.setupSavedDiscoveryFailed') }}</p>
+              <p v-if="createdConnection && indexingState?.status === 'failed'" class="text-sm text-ink-muted mb-3">{{ $t('data.setupSavedDiscoveryFailed') }}</p>
               <div v-if="formState.warning" role="status" class="text-sm text-amber-700 dark:text-amber-400 break-words whitespace-pre-wrap mb-4">{{ formState.warning }}</div>
               <p v-if="retestResult" role="status" class="text-sm whitespace-pre-wrap break-words mb-4" :class="retestResult.success ? 'text-green-600' : 'text-red-600'">{{ retestResult.message }}</p>
               <ConnectionIndexingProgress v-if="createdConnection" :indexing="indexingState" :show-logs="true" />

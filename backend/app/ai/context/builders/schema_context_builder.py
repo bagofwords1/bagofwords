@@ -237,6 +237,12 @@ def _cap_keeping_cached(tables, top_k: int):
 
 logger = logging.getLogger(__name__)
 
+def _since_stamp(connection) -> Optional[str]:
+    """When an unreachable connection went down, as a stable UTC minute."""
+    from app.ai.tools.implementations.agent_focus_common import format_since
+    return format_since(getattr(connection, "unreachable_since", None))
+
+
 class SchemaContextBuilder:
     """
     Builds database schema context for agent execution as a structured object.
@@ -659,7 +665,10 @@ class SchemaContextBuilder:
                     # rather than silently emptied.
                     if active_only and not conn_is_active:
                         if conn_id:
-                            unhealthy_conns.setdefault(conn_id, {"name": conn_name, "type": conn_type})
+                            unhealthy_conns.setdefault(conn_id, {
+                                "name": conn_name, "type": conn_type,
+                                "since": _since_stamp(getattr(ct, 'connection', None)),
+                            })
                         continue
 
                     normalized.append({
@@ -721,7 +730,10 @@ class SchemaContextBuilder:
                     # silently emptied when a sibling connection is still live.
                     if active_only and not conn_is_active:
                         if conn_id:
-                            unhealthy_conns.setdefault(conn_id, {"name": conn_name, "type": conn_type})
+                            unhealthy_conns.setdefault(conn_id, {
+                                "name": conn_name, "type": conn_type,
+                                "since": _since_stamp(getattr(ct, 'connection', None)),
+                            })
                         continue
 
                     normalized.append({
@@ -1042,6 +1054,7 @@ class SchemaContextBuilder:
         "outlook_mail", "gmail_mail", "exchange_onprem", "onenote", "teams_messages", "slack_messages",
         "github_repo", "gitlab_repo", "bitbucket_repo",
         "kms_lighthouse",
+        "confluence_dc",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint_onprem",
@@ -1052,6 +1065,8 @@ class SchemaContextBuilder:
         # over paging the whole catalog.
         "onenote",
         "kms_lighthouse",
+        # Confluence Data Center: CQL full-text search, as the connection's identity.
+        "confluence_dc",
         # Teams: Microsoft Search over chatMessage, as the signed-in user.
         "teams_messages",
         # Slack: search.messages, as the signed-in user.
@@ -1156,6 +1171,8 @@ class SchemaContextBuilder:
             elif c.type == "kms_lighthouse":
                 # Folder id 0 is a real id; only a missing or blank value is left out.
                 base = " / ".join(str(cfg[k]) for k in ("base_url", "root_folder_id") if cfg.get(k) not in (None, ""))
+            elif c.type == "confluence_dc":
+                base = " / ".join(str(cfg[k]) for k in ("base_url", "spaces") if cfg.get(k))
             cid = str(c.id)
             ftabs = by_conn.get(cid, [])
             sample = [t.name for t in ftabs[:5] if getattr(t, 'name', None)]
@@ -1186,6 +1203,11 @@ class SchemaContextBuilder:
                 from app.data_sources.clients.kms_lighthouse_client import planner_scope_note
                 enforces_scope = False
                 note = planner_scope_note(cfg)
+            if c.type == "confluence_dc":
+                # The space list (when set) is a hard scope the client enforces on
+                # search, browse and read; with no list the identity is the scope.
+                from app.data_sources.clients.confluence_dc_client import planner_scope_note as _confluence_note
+                note = _confluence_note(cfg)
             if c.type == "exchange_onprem":
                 # Says whose mail this is: one shared service account, or each
                 # user's own sign-in. The tool surface alone cannot tell.
@@ -1246,9 +1268,14 @@ class SchemaContextBuilder:
             ToolPolicyService, resolve_effective_policy, normalize_tool_policy,
         )
 
+        from app.data_sources.clients.connector_actions import CALLABLE_TOOL_CONNECTION_TYPES
+        from app.services.tool_policy_service import agent_admin_setting, clamp_to_effect, is_policy_locked
+
         mcp_conn_ids = []
         for conn in (getattr(ds, 'connections', None) or []):
-            if getattr(conn, 'type', None) in ('mcp', 'custom_api', 'remote_ssh', 'remote_smb'):
+            # Tool providers and built-in connectors with write actions — the
+            # same set the run's tool catalog draws from.
+            if getattr(conn, 'type', None) in CALLABLE_TOOL_CONNECTION_TYPES:
                 mcp_conn_ids.append(str(conn.id))
         if not mcp_conn_ids:
             return []
@@ -1281,12 +1308,15 @@ class SchemaContextBuilder:
                 if not model_visible(getattr(t, "metadata_json", None)):
                     continue
                 overlay = overlays.get(str(t.id))
-                is_enabled = overlay.is_enabled if overlay else t.is_enabled
+                # This agent's own rule under the connection's ceiling (off
+                # there = off here; a locked policy only tightens), then the
+                # effect's limits — the same resolution the run uses.
+                is_enabled, admin_policy = agent_admin_setting(t, overlay)
                 if not is_enabled:
                     continue
-                admin_policy = overlay.policy if overlay else t.policy
                 from app.services.remote_shell_policy import display_policy
-                effective = display_policy(t.connection, t.name, admin_policy, user_prefs.get(str(t.id)))
+                effective = clamp_to_effect(t, display_policy(
+                    t.connection, t.name, admin_policy, user_prefs.get(str(t.id)), locked=is_policy_locked(t)))
                 if effective == "deny":
                     continue
                 # Carry the argument schema through, minus admin-locked

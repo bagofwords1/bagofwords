@@ -64,7 +64,7 @@
               :key="opt.value"
               type="button"
               class="inline-flex items-center gap-1 px-2.5 py-1 text-2xs rounded transition-colors"
-              :class="audience === opt.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-700'"
+              :class="audience === opt.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-2'"
               @click="audience = opt.value"
             >
               <UIcon :name="opt.icon" class="w-3.5 h-3.5" />

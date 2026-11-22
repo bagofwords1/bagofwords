@@ -51,7 +51,11 @@ class BigQuerySource:
 
         cap = getattr(self.client, "maximum_bytes_billed", None)
         if not isinstance(cap, int) or cap <= 0:
-            cap = DEFAULT_MAX_BYTES_BILLED
+            # The organization's scan limit (100 GiB unless it changed it), so
+            # the job cap and the budget check agree on one number.
+            from app.data_sources.fast import limits as fast_limits
+
+            cap = fast_limits.of(self.client).max_scan_bytes
         cfg = bigquery.QueryJobConfig(maximum_bytes_billed=cap, **kw)
         return cfg
 

@@ -10,7 +10,7 @@
     >
         <header class="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-gray-100 dark:border-gray-800">
             <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('dashboardCollab.page.changesTitle') }}</h2>
-            <button type="button" class="p-1 text-gray-400 hover:text-gray-600 rounded" :aria-label="$t('common.close')" @click="$emit('close')">
+            <button type="button" class="p-1 text-ink-muted hover:text-ink-2 rounded" :aria-label="$t('common.close')" @click="$emit('close')">
                 <Icon name="heroicons:x-mark" class="w-4 h-4" />
             </button>
         </header>
@@ -30,18 +30,18 @@
                 }) }}</span>
             </div>
 
-            <div v-if="loading && !changes" class="flex items-center gap-2 text-gray-400">
+            <div v-if="loading && !changes" class="flex items-center gap-2 text-ink-muted">
                 <Icon name="heroicons:arrow-path" class="w-3.5 h-3.5 animate-spin" />
                 {{ $t('common.loading') }}
             </div>
             <p v-else-if="error" role="alert" class="text-red-600">{{ error }}</p>
-            <p v-else-if="changes && !groups.length" class="text-gray-400">{{ $t('dashboardCollab.page.noCharts') }}</p>
+            <p v-else-if="changes && !groups.length" class="text-ink-muted">{{ $t('dashboardCollab.page.noCharts') }}</p>
 
             <section v-for="group in groups" :key="group.kind" :data-testid="`changes-group-${group.kind}`">
                 <h3 class="flex items-center gap-1.5 mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     <span :class="['w-2 h-2 rounded-full', dot[group.kind]]"></span>
                     {{ $t(`dashboardCollab.page.group.${group.kind}`) }}
-                    <span class="font-normal text-gray-400">({{ group.items.length }})</span>
+                    <span class="font-normal text-ink-muted">({{ group.items.length }})</span>
                 </h3>
                 <ul class="space-y-1">
                     <li v-for="item in group.items" :key="`${group.kind}-${item.key}`">
@@ -57,10 +57,10 @@
                             @blur="$emit('highlight', null)"
                         >
                             <div class="flex items-center gap-1.5">
-                                <span dir="auto" :class="['font-medium truncate', group.kind === 'removed' ? 'line-through text-gray-400' : 'text-gray-800 dark:text-gray-100']">
+                                <span dir="auto" :class="['font-medium truncate', group.kind === 'removed' ? 'line-through text-ink-muted' : 'text-gray-800 dark:text-gray-100']">
                                     {{ item.title || $t('dashboardCollab.page.untitled') }}
                                 </span>
-                                <Icon v-if="located.has(item.key)" name="heroicons:viewfinder-circle" class="w-3 h-3 shrink-0 text-gray-300" />
+                                <Icon v-if="located.has(item.key)" name="heroicons:viewfinder-circle" class="w-3 h-3 shrink-0 text-ink-subtle" />
                             </div>
                             <div v-if="item.changed_by || item.version_number" class="text-[11px] text-gray-500 dark:text-gray-400 truncate">
                                 {{ changedLine(item) }}

@@ -36,7 +36,7 @@
                 :disabled="isSavingRename || !renameDraft.trim()"
                 class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
               >
-                <Spinner v-if="isSavingRename" class="w-3.5 h-3.5 text-gray-500" />
+                <Spinner v-if="isSavingRename" class="w-3.5 h-3.5 text-ink-muted" />
                 <Icon v-else name="heroicons:check" class="w-3.5 h-3.5 text-emerald-600" />
               </button>
             </UTooltip>
@@ -113,7 +113,7 @@
           <button
             v-if="offeredArtifactId"
             @click="acceptOfferedArtifact"
-            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors flex items-center gap-1"
+            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 rounded border border-emerald-200 transition-colors flex items-center gap-1"
           >
             <Icon name="heroicons:sparkles" class="w-3 h-3" />
             New artifact — view
@@ -361,7 +361,7 @@
         class="absolute inset-0 z-30 flex items-center justify-center overflow-y-auto py-8 px-4 bg-white/95 dark:bg-gray-900/95"
       >
         <div v-if="hydration.phase === 'running'" class="flex flex-col items-center gap-3 text-center max-w-sm">
-          <Spinner class="w-6 h-6 text-gray-400" />
+          <Spinner class="w-6 h-6 text-ink-muted" />
           <div class="text-sm text-gray-700 dark:text-gray-200">{{ t('artifactFrame.hydrating.title') }}</div>
           <div class="text-xs text-gray-500 dark:text-gray-400">
             {{ t('artifactFrame.hydrating.progress', { done: hydration.done, total: hydration.total }) }}
@@ -531,6 +531,14 @@
         @load="onIframeLoad"
       />
 
+      <NewerVersionOverlay
+        v-if="newerOffer && !verificationPreview"
+        :version="newerOffer.number"
+        :current="selectedArtifactItem?.version"
+        @refresh="acceptNewerOffer"
+        @dismiss="dismissNewerOffer"
+      />
+
       <!-- Polish Mode Button (dashboards only — docs have no JSX to polish, and
            slides render as page images through SlideViewer, so there is no
            iframe for the element picker to talk to) -->
@@ -562,7 +570,7 @@
         <div class="flex items-center gap-2 mb-2">
           <Icon name="heroicons:paint-brush" class="w-3.5 h-3.5 text-indigo-500" />
           <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Polish this element</span>
-          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-gray-600">
+          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-ink-2">
             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
           </button>
         </div>
@@ -650,6 +658,7 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
+import { handleTableLayoutMessage, loadTableLayouts } from '~/utils/artifactTableLayout';
 import type { ActivityEvent } from '~/composables/useArtifactRuntime'
 import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick, provide } from 'vue';
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
@@ -658,6 +667,9 @@ import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import DashboardSettingsModal from './DashboardSettingsModal.vue';
 import ArtifactActivityLog from './ArtifactActivityLog.vue';
 import DashboardStart from './DashboardStart.vue';
+import NewerVersionOverlay from './NewerVersionOverlay.vue';
+import { useVisiblePoll } from '~/composables/useVisiblePoll';
+import { newerPaneVersion, type NewerOffer } from '~/utils/newerDashboardVersion';
 import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
 import PresenceAvatars from './collab/PresenceAvatars.vue';
@@ -1805,6 +1817,51 @@ watch(() => selectedArtifactItem.value?.artifact_id, (id, previous) => {
   if (id && id !== previous && !props.verificationPreview) checkLiveAhead();
 });
 
+// A version saved where this pane hears no stream -- another tab that is not
+// watching the run, another conversation on the same dashboard, the
+// dashboard's own chat, a dropped connection -- never reached the picker:
+// reopening the dashboard link was the only way to see it. While the pane is
+// on screen it re-reads the list every few seconds; the picker grows, and a
+// newer version of the dashboard on screen veils it with a Refresh (never
+// swapped under the reader: they may be reading, or picked this one).
+const newerOffer = ref<NewerOffer | null>(null);
+const newerDismissed = ref<Set<string>>(new Set());
+async function checkForNewerVersions() {
+  const knownHere = new Set(artifactsList.value.map(a => a.id));
+  const knownElsewhere = new Set(allVersions.value.map((v: any) => String(v.id)));
+  await fetchArtifactsList(true);
+  if (selectedArtifactItem.value?.artifact_id) await loadAllVersions();
+  const item = selectedArtifactItem.value;
+  if (!item || viewing.value) return;
+  const offer = newerPaneVersion({
+    selected: item,
+    newestHere: dashboardGroups.value.find(g => g.key === dashboardKeyOf(item))?.versions[0],
+    knownHere,
+    elsewhere: allVersions.value,
+    knownElsewhere,
+    reportId: String(props.reportId),
+  });
+  if (offer && !newerDismissed.value.has(offer.id)) newerOffer.value = offer;
+}
+useVisiblePoll(checkForNewerVersions, 15000, () => !props.verificationPreview && artifactsList.value.length > 0);
+async function acceptNewerOffer() {
+  const offer = newerOffer.value;
+  newerOffer.value = null;
+  if (!offer) return;
+  if (offer.elsewhere) await openVersionById(offer.id);
+  else await switchToArtifact(offer.id);
+}
+function dismissNewerOffer() {
+  if (newerOffer.value) newerDismissed.value.add(newerOffer.value.id);
+  newerOffer.value = null;
+}
+// Picking any version (or the agent's own run moving the pane) answers it.
+watch([selectedArtifactId, viewing], () => {
+  const offer = newerOffer.value;
+  const item = selectedArtifactItem.value;
+  if (offer && (viewing.value || !item || item.version >= offer.number || item.id === offer.id)) newerOffer.value = null;
+});
+
 // "Use this version" appears when the selection is not the newest version of
 // its dashboard (utils/artifactVersionLatest.ts; old versions with no tie to
 // their dashboard keep the rule by mode).
@@ -1920,6 +1977,25 @@ function reviewChanges() {
 
 // The settings window: its History tabs open from the ⋯ menu too.
 const settingsModalRef = ref<any>(null);
+// "Refresh failing" on the dashboards list deep-links to
+// ?dashboard=<id>&settings=refreshes: once that dashboard's settings window
+// is mounted, it opens on Refreshes with the failure shown, and the query
+// goes so a reload does not reopen it.
+const settingsPromptHandled = ref(false);
+watch(
+  () => [paramRoute.query.settings, paramRoute.query.dashboard, selectedArtifact.value?.artifact_id, !!settingsModalRef.value] as const,
+  ([settings, dashboard, shown, ready]) => {
+    if (settings !== 'refreshes' || !ready || settingsPromptHandled.value) return;
+    // Another of the conversation's dashboards is showing: wait for the one asked for.
+    if (typeof dashboard === 'string' && dashboard && shown !== dashboard) return;
+    settingsPromptHandled.value = true;
+    settingsModalRef.value?.open?.('refreshes', { focusFailure: true });
+    const q = { ...paramRoute.query };
+    delete q.settings;
+    navigateTo({ query: q }, { replace: true });
+  },
+  { immediate: true },
+);
 // An access-request notification deep-links to ?share=access_requests: open
 // the share settings once the modal is mounted, then drop the query so a
 // reload does not reopen it.
@@ -2777,9 +2853,14 @@ onUnmounted(() => {
   if (isPolishMode.value) exitPolishMode();
 });
 
+// The dashboard (artifact_id), not the version: a viewer's table layouts
+// survive a new version and are shared with the published view.
+const tableLayoutKey = () => selectedArtifact.value?.artifact_id || selectedArtifact.value?.id || selectedArtifactId.value || '';
+
 // Handle messages from iframe
 function handleIframeMessage(event: MessageEvent) {
   if (event.source !== iframeRef.value?.contentWindow && event.source !== fullscreenRuntimeFrame.value?.contentWindow) return;
+  if (handleTableLayoutMessage(event.data, tableLayoutKey())) return;
   if (event.data?.type === 'ARTIFACT_DATA_RECEIVED') {
     verificationEvent('data_received', { data_revision: event.data.revision });
     return;
@@ -2826,6 +2907,8 @@ function sendDataToIframe() {
     current_user: toRaw(effectiveViewerContext.value),
     params: paramsPayload(),
     runtime: artifactRuntime(),
+    // This viewer's DataTable layouts — hand-set widths, column order (utils/artifactTableLayout).
+    table_layouts: loadTableLayouts(tableLayoutKey()),
     ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {}),
     // Each push replaces the app's data: keep the preview's real policy in it.
     ...(props.verificationPreview && previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),

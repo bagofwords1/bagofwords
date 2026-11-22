@@ -26,7 +26,7 @@
                         ]"
                     >
                         {{ isAdmin ? $t('queries.draftSuggested') : $t('queries.myDrafts') }}
-                        <span v-if="suggestedCount > 0" class="ms-1.5 px-1.5 py-0.5 rounded-full text-2xs bg-amber-100 text-amber-700">{{ suggestedCount }}</span>
+                        <span v-if="suggestedCount > 0" class="ms-1.5 px-1.5 py-0.5 rounded-full text-2xs bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300">{{ suggestedCount }}</span>
                     </button>
                 </div>
                 <input
@@ -69,13 +69,13 @@
                             <div class="flex items-center gap-2 mb-1">
                                 <span
                                     class="text-2xs px-1.5 py-0.5 rounded border"
-                                    :class="item.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50 dark:bg-blue-950'"
+                                    :class="item.type === 'metric' ? 'text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950' : 'text-blue-700 dark:text-blue-300 border-blue-200 bg-blue-50 dark:bg-blue-950'"
                                 >{{ (item.type || '').toUpperCase() }}</span>
                                 <Icon v-if="getEntityType(item) === 'global'" name="heroicons:check-badge" class="w-4 h-4 text-green-600" title="Approved" />
-                                <span v-if="getEntityType(item) === 'archived'" class="text-2xs px-1.5 py-0.5 rounded border text-red-700 border-red-200 bg-red-50 dark:bg-red-950">{{ $t('queries.archivedBadge') }}</span>
+                                <span v-if="getEntityType(item) === 'archived'" class="text-2xs px-1.5 py-0.5 rounded border text-red-700 dark:text-red-300 border-red-200 bg-red-50 dark:bg-red-950">{{ $t('queries.archivedBadge') }}</span>
                                 <span v-else-if="getEntityType(item) === 'draft'" class="text-2xs px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">{{ $t('queries.draftBadge') }}</span>
                                 <span v-else-if="getEntityType(item) === 'private'" class="text-2xs px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">{{ $t('queries.draftBadge') }}</span>
-                                <span v-else-if="getEntityType(item) === 'suggested'" class="text-2xs px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950">{{ $t('queries.suggestedBadge') }}</span>
+                                <span v-else-if="getEntityType(item) === 'suggested'" class="text-2xs px-1.5 py-0.5 rounded border text-amber-700 dark:text-amber-300 border-amber-200 bg-amber-50 dark:bg-amber-950">{{ $t('queries.suggestedBadge') }}</span>
                                 <span class="text-2xs text-ink-muted">{{ timeAgo(item.updated_at) }}</span>
                             </div>
                             <div class="text-sm font-medium text-gray-900 dark:text-white mb-0.5">{{ item.title || item.slug }}</div>

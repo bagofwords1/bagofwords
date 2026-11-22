@@ -38,7 +38,8 @@
                 isBuildPublished ? '' : 'cursor-pointer'
               ]"
             >
-              {{ d.text }}
+              <!-- Markdown, like every other read-only instruction view. -->
+              <InstructionText :text="d.text || ''" :markdown="true" />
             </div>
             <div v-if="d.category" class="text-xs hidden text-gray-500 dark:text-gray-400 mt-1 font-medium">{{ d.category }}</div>
           </div>
@@ -102,6 +103,7 @@ const headerExpanded = activityRef(false)
 import { computed, ref, watch } from 'vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
 
 interface ToolExecution {
   id: string

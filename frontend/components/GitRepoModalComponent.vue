@@ -300,7 +300,7 @@
                                 type="button"
                                 class="p-3 rounded border text-sm flex flex-col items-center gap-1.5 transition-colors"
                                 :class="selectedProvider === provider.type
-                                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
                                     : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
                             >
                                 <UIcon :name="provider.icon" class="w-5 h-5" />
@@ -348,7 +348,7 @@
                                     type="button"
                                     class="flex-1 px-3 py-2 text-sm rounded border transition-colors"
                                     :class="authMethod === 'ssh'
-                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
                                         : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
                                     @click="authMethod = 'ssh'"
                                 >
@@ -361,7 +361,7 @@
                                     type="button"
                                     class="flex-1 px-3 py-2 text-sm rounded border transition-colors"
                                     :class="authMethod === 'pat'
-                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
                                         : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
                                     @click="authMethod = 'pat'"
                                 >
@@ -375,7 +375,7 @@
 
                         <!-- SSH Key Input -->
                         <div v-if="authMethod === 'ssh'">
-                            <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">SSH Private Key <span class="text-gray-300 dark:text-gray-600 font-normal">(optional for public repos)</span></label>
+                            <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">SSH Private Key <span class="text-ink-muted font-normal">(optional for public repos)</span></label>
                             <UTextarea
                                 v-model="formData.privateKey"
                                 color="blue"
@@ -391,7 +391,7 @@
                         <!-- PAT Input -->
                         <div v-if="authMethod === 'pat'" class="space-y-3">
                             <div>
-                                <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">Personal Access Token <span class="text-gray-300 dark:text-gray-600 font-normal">(optional for public repos)</span></label>
+                                <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">Personal Access Token <span class="text-ink-muted font-normal">(optional for public repos)</span></label>
                                 <input
                                     v-model="formData.accessToken"
                                     type="password"

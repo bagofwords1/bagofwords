@@ -4,7 +4,9 @@ The contract the UI depends on: log records come back through the API with
 their level, stream and instance, lines from every instance writing to the
 shared directory are shown, the read filters (time range, instance, errors
 only, search, limit) narrow the result, clearing empties it, nothing touches
-the database, and only an instance admin can use any of it.
+the database, and only an instance admin can use any of it. The feature is
+off unless the deployment turns it on, so every test here turns it on except
+the ones about it being off.
 
 Lines are produced through Python's ``logging`` exactly as app code does. The
 writer thread does not run under the test client (startup events do not
@@ -27,7 +29,8 @@ log.setLevel(logging.INFO)
 
 
 @pytest.fixture(autouse=True)
-def log_dir(tmp_path):
+def log_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(bow_settings.bow_config.system_logs, "enabled", True)
     # Each test gets its own log directory and an empty buffer.
     # Building the test database runs alembic's fileConfig, which resets the
     # root logger's handlers; attach ours again.
@@ -298,3 +301,46 @@ def test_org_admin_cannot_use_system_logs(test_client, org_admin, monkeypatch, m
         resp = getattr(test_client, method)(url, headers=org_admin["headers"], **kw)
         assert resp.status_code == 403, (method, url)
         assert resp.json()["error_code"] == "system_logs.instance_admin_required"
+
+
+# ── Turned off (the default) ───────────────────────────────────────────────
+
+
+_ENDPOINTS = [("get", "/api/system-logs"), ("get", "/api/system-logs/status"), ("delete", "/api/system-logs")]
+
+
+def test_settings_tell_the_ui_whether_system_logs_are_offered(test_client, monkeypatch):
+    for enabled in (True, False):
+        monkeypatch.setattr(bow_settings.bow_config.system_logs, "enabled", enabled)
+        resp = test_client.get("/api/settings")
+        assert resp.status_code == 200
+        assert resp.json()["system_logs"] == {"enabled": enabled}
+
+
+@pytest.mark.parametrize("method, path", _ENDPOINTS)
+def test_when_turned_off_an_instance_admin_is_told_so(test_client, admin, monkeypatch, method, path):
+    monkeypatch.setattr(bow_settings.bow_config.system_logs, "enabled", False)
+    resp = getattr(test_client, method)(path, headers=admin["headers"])
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "system_logs.disabled"
+
+
+@pytest.mark.parametrize("method, path", _ENDPOINTS)
+def test_when_turned_off_anyone_else_is_still_refused(test_client, member, monkeypatch, method, path):
+    monkeypatch.setattr(bow_settings.bow_config.system_logs, "enabled", False)
+    resp = getattr(test_client, method)(path, headers=member["headers"])
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "system_logs.instance_admin_required"
+
+
+def test_turning_it_off_leaves_existing_files_alone(test_client, admin, log_dir, monkeypatch):
+    tag = uuid.uuid4().hex
+    log.info(f"{tag} kept")
+    _logs(test_client, admin["headers"])  # flushes to disk
+    before = sorted(p.name for p in log_dir.iterdir() if p.suffix == ".jsonl")
+    assert before
+
+    monkeypatch.setattr(bow_settings.bow_config.system_logs, "enabled", False)
+    assert test_client.delete("/api/system-logs", headers=admin["headers"]).status_code == 404
+
+    assert sorted(p.name for p in log_dir.iterdir() if p.suffix == ".jsonl") == before

@@ -3,7 +3,7 @@
         <!-- Primary action lives in the page header (settings shell). -->
         <Teleport to="#settings-page-actions" defer>
             <UButton
-                v-if="useCan('manage_groups')"
+                v-if="canManageAll"
                 color="blue"
                 icon="i-heroicons-plus"
                 @click="openCreateModal"
@@ -33,7 +33,7 @@
                             <th>{{ $t('groupsManager.colMembers') }}</th>
                             <th v-if="showQuotaColumn">{{ $t('quotaPolicies.colQuota') }}</th>
                             <th>{{ $t('groupsManager.colSource') }}</th>
-                            <th v-if="useCan('manage_groups')" class="text-end"><span class="sr-only">{{ $t('groupsManager.colActions') }}</span></th>
+                            <th v-if="canManageAll" class="text-end"><span class="sr-only">{{ $t('groupsManager.colActions') }}</span></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -54,6 +54,14 @@
                                             <Icon name="heroicons:user-group" class="h-4 w-4" />
                                         </span>
                                         <span class="bow-cell-primary">{{ group.name }}</span>
+                                        <UBadge
+                                            v-if="!canManageAll && isManagerOf(group)"
+                                            size="xs"
+                                            color="blue"
+                                            variant="subtle"
+                                        >
+                                            {{ $t('groupsManager.youManage') }}
+                                        </UBadge>
                                         <!-- A synced group whose directory name couldn't be read is
                                              shown by a truncated placeholder, so expose the full
                                              external id here — it's the only handle an admin has to
@@ -69,7 +77,7 @@
                                 </td>
                                 <td>
                                     <USelectMenu
-                                        v-if="useCan('manage_role_assignments') && availableRoles.length"
+                                        v-if="canManageAll && availableRoles.length"
                                         :model-value="getGroupRoleIds(group)"
                                         :options="availableRoles"
                                         multiple
@@ -145,10 +153,10 @@
                                     </UBadge>
                                     <span v-else class="bow-cell-empty">{{ $t('groupsManager.manual') }}</span>
                                 </td>
-                                <td v-if="useCan('manage_groups')" class="whitespace-nowrap text-end">
+                                <td v-if="canManageAll" class="whitespace-nowrap text-end">
                                     <div class="bow-row-actions inline-flex gap-1">
                                         <UButton
-                                            v-if="useCan('manage_groups') && !isScimManaged(group)"
+                                            v-if="!isScimManaged(group)"
                                             color="gray"
                                             variant="ghost"
                                             size="xs"
@@ -157,7 +165,7 @@
                                             @click="openEditModal(group)"
                                         />
                                         <UButton
-                                            v-if="useCan('manage_groups') && !group.external_provider"
+                                            v-if="!group.external_provider"
                                             variant="ghost"
                                             size="xs"
                                             color="red"
@@ -174,7 +182,7 @@
                                     <SettingsEmpty
                                         icon="i-heroicons-user-group"
                                         :title="$t('groupsManager.noGroupsFound')"
-                                        :description="$t('groupsManager.noGroupsHint')"
+                                        :description="canManageAll ? $t('groupsManager.noGroupsHint') : $t('groupsManager.noManagedGroupsHint')"
                                     />
                                 </td>
                             </tr>
@@ -227,7 +235,7 @@
                 </button>
                 <h3 class="text-lg font-semibold">{{ selectedGroup?.name }} {{ $t('groupsManager.membersSuffix') }}</h3>
                 <p class="text-sm text-ink-muted mb-4">
-                    {{ isScimManaged(selectedGroup) ? $t('groupsManager.managedByScimHint') : $t('groupsManager.manageMembersHint') }}
+                    {{ membersHint }}
                 </p>
 
                 <!-- Add member -->
@@ -267,6 +275,7 @@
                     <div
                         v-for="member in groupMembers"
                         :key="member.user_id || member.membership_id"
+                        data-testid="group-member-row"
                         class="flex items-center justify-between px-4 py-3"
                     >
                         <div class="flex items-center gap-3">
@@ -279,18 +288,40 @@
                                 <div class="text-sm font-medium text-ink flex items-center gap-2">
                                     {{ member.user_name || member.user_email || $t('groupsManager.unknown') }}
                                     <UBadge v-if="member.pending" size="xs" color="yellow" variant="subtle">{{ $t('settings.members.statusPending') }}</UBadge>
+                                    <UBadge v-if="member.is_manager" size="xs" color="blue" variant="subtle">{{ $t('groupsManager.managerBadge') }}</UBadge>
                                 </div>
                                 <div class="text-xs text-ink-muted">{{ member.user_email }}</div>
                             </div>
                         </div>
-                        <UButton
-                            v-if="canEditMembers"
-                            variant="ghost"
-                            size="xs"
-                            color="red"
-                            icon="i-heroicons-x-mark"
-                            @click="removeMember(member.user_id || member.membership_id || '')"
-                        />
+                        <div class="flex items-center gap-1 shrink-0">
+                            <UButton
+                                v-if="canPromote(member)"
+                                variant="ghost"
+                                size="xs"
+                                color="gray"
+                                icon="i-heroicons-shield-check"
+                                :label="$t('groupsManager.makeManager')"
+                                @click="setManager(member, true)"
+                            />
+                            <UButton
+                                v-if="canDemote(member)"
+                                variant="ghost"
+                                size="xs"
+                                color="gray"
+                                :label="$t('groupsManager.removeManager')"
+                                @click="setManager(member, false)"
+                            />
+                            <UButton
+                                v-if="canRemove(member)"
+                                variant="ghost"
+                                size="xs"
+                                color="red"
+                                icon="i-heroicons-x-mark"
+                                :aria-label="$t('groupsManager.removeMember')"
+                                :title="$t('groupsManager.removeMember')"
+                                @click="removeMember(member.user_id || member.membership_id || '')"
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -304,8 +335,10 @@ import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useI18n } from 'vue-i18n'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
+import { useErrorMessage } from '~/composables/useErrorMessage'
 
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 
 interface GroupData {
     id: string
@@ -314,6 +347,7 @@ interface GroupData {
     external_id?: string
     external_provider?: string
     member_count: number
+    manager_user_ids?: string[]
 }
 
 interface GroupMember {
@@ -322,6 +356,7 @@ interface GroupMember {
     user_name?: string
     user_email?: string
     pending?: boolean
+    is_manager?: boolean
 }
 
 interface OrgMember {
@@ -394,7 +429,23 @@ const availableRoles = ref<RoleInfo[]>([])
 const groupRoleAssignments = ref<Record<string, RoleAssignment[]>>({})
 const { hasFeature } = useEnterprise()
 const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
-const groupsColspan = computed(() => 5 + (showQuotaColumn.value ? 1 : 0) + (useCan('manage_groups') ? 1 : 0))
+const groupsColspan = computed(() => 5 + (showQuotaColumn.value ? 1 : 0) + (canManageAll.value ? 1 : 0))
+
+// Two ways to administer a group's membership: org-wide `manage_members`
+// (every group, plus create/edit/delete, roles), or being a manager of that
+// one group (members only). The backend enforces both; this only decides what
+// to offer.
+const { data: authUser, getSession } = useAuth()
+// fetchPermissions.client.ts re-resolves permissions whenever the session changes.
+const refreshPermissions = () => getSession({ force: true } as any).catch(() => {})
+const myUserId = computed(() => (authUser.value as any)?.id as string | undefined)
+const canManageAll = computed(() => useCan('manage_members'))
+function isManagerOf(group: GroupData | null): boolean {
+    return !!group && useCan('manage_members', { type: 'group', id: group.id })
+}
+function canAdminister(group: GroupData | null): boolean {
+    return canManageAll.value || isManagerOf(group)
+}
 
 // Members modal state
 const showMembersModal = ref(false)
@@ -406,16 +457,45 @@ const selectedGroup = ref<GroupData | null>(null)
 function isScimManaged(group: GroupData | null): boolean {
     return group?.external_provider === 'scim'
 }
-const canEditMembers = computed(() => useCan('manage_groups') && !isScimManaged(selectedGroup.value))
+// Org admins keep today's rule (only SCIM groups are locked). Group managers
+// never touch an imported group — it has no managers.
+const canEditMembers = computed(() => {
+    const g = selectedGroup.value
+    if (!g) return false
+    if (canManageAll.value) return !isScimManaged(g)
+    return isManagerOf(g) && !g.external_provider
+})
+const membersHint = computed(() => {
+    const g = selectedGroup.value
+    if (isScimManaged(g)) return t('groupsManager.managedByScimHint')
+    if (!canManageAll.value && g?.external_provider) return t('groupsManager.managedExternallyHint')
+    if (!canManageAll.value && isManagerOf(g)) return t('groupsManager.managerHint')
+    return t('groupsManager.manageMembersHint')
+})
+function canPromote(member: GroupMember): boolean {
+    const g = selectedGroup.value
+    return !!g && !g.external_provider && canAdminister(g) && !!member.user_id && !member.pending && !member.is_manager
+}
+function canDemote(member: GroupMember): boolean {
+    return canManageAll.value && !!member.is_manager
+}
+function canRemove(member: GroupMember): boolean {
+    if (!canEditMembers.value) return false
+    // Managers can leave, but only an org admin removes another manager.
+    return canManageAll.value || !member.is_manager || member.user_id === myUserId.value
+}
 const groupMembers = ref<GroupMember[]>([])
 const groupMembersLoading = ref(false)
 const memberToAdd = ref<string | null>(null)
 const orgMembers = ref<OrgMember[]>([])
 
+const visibleGroups = computed(() =>
+    canManageAll.value ? groups.value : groups.value.filter(g => isManagerOf(g))
+)
 const filteredGroups = computed(() => {
     const query = searchQuery.value.toLowerCase()
-    if (!query) return groups.value
-    return groups.value.filter(g =>
+    if (!query) return visibleGroups.value
+    return visibleGroups.value.filter(g =>
         g.name.toLowerCase().includes(query) ||
         (g.description || '').toLowerCase().includes(query)
     )
@@ -550,31 +630,36 @@ async function loadUsagePolicies() {
 }
 
 async function updateGroupRoles(group: GroupData, selectedRoleIds: string[]) {
+    // Each change is its own request and the server may refuse any of them
+    // (e.g. a role carrying permissions the caller doesn't hold). Apply what
+    // it accepts, report the first refusal, and always re-read the real state.
+    const currentAssignments = groupRoleAssignments.value[group.id] || []
+    const currentRoleIds = currentAssignments.map(a => a.role_id)
+    const added = selectedRoleIds.filter(id => !currentRoleIds.includes(id))
+    const removed = currentAssignments.filter(a => !selectedRoleIds.includes(a.role_id))
+    let failure: unknown = null
     try {
-        const currentAssignments = groupRoleAssignments.value[group.id] || []
-        const currentRoleIds = currentAssignments.map(a => a.role_id)
-
-        const added = selectedRoleIds.filter(id => !currentRoleIds.includes(id))
-        const removed = currentAssignments.filter(a => !selectedRoleIds.includes(a.role_id))
-
         for (const roleId of added) {
-            await useMyFetch(`/organizations/${organizationId}/role-assignments`, {
+            const { error } = await useMyFetch(`/organizations/${organizationId}/role-assignments`, {
                 method: 'POST',
                 body: { role_id: roleId, principal_type: 'group', principal_id: group.id },
             })
+            if (error.value && !failure) failure = error.value
         }
-
         for (const assignment of removed) {
-            await useMyFetch(`/organizations/${organizationId}/role-assignments/${assignment.id}`, {
+            const { error } = await useMyFetch(`/organizations/${organizationId}/role-assignments/${assignment.id}`, {
                 method: 'DELETE',
             })
+            if (error.value && !failure) failure = error.value
         }
-
-        await loadGroupRoleAssignments()
+    } catch (e) {
+        failure = failure || e
+    }
+    await loadGroupRoleAssignments()
+    if (failure) {
+        toast.add({ title: getErrorMessage(failure, t('groupsManager.failedToUpdateRoles')), color: 'red' })
+    } else {
         toast.add({ title: t('groupsManager.toastRolesUpdated'), color: 'green' })
-    } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || t('groupsManager.failedToUpdateRoles')
-        toast.add({ title: detail, color: 'red' })
     }
 }
 
@@ -702,10 +787,14 @@ async function addMember() {
         // memberToAdd is a composite "user:<id>" / "membership:<id>" value.
         const [kind, id] = memberToAdd.value.split(':')
         const body = kind === 'membership' ? { membership_id: id } : { user_id: id }
-        await useMyFetch(`/organizations/${organizationId}/groups/${selectedGroup.value.id}/members`, {
+        const { error } = await useMyFetch(`/organizations/${organizationId}/groups/${selectedGroup.value.id}/members`, {
             method: 'POST',
             body,
         })
+        if (error.value) {
+            toast.add({ title: getErrorMessage(error.value, t('groupsManager.failedToAddMember')), color: 'red' })
+            return
+        }
         toast.add({ title: t('groupsManager.toastMemberAdded'), color: 'green' })
         memberToAdd.value = null
         // Reload group members and group list (for count update)
@@ -722,18 +811,48 @@ async function addMember() {
 async function removeMember(userId: string) {
     if (!selectedGroup.value) return
     try {
-        await useMyFetch(`/organizations/${organizationId}/groups/${selectedGroup.value.id}/members/${userId}`, {
+        const group = selectedGroup.value
+        const { error } = await useMyFetch(`/organizations/${organizationId}/groups/${group.id}/members/${userId}`, {
             method: 'DELETE',
         })
+        if (error.value) {
+            toast.add({ title: getErrorMessage(error.value, t('groupsManager.failedToRemoveMember')), color: 'red' })
+            return
+        }
         toast.add({ title: t('groupsManager.toastMemberRemoved'), color: 'green' })
+        if (userId === myUserId.value && !canManageAll.value) {
+            // Leaving a group you managed ends the role: refresh what this
+            // session may do, and close a dialog that no longer applies.
+            showMembersModal.value = false
+            await refreshPermissions()
+            await loadGroups()
+            return
+        }
         await Promise.all([
-            openMembersModal(selectedGroup.value),
+            openMembersModal(group),
             loadGroups(),
         ])
     } catch (e: any) {
         const detail = e?.data?.detail || e?.message || t('groupsManager.failedToRemoveMember')
         toast.add({ title: detail, color: 'red' })
     }
+}
+
+async function setManager(member: GroupMember, makeManager: boolean) {
+    const group = selectedGroup.value
+    if (!group || !member.user_id) return
+    const { error } = await useMyFetch(`/organizations/${organizationId}/groups/${group.id}/managers/${member.user_id}`, {
+        method: makeManager ? 'PUT' : 'DELETE',
+    })
+    if (error.value) {
+        toast.add({ title: getErrorMessage(error.value, t('groupsManager.failedToUpdateManager')), color: 'red' })
+        return
+    }
+    toast.add({
+        title: makeManager ? t('groupsManager.toastManagerAdded') : t('groupsManager.toastManagerRemoved'),
+        color: 'green',
+    })
+    await Promise.all([openMembersModal(group), loadGroups()])
 }
 
 onMounted(async () => {

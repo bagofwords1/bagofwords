@@ -1,9 +1,13 @@
 <template>
   <!-- UPopover's model prop is `open`, not `modelValue` — a bare v-model binds nothing,
        leaving isOpen permanently false (no sync on open, no close on apply). -->
-  <UPopover v-model:open="isOpen" mode="click" :popper="{ placement: 'bottom-end', strategy: 'fixed', modifiers: [{ name: 'preventOverflow', options: { boundary: 'viewport' } }] }">
+  <!-- Popper's "-end" is the PHYSICAL right edge, in RTL too: there the
+       funnel sits at the panel's left, so "bottom-end" grew the 380px popup
+       further left, past the panel, where it was cut off. Open it toward the
+       inside instead — "bottom-start" (left-aligned) in RTL. -->
+  <UPopover v-model:open="isOpen" mode="click" :popper="popperOptions">
     <!-- Trigger: Clean funnel icon with badge -->
-    <UTooltip text="Filter">
+    <UTooltip :text="t('vizFilter.filter')">
       <UChip v-if="activeFilterCount > 0" :text="activeFilterCount" size="2xl" color="blue">
         <button
           type="button"
@@ -15,7 +19,7 @@
       <button
         v-else
         type="button"
-        class="relative p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-ink-muted hover:text-gray-600"
+        class="relative p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-ink-muted hover:text-ink-2"
       >
         <Icon name="heroicons:funnel" class="w-3.5 h-3.5" />
       </button>
@@ -26,7 +30,7 @@
       <div class="w-[380px] max-w-[95vw]">
         <!-- Header -->
         <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-          <span class="font-medium text-sm text-gray-700 dark:text-gray-300">Filters</span>
+          <span class="font-medium text-sm text-gray-700 dark:text-gray-300">{{ t('vizFilter.title') }}</span>
           <UButton
             v-if="hasActiveFilters"
             color="gray"
@@ -34,7 +38,7 @@
             size="xs"
             @click="clearFilters"
           >
-            Clear
+            {{ t('vizFilter.clear') }}
           </UButton>
         </div>
 
@@ -42,14 +46,14 @@
         <div class="p-3 max-h-[320px] overflow-y-auto">
           <!-- No columns available -->
           <div v-if="discoveredColumns.length === 0" class="text-center py-6">
-            <p class="text-xs text-gray-500 dark:text-gray-400">No data available to filter</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('vizFilter.noData') }}</p>
           </div>
 
           <!-- Empty State - has columns but no filters -->
           <div v-else-if="filterGroups.length === 0" class="text-center py-6">
-            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">No filters applied</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">{{ t('vizFilter.noFilters') }}</p>
             <UButton size="xs" color="blue" @click="addGroup">
-              Add filter
+              {{ t('vizFilter.addFilter') }}
             </UButton>
           </div>
 
@@ -62,7 +66,7 @@
               <!-- OR Divider -->
               <div v-if="groupIndex > 0" class="flex items-center gap-2 py-1">
                 <div class="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
-                <span class="text-2xs font-semibold text-orange-500">OR</span>
+                <span class="text-2xs font-semibold text-orange-500">{{ t('vizFilter.or') }}</span>
                 <div class="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
               </div>
 
@@ -74,20 +78,20 @@
                   :key="condition.id"
                   class="mb-2 last:mb-0"
                 >
-                  <div v-if="condIndex > 0" class="text-2xs font-semibold text-blue-500 mb-1">AND</div>
+                  <div v-if="condIndex > 0" class="text-2xs font-semibold text-blue-500 mb-1">{{ t('vizFilter.and') }}</div>
 
                   <div class="flex items-center gap-1.5">
                     <!-- Column Select -->
                     <USelectMenu
                       v-model="condition.column"
                       :options="columnOptions"
-                      placeholder="Column"
+                      :placeholder="t('vizFilter.column')"
                       size="xs"
                       value-attribute="value"
                       option-attribute="label"
-                      class="w-[120px]"
+                      class="w-[110px]"
                       searchable
-                      searchable-placeholder="Search..."
+                      :searchable-placeholder="t('dataGrid.search')"
                       :popper="{ strategy: 'fixed', placement: 'bottom-start' }"
                       :ui-menu="{ height: 'max-h-48', option: { size: 'text-xs', padding: 'py-1 px-2' } }"
                       @update:model-value="onColumnChange(condition)"
@@ -100,9 +104,10 @@
                       size="xs"
                       value-attribute="value"
                       option-attribute="label"
-                      class="w-[90px]"
+                      class="w-[104px]"
                       :popper="{ strategy: 'fixed', placement: 'bottom-start' }"
                       :ui-menu="{ option: { size: 'text-xs', padding: 'py-1 px-2' } }"
+                      @update:model-value="onOperatorChange(condition)"
                     />
 
                     <!-- Value Input -->
@@ -112,7 +117,7 @@
                         <UInput
                           v-model="condition.value"
                           :type="getColumnType(condition.column) === 'date' ? 'date' : 'number'"
-                          placeholder="From"
+                          :placeholder="t('dataGrid.inRangeStart')"
                           size="xs"
                           class="w-[70px]"
                         />
@@ -120,24 +125,44 @@
                         <UInput
                           v-model="condition.value2"
                           :type="getColumnType(condition.column) === 'date' ? 'date' : 'number'"
-                          placeholder="To"
+                          :placeholder="t('dataGrid.inRangeEnd')"
                           size="xs"
                           class="w-[70px]"
                         />
                       </template>
-                      <!-- Regular inputs -->
+                      <!-- One of / not one of: what a table header's value list
+                           writes; any number of values. -->
+                      <USelectMenu
+                        v-else-if="multiValueOperators.includes(condition.operator)"
+                        v-model="condition.value"
+                        :options="getAllValueOptions(condition)"
+                        multiple
+                        :placeholder="t('vizFilter.value')"
+                        size="xs"
+                        value-attribute="value"
+                        option-attribute="label"
+                        class="flex-1 min-w-[80px]"
+                        searchable
+                        :searchable-placeholder="t('dataGrid.search')"
+                        :popper="{ strategy: 'fixed', placement: 'bottom-start' }"
+                        :ui-menu="{ height: 'max-h-48', option: { size: 'text-xs', padding: 'py-1 px-2' } }"
+                      >
+                        <template #label>
+                          <span class="truncate" dir="auto">{{ multiValueLabel(condition) }}</span>
+                        </template>
+                      </USelectMenu>
                       <template v-else>
                         <USelectMenu
                           v-if="shouldShowSelect(condition)"
                           v-model="condition.value"
                           :options="getValueOptions(condition.column)"
-                          placeholder="Value"
+                          :placeholder="t('vizFilter.value')"
                           size="xs"
                           value-attribute="value"
                           option-attribute="label"
                           class="flex-1 min-w-[80px]"
                           searchable
-                          searchable-placeholder="Search..."
+                          :searchable-placeholder="t('dataGrid.search')"
                           :popper="{ strategy: 'fixed', placement: 'bottom-start' }"
                           :ui-menu="{ height: 'max-h-48', option: { size: 'text-xs', padding: 'py-1 px-2' } }"
                         />
@@ -145,7 +170,7 @@
                           v-else-if="getColumnType(condition.column) === 'number'"
                           v-model="condition.value"
                           type="number"
-                          placeholder="Value"
+                          :placeholder="t('vizFilter.value')"
                           size="xs"
                           class="flex-1 min-w-[80px]"
                         />
@@ -160,7 +185,7 @@
                           v-else
                           v-model="condition.value"
                           type="text"
-                          placeholder="Value"
+                          :placeholder="t('vizFilter.value')"
                           size="xs"
                           class="flex-1 min-w-[80px]"
                         />
@@ -187,7 +212,7 @@
                     icon="i-heroicons-plus"
                     @click="addCondition(group)"
                   >
-                    AND
+                    {{ t('vizFilter.and') }}
                   </UButton>
                   <UButton
                     v-if="groupIndex === filterGroups.length - 1"
@@ -196,7 +221,7 @@
                     size="xs"
                     @click="addGroup"
                   >
-                    OR
+                    {{ t('vizFilter.or') }}
                   </UButton>
                   <div class="flex-1"></div>
                   <UButton
@@ -215,11 +240,11 @@
         <!-- Footer with row count and apply. Also shown when the working copy is empty
              but filters are still applied, so removing the last condition can be committed. -->
         <div v-if="filterGroups.length > 0 || hasActiveFilters" class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-          <span class="text-xs text-gray-500 dark:text-gray-400">
-            {{ filteredRowCount }} of {{ totalRowCount }} rows
+          <span class="text-xs text-gray-500 dark:text-gray-400" dir="auto">
+            {{ t('dataGrid.filteredRows', { shown: filteredRowCount, total: totalRowCount }) }}
           </span>
           <UButton size="xs" color="blue" @click="applyFilters">
-            Apply
+            {{ t('vizFilter.apply') }}
           </UButton>
         </div>
       </div>
@@ -229,6 +254,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { localeTextDir } from '~/utils/textDirection'
+import { BLANK_KEY, COLUMN_ORIGIN, collectValues, valueKey } from '~/utils/valueFilter'
 import {
   parseColumnKey,
   formatColumnLabel,
@@ -242,6 +269,13 @@ import {
   type FilterCondition,
   type FilterGroup
 } from '~/composables/useSharedFilters'
+
+const { t, locale: uiLocale } = useI18n()
+const popperOptions = computed(() => ({
+  placement: localeTextDir(String(uiLocale.value)) === 'rtl' ? 'bottom-start' : 'bottom-end',
+  strategy: 'fixed',
+  modifiers: [{ name: 'preventOverflow', options: { boundary: 'viewport' } }],
+}))
 
 const props = defineProps<{
   reportId: string
@@ -257,6 +291,11 @@ const filterInstanceId = `vizfilter-${props.visualizationId}-${Date.now()}`
 
 // Operators that don't need a value
 const noValueOperators = ['is_empty', 'is_not_empty', 'is_true', 'is_false']
+// Operators that take a list of values (what a table header's value list writes)
+const multiValueOperators = ['in', 'not_in']
+// What a header condition can be; edited into anything else here, it stops
+// being the header's own condition.
+const COLUMN_OPERATORS = ['in', 'not_in', 'between', 'gte', 'lte']
 
 // Local state
 const isOpen = ref(false)
@@ -387,15 +426,47 @@ function getColumnType(key: string): string {
   return getColumn(key)?.type || 'string'
 }
 
-// Get operators for column type
+// Get operators for column type — labels in the viewer's language (symbols
+// such as > stay as they are), plus "is one of" / "is not one of".
+const SYMBOL_OPERATORS = ['greater_than', 'less_than', 'gte', 'lte']
+const opLabel = (op: { label: string; value: string }) =>
+  SYMBOL_OPERATORS.includes(op.value) ? op.label : t(`vizFilter.op.${op.value}`)
 function getOperatorsForColumn(columnKey: string) {
   const type = getColumnType(columnKey)
-  switch (type) {
-    case 'number': return numberOperators
-    case 'date': return dateOperators
-    case 'boolean': return booleanOperators
-    default: return stringOperators
+  const base = type === 'number' ? numberOperators
+    : type === 'date' ? dateOperators
+    : type === 'boolean' ? booleanOperators
+    : stringOperators
+  const extra = type === 'boolean' ? [] : [
+    ...(type === 'number' ? [{ label: 'between', value: 'between' }] : []),
+    { label: 'in', value: 'in' },
+    { label: 'not in', value: 'not_in' },
+  ]
+  const list = [...base, ...extra]
+  return list.map(op => ({ value: op.value, label: opLabel(op) }))
+}
+
+// Every distinct value of a column (not capped at 50 like the single-value
+// select): a header may have picked any of them. Values already chosen stay
+// selectable even if a re-run dropped them.
+function getAllValueOptions(condition: FilterCondition) {
+  const values = collectValues((props.rows || []).map((r: any) => r?.[condition.column])).slice(0, 1000)
+  const opts = values.map(o => ({
+    value: o.key === BLANK_KEY ? '' : o.raw,
+    label: o.key === BLANK_KEY ? t('dataGrid.blankValue') : String(o.raw),
+  }))
+  const have = new Set(values.map(o => o.key))
+  for (const v of Array.isArray(condition.value) ? condition.value : []) {
+    if (!have.has(valueKey(v))) opts.push({ value: v, label: String(v) })
   }
+  return opts
+}
+
+function multiValueLabel(condition: FilterCondition) {
+  const values = Array.isArray(condition.value) ? condition.value : []
+  if (!values.length) return t('vizFilter.value')
+  const first = values[0] === '' ? t('dataGrid.blankValue') : String(values[0])
+  return values.length > 1 ? t('vizFilter.valuesMore', { first, n: values.length - 1 }) : first
 }
 
 // Value options for select dropdown
@@ -434,6 +505,17 @@ function onColumnChange(condition: FilterCondition) {
   condition.operator = operators[0]?.value || 'equals'
   condition.value = type === 'boolean' ? true : ''
   condition.value2 = undefined
+  delete (condition as any).origin
+}
+
+// A list operator holds an array of values, every other one a single value.
+function onOperatorChange(condition: FilterCondition) {
+  const multi = multiValueOperators.includes(condition.operator)
+  if (multi && !Array.isArray(condition.value)) {
+    condition.value = condition.value === '' || condition.value == null ? [] : [condition.value]
+  } else if (!multi && Array.isArray(condition.value)) {
+    condition.value = condition.value[0] ?? ''
+  }
 }
 
 // Row counts
@@ -515,10 +597,11 @@ function applyFilters() {
 
   // Then add the new conditions with proper column format (vizId:columnName)
   for (const group of filterGroups.value) {
-    const newConditions = group.conditions.map(c => ({
-      ...c,
-      column: `${props.visualizationId}:${c.column}`
-    }))
+    const newConditions = group.conditions.map(c => {
+      const next: any = { ...c, column: `${props.visualizationId}:${c.column}` }
+      if (next.origin === COLUMN_ORIGIN && !COLUMN_OPERATORS.includes(next.operator)) delete next.origin
+      return next
+    })
 
     // Find existing group to merge into, or create new
     const existingGroup = newFilters.find(g => g.id === group.id)

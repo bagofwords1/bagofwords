@@ -606,19 +606,26 @@ def uses_placeholders(sql: str | None) -> bool:
     return bool(_SINCE.search(sql or "") or _UNTIL.search(sql or ""))
 
 
-def filters_at_source(client) -> bool:
+def filters_at_source(client, query: str | None = None) -> bool:
     """Whether a window can be written into this client's query.
 
     When it can, a refresh fetches only the window. When it cannot, the query
     runs whole and the window is taken from its result locally: the table is
     kept just the same, but the source does the full work every time.
+
+    A client that speaks two languages, only one of which can carry a window
+    (Analysis Services: DAX can, MDX cannot), answers per query with
+    `filters_query_at_source(query)`.
     """
+    per_query = getattr(client, "filters_query_at_source", None)
+    if query is not None and callable(per_query):
+        return bool(per_query(query))
     return (json_window_of(client) is not None or window_writer(client) is not None
             or family_of(dialect_for(client)) is not None)
 
 
 def can_window(client, sql: str) -> bool:
-    return filters_at_source(client)
+    return filters_at_source(client, sql)
 
 
 def quote_identifier(family: str, name: str) -> str:

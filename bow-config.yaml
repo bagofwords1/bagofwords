@@ -129,6 +129,16 @@ otel:
 #   # See docs/guides/bigquery-keyless-auth.md.
 #   allow_google_default_credentials: false
 
+# system_logs:
+#   # Admin → System logs: keep the server's own log output as files that
+#   # instance administrators can read in the app. Off by default: while off,
+#   # nothing is captured or written and the page is not offered.
+#   # Env: BOW_SYSTEM_LOGS_ENABLED=true.
+#   enabled: true
+#   directory: logs/system   # shared storage, so every replica's lines show. Env: BOW_SYSTEM_LOGS_DIR
+#   retention_days: 7        # Env: BOW_SYSTEM_LOGS_RETENTION_DAYS
+#   max_size_mb: 1024        # total for the directory, oldest deleted first. Env: BOW_SYSTEM_LOGS_MAX_SIZE_MB
+
 # storage:
 #   # Where uploads, thumbnails, decks, logos, avatars and extract caches live.
 #   # local (default): backend/uploads on this machine. s3 / azure: the bucket is

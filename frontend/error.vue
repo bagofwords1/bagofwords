@@ -5,8 +5,8 @@
 
       <div v-if="error?.statusCode === 404" class="space-y-3">
         <h1 class="text-5xl font-semibold tracking-tight">{{ $t('errorPage.notFoundTitle') }}</h1>
-        <p class="text-base text-gray-500">{{ $t('errorPage.notFoundMessage') }}</p>
-        <p class="text-sm text-gray-400">{{ route.fullPath }}</p>
+        <p class="text-base text-ink-muted">{{ $t('errorPage.notFoundMessage') }}</p>
+        <p class="text-sm text-ink-muted">{{ route.fullPath }}</p>
         <div class="mt-6">
           <UButton color="gray" variant="ghost" to="/">{{ $t('errorPage.goHome') }}</UButton>
         </div>
@@ -14,7 +14,7 @@
 
       <div v-else class="space-y-3">
         <h1 class="text-2xl font-semibold tracking-tight">{{ $t('errorPage.genericTitle') }}</h1>
-        <p class="text-base text-gray-600">{{ error?.message || $t('errorPage.unknownError') }}</p>
+        <p class="text-base text-ink-muted">{{ error?.message || $t('errorPage.unknownError') }}</p>
         <div class="mt-6">
           <UButton color="gray" variant="ghost" to="/">{{ $t('errorPage.goHome') }}</UButton>
         </div>

@@ -130,6 +130,7 @@ class ErrorCode(str, Enum):
     SYSTEM_LOGS_INSTANCE_ADMIN_REQUIRED = "system_logs.instance_admin_required"
     SYSTEM_LOGS_INVALID_RANGE = "system_logs.invalid_range"
     SYSTEM_LOGS_DELETE_FAILED = "system_logs.delete_failed"
+    SYSTEM_LOGS_DISABLED = "system_logs.disabled"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
@@ -141,6 +142,12 @@ class ErrorCode(str, Enum):
     CONNECTION_KMS_LOGIN_REJECTED = "connection.kms_login_rejected"
     CONNECTION_KMS_LOGIN_PAUSED = "connection.kms_login_paused"
     CONNECTION_KMS_SESSION_REFUSED = "connection.kms_session_refused"
+    # Confluence Data Center member credentials (raised only for type confluence_dc)
+    CONNECTION_CONFLUENCE_LOGIN_REJECTED = "connection.confluence_login_rejected"
+    CONNECTION_CONFLUENCE_LOGIN_CAPTCHA = "connection.confluence_login_captcha"
+    # Jira Data Center member credentials (raised only for type jira_dc)
+    CONNECTION_JIRA_LOGIN_REJECTED = "connection.jira_login_rejected"
+    CONNECTION_JIRA_LOGIN_CAPTCHA = "connection.jira_login_captcha"
     CONNECTION_TABLE_NOT_FOUND = "connection.table_not_found"
     # Connection Queries view (query_executions)
     CONNECTION_QUERY_NOT_FOUND = "connection.query_not_found"
@@ -153,6 +160,9 @@ class ErrorCode(str, Enum):
     ROLE_NOT_FOUND = "role.not_found"
     GROUP_NOT_FOUND = "group.not_found"
     GROUP_MANAGED_BY_SCIM = "group.managed_by_scim"
+    GROUP_MANAGED_EXTERNALLY = "group.managed_externally"
+    GROUP_MANAGER_NOT_MEMBER = "group.manager_not_member"
+    GROUP_MANAGER_PROTECTED = "group.manager_protected"
     INSTRUCTION_NOT_FOUND = "instruction.not_found"
     INSTRUCTION_VERSION_NOT_FOUND = "instruction.version_not_found"
     INSTRUCTION_LABEL_NOT_FOUND = "instruction.label_not_found"
@@ -219,6 +229,11 @@ class ErrorCode(str, Enum):
     SHELL_CONFIRMATION_INVALID_SCOPE = "shell_confirmation.invalid_scope"
     SHELL_CONFIRMATION_REPORT_REQUIRED = "shell_confirmation.report_required"
     SHELL_CONFIRMATION_RULE_MISMATCH = "shell_confirmation.rule_mismatch"
+
+    # Tool permission mode (Ask / Auto / Allow all)
+    TOOL_PERMISSION_MODE_ALLOW_ALL_OFF = "tool_permission_mode.allow_all_off"
+    TOOL_PERMISSION_MODE_ALLOW_ALL_DEFAULT_NEEDS_SWITCH = "tool_permission_mode.allow_all_default_needs_switch"
+    TOOL_PERMISSION_MODE_JUDGE_MODEL_UNAVAILABLE = "tool_permission_mode.judge_model_unavailable"
 
     SSH_KEY_DISCOVERY_FAILED = "ssh.key_discovery_failed"
 

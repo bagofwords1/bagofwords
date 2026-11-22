@@ -64,6 +64,17 @@ def test_indexing_happy_path(
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
 
+    # FastAPI builds included routers' routes lazily on the first request that
+    # walks past them. When this test is the first on its xdist worker to reach
+    # the connection router, that one-time build (about 1 s, more on CI) would
+    # land inside the timed POST. Reach the router once before starting the
+    # clock, so the bound measures the POST itself.
+    warm = test_client.get(
+        "/api/connections",
+        headers={"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)},
+    )
+    assert warm.status_code == 200, warm.text
+
     t0 = time.perf_counter()
     connection = create_connection(
         name="Indexing Happy",
