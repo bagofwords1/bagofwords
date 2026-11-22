@@ -6478,7 +6478,18 @@
     "placeholderInReport": "Поиск в этом отчёте, отчётах, агентах, инструкциях…",
     "inThisReport": "В этом отчёте",
     "reportScopeHint": "Введите report:, чтобы искать только в этом отчёте",
-    "reportPrefix": "отчёт:"
+    "reportPrefix": "отчёт:",
+    "tabs": {
+      "all": "Все",
+      "reports": "Отчёты",
+      "agents": "Агенты",
+      "instructions": "Инструкции",
+      "dashboards": "Дашборды"
+    },
+    "tabsLabel": "Категории",
+    "tabsHint": "категории",
+    "dashboards": "Дашборды",
+    "untitledDashboard": "Дашборд без названия"
   },
   "promptParams": {
     "title": "Заполните параметры — {title}",

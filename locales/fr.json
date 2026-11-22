@@ -6478,7 +6478,18 @@
     "placeholderInReport": "Rechercher dans ce rapport, les rapports, agents, instructions…",
     "inThisReport": "Dans ce rapport",
     "reportScopeHint": "Tapez report: pour chercher uniquement dans ce rapport",
-    "reportPrefix": "rapport:"
+    "reportPrefix": "rapport:",
+    "tabs": {
+      "all": "Tout",
+      "reports": "Rapports",
+      "agents": "Agents",
+      "instructions": "Instructions",
+      "dashboards": "Tableaux de bord"
+    },
+    "tabsLabel": "Catégories",
+    "tabsHint": "catégories",
+    "dashboards": "Tableaux de bord",
+    "untitledDashboard": "Tableau de bord sans titre"
   },
   "promptParams": {
     "title": "Renseignez les paramètres — {title}",
