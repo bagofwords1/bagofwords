@@ -445,16 +445,16 @@ assumed.
 | | Priority ERP |
 |---|---|
 | Definition | one form with OData options: `ORDERS?$filter=CUSTNAME eq '1011'&$select=ORDNAME,CURDATE`. Allowed: `$filter`, `$select`, `$orderby`, `$since`, `$top`, `$skip` (the last two bound the whole table) |
-| Refused when saved | `$expand`, a sub-form named as a table, a single record or navigation path, any other option, SQL (`CustomQueryService.ensure_definition_allowed`, a 400 before a row is stored) |
+| Refused when saved | `$expand`, a sub-form named as a table (recognised from the indexed catalog), a single record or navigation path, any other option, SQL, and `{{since}}` / `{{until}}` together with `$top` / `$skip` (`CustomQueryService.ensure_definition_allowed`, a 400 before a row is stored) |
 | Estimate | exact, `FORM/$count` with the definition's filter (one request, no rows). Priority does not document `$count`: when the server does not answer it with a number there is no estimate, and none is invented |
 | Paging | `$top`/`$skip`, 2,000 rows a request: Priority's default `MAXAPILINES`, the most one response holds on a default server whatever `$top` says |
 | Truncation | a short page is never the end (that is what the server's row cap looks like); reading stops only at an empty page. With a count, fewer rows than it fail the refresh. A response longer than asked for fails too |
 | Order | the definition's `$orderby`, with the form's key as tie-breaker where the catalog knows it and the definition returns it |
 | Rate limit | the connector's limiter paces requests; a 429 is waited out (`Retry-After`, else 20 s, at most 60 s) and retried 3 times, then the refresh fails |
 | 3-minute ceiling | each request has the connector's 120 s timeout; a page that times out is retried at half the size, down to 100 rows |
-| Request limit | `custom_table_max_requests`, retries included; a counted result too large for it is refused when saved |
+| Request limit | `custom_table_max_requests`, retries included; a counted result too large for it is refused when saved (one count, one request per page, and the closing empty page unless the definition's `$top` ends the read) |
 | Progress / cancel | one batch per page, so progress, cancellation and the time limit are checked between pages |
-| Incremental | window and-ed onto `$filter` on the cursor column, or placed with `{{since}}` / `{{until}}`; Priority's own change feed is `ORDERS?$since={{since}}` |
+| Incremental | window and-ed onto `$filter` on the cursor column, with the bound written exactly (the loader replaces from the same bound), or placed with `{{since}}` / `{{until}}`; Priority's own change feed is `ORDERS?$since={{since}}`. A definition with its own `$top` / `$skip` is read whole and the window taken from the result, because those bounds apply after `$filter` |
 
 Known limits: sub-forms (order lines) cannot be cached yet; rows added or
 deleted in a form while it is being read can shift a later page, as under any

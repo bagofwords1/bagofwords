@@ -467,7 +467,7 @@ class CustomQueryService:
             )
 
     @staticmethod
-    def ensure_definition_allowed(connection: Connection, definition_sql: str) -> None:
+    def ensure_definition_allowed(connection: Connection, definition_sql: str, tables: list = None) -> None:
         """A connector's own rules for what a custom table may be defined as,
         checked before a row is stored.
 
@@ -475,7 +475,9 @@ class CustomQueryService:
         and a bad one fails its preview. A connector that must refuse
         something the source itself would run (Priority's unbounded $expand)
         declares `check_custom_table_definition`, and it is a 400 here rather
-        than a table saved with a failed first load.
+        than a table saved with a failed first load. `tables` is the
+        connection's indexed catalog (see `_catalog_rows`), for a rule that
+        depends on what a name is there.
         """
         kind = (getattr(connection, "type", None) or "").lower()
         try:
@@ -488,7 +490,7 @@ class CustomQueryService:
         if not callable(check):
             return
         try:
-            check(definition_sql)
+            check(definition_sql, tables)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -561,6 +563,12 @@ class CustomQueryService:
         client.extraction_limits = await self.limits_for(db, connection)
         if not self._needs_catalog(client):
             return
+        client.attach_table_metadata(await self._catalog_rows(db, connection))
+        client.extraction_target = dict(target) if target else None
+
+    @staticmethod
+    async def _catalog_rows(db: AsyncSession, connection: Connection) -> list:
+        """The connection's indexed tables as `{"name", "metadata_json"}` rows."""
         rows = (
             await db.execute(
                 select(ConnectionTable.name, ConnectionTable.metadata_json).where(
@@ -570,10 +578,20 @@ class CustomQueryService:
                 )
             )
         ).all()
-        client.attach_table_metadata(
-            [{"name": name, "metadata_json": meta} for name, meta in rows]
-        )
-        client.extraction_target = dict(target) if target else None
+        return [{"name": name, "metadata_json": meta} for name, meta in rows]
+
+    async def _check_definition(self, db: AsyncSession, connection: Connection, definition_sql: str) -> None:
+        """`ensure_definition_allowed`, with the catalog for a connector that has rules."""
+        from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+        kind = (connection.type or "").lower()
+        key = next((k for k in REGISTRY if k.lower() == kind), None)
+        try:
+            declared = key and callable(getattr(resolve_client_class(key), "check_custom_table_definition", None))
+        except Exception:
+            declared = False
+        if declared:
+            self.ensure_definition_allowed(connection, definition_sql, await self._catalog_rows(db, connection))
 
     @staticmethod
     async def limits_for(db: AsyncSession, connection: Connection) -> fast_limits.FastLimits:
@@ -1083,7 +1101,7 @@ class CustomQueryService:
 
         if not (definition_sql or "").strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
-        self.ensure_definition_allowed(connection, definition_sql)
+        await self._check_definition(db, connection, definition_sql)
         refresh_config = dict(refresh_config or {})
         # New tables get the row-drop guard unless the admin said otherwise
         # (an explicit null turns it off); ones that predate it keep
@@ -1236,7 +1254,7 @@ class CustomQueryService:
             cq.name = name
             sql_changed = True
         if definition_sql is not None and definition_sql != cq.definition_sql:
-            self.ensure_definition_allowed(connection, definition_sql)
+            await self._check_definition(db, connection, definition_sql)
             cq.definition_sql = definition_sql
             sql_changed = True
         if description is not None:

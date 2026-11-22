@@ -181,12 +181,21 @@ class PriorityErpClient(DataSourceClient):
         return render_window(query, column, kind, window)
 
     @staticmethod
-    def check_custom_table_definition(definition: str) -> None:
-        """Raise ValueError for a definition a custom table cannot be built
-        from ($expand, a single record, SQL), before anything is stored."""
-        from app.data_sources.fast.priority_erp_source import parse_definition
+    def filters_query_at_source(query) -> bool:
+        """A definition with its own $top / $skip is read whole and its
+        refresh window taken from the result; any other is filtered here."""
+        from app.data_sources.fast.priority_erp_source import is_bounded
 
-        parse_definition(definition)
+        return not is_bounded(query)
+
+    @staticmethod
+    def check_custom_table_definition(definition: str, tables=None) -> None:
+        """Raise ValueError for a definition a custom table cannot be built
+        from ($expand, a sub-form, a single record, SQL), before anything is
+        stored. `tables` is the connection's indexed catalog."""
+        from app.data_sources.fast.priority_erp_source import check_definition
+
+        check_definition(definition, tables)
 
     def __init__(
         self,
