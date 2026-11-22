@@ -23,6 +23,15 @@ NEW_REPORT_COMMANDS = {"new", "חדש"}
 NEW_REPORT_COMMAND_PLATFORMS = {"teams", "whatsapp", "google_chat"}
 
 
+def _system_completion_id(created) -> "str | None":
+    """The answering (system) completion's id in create_completion's result,
+    started or queued; None when the result doesn't name one."""
+    for completion in getattr(created, "completions", None) or []:
+        if getattr(completion, "role", None) == "system" and getattr(completion, "id", None):
+            return str(completion.id)
+    return None
+
+
 class ExternalPlatformManager:
     """Manages external platform interactions"""
     
@@ -918,9 +927,19 @@ class ExternalPlatformManager:
                 adapter, channel_id, message_text, self._org_locale(organization),
             )
 
+        # WhatsApp: show "typing…" while the agent works, on top of the 👀
+        # reaction (the indicator is what WhatsApp users expect; the reaction
+        # stays as the fallback if WhatsApp refuses the indicator).
+        typing_run = None
+        if platform_type == "whatsapp" and channel_id and message_ts:
+            from app.services.platform_adapters import whatsapp_typing
+            typing_run = whatsapp_typing.start_run(
+                adapter, adapter.phone_number_id(), channel_id, message_ts,
+            )
+
         # Create completion with thread context (background=True to avoid blocking the webhook)
         try:
-            await self.completion_service.create_completion(
+            created = await self.completion_service.create_completion(
                 db=db,
                 report_id=str(report.id),
                 completion_data=completion_data,
@@ -937,7 +956,12 @@ class ExternalPlatformManager:
         except Exception:
             if teams_bubble:
                 teams_stream.abort_run(channel_id)
+            if typing_run:
+                whatsapp_typing.abort_run(typing_run)
             raise
+        if typing_run:
+            # Only this run's own end stops its indicator from here on.
+            whatsapp_typing.bind_run(typing_run, _system_completion_id(created))
 
 
         return {
