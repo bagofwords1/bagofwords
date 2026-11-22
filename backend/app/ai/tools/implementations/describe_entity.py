@@ -473,7 +473,7 @@ class DescribeEntityTool(Tool):
             "entity_type": entity.type,
             "title": entity.title,
             "description": entity.description[:200] if entity.description else None,
-            "data_preview": with_column_sums(data_preview, entity_data, step_id=step_id),
+            "data_preview": with_column_sums(data_preview, entity_data, call_id=runtime_ctx.get("tool_call_id")),
             "stats": stats,
             "analysis_complete": False,
             "final_answer": None,

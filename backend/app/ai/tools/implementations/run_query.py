@@ -487,7 +487,7 @@ class RunQueryTool(Tool):
             "analysis_complete": False,
             "final_answer": None,
             "applied_params": applied or None,
-            "data_preview": with_column_sums(data_preview, run_data, step_id=result.get("step_id")),
+            "data_preview": with_column_sums(data_preview, run_data, call_id=runtime_ctx.get("tool_call_id")),
             "stats": clamp_stats(info) if allow_llm_see_data else clamp_stats(gate_stats_for_privacy(info)),
         }
         if declared:

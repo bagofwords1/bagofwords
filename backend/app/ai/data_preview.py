@@ -586,15 +586,20 @@ def with_column_sums(
     preview: Optional[Dict[str, Any]],
     data: Optional[Dict[str, Any]],
     *,
-    step_id: Optional[str] = None,
+    call_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """A copy of a visible *preview* with a ``column_sums`` block, or *preview* itself.
 
     *data* is a ``format_df_for_widget`` dict or a stored step's ``data``. Hidden
     previews, non-int row counts and results the rule declines come back
-    unchanged (the same object). Logs one INFO line, with the step id and two
-    counts only, when a block is added. Never raises: on an error it logs one
-    WARNING (step id and error type) and returns *preview* unchanged.
+    unchanged (the same object). Logs one INFO line, with the tool call id and
+    two counts only, when a block is added. Never raises: on an error it logs
+    one WARNING (tool call id and error type) and returns *preview* unchanged.
+
+    *call_id* is ``runtime_ctx["tool_call_id"]`` (the ToolExecution id), not a
+    step id: create_data and describe_entity build their observation before
+    the orchestrator's step id reaches the tool, and the ToolExecution row
+    links the call to its step (``created_step_id``) and its run.
     """
     try:
         if not isinstance(preview, dict) or not isinstance(data, dict):
@@ -608,12 +613,12 @@ def with_column_sums(
         if block is None:
             return preview
         logger.info(
-            "column sums added: step=%s rows=%d columns=%d",
-            step_id, row_count, len(block["sum"]),
+            "column sums added: call=%s rows=%d columns=%d",
+            call_id, row_count, len(block["sum"]),
         )
         return {**preview, "column_sums": block}
     except Exception as e:
-        _log_sums_skipped(step_id, e)
+        _log_sums_skipped("call", call_id, e)
         return preview
 
 
@@ -629,10 +634,10 @@ def guarded_column_sums(
     try:
         return column_sums(info, columns, row_count, rows)
     except Exception as e:
-        _log_sums_skipped(step_id, e)
+        _log_sums_skipped("step", step_id, e)
         return None
 
 
-def _log_sums_skipped(step_id: Optional[str], error: Exception) -> None:
+def _log_sums_skipped(id_kind: str, ref: Optional[str], error: Exception) -> None:
     # No message, field names or values: they can carry result data.
-    logger.warning("column sums skipped: step=%s error=%s", step_id, type(error).__name__)
+    logger.warning("column sums skipped: %s=%s error=%s", id_kind, ref, type(error).__name__)

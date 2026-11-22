@@ -768,7 +768,7 @@ def test_note_is_neutral():
         assert word not in lowered
 
 
-def test_added_block_is_logged_with_step_and_counts_only(monkeypatch, caplog):
+def test_added_block_is_logged_with_call_and_counts_only(monkeypatch, caplog):
     monkeypatch.setattr(logging.getLogger("app.ai.data_preview"), "disabled", False)
     caplog.set_level(logging.INFO, logger="app.ai.data_preview")
     df = _department_table()
@@ -776,10 +776,10 @@ def test_added_block_is_logged_with_step_and_counts_only(monkeypatch, caplog):
     _assert_k_clean(df, ["headcount"])
     formatted = _formatted(df)
 
-    out = dp.with_column_sums(build_data_preview(formatted), formatted, step_id="s-1")
+    out = dp.with_column_sums(build_data_preview(formatted), formatted, call_id="c-1")
     assert len(out["column_sums"]["sum"]) == 3
     records = [r for r in caplog.records if r.name == "app.ai.data_preview"]
-    assert [r.getMessage() for r in records] == ["column sums added: step=s-1 rows=12 columns=3"]
+    assert [r.getMessage() for r in records] == ["column sums added: call=c-1 rows=12 columns=3"]
     message = records[0].getMessage()
     for name in ("budget_eur", "actual_eur", "headcount", "department"):
         assert name not in message
@@ -788,9 +788,9 @@ def test_added_block_is_logged_with_step_and_counts_only(monkeypatch, caplog):
 
     caplog.clear()
     hidden = build_data_preview(formatted, allow_llm_see_data=False)
-    dp.with_column_sums(hidden, formatted, step_id="s-2")
+    dp.with_column_sums(hidden, formatted, call_id="c-2")
     one_row = _formatted(pd.DataFrame({"revenue": [100]}))
-    dp.with_column_sums(build_data_preview(one_row), one_row, step_id="s-3")
+    dp.with_column_sums(build_data_preview(one_row), one_row, call_id="c-3")
     assert [r for r in caplog.records if r.name == "app.ai.data_preview"] == []
 
 
@@ -926,7 +926,7 @@ def test_object_cell_past_float_range_declines_without_raising():
     data = _huge_object_data()
     assert dp.column_sums(data["info"], data["columns"], 3, data["rows"]) is None
     preview = {"row_count": 3, "rows": []}
-    assert dp.with_column_sums(preview, data, step_id="s-9") is preview
+    assert dp.with_column_sums(preview, data, call_id="c-9") is preview
 
 
 def test_column_sums_failure_returns_preview_and_logs_type_only(monkeypatch, caplog):
@@ -940,8 +940,8 @@ def test_column_sums_failure_returns_preview_and_logs_type_only(monkeypatch, cap
     formatted = _formatted(_department_table())
     preview = build_data_preview(formatted)
 
-    assert dp.with_column_sums(preview, formatted, step_id="s-7") is preview
+    assert dp.with_column_sums(preview, formatted, call_id="c-7") is preview
     records = [r for r in caplog.records if r.name == "app.ai.data_preview"]
     assert [(r.levelno, r.getMessage()) for r in records] == [
-        (logging.WARNING, "column sums skipped: step=s-7 error=ValueError"),
+        (logging.WARNING, "column sums skipped: call=c-7 error=ValueError"),
     ]

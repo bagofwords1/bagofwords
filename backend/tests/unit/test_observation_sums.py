@@ -122,6 +122,7 @@ async def _payload(tool_input, rows, settings=None):
         "db": _FakeDB(rows),
         "organization": SimpleNamespace(id="org-1"),
         "report": SimpleNamespace(id="report-1"),
+        "tool_call_id": "te-read",
     }
     if settings is not None:
         runtime_ctx["settings"] = settings
@@ -152,8 +153,8 @@ async def test_read_query_single_observation_carries_sums_output_does_not(sums_l
     # The output (UI, SSE, result_json) keeps the plain preview.
     assert out["results"][0]["data_preview"]["rows"] == obs["data_preview"]["rows"]
     assert _dicts_with_key(out, "column_sums") == []
-    # The step id reaches the log line; no field name, no value.
-    assert sums_log() == ["column sums added: step=q1-step rows=12 columns=3"]
+    # The tool call id reaches the log line; no field name, no value.
+    assert sums_log() == ["column sums added: call=te-read rows=12 columns=3"]
 
 
 @pytest.mark.asyncio
@@ -203,7 +204,7 @@ def test_create_data_success_observation_carries_sums(sums_log):
 
     obs = CreateDataTool.build_success_observation(
         summary="Built a table.", data_preview=preview, data=formatted,
-        allow_llm_see_data=True, source_flagged=False, step_id="s-1",
+        allow_llm_see_data=True, source_flagged=False, call_id="te-1",
     )
 
     assert list(obs) == _OBSERVATION_KEYS
@@ -214,7 +215,7 @@ def test_create_data_success_observation_carries_sums(sums_log):
     assert obs["analysis_complete"] is False and obs["final_answer"] is None
     # The argument is the output's preview: it stays without a block.
     assert "column_sums" not in preview
-    assert sums_log() == ["column sums added: step=s-1 rows=12 columns=3"]
+    assert sums_log() == ["column sums added: call=te-1 rows=12 columns=3"]
 
 
 def test_create_data_hidden_observation_has_no_sums():
@@ -223,7 +224,7 @@ def test_create_data_hidden_observation_has_no_sums():
 
     obs = CreateDataTool.build_success_observation(
         summary="Built a table.", data_preview=preview, data=formatted,
-        allow_llm_see_data=False, source_flagged=False, step_id="s-1",
+        allow_llm_see_data=False, source_flagged=False, call_id="te-1",
     )
 
     assert list(obs) == _OBSERVATION_KEYS
@@ -237,7 +238,7 @@ def test_create_data_observation_has_no_sums_when_source_flagged():
 
     flagged = CreateDataTool.build_success_observation(
         summary="Built a table.", data_preview=preview, data=formatted,
-        allow_llm_see_data=True, source_flagged=True, step_id="s-1",
+        allow_llm_see_data=True, source_flagged=True, call_id="te-1",
     )
     assert flagged["data_preview"] == preview
     assert "column_sums" not in flagged["data_preview"]
@@ -245,7 +246,7 @@ def test_create_data_observation_has_no_sums_when_source_flagged():
     # Control: the same result, not flagged, carries the block.
     clean = CreateDataTool.build_success_observation(
         summary="Built a table.", data_preview=preview, data=formatted,
-        allow_llm_see_data=True, source_flagged=False, step_id="s-1",
+        allow_llm_see_data=True, source_flagged=False, call_id="te-1",
     )
     assert clean["data_preview"]["column_sums"]["sum"] == EXPECTED_SUMS
 

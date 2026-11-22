@@ -525,7 +525,8 @@ class ReadQueryTool(Tool):
                 )
             else:
                 observation["data_preview"] = with_column_sums(
-                    r.data_preview, r.data if isinstance(r.data, dict) else None, step_id=r.step_id
+                    r.data_preview, r.data if isinstance(r.data, dict) else None,
+                    call_id=runtime_ctx.get("tool_call_id"),
                 )
             # The generated code, exactly as read_artifact puts it in ITS
             # observation. `code` used to live only on the tool OUTPUT — which
@@ -562,7 +563,10 @@ class ReadQueryTool(Tool):
                     "query_id": r.query_id,
                     "visualization_id": r.visualization_id,
                     "data_model": r.data_model,
-                    "data_preview": with_column_sums(r.data_preview, r.data if isinstance(r.data, dict) else None, step_id=r.step_id) if r.page is None else None,
+                    "data_preview": with_column_sums(
+                        r.data_preview, r.data if isinstance(r.data, dict) else None,
+                        call_id=runtime_ctx.get("tool_call_id"),
+                    ) if r.page is None else None,
                 }
                 if r.page is not None:
                     entry["page"] = r.page

@@ -1452,7 +1452,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         data: Dict[str, Any],
         allow_llm_see_data: bool,
         source_flagged: bool,
-        step_id: Optional[str] = None,
+        call_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build the planner result for a successful data query.
 
@@ -1464,7 +1464,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         info = data.get("info", {})
         return {
             "summary": summary,
-            "data_preview": data_preview if source_flagged else with_column_sums(data_preview, data, step_id=step_id),
+            "data_preview": data_preview if source_flagged else with_column_sums(data_preview, data, call_id=call_id),
             "stats": clamp_stats(info) if allow_llm_see_data else clamp_stats(gate_stats_for_privacy(info)),
             "analysis_complete": False,
             "final_answer": None,
@@ -2472,7 +2472,9 @@ Do not use generic placeholders like "value" unless that is the actual column na
             data=formatted,
             allow_llm_see_data=allow_llm_see_data,
             source_flagged=bool(collect_query_notices(query_timings)),
-            step_id=current_step_id,
+            # Not current_step_id: it is the runtime_ctx snapshot taken before
+            # this call's step exists, so it is None here.
+            call_id=runtime_ctx.get("tool_call_id"),
         )
         observation["data_model"] = final_dm
         # The SQL actually sent to the source. The FAILURE path already gives
