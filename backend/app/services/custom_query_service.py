@@ -32,6 +32,7 @@ from app.core.scheduler import scheduler
 from app.core.telemetry import telemetry
 from app.data_sources.fast import artifacts, extractor, incremental, loader, rls
 from app.data_sources.fast import events as table_events
+from app.data_sources.fast import limits as fast_limits
 from app.ee.license import has_feature
 from app.data_sources.fast.fast_client import FastQueryClient, FastRelation
 from app.models.connection import Connection
@@ -106,6 +107,12 @@ logger = logging.getLogger(__name__)
 # against a live 24.8 server holding 20M rows. The run found two things a fake
 # would not have: an abandoned Arrow stream keeps the client's HTTP session
 # locked, and Arrow carries Enum columns as bare integer codes.
+#
+# Analysis Services (fast/analysis_services_source.py) and SAP BusinessObjects
+# (fast/businessobjects_source.py) have native sources too, tested against
+# fake endpoints only; neither has been run against a live server. They are
+# offered acceleration as queryable connectors (`is_accelerable_type`) and are
+# deliberately in neither set below.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
                   "bigquery", "mssql", "oracledb", "posthog", "powerbi",
                   "clickhouse"}
@@ -285,9 +292,12 @@ class _Run:
             with suppress(Exception):
                 self.previous_key = artifacts.decrypt_key(cq.artifact_key_enc)
         self.previous_rows = cq.no_rows if cq.artifact_path else None
+        # The organization's limits, attached to the client when it was
+        # prepared; every unit of work below reads them from here.
+        self.limits = fast_limits.of(self.client)
         # We write the window predicate ourselves unless the admin placed it
         # (placeholders) or the source takes it as request fields.
-        self.at_source = incremental.filters_at_source(self.client)
+        self.at_source = incremental.filters_at_source(self.client, self.sql)
         from app.data_sources.fast.sources import QuerySource, source_for
 
         # Read through the connector's plain `execute_query`: no source built
@@ -439,7 +449,10 @@ class CustomQueryService:
 
     @staticmethod
     def _needs_catalog(client) -> bool:
-        return hasattr(client, "attach_table_metadata") and hasattr(client, "execute_dax_rows")
+        # Clients addressed per target (a Power BI semantic model, an Analysis
+        # Services catalog) resolve it from the connection's indexed catalog.
+        return hasattr(client, "attach_table_metadata") and \
+            getattr(client, "EXTRACTION_SOURCE", None) is not None
 
     async def _prepare_client(
         self, db: AsyncSession, connection: Connection, client, target: Optional[dict]
@@ -450,7 +463,15 @@ class CustomQueryService:
         table references resolve to a semantic model without a tenant crawl)
         and the admin's explicit pin, when there is one. Everything else is
         left alone.
+
+        Every client gets the organization's limits (`fast/limits.py`). This
+        is the one place a client is prepared for extraction — preview,
+        create, manual, scheduled, resumed and incremental refreshes all pass
+        through it — so no path can extract under the defaults by forgetting
+        to look the settings up. The limits are read off the connection's own
+        organization, not the caller's: a scheduled refresh has no caller.
         """
+        client.extraction_limits = await self.limits_for(db, connection)
         if not self._needs_catalog(client):
             return
         rows = (
@@ -466,6 +487,20 @@ class CustomQueryService:
             [{"name": name, "metadata_json": meta} for name, meta in rows]
         )
         client.extraction_target = dict(target) if target else None
+
+    @staticmethod
+    async def limits_for(db: AsyncSession, connection: Connection) -> fast_limits.FastLimits:
+        """The custom-table limits of the organization that owns `connection`."""
+        from app.models.organization_settings import OrganizationSettings
+
+        row = (
+            await db.execute(
+                select(OrganizationSettings).where(
+                    OrganizationSettings.organization_id == str(connection.organization_id)
+                )
+            )
+        ).scalars().first()
+        return fast_limits.resolve(row)
 
     async def list_targets(self, db: AsyncSession, connection: Connection) -> list:
         """The semantic models a custom table on this connection can target.
@@ -639,8 +674,9 @@ class CustomQueryService:
             raise HTTPException(status_code=400, detail=f"Query failed: {e}")
 
         refused = None
+        limits = fast_limits.of(client)
         try:
-            extractor.check_budget(est)
+            self._check_budget(est, limits)
         except extractor.ExtractionRefused as e:
             refused = str(e)
 
@@ -655,7 +691,7 @@ class CustomQueryService:
             "estimate_supported": est.supported,
             "estimate_note": est.note,
             "budget_error": refused,
-            "filters_at_source": incremental.filters_at_source(client),
+            "filters_at_source": incremental.filters_at_source(client, definition_sql),
         }
 
     async def create(
@@ -1304,9 +1340,15 @@ class CustomQueryService:
 
     # -- units of work (each runs in a worker thread, off the ORM) ----------
 
+    @staticmethod
+    def _check_budget(est, limits: fast_limits.FastLimits) -> None:
+        """The budget check, under the organization's limits."""
+        extractor.check_budget(est, max_rows=limits.max_rows, max_bytes=limits.max_bytes,
+                               max_scan_bytes=limits.max_scan_bytes)
+
     def _limits(self, run: "_Run") -> loader.Limits:
         return loader.Limits(
-            max_rows=extractor.DEFAULT_MAX_ROWS, max_bytes=extractor.DEFAULT_MAX_BYTES,
+            max_rows=run.limits.max_rows, max_bytes=run.limits.max_bytes,
             deadline=time.monotonic() + extractor.DEFAULT_MAX_SECONDS,
             should_abort=run.abort.is_set, max_seconds=extractor.DEFAULT_MAX_SECONDS,
         )
@@ -1314,10 +1356,11 @@ class CustomQueryService:
     def _work_single(self, run: "_Run"):
         try:
             est = extractor.estimate(run.client, run.sql)
-            extractor.check_budget(est)
+            self._check_budget(est, run.limits)
             run.rendered_query = run.sql
             return extractor.extract_to_artifact(
                 run.client, run.sql, run.name, run.connection_id,
+                max_rows=run.limits.max_rows, max_bytes=run.limits.max_bytes,
                 should_abort=run.abort.is_set, run_id=run.run_id, config=run.config,
                 previous_rows=run.previous_rows,
             )
@@ -1344,7 +1387,7 @@ class CustomQueryService:
             whole = incremental.Window(lo=start, hi=None, include_nulls=run.wrapped and start is not None)
             rendered = self._render(run, whole)
             est = extractor.estimate(run.client, rendered)
-            extractor.check_budget(est)
+            self._check_budget(est, run.limits)
 
             windows = [incremental.Window(lo=start, hi=None, include_nulls=run.wrapped)]
             total = None
@@ -1362,10 +1405,10 @@ class CustomQueryService:
                     run.note(f"Could not size the load up front ({str(e)[:200]}); loading as one window.",
                              "warning")
                 else:
-                    if total > extractor.DEFAULT_MAX_ROWS:
+                    if total > run.limits.max_rows:
                         raise extractor.ExtractionRefused(
                             f"This query returns {total:,} rows, over the "
-                            f"{extractor.DEFAULT_MAX_ROWS:,}-row limit for a custom table. "
+                            f"{run.limits.max_rows:,}-row limit for a custom table. "
                             f"Narrow it with a WHERE clause or a later start value."
                         )
                     if start is not None and incremental.kind_of(lo) == incremental.kind_of(start):
@@ -1460,7 +1503,7 @@ class CustomQueryService:
             rendered = self._render(run, window)
             run.rendered_query = rendered
             est = extractor.estimate(run.client, rendered)
-            extractor.check_budget(est)
+            self._check_budget(est, run.limits)
             return loader.apply_increment(
                 self._source(run, rendered), rendered, run.previous_path, run.previous_key,
                 run.name, run.connection_id, run.run_id, run.config, window, self._limits(run),

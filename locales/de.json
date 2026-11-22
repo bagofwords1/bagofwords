@@ -3651,6 +3651,22 @@
           "name": "Benutzerdefinierte Tabellen (Beta)",
           "description": "Erlaubt Verbindungsadministratoren, SQL zu definieren, das BOW nach Zeitplan in eine verschlüsselte lokale Kopie materialisiert, sodass Agenten aus dem zwischengespeicherten Ergebnis antworten, statt die Quelle in jeder Runde abzufragen. Beta: standardmäßig aus."
         },
+        "custom_table_max_rows": {
+          "name": "Zeilenlimit für benutzerdefinierte Tabellen",
+          "description": "Höchstzahl an Zeilen, die eine benutzerdefinierte Tabelle enthalten darf. Eine Abfrage, die laut Schätzung oder tatsächlich mehr liefert, wird abgelehnt und die bisherigen Daten werden weiter verwendet. 1.000 bis 100.000.000."
+        },
+        "custom_table_max_gb": {
+          "name": "Größenlimit für benutzerdefinierte Tabellen (GB)",
+          "description": "Größtes geschätztes Ergebnis und größte zwischengespeicherte Datei für eine benutzerdefinierte Tabelle. 1 bis 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Quell-Scanlimit für benutzerdefinierte Tabellen (GB)",
+          "description": "Höchste Datenmenge, die die Quelle für eine Aktualisierung lesen darf, sofern die Quelle sie vor der Ausführung meldet (BigQuery, Snowflake). 1 bis 10.240."
+        },
+        "custom_table_max_requests": {
+          "name": "Anfragelimit für benutzerdefinierte Tabellen",
+          "description": "Höchstzahl an Anfragen, die eine Aktualisierung an eine seitenweise gelesene Quelle senden darf (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Zusammen mit dem Zeilenlimit erhöhen: Power BI liefert höchstens 100.000 Zeilen pro Anfrage und erlaubt etwa 120 Anfragen pro Minute. 16 bis 10.000."
+        },
         "enable_agent_notes": {
           "name": "Agenten-Notizen",
           "description": "Erlaubt dem Agenten, pro Bericht Arbeitsnotizen (einen Notizblock) zu führen, die er beim Antworten schreibt und liest — Pläne, Erkenntnisse und Aufgaben. Notizen werden im Bericht angezeigt, sind aber kein geteiltes Wissen. Ist die Option aus, werden die Notiz-Tools ausgeblendet und Notizen nicht in den Kontext eingefügt."

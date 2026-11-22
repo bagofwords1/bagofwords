@@ -137,6 +137,25 @@ of result size.
 refresh. On breach: abort, keep the previous artifact, record
 `last_refresh_error`. Plus a per-connection storage budget checked before write.
 
+**The budgets are per organization.** Four settings on the AI settings page,
+shown under "Custom tables" and gated by `manage_settings` like every other
+setting there (`backend/app/data_sources/fast/limits.py`):
+
+| Setting | Default | Range | Guards |
+|---|---|---|---|
+| `custom_table_max_rows` | 5,000,000 | 1,000 to 100,000,000 | rows in one table (estimate, mid-load, increment) |
+| `custom_table_max_gb` | 2 | 1 to 64 | estimated result bytes and the artifact on disk |
+| `custom_table_max_scan_gb` | 100 | 1 to 10,240 | bytes the source reads per refresh (BigQuery, Snowflake); also BigQuery's `maximum_bytes_billed` |
+| `custom_table_max_requests` | 512 | 16 to 10,000 | requests per extraction on paged sources (Power BI, Analysis Services, BusinessObjects, PostHog) |
+
+A write outside the range is refused (400) and a stored value is clamped on
+read, so a setting moves a limit and never removes it. The limits are attached
+to the client in `CustomQueryService._prepare_client`, the one place a client
+is prepared for extraction, and read from the connection's own organization:
+preview, create, manual, scheduled, resumed and incremental refreshes all pass
+through it, so none can fall back to the defaults by omission. The wall-clock
+limit (30 minutes per window) is not a setting.
+
 **The Test button is bounded too.** The modal's preview wraps the admin's SQL in
 a subquery with a `LIMIT`; it never runs raw unbounded SQL from a UI action.
 
@@ -392,6 +411,27 @@ added, and the reasons are worth carrying forward.
   WARNING `extraction.column_became_approximate` (`column`, `from_type`).
   Repeated column names (`a.id, b.id`) are stored as `id`, `id_1`, as DuckDB
   itself names a case-only repeat, and `columns` reports those stored names.
+
+### Analysis Services and SAP BusinessObjects sources
+
+Both are tested against fake endpoints only. **Neither has been run against a
+live server**; each module's docstring separates what was read off the client
+code from what is assumed.
+
+| | Analysis Services (`fast/analysis_services_source.py`) | SAP BusinessObjects (`fast/businessobjects_source.py`) |
+|---|---|---|
+| Definition | a DAX query (`EVALUATE …`) on a Tabular model; MDX keeps the one-request path it had | JSON: `{"universe": "Sales", "objects": ["Country", "Sales revenue"]}` |
+| Estimate | exact, `COUNTROWS` (one request) | exact, the result's `$count` (creates and runs the query, then deletes it) |
+| What one response is | the whole result, no cap, parsed in memory | a page chosen by `$top` |
+| Paging | value windows over a numeric/date column, each request wrapped in `TOPN(page + 1, …)` so the server bounds it; page = 100,000 rows or 1,000,000 values (ours) | `$skip`/`$top` over one created query, 10,000 rows a request (ours); a short page continues from what arrived |
+| Truncation | total checked against the count; a response of `page + 1` rows is split, not stored | paging ends only at the count; an empty page before it fails the refresh |
+| Cancel | stop sending windows (no XMLA session to cancel) | stop paging; the temporary query is deleted |
+| Incremental | window written into the DAX (`FILTER`, or `{{since}}`/`{{until}}`); MDX filtered locally | query runs whole, window taken from the result |
+| Request limit | `custom_table_max_requests` | `custom_table_max_requests` |
+
+The Analysis Services source subclasses the Power BI one: the count / sample /
+window / verify strategy belongs to DAX, and only the transport, the target
+(a catalog instead of a semantic model) and what a response can carry differ.
 
 ## Phases
 

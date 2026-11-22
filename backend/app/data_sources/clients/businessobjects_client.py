@@ -8,6 +8,7 @@ import pandas as pd
 import logging
 import xml.etree.ElementTree as ET
 from collections import Counter
+from contextlib import contextmanager
 from urllib.parse import quote
 
 
@@ -44,6 +45,14 @@ class BusinessObjectsClient(DataSourceClient):
     All calls carry the session token in the ``X-SAP-LogonToken`` header
     (double-quoted per the BI Platform contract).
     """
+
+    # Custom tables: a universe query read to the end in pages and checked
+    # against its row count (app/data_sources/fast/businessobjects_source.py).
+    @staticmethod
+    def EXTRACTION_SOURCE(client):
+        from app.data_sources.fast.businessobjects_source import BusinessObjectsSource
+
+        return BusinessObjectsSource(client)
 
     # Auth-plugin identifiers accepted by /logon/long.
     VALID_AUTH_TYPES = {"secEnterprise", "secLDAP", "secWinAD", "secSAPR3"}
@@ -397,6 +406,31 @@ class BusinessObjectsClient(DataSourceClient):
         self, universe_id: str, result_objects: List[str], max_rows: Optional[int]
     ) -> List[Dict]:
         """Use the BO 4.2/4.3 XML query and OData result lifecycle."""
+        with self.open_universe_query(universe_id, result_objects) as result:
+            rows: List[Dict] = []
+            total = result["total"]
+            limit = min(total, max_rows) if max_rows is not None and max_rows > 0 else total
+            if limit == 0:
+                return rows
+            for _ in range(100000):
+                size = min(self.page_size, limit - len(rows)) if limit else self.page_size
+                for values in self.read_universe_page(result, len(rows), size):
+                    rows.append(dict(zip(result_objects, values)))
+                if limit and len(rows) >= limit:
+                    return rows
+            raise RuntimeError("SAP result exceeded the pagination safety limit.")
+
+    @contextmanager
+    def open_universe_query(self, universe_id: str, result_objects: List[str]):
+        """Create a query on a universe, run it, and yield its result handle.
+
+        The handle is a dict: ``path`` (the temporary query resource), ``flow``
+        (its single result flow), ``fields`` (the OData property of each
+        selected object, in order), ``types`` (their Edm types) and ``total``
+        (the row count SAP reports for the result). Rows are then read a page
+        at a time with ``read_universe_page``. The temporary query is deleted
+        when the block exits, however it exits.
+        """
         table = self.get_schema(universe_id)
         by_name = {column.name: column for column in table.columns}
         query = ET.Element("query", {
@@ -472,8 +506,9 @@ class BusinessObjectsClient(DataSourceClient):
                 raise RuntimeError("SAP result metadata is missing the flow entity type.")
             keys = {e.attrib["Name"] for e in entity.iter() if e.tag.split("}")[-1] == "PropertyRef"}
             # SAP exposes selected objects in query order, with an extra OData key.
-            fields = [e.attrib["Name"] for e in entity if e.tag.split("}")[-1] == "Property"
-                      and e.attrib["Name"] not in keys]
+            properties = [e for e in entity if e.tag.split("}")[-1] == "Property"
+                          and e.attrib["Name"] not in keys]
+            fields = [e.attrib["Name"] for e in properties]
             if len(fields) != len(result_objects):
                 raise RuntimeError("SAP result columns do not match selected objects.")
             response = self._session().get(
@@ -484,32 +519,8 @@ class BusinessObjectsClient(DataSourceClient):
             total = int(response.text.strip())
             if total < 0:
                 raise RuntimeError("SAP returned an invalid row count.")
-            rows = []
-            limit = min(total, max_rows) if max_rows is not None and max_rows > 0 else total
-            if limit == 0:
-                return rows
-            for _ in range(100000):
-                size = min(self.page_size, limit - len(rows)) if limit else self.page_size
-                response = self._session().get(
-                    path + "/data.svc/" + quote(flow, safe=""), headers=self._headers(),
-                    params={"$skip": len(rows), "$top": size}, timeout=self.timeout_sec,
-                )
-                self._check_response(response, "Result retrieval")
-                payload = response.json()
-                batch = payload.get("value")
-                if batch is None and isinstance(payload.get("d"), dict):
-                    batch = payload["d"].get("results")
-                if not isinstance(batch, list):
-                    raise RuntimeError("SAP returned an unsupported OData result shape.")
-                if not batch:
-                    raise RuntimeError("SAP ended the result before its reported row count.")
-                for row in batch[:size]:
-                    if not isinstance(row, dict) or any(field not in row for field in fields):
-                        raise RuntimeError("SAP result row is missing selected fields.")
-                    rows.append(dict(zip(result_objects, (row[field] for field in fields))))
-                if limit and len(rows) >= limit:
-                    return rows
-            raise RuntimeError("SAP result exceeded the pagination safety limit.")
+            yield {"path": path, "flow": flow, "fields": fields, "total": total,
+                   "types": [e.attrib.get("Type") for e in properties]}
         finally:
             # Preserve the original query error if cleanup also fails.
             try:
@@ -517,6 +528,35 @@ class BusinessObjectsClient(DataSourceClient):
                 self._check_response(response, "Query cleanup")
             except Exception:
                 logging.getLogger(__name__).warning("Could not delete temporary SAP query")
+
+    def read_universe_page(self, result: Dict, skip: int, top: int) -> List[List]:
+        """Up to ``top`` rows of an open query's result starting at ``skip``,
+        each as its values in selected-object order.
+
+        SAP may return fewer rows than asked for; the caller continues from
+        however many arrived. An empty page is an error: it is only asked for
+        while rows remain under the reported count.
+        """
+        response = self._session().get(
+            result["path"] + "/data.svc/" + quote(result["flow"], safe=""), headers=self._headers(),
+            params={"$skip": skip, "$top": top}, timeout=self.timeout_sec,
+        )
+        self._check_response(response, "Result retrieval")
+        payload = response.json()
+        batch = payload.get("value")
+        if batch is None and isinstance(payload.get("d"), dict):
+            batch = payload["d"].get("results")
+        if not isinstance(batch, list):
+            raise RuntimeError("SAP returned an unsupported OData result shape.")
+        if not batch:
+            raise RuntimeError("SAP ended the result before its reported row count.")
+        fields = result["fields"]
+        rows = []
+        for row in batch[:top]:
+            if not isinstance(row, dict) or any(field not in row for field in fields):
+                raise RuntimeError("SAP result row is missing selected fields.")
+            rows.append([row[field] for field in fields])
+        return rows
 
     @staticmethod
     def _check_response(response, operation: str):

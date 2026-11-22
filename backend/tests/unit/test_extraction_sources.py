@@ -224,6 +224,18 @@ def test_bigquery_caps_bytes_billed_on_every_job():
     assert bq.configs[0].maximum_bytes_billed == DEFAULT_MAX_BYTES_BILLED
 
 
+def test_bigquery_job_cap_follows_the_organizations_scan_limit():
+    """The budget check and the job cap must agree: an organization that
+    raised (or lowered) its scan limit gets that number on the job too."""
+    from app.data_sources.fast import limits as fast_limits
+    from app.data_sources.fast.bigquery_source import DEFAULT_MAX_BYTES_BILLED
+
+    src, bq = _bq_source(_FakeJob())
+    src.client.extraction_limits = fast_limits.FastLimits(max_scan_bytes=7 * fast_limits.GIB)
+    src.estimate("SELECT 1")
+    assert bq.configs[0].maximum_bytes_billed == 7 * fast_limits.GIB != DEFAULT_MAX_BYTES_BILLED
+
+
 def test_bigquery_honours_a_connection_level_byte_cap():
     from app.data_sources.fast.bigquery_source import BigQuerySource
 
