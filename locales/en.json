@@ -1514,7 +1514,30 @@
       "copied": "Trace JSON copied to clipboard",
       "failed": "Couldn't export the trace"
     },
-    "hiddenTurns": "{count} later turn hidden: it or an earlier turn reached an agent you don't manage | {count} later turns hidden: they or an earlier turn reached an agent you don't manage"
+    "hiddenTurns": "{count} later turn hidden: it or an earlier turn reached an agent you don't manage | {count} later turns hidden: they or an earlier turn reached an agent you don't manage",
+    "contextColumns": {
+      "ofTotal": "{shown} of {total} columns",
+      "allColumns": "{total} columns",
+      "why": "Why these columns",
+      "reason": {
+        "usage_ranked": "Ranked by column usage",
+        "structural_only": "No usage yet: keys, timestamps and IDs first",
+        "all_columns": "All columns fit the budget"
+      },
+      "signal": {
+        "mentioned": "{n} named in the task",
+        "usage": "{n} by usage",
+        "instructions": "{n} referenced by instructions",
+        "structural": "{n} keys, timestamps or IDs",
+        "sample": "{n} sampled across column groups",
+        "schema_order": "{n} in catalog order"
+      },
+      "shown": "Columns in context",
+      "folded": "Folded (searchable with describe_tables)",
+      "otherColumns": "{count} other columns",
+      "usedTimes": "used {count}×",
+      "score": "score {score}"
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -2655,6 +2678,19 @@
       "connected": "Connected",
       "askAgain": "Ask again",
       "readyHint": "Connected. Run your question again to use it."
+    },
+    "describeTables": {
+      "searching": "Searching {query}…",
+      "searched": "Searched {names}",
+      "searchedMore": "Searched {names} +{count}",
+      "columnsMatching": "columns matching {terms}",
+      "column": "Column",
+      "type": "Type",
+      "used": "Used",
+      "showingOf": "Top {shown} of {total} columns, most used first",
+      "matchingOf": "{matched} of {total} columns match {terms}",
+      "noMatch": "No column matches {terms}",
+      "more": "+{count} more"
     }
   },
   "entityCreate": {
@@ -4318,6 +4354,10 @@
         "show_world": {
           "name": "World view",
           "description": "Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K columns per table",
+          "description": "How many columns of a wide table the agent sees in full in its context, ranked by column usage, instruction references and keys/timestamps. The rest are summarized by prefix and stay searchable with describe_tables. 0 = no limit."
         }
       },
       "permissionMode": {
@@ -7784,7 +7824,10 @@
     "showAllColumns": "Show all",
     "hideAllColumns": "Hide all",
     "includeColumn": "Include {name} in agent context",
-    "columnHidden": "hidden"
+    "columnHidden": "hidden",
+    "usedHeader": "Used",
+    "usedTooltip": "Executed queries that used this column (failed attempts count less in ranking)",
+    "sortedByUsage": "Most used first"
   },
   "fork": {
     "preparing": "Preparing your copy…",
