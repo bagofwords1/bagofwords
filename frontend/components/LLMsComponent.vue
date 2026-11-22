@@ -107,11 +107,11 @@
                         @update:model-value="onAutoRouterToggle"
                     />
                     <button
-                        v-if="autoRouterOn && useCan('manage_llm_settings') && modelRoutingLicensed"
+                        v-if="routingInUse && useCan('manage_llm_settings') && modelRoutingLicensed"
                         type="button"
                         class="text-xs text-blue-600 hover:underline"
                         data-testid="auto-router-configure"
-                        @click="autoRouterModalOpen = true"
+                        @click="openAutoRouterConfigure"
                     >
                         {{ $t('settings.llms.autoRouterModal.configure') }}
                     </button>
@@ -148,7 +148,7 @@
             </div>
         </div>
         <div
-            v-if="models.length > 0 && autoRouterOn && routingDecision.method === 'decision' && routingDecisionModel"
+            v-if="models.length > 0 && routingInUse && routingDecision.method === 'decision' && routingDecisionModel"
             class="mb-3 flex items-center flex-wrap gap-1.5 text-xs text-ink-2"
             data-testid="auto-router-decision-summary"
         >
@@ -157,7 +157,7 @@
             <span>{{ $t('settings.llms.autoRouterModal.summaryDecision', { model: routingDecisionModel.name, pct: Math.round(routingDecision.min_confidence * 100) }) }}</span>
         </div>
         <div
-            v-if="models.length > 0 && autoRouterOn && routingDecision.method === 'decision' && !routingDecisionModel"
+            v-if="models.length > 0 && routingInUse && routingDecision.method === 'decision' && !routingDecisionModel"
             class="mb-3 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400"
             data-testid="auto-router-decision-unavailable"
         >
@@ -196,7 +196,7 @@
                     <tr>
                         <th>{{ $t('settings.llms.colModel') }}</th>
                         <th>{{ $t('settings.llms.colProvider') }}</th>
-                        <th v-if="autoRouterOn" class="w-full">{{ $t('settings.llms.colRouting') }}</th>
+                        <th v-if="routingInUse" class="w-full">{{ $t('settings.llms.colRouting') }}</th>
                         <th v-if="fallbackOn">
                             <UTooltip :text="$t('settings.llms.fallbackColTooltip')">{{ $t('settings.llms.colFallback') }}</UTooltip>
                         </th>
@@ -251,7 +251,7 @@
                                 <span>{{ model.provider.name }}</span>
                             </div>
                         </td>
-                        <td v-if="autoRouterOn" class="align-middle w-full" data-testid="llm-routing-cell" @click.stop>
+                        <td v-if="routingInUse" class="align-middle w-full" data-testid="llm-routing-cell" @click.stop>
                             <div class="min-w-[20rem] max-w-[32rem]">
                                 <span v-if="model.model_kind === 'decision'" class="text-xs text-ink-muted" data-testid="llm-routing-decision-cell">
                                     {{ routingDecision.method === 'decision' && routingDecision.decision_model_id === model.id ? $t('settings.llms.decision.routerInUse') : $t('settings.llms.decision.notRoutingTarget') }}
@@ -393,7 +393,7 @@
             v-model="autoRouterModalOpen"
             :decision-models="decisionModels"
             :current="routingDecision"
-            :already-on="autoRouterOn"
+            :already-on="autoRouterOn || routerModalConfigureOnly"
             :saving="savingRouter"
             @confirm="confirmAutoRouter"
             @add-decision-model="openAddDecisionModel"
@@ -522,19 +522,31 @@ const loadAutoRouter = async () => {
 // Turning the router ON asks how it should decide (modal); OFF saves directly.
 const onAutoRouterToggle = (val: boolean) => {
     if (val) {
+        routerModalConfigureOnly.value = false;
         autoRouterModalOpen.value = true;
     } else {
         saveAutoRouter(false);
     }
 };
 
+// "Configure" while only groups have the router on: change how it decides
+// without turning it on for the whole org.
+const routerModalConfigureOnly = ref(false);
+const openAutoRouterConfigure = () => {
+    routerModalConfigureOnly.value = true;
+    autoRouterModalOpen.value = true;
+};
+
 const confirmAutoRouter = async (value: RoutingDecision) => {
     savingRouter.value = true;
     try {
         const wasOn = autoRouterOn.value;
+        const configureOnly = routerModalConfigureOnly.value && !wasOn;
+        const config: Record<string, any> = { model_routing_decision: { value } };
+        if (!configureOnly) config.model_routing = { value: true };
         const response = await useMyFetch('/organization/settings', {
             method: 'PUT',
-            body: { config: { model_routing: { value: true }, model_routing_decision: { value } } },
+            body: { config },
         });
         if (response.status.value !== 'success') {
             toast.add({ title: 'Error', description: updateErrorDetail(response), color: 'red' });
@@ -542,11 +554,11 @@ const confirmAutoRouter = async (value: RoutingDecision) => {
         }
         routingDecision.value = { ...value };
         autoRouterModalOpen.value = false;
-        if (!wasOn) {
+        if (!wasOn && !configureOnly) {
             autoRouterOn.value = true;
             await seedDefaultRoutingHints();
         }
-        toast.add({ title: wasOn ? t('settings.llms.autoRouterModal.saved') : t('settings.llms.autoRouterOn'), color: 'green' });
+        toast.add({ title: wasOn || configureOnly ? t('settings.llms.autoRouterModal.saved') : t('settings.llms.autoRouterOn'), color: 'green' });
     } finally {
         savingRouter.value = false;
     }
@@ -739,7 +751,21 @@ const accessLabel = (model: Model) => (model.is_restricted ? 'Restricted' : 'Eve
 // Group defaults: badge each model with the groups that default to it.
 const groupDefaultsRef = ref<{ refresh: () => Promise<void> } | null>(null);
 const groupDefaultsByModel = ref<Record<string, string[]>>({});
+// The router can be on for some groups while the org toggle is off. Routing
+// only offers models that carry a hint, so the hint column and the decision
+// settings must show whenever routing is on anywhere — org or any group.
+const anyGroupRoutingOn = ref(false);
+const groupRowsLoaded = ref(false);
+const routingInUse = computed(() => autoRouterOn.value || anyGroupRoutingOn.value);
 const onGroupDefaultRows = (rows: any[]) => {
+    const groupOnNow = (rows || []).some((r) => r.model_routing === true);
+    // A group was just turned on (not the initial load) and the org toggle is
+    // off: seed starter hints the same way turning the org toggle on does, so
+    // the group has candidates to route between out of the box.
+    const justTurnedOn = groupRowsLoaded.value && groupOnNow && !anyGroupRoutingOn.value && !autoRouterOn.value;
+    anyGroupRoutingOn.value = groupOnNow;
+    groupRowsLoaded.value = true;
+    if (justTurnedOn) seedDefaultRoutingHints();
     const map: Record<string, string[]> = {};
     for (const r of rows || []) {
         for (const id of new Set([r.default_llm_model_id, r.small_default_llm_model_id].filter(Boolean))) {
