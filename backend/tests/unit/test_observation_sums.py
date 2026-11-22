@@ -4,14 +4,19 @@
 ``column_sums`` block on the observation's copy of ``data_preview``. The tool
 output keeps the plain preview: it goes to the UI, SSE and ``result_json``,
 which stay as they are. A hidden preview and a source-flagged ``create_data``
-result get no block.
+result get no block. The block survives compaction of an older observation and
+the transcript's tool-result content.
 
-Seams: ``ReadQueryTool.run_stream`` with a fake DB (the external boundary), and
-the public ``CreateDataTool.build_success_observation`` (the ``create_data``
-success path itself needs code generation). Pure Python: no DB, no LLM.
+Seams: ``ReadQueryTool.run_stream`` with a fake DB (the external boundary), the
+public ``CreateDataTool.build_success_observation`` (the ``create_data``
+success path itself needs code generation), and
+``ObservationContextBuilder.add_tool_observation`` and ``build_result_part``
+fed a real read_query observation. Pure Python: no DB, no LLM.
 """
 from __future__ import annotations
 
+import copy
+import json
 import logging
 from types import SimpleNamespace
 
@@ -19,6 +24,8 @@ import pandas as pd
 import pytest
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
+from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
+from app.ai.context.result_parts import build_result_part
 from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
 from app.ai.tools.implementations.create_data import CreateDataTool
 from app.ai.tools.implementations.read_query import ReadQueryTool
@@ -241,3 +248,41 @@ def test_create_data_observation_has_no_sums_when_source_flagged():
         allow_llm_see_data=True, source_flagged=False, step_id="s-1",
     )
     assert clean["data_preview"]["column_sums"]["sum"] == EXPECTED_SUMS
+
+
+async def _read_query_observation():
+    formatted = _formatted(_departments_df())
+    payload = await _payload({"query_ids": ["q1"]}, [_Query("q1", formatted, "Budget"), None])
+    return payload["observation"]
+
+
+@pytest.mark.asyncio
+async def test_compaction_keeps_sums():
+    obs = await _read_query_observation()
+    before = copy.deepcopy(obs["data_preview"])
+    assert len(before["rows"]) == 12
+
+    builder = ObservationContextBuilder()
+    builder.add_tool_observation("read_query", {"query_ids": ["q1"]}, obs, loop_index=0)
+    builder.add_tool_observation("create_data", {}, {"summary": "ok"}, loop_index=1)
+
+    compacted = builder.tool_observations[0]["observation"]["data_preview"]
+    assert len(compacted["rows"]) == 3
+    assert compacted["sampled"] is True
+    assert compacted["note"] == "sample of 3; 12 rows total"
+    assert compacted["note"] != before.get("note")
+    # The block keeps its own note: it still covers all 12 rows.
+    assert compacted["column_sums"] == {"note": "sum = sum of all 12 rows", "sum": EXPECTED_SUMS}
+
+
+@pytest.mark.asyncio
+async def test_transcript_result_content_carries_sums():
+    obs = await _read_query_observation()
+
+    part = build_result_part(call_id="c1", tool_name="read_query", observation=obs)
+
+    content = json.loads(part.content)
+    assert content["data_preview"]["column_sums"] == {
+        "note": "sum = sum of all 12 rows",
+        "sum": EXPECTED_SUMS,
+    }
