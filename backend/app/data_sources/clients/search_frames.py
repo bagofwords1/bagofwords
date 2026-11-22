@@ -131,7 +131,7 @@ def flatten_aggregations(aggregations):
                 columns = {(key if key == "doc_count" else f"{name}.{key}"): value
                            for key, value in child.items()}
                 qualified.append({**parent, **columns})
-            if len(qualified) > 1:
+            if any("doc_count" in child for child in children):
                 rows.extend(qualified)
             else:
                 metrics.update(qualified[0] if qualified else parent)

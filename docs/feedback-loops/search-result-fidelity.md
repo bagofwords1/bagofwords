@@ -38,6 +38,7 @@ A separate 100,000-event synthetic index exercised column discovery and generate
 | Which events recorded a sparse telemetry field? | 10 events, highest event ID 99920 | Correct final values. Generated code initially looked for a metric column ending in `.value` and needed a sorted-hit check |
 | What happened to event 999? | Search service, north, HTTP 200, 108 ms | All four values matched |
 | Did the export contain HTTP 418s? | 0 out of 100,000 | First answer qualified the count after generated code tried to cast the total object to an integer. A follow-up verified zero |
+| Which events took at least 300 ms? | 3,330 total, billing and search 999 each, checkout and gateway 666 each | Grouped counts and an independent exact count agreed |
 | Which service averaged the highest latency? | Billing 160.9 ms, search 159.9, gateway 158.9, checkout 157.9 | Correct ordering and means |
 
 ## Result contract

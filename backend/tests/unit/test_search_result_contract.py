@@ -96,3 +96,17 @@ def test_filter_with_child_buckets_retains_parent_and_child_counts(search):
     assert frame["outer.doc_count"].tolist() == [7, 7]
     assert frame["outer.by_region"].tolist() == ["west", "east"]
     assert frame["doc_count"].tolist() == [5, 2]
+
+
+def test_single_child_bucket_stays_separate_from_sibling_series(search):
+    aggregations = {
+        "subset": {"doc_count": 5, "regions": {"buckets": [{"key": "west", "doc_count": 5}]}},
+        "services": {"buckets": [{"key": "billing", "doc_count": 7}]},
+    }
+    frame, _ = search({"aggs": {"subset": {"filter": {"match_all": {}},
+                                           "aggs": {"regions": {"terms": {"field": "region"}}}},
+                                "services": {"terms": {"field": "service"}}}}, {"aggregations": aggregations})
+    assert len(frame) == 2
+    assert frame["subset.regions"].dropna().tolist() == ["west"]
+    assert frame["services"].dropna().tolist() == ["billing"]
+    assert frame["doc_count"].tolist() == [5, 7]
