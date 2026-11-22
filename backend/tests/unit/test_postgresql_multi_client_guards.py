@@ -200,6 +200,7 @@ class _FailingEngine:
     failed_tenants: list = []
     left_out: list = []
     missing_views: list = []
+    attached_tenants = frozenset({"tenant_a", "tenant_b"})
 
     def __init__(self, error):
         self.error = error

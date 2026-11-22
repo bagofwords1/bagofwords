@@ -12,13 +12,19 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlglot import exp
 
 from app.ai.code_execution.sql_parser import parse_guard_sql
-from app.ai.code_execution.table_scope import TableScopeViolation, refuse_unchecked_reads, table_refs
+from app.ai.code_execution.table_scope import (
+    TABLE_SCOPE_ATTR,
+    TableScopeViolation,
+    refuse_unchecked_reads,
+    table_refs,
+)
 from app.ai.prompt_formatters import Table, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.database_spec import parse_database_spec, select_databases, spec_matches
 from app.data_sources.clients.discovery import IncompleteDiscoveryError, require_complete_discovery
 from app.data_sources.clients.postgresql_client import PostgresqlClient
 from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN, unify_catalogs
+from app.data_sources.clients.postgresql_multi_guard import check_query
 from app.data_sources.clients.postgresql_multi_engine import (
     PgConn,
     TenantEngine,
@@ -265,10 +271,17 @@ class PostgresqlMultiClient(DataSourceClient):
     def unindexed_table_prefixes(self) -> list[str]:
         return []
 
-    def _check_table_refs(self, sql: str) -> None:
+    def _check_table_refs(self, sql: str) -> list[str]:
+        """Check `sql` and return the unified views it reads.
+
+        Two readings, and both must pass: sqlglot's (the checks every
+        connector shares), and DuckDB's own (`postgresql_multi_guard`). The
+        engine runs what DuckDB reads, so that reading decides which views are
+        built and is what keeps a query that sqlglot misreads from reaching a
+        table, a tenant database or a shared view it should not."""
         refs = table_refs(sql, DIALECT)
         refuse_unchecked_reads(sql, DIALECT, extra_denied=_DUCKDB_CATALOG_READERS)
-        statements = parse_guard_sql(sql, DIALECT)
+        statements = [s for s in parse_guard_sql(sql, DIALECT) if s is not None and not isinstance(s, exp.Semicolon)]
         if any(isinstance(stmt, exp.Pragma) for stmt in statements):
             raise TableScopeViolation(
                 "PRAGMA statements are not allowed: the unified tables are already described in the schema."
@@ -292,6 +305,7 @@ class PostgresqlMultiClient(DataSourceClient):
                 f"Table(s) not in this connection's unified tables: {', '.join(dict.fromkeys(outside))}. "
                 "Name every table as <schema>.<table>, for example public.orders; only indexed tables can be queried."
             )
+        return check_query(sql, self._views, getattr(self, TABLE_SCOPE_ATTR, None))
 
     def _engine_tenants(self) -> list[str]:
         return sorted(set(self._indexed_tenants) | {t for members in self._views.values() for t in members})
@@ -306,38 +320,42 @@ class PostgresqlMultiClient(DataSourceClient):
             if entry["view"] in self._views:
                 left_out.setdefault(entry["view"], []).append(entry["tenant"])
         self._query_left_out = left_out
-        self._query_missing_views = sorted({v for v in engine.missing_views if v in self._views})
+        # Views are built when first queried, so a view nobody has queried yet
+        # is not in `missing_views`. One whose every tenant failed to attach
+        # is known to be unservable without building it, so it is named too.
+        attached = engine.attached_tenants
+        unservable = {v for v, members in self._views.items() if not any(m in attached for m in members)}
+        self._query_missing_views = sorted({v for v in engine.missing_views if v in self._views} | unservable)
 
-    def _engine(self) -> TenantEngine:
+    def _engine(self, used: list[str]) -> TenantEngine:
+        """The connection's engine, with the views `used` set up.
+
+        Views are created when a query first needs them, not all at once: each
+        one costs a round of connections to every tenant, so creating every
+        indexed view up front made the first query pay tenants x tables."""
+        needed = {name: self._views[name] for name in used if name in self._views}
         if self._connection_id():
             engine = get_engine(
                 self._pg_conn(),
-                self._views,
+                needed,
                 ttl_seconds=ENGINE_TTL_SECONDS,
                 tenants=self._engine_tenants(),
                 connection_id=self._connection_id(),
             )
         else:
-            engine = self._unshared_engine()
+            engine = self._unshared_engine(needed)
         self._learn_engine(engine)
         return engine
 
-    def _unshared_engine(self) -> TenantEngine:
+    def _unshared_engine(self, needed: dict[str, list[str]]) -> TenantEngine:
         with self._own_engine_lock:
             engine = self._own_engine
             if engine is None:
-                engine = build_default_engine(self._pg_conn(), self._views, tenants=self._engine_tenants())
+                engine = build_default_engine(self._pg_conn(), needed, tenants=self._engine_tenants())
                 self._own_engine = engine if engine.attached else None
             else:
-                engine.ensure_views(self._views)
+                engine.ensure_views(needed)
             return engine
-
-    def _referenced_views(self, sql: str) -> list[str]:
-        by_key = {tuple(name.lower().split(".", 1)): name for name in self._views}
-        referenced = {
-            by_key[ref[-2:]] for ref in table_refs(sql, DIALECT) if len(ref) >= 2 and ref[-2:] in by_key
-        }
-        return sorted(referenced) or sorted(self._views)
 
     def _discard(self, engine: TenantEngine) -> bool:
         if self._connection_id():
@@ -379,12 +397,12 @@ class PostgresqlMultiClient(DataSourceClient):
             return duckdb.Error(text_)
 
     def execute_query(self, sql: str) -> pd.DataFrame:
-        self._check_table_refs(sql)
-        engine = self._engine()
+        used = self._check_table_refs(sql)
+        engine = self._engine(used)
         try:
             return self._run(engine, sql)
         except duckdb.Error as exc:
-            vanished = engine.vanished_tables(self._referenced_views(sql)) if _relation_vanished(exc) else []
+            vanished = engine.vanished_tables(used) if _relation_vanished(exc) else []
             if not (vanished and self._discard(engine)):
                 raise self._without_connection_details(exc) from None
             logger.warning(
@@ -394,7 +412,7 @@ class PostgresqlMultiClient(DataSourceClient):
             )
         del engine
         try:
-            return self._run(self._engine(), sql)
+            return self._run(self._engine(used), sql)
         except duckdb.Error as exc:
             raise self._without_connection_details(exc) from None
 
