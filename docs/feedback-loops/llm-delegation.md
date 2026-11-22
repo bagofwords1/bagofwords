@@ -219,6 +219,14 @@ Evidence: `media/pr/claude-affectionate-franklin-0huizc/` (`before-*`,
   the generic grant/role routes.
 - The settings listing and the chat list are now separate: managing a provider
   never puts restricted models in the manager's own chat picker.
+- **Regression suites:** `tests/e2e/rbac` plus the permission, registry, LLM
+  fallback, model router, tool-permission, pricing and provider-header unit
+  suites: 4,842 passed, 1 skipped, 1 failed, 6 errors. The failure
+  (`test_connector_actions::test_an_action_past_the_native_budget_is_still_listed_for_search`)
+  and the errors (`test_list_files_persist_per_user.py`) are identical on the
+  unmodified base commit. The registry ratchet now passes with
+  `manage_llm_settings` removed from its known-stale list. The routing, decision,
+  judge and permission-mode suites: 3,336 passed. `yarn build` succeeds.
 - Not run here: the PostgreSQL leg (no Docker). No migration is involved —
   provider managers reuse `resource_grants`.
 - Follow-ups, not done here: per-group decision models (only if asked); a
