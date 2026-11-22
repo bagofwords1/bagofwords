@@ -638,6 +638,12 @@ async def export_artifact_html(
             "Content-Disposition": disposition,
             # A dashboard snapshot must never be reused for another viewer.
             "Cache-Control": "no-store",
+            # Force the declared text/html type: never let a browser sniff this
+            # user-influenced export into some other content type. Matches the
+            # header set on every other content-serving route (see file.py,
+            # artifact_resources.py, data_source.py). Inline execution in the
+            # app origin is already prevented by the attachment disposition.
+            "X-Content-Type-Options": "nosniff",
         },
     )
 
