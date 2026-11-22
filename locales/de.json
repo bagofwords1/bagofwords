@@ -1884,6 +1884,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Abfragecode bearbeiten",
+      "saveAsCachedTable": "Als zwischengespeicherte Tabelle speichern",
+      "saveAsCachedTableTooltip": "Diese Abfrage auf der Verbindung zwischenspeichern, damit Agenten aus einer lokalen Kopie antworten",
+      "saveAsCachedTableFailed": "Dieses Ergebnis konnte nicht zum Zwischenspeichern geöffnet werden",
       "editCode": "Code bearbeiten",
       "edit": "Bearbeiten",
       "rows": "{count} Zeilen",

@@ -2097,6 +2097,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "ערוך קוד שאילתה",
+      "saveAsCachedTable": "שמור כטבלה במטמון",
+      "saveAsCachedTableTooltip": "שמור את השאילתה הזו במטמון על החיבור, כך שהסוכנים יענו מעותק מקומי",
+      "saveAsCachedTableFailed": "לא ניתן לפתוח את התוצאה הזו לשמירה במטמון",
       "editCode": "ערוך קוד",
       "edit": "ערוך",
       "rows": "{count} שורות",

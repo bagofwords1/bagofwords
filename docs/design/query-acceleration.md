@@ -433,6 +433,45 @@ The Analysis Services source subclasses the Power BI one: the count / sample /
 window / verify strategy belongs to DAX, and only the transport, the target
 (a catalog instead of a semantic model) and what a response can carry differ.
 
+### Saving a cited result as a custom table
+
+A result the agent produced can be the starting point of a custom table. The
+result card's action bar offers **Save as cached table** to the connection's
+admins when the result is one query that the connection itself answered (not
+several queries, not a failed one, not one already read from a custom table,
+and not a parameterized one, whose card can be re-run with other values).
+It opens the same dialog as the tables page, with that query, a name derived
+from the result's title and the connection filled in; nothing is created until
+the admin previews and saves.
+
+- The card decides from the per-query timing record, which names the
+  connection, agent and client that answered (`connection_id`,
+  `data_source_id`, `client_key`).
+- Whether the connection can host a custom table is asked of the connection:
+  `GET /connections/{id}/custom-queries/capability` (`manage_connection`),
+  which answers `supported: false` instead of refusing. The card does not go
+  through the agent, because a connection admin need not manage the agent.
+- The query text comes from
+  `GET /connections/{id}/custom-queries/from-result/{tool_execution_id}`,
+  which requires `manage_connection`, permission to view code, and the right
+  to read that conversation: the rule on `GET /reports/{id}/completions`
+  (its owner, an organization admin, or a collaborator on its project).
+  Sharing an agent with the report's owner is not enough. It also refuses a
+  result whose query has been edited since, because the card then shows a
+  later run. The rule itself is `single_query_of` in
+  `custom_query_service.py`, mirrored for visibility in
+  `frontend/utils/cacheCandidate.ts`.
+- A one-shot first load writes the rows read so far, and the source's count
+  once known, to its run row. The dialog polls
+  `GET /connections/{id}/custom-queries/progress?name=…`, which looks up that
+  one table, so its cost does not grow with the number of custom tables on
+  the connection. Progress is per batch, so a result that arrives in one
+  response goes from zero to done.
+- A create whose first load fails leaves the table with its error (as before);
+  the dialog now says so and closes.
+
+Run report: `docs/feedback-loops/save-as-cached-table.md`.
+
 ## Phases
 
 1. **This doc** — custom tables, materialization, schedule, delete, count,

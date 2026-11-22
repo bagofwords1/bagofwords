@@ -2195,6 +2195,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Edit query code",
+      "saveAsCachedTable": "Save as cached table",
+      "saveAsCachedTableTooltip": "Cache this query on the connection so agents answer from a local copy",
+      "saveAsCachedTableFailed": "Could not open this result for caching",
       "editCode": "Edit code",
       "edit": "Edit",
       "rows": "{count} rows",

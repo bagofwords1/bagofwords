@@ -398,6 +398,20 @@
             </button>
           </div>
           <div class="flex items-center space-x-2">
+            <!-- Connection admins only, and only where a custom table can be
+                 created from this result (see useCacheCandidate). -->
+            <button
+              v-if="canSaveAsCachedTable"
+              data-testid="save-as-cached-table"
+              :disabled="cacheModalLoading"
+              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center whitespace-nowrap hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
+              :title="t('tools.widgetPreview.saveAsCachedTableTooltip')"
+              @click.stop="openCacheModal"
+            >
+              <Icon v-if="!cacheModalLoading" name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500 me-1" />
+              <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 me-1 animate-spin" />
+              {{ t('tools.widgetPreview.saveAsCachedTable') }}
+            </button>
             <button
               v-if="!effectiveStep?.created_entity_id"
               class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -429,11 +443,24 @@
       @close="openEntityModal = false"
       @saved="handleEntitySaved"
     />
+
+    <CustomQueryModal
+      v-if="cacheModalMounted && cacheCandidate && cacheConnection"
+      v-model="cacheModalOpen"
+      :connection-id="cacheConnection.id"
+      :connection-name="cacheConnection.name"
+      :connection-type="cacheConnection.type || ''"
+      :initial-sql="cacheDefinition"
+      :initial-name="cacheInitialName"
+      :activate-for-datasource-id="cacheCandidate.dataSourceId"
+      @vue:mounted="onCacheModalMounted"
+      @saved="onCachedTableSaved"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, defineAsyncComponent, inject, provide, onMounted, onUnmounted, unref } from 'vue'
+import { computed, ref, watch, nextTick, defineAsyncComponent, inject, provide, onMounted, onUnmounted, unref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { cardHydrationRequest, deriveViewerRun } from '~/utils/viewerRunHydration'
@@ -448,6 +475,10 @@ import RenderTable from '../RenderTable.vue'
 import Spinner from '../Spinner.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import EntityCreateModal from '../entity/EntityCreateModal.vue'
+import { cacheCandidateFrom, cacheTableNameFor } from '~/utils/cacheCandidate'
+import { fetchCacheDefinition, useCacheConnections } from '~/composables/useCacheCandidate'
+import { useCachedTableNames } from '~/composables/useFastTable'
+const CustomQueryModal = defineAsyncComponent(() => import('@/components/datasources/CustomQueryModal.vue'))
 import { useExcel } from '~/composables/useExcel'
 import VisualizationFilter from '@/components/dashboard/VisualizationFilter.vue'
 import {
@@ -1196,6 +1227,80 @@ const executedQueries = computed(() => {
 
 // Check if we have executed queries to show
 const hasExecutedQueries = computed(() => executedQueries.value.length > 0)
+
+// --- Save as cached table ---------------------------------------------------
+// Offered on a result that one query against one connection produced, to the
+// admins of that connection. The dialog is the same one the agent's tables
+// page uses, opened with this result's query already in it.
+const { isCustomQueriesEnabled } = useOrgSettings()
+const { ensureLoaded: ensureCacheConnections, connectionFor: cacheConnectionFor } = useCacheConnections()
+const { ensureLoaded: ensureCachedTableNames } = useCachedTableNames()
+
+const cacheCandidate = computed(() => {
+  if (props.compact || props.readonly || !canViewCode.value) return null
+  if (!isCustomQueriesEnabled.value) return null
+  // The card can show a run other than the one this tool execution recorded:
+  // a parameterized query re-run with other values, or a viewer's own run.
+  // The query on record would then not be the query behind the rows.
+  if (cardParamSpecs.value.length || viewerRun.value?.queryId) return null
+  const candidate = cacheCandidateFrom(props.toolExecution?.result_json)
+  if (!candidate) return null
+  return useCan('manage_connection', { type: 'connection', id: candidate.connectionId }) ? candidate : null
+})
+
+watch(cacheCandidate, (c) => { if (c) ensureCacheConnections(c.connectionId) }, { immediate: true })
+
+const cacheConnection = computed(() => cacheConnectionFor(cacheCandidate.value))
+const canSaveAsCachedTable = computed(() => !!cacheCandidate.value && !!cacheConnection.value)
+
+// Mounted on first use: the dialog is large, and creating it already open
+// skips its open transition so it never appears.
+const cacheModalMounted = ref(false)
+const cacheModalOpen = ref(false)
+const cacheModalLoading = ref(false)
+// The dialog fills its form when it goes from closed to open. It is loaded on
+// demand, so it must be mounted closed and opened only afterwards: mounted
+// already open, it never sees that transition and shows an empty form.
+const cacheModalReady = ref(false)
+const cacheDefinition = ref('')
+
+async function onCacheModalMounted() {
+  cacheModalReady.value = true
+  await nextTick()
+  cacheModalOpen.value = true
+}
+const cacheInitialName = computed(() => cacheTableNameFor(widgetTitle.value))
+
+async function openCacheModal() {
+  const candidate = cacheCandidate.value
+  const toolExecutionId = props.toolExecution?.id
+  if (!canSaveAsCachedTable.value || !candidate || !toolExecutionId || cacheModalLoading.value) return
+  cacheModalLoading.value = true
+  try {
+    const { definition, error } = await fetchCacheDefinition(candidate, String(toolExecutionId))
+    if (!definition) {
+      toast.add({ title: t('tools.widgetPreview.saveAsCachedTableFailed'), description: error, color: 'red' })
+      return
+    }
+    cacheDefinition.value = definition
+    if (cacheModalReady.value) {
+      cacheModalOpen.value = true
+    } else {
+      // First use: the dialog is loaded on demand and opens itself once it
+      // has mounted (see onCacheModalMounted).
+      cacheModalMounted.value = true
+    }
+  } finally {
+    cacheModalLoading.value = false
+  }
+}
+
+function onCachedTableSaved() {
+  // Later results that read the new table are badged as cached.
+  const loaded = useState<boolean>('bow-cached-table-names-loaded')
+  loaded.value = false
+  ensureCachedTableNames()
+}
 
 // Per-query timing records; a connector that rewrote a query records the
 // request it actually sent there (`sent_request`). Redacted with the code.

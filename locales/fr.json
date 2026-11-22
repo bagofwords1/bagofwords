@@ -1884,6 +1884,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Modifier le code de la requête",
+      "saveAsCachedTable": "Enregistrer comme table en cache",
+      "saveAsCachedTableTooltip": "Mettre cette requête en cache sur la connexion pour que les agents répondent depuis une copie locale",
+      "saveAsCachedTableFailed": "Impossible d’ouvrir ce résultat pour la mise en cache",
       "editCode": "Modifier le code",
       "edit": "Modifier",
       "rows": "{count} lignes",

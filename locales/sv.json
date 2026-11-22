@@ -1884,6 +1884,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Redigera frågekod",
+      "saveAsCachedTable": "Spara som cachad tabell",
+      "saveAsCachedTableTooltip": "Cachelagra den här frågan på anslutningen så att agenter svarar från en lokal kopia",
+      "saveAsCachedTableFailed": "Det gick inte att öppna resultatet för cachelagring",
       "editCode": "Redigera kod",
       "edit": "Redigera",
       "rows": "{count} rader",
