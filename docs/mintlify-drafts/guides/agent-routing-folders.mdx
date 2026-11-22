@@ -1,0 +1,166 @@
+---
+title: "Route questions within a folder of agents"
+description: "Group agents into folders so a team asks one place, and give each folder its own routing rules, files and evals."
+---
+
+{/* DRAFT for docs.bow.ai/guides/agent-routing-folders. Written from the code
+    (see docs/mintlify-drafts/README.md). Screenshots marked TODO still need
+    capturing from a seeded stack before publishing. */}
+
+When you have many agents, a single list and one global routing instruction stop scaling. Folders let you group agents by team or domain, such as **Finance**, **Support** or **Analytics**. A person picks the folder in the prompt box, and BOW chooses among that folder's agents only. The folder's own routing rules decide which agent answers.
+
+![A question asked in the Analytics folder, routed to the Music Store agent by a folder routing rule](/images/guides/agent-routing-folders/routed-in-folder.png)
+{/* TODO screenshot: report with the folder chip "Analytics" in the prompt box and the answer citing the folder rule */}
+
+A folder works like a directory with its own `AGENTS.md`. It holds:
+
+* **Agents**, including the agents in its subfolders.
+* **Instructions** that load only when someone asks in that folder. This is where folder routing rules go.
+* **Files** that every question in the folder can use.
+* **Evals** that test the folder's routing and answers.
+
+This guide uses the same two agents as [Route questions to the right agent](/guides/agent-routing): **Music Store** and **Financial Market Agent**. Both go in a folder called **Analytics**. The private **Contract Desk** agent stays outside it.
+
+## Before you start
+
+* **You can create folders.** You need to be able to create agents or manage connections, or have manage access to at least one agent. Whoever creates a folder can manage it.
+* **You can manage the agents you move.** Moving an agent needs manage access to the agent and to both folders.
+* **You have two or more agents** that the same team asks about.
+
+## Step 1: Create a folder
+
+1. Open **Agents**.
+2. In the **Agents** section header, click **New folder**.
+3. Name it **Analytics** and confirm.
+
+To nest folders, hover a folder and click **New subfolder**. Folder names must be unique within their parent.
+
+![The New folder button in the Agents section](/images/guides/agent-routing-folders/new-folder.png)
+{/* TODO screenshot */}
+
+<Note>
+The **Instructions** tree has its own folders for organizing instructions. Those only change how the list looks. They don't group agents and they don't affect routing. Agent folders are the ones in the **Agents** section, with **Folder settings** and **Share** buttons.
+</Note>
+
+## Step 2: Move agents into the folder
+
+Drag **Music Store** onto the **Analytics** folder, or open the agent's menu and choose **Move agent**. Do the same for **Financial Market Agent**.
+
+An agent sits in one folder at a time. Instructions, files and evals can be attached to several folders.
+
+![Two agents inside the Analytics folder](/images/guides/agent-routing-folders/agents-in-folder.png)
+{/* TODO screenshot: Agents tree with Analytics expanded, showing both agents and the Instructions / Files / Evals sections */}
+
+## Step 3: Add a folder routing rule
+
+A folder rule loads in every question asked in that folder, before BOW picks an agent. That makes it the place for routing rules that only apply to this team.
+
+1. Select the **Analytics** folder.
+2. Under **Instructions**, click **+ Add**.
+3. Name it **Analytics routing** and write one rule per line:
+
+   * *Questions about customers, invoices, sales, revenue, tracks, artists, genres or employees → use the Music Store agent.*
+   * *Questions about stock prices, gold, bitcoin, GDP, country economics or bank failures → use the Financial Market Agent.*
+   * *If a question about 'countries' doesn't say which, default to Music Store sales by country.*
+
+4. Check the settings under **Details**. A new folder instruction starts as **Active** and **Always**, and the scope shows the **Analytics** folder. Keep all three.
+5. Click **Create**.
+
+![A folder routing instruction, scoped to the Analytics folder](/images/guides/agent-routing-folders/folder-rule-editor.png)
+{/* TODO screenshot: instruction editor with scope menu showing the folder */}
+
+You can also attach an existing instruction. Click **Attach existing** in the folder's **Instructions** section, or pick the folder in the instruction's **Choose agents or folders** menu.
+
+<Note>
+Attaching a global instruction to a folder makes it a folder instruction. It no longer loads everywhere. Keep rules that apply to every team in a separate global instruction.
+</Note>
+
+## Step 4: Ask in the folder
+
+1. Start a **New report**.
+2. Click the agent selector. Below **Auto** you see your folders, with their agents nested under them. Search with **Search agents and folders…**.
+3. Click **Analytics**. The selector now shows the folder's name.
+4. Ask:
+
+   > *Top 10 countries*
+
+BOW looks only at the agents in **Analytics** and in its subfolders. It applies the folder rule, says which rule it followed, and uses the Music Store **Invoice** tables.
+
+![The agent selector with the Analytics folder picked](/images/guides/agent-routing-folders/folder-selector.png)
+{/* TODO screenshot */}
+
+To check that the rule loaded, click **N instructions** under the answer. **Analytics routing** is in the **Instructions loaded** list.
+
+Now try a question for the other agent, then one that matches no agent in the folder:
+
+> *How did gold do vs bitcoin last year?*
+
+> *Which contracts renew next quarter?*
+
+The first goes to the Financial Market Agent. For the second, BOW doesn't leave the folder to find **Contract Desk**. It asks a clarifying question instead.
+
+You can pick more than one folder. BOW then chooses among all their agents, and each folder's rules load. The selector shows the first folder and **+N**.
+
+## Step 5: Add folder files and evals (optional)
+
+* **Files.** Under **Files**, click **+ Upload files**. Every question asked in the folder can read them. Use this for a team glossary or a metric definitions sheet.
+* **Evals.** Under **Evals**, choose **New suite** and add cases with **Add case**. A case such as *Top 10 countries → Music Store* catches routing regressions when someone edits the rule. See [Test an agent with evals](/guides/evals).
+* **Training.** Folder managers see a **Training** button on the folder. In a Training conversation started there, BOW can save routing rules and evals to the folder instead of to one agent. See [Train an agent](/agents/train-an-agent).
+
+## Step 6: Share the folder
+
+Click **Share** on the folder and add people or groups:
+
+* **Can query.** They can ask in the folder, and they can query every agent inside it.
+* **Can manage.** They can also edit the folder, its instructions, files and evals, and share it.
+
+Subfolders inherit access from their parent. To limit a subfolder, open **Folder settings** and turn off **Inherit access from parent**. Parent roles stop there, and the folder shows a **Limited access** badge. People without access to a subfolder don't see its agents, and BOW doesn't route to them.
+
+## What loads in a folder question
+
+| Knowledge | Loads when you ask in the folder? |
+| - | - |
+| Agents in the folder and its subfolders that you can see | Yes. BOW chooses among these only |
+| The folder's own instructions (**Active**, **Always** or **Smart**) | Yes |
+| A parent folder's instructions | No. Rules apply to the exact folder they're attached to |
+| Global instructions | Yes |
+| Instructions linked to one agent | Only for the agent BOW picks |
+| The folder's uploaded files | Yes |
+
+## Where else folders work
+
+| Where | Pick a folder? | What a folder does there |
+| - | - | - |
+| Home page and reports | Yes | Full folder routing: rules, files and agents |
+| Scheduled tasks | Yes, in the prompt box | Full folder routing |
+| External triggers | Yes, under **2. What should the agent do?** | Full folder routing |
+| MCP `create_report` | Yes, `agent_folder_ids` | Full folder routing |
+| Slack and Teams (**Channel → agent routing**), WhatsApp, embedded apps (**Allowed agents**) | Yes | Limits answers to the folder's agents. Folder instructions and files don't load there |
+
+## Tips
+
+* **One folder per team or domain.** Put agents that overlap in the same folder, and give the folder one routing instruction.
+* **Keep cross-team rules global.** A folder rule should only cover choices inside the folder. Don't repeat a global rule in the folder, and don't contradict it.
+* **Name agents exactly.** Write rules as "topic → agent" with the agent name as it appears in **Agents**.
+* **Give every ambiguous word a default.** "Countries", "revenue" and "customers" are common overlaps.
+* **Test in a new report with the folder picked.** Ask the same short question twice. If BOW picks different agents, add a default for it.
+
+## Troubleshooting
+
+**The folder rule doesn't load.** Check that the folder itself is picked, not a parent folder or a single agent. Then check the rule is **Active**, not **Off**, and is attached to that folder.
+
+**"No available agents in this folder".** The folder and its subfolders have no agent you can access. Move an agent in, or ask for access.
+
+**An agent in a subfolder is never used.** The subfolder may have **Limited access**. Ask a folder manager for access to it.
+
+**A global rule stopped applying everywhere.** It was attached to a folder. Detach it, or create a separate global copy.
+
+**In Slack the folder rule is ignored.** Channel routing uses a folder only as a list of agents. Put the rule in a global instruction, or in an instruction linked to the channel.
+
+## Related
+
+* [Route questions to the right agent](/guides/agent-routing)
+* [Instructions and knowledge](/agents/instructions)
+* [Agents overview](/agents/overview)
+* [Roles & permissions](/users/roles-and-permissions)
+* [Test an agent with evals](/guides/evals)

@@ -1,0 +1,178 @@
+---
+title: "Route questions to the right agent"
+description: "Help BOW pick the right agent when a question could fit more than one, with clear agent descriptions and one global routing instruction."
+---
+
+When the agent selector is on **Auto**, BOW decides which of your agents should answer each question. Most of the time it gets it right from the tables alone. When two agents both have something about "countries" or "revenue", you can tell it which one to prefer, with a clear agent description and one global routing instruction.
+
+![A question routed to the Music Store agent by a global routing instruction](/images/guides/agent-routing/routed-top-countries.png)
+
+If you have many agents, group them into folders first. A person then picks a folder, and BOW chooses only among that folder's agents, using the folder's own routing rules. See [Route questions within a folder of agents](/guides/agent-routing-folders).
+
+This guide uses two agents: **Music Store** (customers, invoices, tracks, artists, genres, employees) and **Financial Market Agent** (stock prices, gold vs bitcoin, GDP and country statistics, bank failures). Both have a notion of "countries", so a short question like "Top 10 countries" could go to either one.
+
+## Before you start
+
+* **You are an admin.** A global instruction applies to every agent, so it needs the org-level permission to manage instructions. To change an agent's description, you need manage access to that agent.
+* **You have two or more agents** that people can ask about in the same place.
+
+## Step 1: See what Auto does
+
+On the home page, click the agent selector in the prompt box. **Auto** (**Any agent you can access**) is the default. Below it you see the agents you can use, grouped by folder if your agents are in folders.
+
+![The agent selector set to Auto](/images/guides/agent-routing/auto-selector.png)
+
+With **Auto**, BOW can use any agent in this list, and only these. People see only the agents they have access to. In this example a member sees **Music Store** and **Financial Market Agent**, but not the private **Contract Desk** agent.
+
+## Step 2: Give each agent a clear description
+
+The description is the one line that says what an agent covers. Make it a list of the things people actually ask about.
+
+1. Open **Agents** and select the agent.
+2. Click the line under the agent's name (or **Add a description…** if it is empty).
+3. Type the description and press **Enter**.
+
+![An agent with a description listing its topics](/images/guides/agent-routing/agent-description.png)
+
+For example:
+
+| Agent | Description |
+| - | - |
+| Music Store | *Music store sales: customers, invoices, revenue by country, tracks, albums, artists, genres and employees.* |
+| Financial Market Agent | *Market and economy data: stock prices (candlesticks, quotes), gold vs bitcoin, GDP and country statistics, bank failures.* |
+
+<Tip>
+Use the words people type, not the table names. "Revenue by country" helps more than "Invoice.BillingCountry".
+</Tip>
+
+## Step 3: Create a global routing instruction
+
+A global instruction is not tied to any agent, so it loads before BOW has picked one. That makes it the right place for routing rules.
+
+1. On the **Agents** page, click **New** and choose **Instruction**.
+
+   ![The New menu on the Agents page](/images/guides/agent-routing/new-instruction-menu.png)
+
+2. Name it **Agent routing** and write one rule per line:
+
+   * *Questions about customers, invoices, sales, revenue, tracks, artists, genres or employees → use the Music Store agent.*
+   * *Questions about stock prices, gold, bitcoin, GDP, country economics or bank failures → use the Financial Market Agent.*
+   * *If a question about 'countries' doesn't say which, default to Music Store sales by country.*
+
+3. Check the settings under **Details**:
+   * **Active**, so it is live.
+   * **Always**, so it loads on every question. A **Smart** instruction loads only when the question matches it, which is too late for routing.
+   * **All agents**. Leave **Choose agents or folders** empty. This is what makes the instruction global. Don't pick a folder here: that makes it a folder instruction, which loads only when someone asks in that folder.
+
+4. Click **Create**. It appears under **Global instructions** on the left.
+
+![The new global routing instruction, set to Active, Always and All agents](/images/guides/agent-routing/routing-instruction-editor.png)
+
+<Note>
+An instruction that is linked to specific agents loads only when one of those agents is in use. That works for rules that apply after BOW has picked an agent, but not for choosing the agent.
+</Note>
+
+## Step 4: Test it with Auto
+
+Start a **New report**, leave the selector on **Auto**, and ask a question that could fit either agent:
+
+> *Top 10 countries*
+
+The first line of the answer says which rule BOW followed, and the step below it shows the agent icon and the tables it used. Here it reads "Per the agent routing instruction…" and uses the Music Store **Invoice** and **InvoiceLine** tables.
+
+To check that the instruction loaded, click **N instructions** under the answer. **Agent routing** is in the **Instructions loaded** list.
+
+![The Instructions loaded list, with Agent routing at the bottom](/images/guides/agent-routing/instructions-loaded.png)
+
+Now ask a question that names a finance topic:
+
+> *Top 10 countries by GDP per capita*
+
+BOW goes to the Financial Market Agent and its **country_stats\_scatter** table. The "countries" default applies only when the question doesn't say what kind of country data it wants.
+
+![A GDP question routed to the Financial Market Agent](/images/guides/agent-routing/routed-gdp-per-capita.png)
+
+A question that needs both agents uses both:
+
+> *Compare revenue by country with GDP per capita*
+
+The steps show tables from each agent, and the final query combines them.
+
+![One answer that uses tables from both agents](/images/guides/agent-routing/routed-both-agents.png)
+
+<Note>
+The two agents are separate databases, so a cross-agent answer only matches rows that exist in both. In this example the finance data has 9 countries, so the comparison has 4 rows.
+</Note>
+
+## Step 5: Pin an agent or a folder when you already know
+
+If you know which agent you want, pick it in the selector instead of **Auto**. Click the selector, choose the agent, then click anywhere outside the menu to close it. The selector now shows the agent's name.
+
+![Financial Market Agent picked in the agent selector](/images/guides/agent-routing/pinned-agent-selector.png)
+
+You can pick a folder the same way. BOW then chooses only among the agents in that folder and its subfolders, and the folder's own routing rules load as well as the global one. See [Route questions within a folder of agents](/guides/agent-routing-folders).
+
+A picked agent is a hard limit. BOW can't go outside it, even when a routing rule points to another agent. Asked "Top 10 countries" with only the Financial Market Agent picked, BOW looked for the Music Store agent, didn't find it, and asked which country ranking to show from the finance data instead.
+
+![With one agent picked, BOW asks a clarifying question instead of switching agents](/images/guides/agent-routing/pinned-agent-clarify.png)
+
+## Optional: Share one rule across several agents
+
+Some rules are not about routing but apply to more than one agent, like *For 'top X by Y' questions, use a bar chart.* Instead of copying it into each agent, create one instruction and select every agent it applies to in the agents menu under **Details**.
+
+![One instruction linked to two agents](/images/guides/agent-routing/shared-instruction-agents.png)
+
+This instruction loads whenever any of the selected agents is in use. It applies after BOW has picked an agent, so it doesn't help with routing.
+
+## Optional: Route within a team with folders
+
+One global routing instruction works for a handful of agents. With many agents, or teams that use the same words differently, put each team's agents in a folder and give the folder its own routing rule:
+
+1. On the **Agents** page, click **New folder** and move the team's agents into it.
+2. Select the folder and, under **Instructions**, click **+ Add**. A new folder instruction starts as **Active** and **Always**.
+3. Write the team's "topic → agent" rules, as in Step 3.
+
+When someone picks the folder in the selector, BOW loads the global routing instruction and the folder's rule, and chooses only among the folder's agents. With **Auto** or a pinned agent, the folder's rule doesn't load. For the full walkthrough, including folder files, evals and sharing, see [Route questions within a folder of agents](/guides/agent-routing-folders).
+
+## What to expect
+
+With only a few agents, BOW loads every agent's tables and **Always** instructions on every question, so it often picks the right agent from the tables alone. In our tests the five questions above went to the same agents with or without the routing instruction. What the instruction changed was the reasoning: without it, BOW said "Top 10 countries" could mean several things and guessed. With it, BOW cited the rule and chose Music Store sales every time.
+
+The routing instruction matters most when:
+
+* **Agents overlap.** Both have countries, revenue, customers or dates.
+* **Short questions are common.** "Top 10 countries", "revenue last month", "best customers".
+* **You have many agents.** BOW then works from each agent's description first, before it looks at tables. Clear descriptions and a routing instruction help it pick the right one. Folders help too: a person who picks a folder narrows the choice to that folder's agents.
+
+## More prompts to try
+
+| Goal | Prompt |
+| - | - |
+| Check an ambiguous default | *Top 10 countries* |
+| Check a topic that names one agent | *How did gold do vs bitcoin last year?* |
+| Check a question for the other agent | *Which customers spent the most?* |
+| Check a question that needs both | *Compare revenue by country with GDP per capita* |
+
+## Tips
+
+* **Write rules as "topic → agent".** List the words people use, then name the agent exactly as it appears in **Agents**.
+* **Give every ambiguous word a default.** "Countries", "revenue" and "customers" are common overlaps.
+* **Keep routing in one global instruction.** Agent-specific rules belong on the agent. Team-specific routing belongs on the team's folder.
+* **Test in a new report with Auto.** Ask the same short question twice. If BOW picks different agents, add a default for it.
+* **Pinning wins.** A routing rule can't send a question to an agent that isn't picked, or to an agent outside the picked folder.
+
+## Troubleshooting
+
+**BOW still picks the wrong agent.** Click **N instructions** under the answer and check that **Agent routing** is listed. If it isn't, make sure it is **Active**, set to **Always**, and has no agents selected.
+
+**BOW asks which agent to use, or says an agent isn't available.** An agent or a folder is picked in the selector, and the agent you want is outside it. Switch it back to **Auto**, or pick the folder that holds the agent.
+
+**The routing instruction stopped loading on some questions.** It is attached to a folder, so it loads only when that folder is picked. Open the instruction and clear the folder from **Choose agents or folders** to make it global again.
+
+## Related
+
+* [Route questions within a folder of agents](/guides/agent-routing-folders)
+* [Instructions and knowledge](/agents/instructions)
+* [Agents overview](/agents/overview)
+* [Train an agent](/agents/train-an-agent)
+* [Reports](/using-bow/reports)
