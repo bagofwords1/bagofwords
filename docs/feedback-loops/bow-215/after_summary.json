@@ -1,0 +1,131 @@
+{
+  "label": "after",
+  "agents": {
+    "Wide Postgres": {
+      "tables_total": 2000,
+      "widest_table_columns_in_catalog": 1600,
+      "context_chars": 72509,
+      "context_tokens": 36251,
+      "token_method": "anthropic.count_tokens(claude-haiku-5-5)",
+      "columns_rendered": 334,
+      "widest_rendered_table": "public.metrics_wide_001",
+      "widest_rendered_table_columns": 60,
+      "build_ms_median": 506.9,
+      "render_ms_median": 13.8,
+      "planner_prep_ms_median": 462.4,
+      "snapshot_top_tables": [
+        {
+          "name": "public.metrics_wide_001",
+          "columns_count": 1600,
+          "columns_total": 1600,
+          "columns_shown": 60,
+          "column_selection_reason": "usage_ranked",
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "public.metrics_wide_002",
+          "columns_count": 1600,
+          "columns_total": 1600,
+          "columns_shown": 60,
+          "column_selection_reason": "usage_ranked",
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "public.app_accounts",
+          "columns_count": 5,
+          "columns_total": 5,
+          "columns_shown": 5,
+          "column_selection_reason": "all_columns",
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "public.app_events",
+          "columns_count": 6,
+          "columns_total": 6,
+          "columns_shown": 6,
+          "column_selection_reason": "all_columns",
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "public.app_orders",
+          "columns_count": 5,
+          "columns_total": 5,
+          "columns_shown": 5,
+          "column_selection_reason": "all_columns",
+          "selection_reason": "top_k_score"
+        }
+      ]
+    },
+    "Wide DuckDB": {
+      "tables_total": 3,
+      "widest_table_columns_in_catalog": 5000,
+      "context_chars": 7902,
+      "context_tokens": 4236,
+      "token_method": "anthropic.count_tokens(claude-haiku-5-5)",
+      "columns_rendered": 123,
+      "widest_rendered_table": "events_wide_5000",
+      "widest_rendered_table_columns": 60,
+      "build_ms_median": 108.0,
+      "render_ms_median": 6.9,
+      "planner_prep_ms_median": 116.8,
+      "snapshot_top_tables": [
+        {
+          "name": "events_wide_5000",
+          "columns_count": 5000,
+          "columns_total": 5000,
+          "columns_shown": 60,
+          "column_selection_reason": "usage_ranked",
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "telemetry_wide_5000",
+          "columns_count": 5000,
+          "columns_total": 5000,
+          "columns_shown": 60,
+          "column_selection_reason": "usage_ranked",
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "dim_region",
+          "columns_count": 3,
+          "columns_total": 3,
+          "columns_shown": 3,
+          "column_selection_reason": "all_columns",
+          "selection_reason": "top_k_score"
+        }
+      ]
+    },
+    "Wide Elastic": {
+      "tables_total": 2,
+      "widest_table_columns_in_catalog": 5000,
+      "context_chars": 7833,
+      "context_tokens": 3518,
+      "token_method": "anthropic.count_tokens(claude-haiku-5-5)",
+      "columns_rendered": 120,
+      "widest_rendered_table": "svc-events-wide",
+      "widest_rendered_table_columns": 60,
+      "build_ms_median": 121.4,
+      "render_ms_median": 9.1,
+      "planner_prep_ms_median": 105.9,
+      "snapshot_top_tables": [
+        {
+          "name": "svc-events-wide",
+          "columns_count": 5000,
+          "columns_total": 5000,
+          "columns_shown": 60,
+          "column_selection_reason": "usage_ranked",
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "obs-logs-*",
+          "columns_count": 2205,
+          "columns_total": 2205,
+          "columns_shown": 60,
+          "column_selection_reason": "structural_only",
+          "selection_reason": "top_k_score"
+        }
+      ]
+    }
+  },
+  "top_k_schema": 10
+}
