@@ -10,6 +10,7 @@
 - Fixed an open report's dashboard refreshing more than once per new version (#1866)
 - Fixed SQLite connections hiding tables whose names have spaces, dashes or non-ASCII characters (#1877)
 - Fixed a Git instruction sync failing entirely when a synced file was removed from the repo (#1872)
+- Fixed WhatsApp replies being dropped when an organization has more than one WhatsApp number (#1874)
 - Fixed self-built Docker images including `backend/.env`, uploads and test files (#1877)
 
 ## Version 0.0.632 (November 22, 2026)
