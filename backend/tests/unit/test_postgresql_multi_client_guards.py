@@ -423,11 +423,34 @@ def test_coarse_type_tells_numbers_from_text_and_skips_arrays():
     ("integer", "BIGINT", True),
     ("bigint", "DECIMAL(20,2)", True),      # exact numbers merge without loss
     ("numeric", "DOUBLE", True),            # bare numeric is served as DOUBLE anyway
-    ("numeric", "DECIMAL(12,2)", True),
+    ("numeric(50,10)", "DOUBLE", True),     # wider than DuckDB's DECIMAL: DOUBLE anyway
+    ("numeric", "DECIMAL(12,2)", True),     # an approximate column stays approximate
+    ("numeric(12,2)", "DECIMAL(14,4)", True),
     ("double precision", "FLOAT", True),
+    ("double precision", "BIGINT", True),
     ("numeric", "VARCHAR", False),
 ])
 def test_runtime_type_check_keeps_exact_and_approximate_numbers_apart(expected, served, fits):
     from app.data_sources.clients.postgresql_multi_engine import coarse_type, type_still_fits
 
     assert type_still_fits(coarse_type(expected), coarse_type(served)) is fits
+
+
+def test_python_frame_keeps_nullable_integers_exact():
+    import datetime
+    from decimal import Decimal
+
+    from app.data_sources.clients.postgresql_multi_client import _python_frame
+
+    description = [("n", "BIGINT"), ("t", "TIME WITH TIME ZONE"), ("d", "DECIMAL(5,2)")]
+    tz = datetime.timezone(datetime.timedelta(hours=2))
+    frame = _python_frame(description, [
+        (9007199254740993, datetime.time(11, tzinfo=tz), Decimal("1.25")),
+        (None, None, None),
+    ])
+
+    assert str(frame["n"].dtype) == "Int64"
+    assert frame["n"].iloc[0] == 9007199254740993
+    assert frame["n"].isna().iloc[1]
+    assert frame["t"].iloc[0].utcoffset() == datetime.timedelta(hours=2)
+    assert frame["d"].iloc[0] == Decimal("1.25")

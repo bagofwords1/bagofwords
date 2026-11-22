@@ -1037,3 +1037,50 @@ def test_time_with_time_zone_keeps_its_offset(multi_tenant_server):
     assert df["east"].iloc[0].utcoffset().total_seconds() == 2 * 3600
     assert df["west"].iloc[0].utcoffset().total_seconds() == -4 * 3600
     assert df["d"].iloc[0] == Decimal("1.25")
+
+
+def test_a_tenant_that_starts_serving_double_does_not_round_fixed_scale_numerics(multi_tenant_server):
+    exact = "12345678901234.56"  # 16 significant digits: not exact as a double
+    for name in ("scaled_1", "scaled_2", "scaled_3"):
+        _create_tenant(multi_tenant_server, name, ["CREATE TABLE public.balances (amount numeric(16,2))",
+                                                   f"INSERT INTO public.balances VALUES ({exact})"])
+    client = _client(multi_tenant_server, databases="scaled_*", connection_id="conn-scaled")
+    balances = {t.name: t for t in client.get_schemas()}["public.balances"]
+    _alter_tenant(multi_tenant_server, "scaled_3",
+                  "ALTER TABLE public.balances ALTER COLUMN amount TYPE double precision")
+
+    df = client.execute_query("SELECT tenant_db, amount FROM public.balances ORDER BY tenant_db")
+
+    # The index records the precision, so the build-time check knows the column is exact.
+    assert {c.name: c.dtype for c in balances.columns}["amount"] == "numeric(16,2)"
+    assert list(df["tenant_db"]) == ["scaled_1", "scaled_2"]
+    assert list(df["amount"]) == [Decimal(exact), Decimal(exact)]
+    assert any("scaled_3" in line and "public.balances" in line for line in client.description.splitlines())
+
+
+def test_bare_and_fixed_scale_numerics_are_not_unified(multi_tenant_server):
+    _create_tenant(multi_tenant_server, "mixnum_1", ["CREATE TABLE public.prices (p numeric(12,2))"])
+    _create_tenant(multi_tenant_server, "mixnum_2", ["CREATE TABLE public.prices (p numeric(12,2))"])
+    _create_tenant(multi_tenant_server, "mixnum_3", ["CREATE TABLE public.prices (p numeric)"])
+    client = _client(multi_tenant_server, databases="mixnum_*", connection_id="conn-mixnum")
+
+    prices = {t.name: t for t in client.get_schemas()}["public.prices"]
+
+    # DuckDB serves bare numeric as DOUBLE: unified, the decimals would turn approximate.
+    assert prices.metadata_json["tenants"] == ["mixnum_1", "mixnum_2"]
+    assert prices.metadata_json["excluded_tenants"] == ["mixnum_3"]
+
+
+def test_time_with_time_zone_keeps_nullable_big_integers_exact(multi_tenant_server):
+    client = _client(multi_tenant_server, databases="public", connection_id="conn-timetz-int")
+    client.get_schemas()
+
+    df = client.execute_query(
+        "SELECT TIMETZ '11:00:00+02' AS t, n FROM (VALUES (9007199254740993::BIGINT), (NULL)) v(n)"
+    )
+
+    # A nullable integer column, as DuckDB's own conversion gives it, not
+    # left to pandas inference (float64, or object past 2^53).
+    assert str(df["n"].dtype) == "Int64"
+    assert df["n"].iloc[0] == 9007199254740993
+    assert df["n"].isna().iloc[1]

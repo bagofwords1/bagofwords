@@ -86,7 +86,10 @@ _READABLE_TABLES_SQL = (
     "AND has_table_privilege(c.oid, 'SELECT'){matview_schema_filter})"
 )
 
-_GENERIC_TYPES = ("ARRAY", "USER-DEFINED")
+# Columns whose information_schema type is too vague to unify on: arrays and
+# custom types, and `numeric`, which names numeric(12,2) (served by DuckDB as
+# an exact DECIMAL) and bare numeric (served as DOUBLE) alike.
+_GENERIC_TYPES = ("ARRAY", "USER-DEFINED", "numeric")
 
 _CONNECT_FAILURE = re.compile(r"(?:IO Error: )?Unable to connect to Postgres\b")
 _UNKNOWN_TYPE = re.compile(r"Type with name .* does not exist", re.DOTALL)
@@ -104,12 +107,14 @@ REVOKED_REASON = "SELECT no longer granted"
 _KEEPS_OFFSET = re.compile(r"\bTIME WITH TIME ZONE", re.IGNORECASE)
 
 _EXACT_TYPES_SQL = """
-    SELECT c.table_schema, c.table_name, c.column_name, format_type(a.atttypid, NULL)
+    SELECT c.table_schema, c.table_name, c.column_name,
+           CASE WHEN c.data_type = 'numeric' THEN format_type(a.atttypid, a.atttypmod)
+                ELSE format_type(a.atttypid, NULL) END
     FROM information_schema.columns c
     JOIN pg_catalog.pg_namespace n ON n.nspname = c.table_schema
     JOIN pg_catalog.pg_class r ON r.relnamespace = n.oid AND r.relname = c.table_name
     JOIN pg_catalog.pg_attribute a ON a.attrelid = r.oid AND a.attname = c.column_name
-    WHERE c.data_type IN ('ARRAY', 'USER-DEFINED')
+    WHERE c.data_type IN ('ARRAY', 'USER-DEFINED', 'numeric')
 """
 
 
@@ -417,8 +422,7 @@ class PostgresqlMultiClient(DataSourceClient):
                     # Arrow has no time-with-offset type: exporting through it
                     # drops the offset. DuckDB's own Python values keep it
                     # (and keep decimals exact).
-                    names = [column[0] for column in result.description]
-                    return pd.DataFrame(result.fetchall(), columns=names)
+                    return _python_frame(result.description, result.fetchall())
                 return _exact_frame(cursor, result.to_arrow_table())
         finally:
             cursor.close()
@@ -701,6 +705,26 @@ def _relation_vanished(exc: duckdb.Error) -> bool:
 
 def _permission_denied(exc: duckdb.Error) -> bool:
     return type(exc) is duckdb.Error and bool(_PERMISSION_DENIED.match(str(exc)))
+
+
+_NULLABLE_INTEGERS = {
+    "TINYINT": "Int8", "SMALLINT": "Int16", "INTEGER": "Int32", "BIGINT": "Int64",
+    "UTINYINT": "UInt8", "USMALLINT": "UInt16", "UINTEGER": "UInt32", "UBIGINT": "UInt64",
+}
+
+
+def _python_frame(description, rows: list) -> pd.DataFrame:
+    """A frame from DuckDB's Python values. Integer columns use pandas'
+    nullable integer types, as DuckDB's own conversion does: left to
+    inference, a column with a NULL becomes float64 and rounds past 2^53.
+    Everything else keeps its Python value (exact Decimal, time with offset)."""
+    names = [column[0] for column in description]
+    frame = pd.DataFrame(rows, columns=names, dtype=object)
+    for i, column in enumerate(description):
+        integer = _NULLABLE_INTEGERS.get(str(column[1]).upper())
+        if integer:
+            frame.isetitem(i, pd.array(list(frame.iloc[:, i]), dtype=integer))
+    return frame
 
 
 def _exact_frame(cursor: duckdb.DuckDBPyConnection, table: pa.Table) -> pd.DataFrame:

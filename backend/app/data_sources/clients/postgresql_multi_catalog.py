@@ -22,10 +22,16 @@ def _schema_of(table: Table) -> str:
 # column types differ only within one family are not a conflict. The unified
 # column is advertised as the family's widest member. Anything else (numeric
 # vs text, integer vs double, a timestamp with vs without time zone) still is.
+# Numbers follow how DuckDB serves them: numeric(p,s) is an exact DECIMAL
+# ("numeric"), bare numeric and numeric wider than 38 digits are DOUBLE
+# ("float"). A DOUBLE in the same union would make every tenant's decimals
+# approximate, so the two never merge.
 _INTEGER_RANKS = {"smallint": 0, "int2": 0, "integer": 1, "int": 1, "int4": 1, "bigint": 2, "int8": 2}
 _FLOAT_RANKS = {"real": 0, "float4": 0, "double precision": 1, "float8": 1}
 _TEXT = re.compile(r"^(text|character varying|varchar|character|char|bpchar)(\s*\(\d+\))?$")
-_NUMERIC = re.compile(r"^(numeric|decimal)(\s*\(\s*\d+\s*(,\s*\d+\s*)?\))?$")
+_NUMERIC = re.compile(r"^(numeric|decimal)(\s*\(\s*(\d+)\s*(,\s*\d+\s*)?\))?$")
+# DuckDB's DECIMAL holds at most 38 digits; wider numerics are served as DOUBLE.
+_MAX_EXACT_DIGITS = 38
 _TEMPORAL = re.compile(r"^(timestamp|time)(\s*\(\d+\))?(\s+(without|with) time zone)?$")
 
 
@@ -39,8 +45,10 @@ def type_family(dtype: str | None) -> str:
         return "float"
     if _TEXT.match(t):
         return "text"
-    if _NUMERIC.match(t):
-        return "numeric"
+    numeric = _NUMERIC.match(t)
+    if numeric:
+        precision = numeric.group(3)
+        return "numeric" if precision and int(precision) <= _MAX_EXACT_DIGITS else "float"
     match = _TEMPORAL.match(t)
     if match:
         zone = "with time zone" if match.group(4) == "with" else "without time zone"
@@ -57,8 +65,17 @@ def _family_type(family: str, dtypes: set[str]) -> str:
     if family == "integer":
         return max(normalized, key=lambda d: _INTEGER_RANKS[d])
     if family == "float":
-        return max(normalized, key=lambda d: _FLOAT_RANKS[d])
-    return family  # text, numeric, "timestamp without time zone", ...
+        # Bare (or very wide) numeric is served as DOUBLE too; it ranks with it.
+        return max(sorted(normalized), key=lambda d: _FLOAT_RANKS.get(d, 1))
+    if family == "numeric":
+        # Wide enough for every tenant's digits on both sides of the point,
+        # as DuckDB's union widens DECIMALs; kept with a modifier so engine
+        # builds still read it as exact.
+        shapes = [_NUMERIC.match(d) for d in normalized]
+        scales = [int((m.group(4) or ",0").strip(", ")) for m in shapes]
+        whole = [int(m.group(3)) - scale for m, scale in zip(shapes, scales)]
+        return f"numeric({max(whole) + max(scales)},{max(scales)})"
+    return family  # text, "timestamp without time zone", ...
 
 
 def _majority_types(members: dict[str, Table]) -> dict[str, tuple[str, str]]:

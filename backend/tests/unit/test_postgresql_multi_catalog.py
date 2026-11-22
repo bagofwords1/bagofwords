@@ -222,7 +222,9 @@ def test_same_column_spelling_in_every_tenant_is_not_a_collision():
     (["smallint", "integer", "integer"], "integer"),
     (["character varying(50)", "character varying(100)"], "text"),
     (["text", "character varying"], "text"),
-    (["numeric(10,2)", "numeric(12,2)"], "numeric"),
+    (["numeric(10,2)", "numeric(12,2)"], "numeric(12,2)"),
+    (["numeric(10,2)", "numeric(12,4)"], "numeric(12,4)"),  # 8 whole digits, 4 after the point
+    (["numeric", "double precision"], "double precision"),  # DuckDB serves bare numeric as DOUBLE
     (["real", "double precision"], "double precision"),
     (["timestamp(3) without time zone", "timestamp without time zone"], "timestamp without time zone"),
 ])
@@ -243,6 +245,8 @@ def test_types_duckdb_merges_without_loss_keep_every_tenant(types, advertised):
     ("integer", "double precision"),
     ("timestamp without time zone", "timestamp with time zone"),
     ("integer", "integer[]"),
+    ("numeric(12,2)", "numeric"),  # bare numeric is served as DOUBLE: the union would round the decimals
+    ("numeric(12,2)", "double precision"),
 ])
 def test_types_that_do_not_merge_safely_still_leave_the_minority_out(majority, minority):
     catalog = unify_catalogs({
@@ -259,6 +263,8 @@ def test_type_family_of_postgres_type_names():
     assert type_family("character varying(255)") == type_family("TEXT") == "text"
     assert type_family("timestamp(6) with time zone") == "timestamp with time zone"
     assert type_family("uuid") == "uuid"
+    assert type_family("numeric(12,2)") == type_family("numeric(38,0)") == "numeric"
+    assert type_family("numeric") == type_family("numeric(50,10)") == type_family("real") == "float"
 
 
 def test_indexed_column_types_are_recorded_for_build_time_checks():

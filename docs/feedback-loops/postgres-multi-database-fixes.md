@@ -155,6 +155,16 @@ Second review round:
 | The fallback after a missing table skipped the type check | the check runs after the fallback write too | `test_the_fallback_after_a_missing_table_still_checks_types` |
 | `TIME WITH TIME ZONE` lost its offset through Arrow (on #1808 it was refused as unsupported) | results with that type are built from DuckDB's Python values, which keep the offset and exact decimals | `test_time_with_time_zone_keeps_its_offset` |
 
+Third review round:
+
+| Finding | Change | Test (fails before, passes after) |
+|---|---|---|
+| **Blocker**: a tenant switching to `DOUBLE` still rounded another tenant's `numeric(16,2)`: `information_schema` names it plain `numeric`, which the check treated as "either" | indexing reads `numeric` columns with their type modifier (`format_type(atttypid, atttypmod)`), so the index holds `numeric(16,2)`; numbers follow how DuckDB serves them (`numeric(p,s)` up to 38 digits is exact, bare or wider `numeric` is `DOUBLE`) at indexing and at build time; the "either" exception is gone | `test_a_tenant_that_starts_serving_double_does_not_round_fixed_scale_numerics`, `test_bare_and_fixed_scale_numerics_are_not_unified` |
+| Nullable `BIGINT` in a result with `TIME WITH TIME ZONE` came back as `float64` | that path types integer columns as pandas' nullable integers, as DuckDB's own conversion does | `test_time_with_time_zone_keeps_nullable_big_integers_exact`, `test_python_frame_keeps_nullable_integers_exact` |
+
+Still true on #1808 and here: bare `numeric` values past ~15 significant
+digits are rounded by DuckDB's postgres scanner, which reads them as `DOUBLE`.
+
 Measured on the same 30 tenants x 40 tables (local server):
 
 | | Before these changes | After |
@@ -170,7 +180,7 @@ The parallel gain grows with network latency; locally each round trip is ~0.3 ms
 
 | Suite | Result |
 |---|---|
-| PR integration tests against real Postgres (`test_postgresql_multi_engine.py`, `test_postgresql_multi_client.py`) | 95 passed; 98 after review; 102 after the #1808 notes; 105 after the second review |
+| PR integration tests against real Postgres (`test_postgresql_multi_engine.py`, `test_postgresql_multi_client.py`) | 95 passed; 98 after review; 102 after the #1808 notes; 105 after the second review; 108 after the third |
 | New integration test (hidden table via quoting form, two shapes) on #1808's code | both fail ("did not raise") |
 | PR unit tests + shared guard tests | pass (`test_table_scope_guard.py` 374) |
 | `test_postgresql_multi_reading.py` (new, DuckDB-side check) | pass |
