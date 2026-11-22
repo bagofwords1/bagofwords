@@ -1,8 +1,6 @@
-// Whether an open dashboard should offer a newer version than the one on
-// screen. Both views that show a dashboard outside the run that edits it --
-// the conversation's Dashboard pane (ArtifactFrame) and the draft page
-// (SharedDashboardView) -- poll, then ask this. A version only counts as
-// news once: what was already known at the last read is never offered again.
+// Compare the rendered version with the newest candidate. A pane following
+// the latest version may already have the candidate in its picker. Explicit
+// version selections and manual offers track which versions are newly seen.
 
 export interface NewerOffer {
   id: string
@@ -36,16 +34,17 @@ export function newerPaneVersion(args: {
   elsewhere: ElsewhereVersion[]
   knownElsewhere: Set<string>
   reportId: string
+  followLatest?: boolean
 }): NewerOffer | null {
   const { selected, newestHere, knownHere, elsewhere, knownElsewhere, reportId } = args
   if (!selected) return null
   let offer: NewerOffer | null = null
-  if (newestHere && !knownHere.has(newestHere.id) && newestHere.version > selected.version) {
+  if (newestHere && (args.followLatest || !knownHere.has(newestHere.id)) && newestHere.version > selected.version) {
     offer = { id: newestHere.id, number: newestHere.version, elsewhere: false }
   }
-  if (knownElsewhere.size) {
+  if (args.followLatest || knownElsewhere.size) {
     const fresh = elsewhere
-      .filter(v => !knownElsewhere.has(v.id) && String(v.report_id) !== String(reportId))
+      .filter(v => (args.followLatest || !knownElsewhere.has(v.id)) && String(v.report_id) !== String(reportId))
       .reduce<ElsewhereVersion | null>((m, v) => (!m || v.number > m.number ? v : m), null)
     if (fresh && fresh.number > Math.max(selected.version, offer?.number || 0)) {
       offer = { id: fresh.id, number: fresh.number, elsewhere: true }
