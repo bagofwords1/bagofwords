@@ -19,6 +19,23 @@ from app.models.datasource_table import DataSourceTable
 from app.data_sources.routines import is_routine
 
 
+def _specificity_tiers(cols, terms) -> Dict[int, int]:
+    """{id(column): size of the narrowest term it matched} (smaller = more
+    specific), so ranking by usage stays inside a specificity tier."""
+    from app.ai.context.column_ranking import column_term_matchers
+    matchers = column_term_matchers(terms)
+    per_col = {}
+    counts = [0] * len(matchers)
+    for c in cols:
+        name = str(getattr(c, "name", "") or "")
+        desc = str(getattr(c, "description", "") or "")
+        which = [k for k, (_, m) in enumerate(matchers) if m(name, desc)]
+        per_col[id(c)] = which
+        for k in which:
+            counts[k] += 1
+    return {cid: (min(counts[k] for k in which) if which else 0) for cid, which in per_col.items()}
+
+
 class DescribeTablesTool(Tool):
     @property
     def metadata(self) -> ToolMetadata:
@@ -31,7 +48,12 @@ class DescribeTablesTool(Tool):
                 "Tables with instructions>0 in the schema have associated rules — use this tool to see them. "
                 "When a data source has multiple connections with identically-named tables, use connection_ids to scope the search to a specific connection and avoid duplicates. "
                 "Also describes stored procedures and functions (<routine> entries): returns their source code, "
-                "so you can apply the business logic they encode in your own SELECT."
+                "so you can apply the business logic they encode in your own SELECT. "
+                "Wide tables show only their top columns (by usage, instructions and keys) and fold the rest into a "
+                "<more_columns> summary such as 'svc.request.* (412)'. Those columns still exist and can be queried: "
+                "find them with `columns` (names or patterns, matched against column names and descriptions). "
+                "`query` + `columns` returns only the matching columns of those tables; `columns` alone searches every "
+                "table in scope and returns each table that has a match (use it to ask 'which table has a user id column?')."
             ),
             category="research",
             version="1.0.0",
@@ -118,6 +140,63 @@ class DescribeTablesTool(Tool):
             # Never let on-demand sampling break table inspection.
             return
 
+    async def _apply_column_search(self, ctx: Any, terms: List[str], *, keep_unmatched: bool,
+                                   per_ds_limit: int, runtime_ctx: Dict[str, Any]) -> None:
+        """Narrow every table in ``ctx`` to the columns matching ``terms``.
+
+        ``keep_unmatched``: with a table query, a named table with no match
+        stays (as "0 of N") so the agent learns the column is not there; a
+        scope-wide search keeps only tables that have a match. Columns the
+        agent manager excluded never reach this point (the builder drops them)
+        and are filtered again here, in case a late fill re-added them.
+        Matching columns are ordered by usage (one batched stats read for the
+        returned tables)."""
+        from app.ai.context.column_ranking import MAX_MATCHED_COLUMNS, rank_table_columns, search_columns
+        from app.ai.prompt_formatters import filter_columns
+
+        returned = []
+        for ds in (getattr(ctx, "data_sources", []) or []):
+            kept = []
+            for t in (getattr(ds, "tables", []) or []):
+                if is_routine(t):
+                    if keep_unmatched:
+                        kept.append(t)
+                    continue
+                visible = filter_columns(getattr(t, "columns", None) or [], getattr(t, "excluded_columns", None))
+                hits = search_columns(visible, terms)
+                if not hits and not keep_unmatched:
+                    continue
+                t.columns = hits
+                t.column_match = {"terms": list(terms), "matched": len(hits), "total": len(visible)}
+                t.column_budget = MAX_MATCHED_COLUMNS
+                t.columns_ranked = False
+                kept.append(t)
+            ds.tables = kept
+            returned.extend(kept[:per_ds_limit])
+        ids = [str(t.id) for t in returned if getattr(t, "id", None) and (t.columns or [])]
+        if not ids:
+            return
+        try:
+            from app.services.column_usage_service import ColumnUsageService
+            db = runtime_ctx.get("db")
+            lock = runtime_ctx.get("tool_db_lock")
+            if db is None:
+                return
+            if lock is not None:
+                async with lock:
+                    stats = await ColumnUsageService().load_stats(db, ids)
+            else:
+                stats = await ColumnUsageService().load_stats(db, ids)
+        except Exception:
+            stats = {}
+        for t in returned:
+            if t.columns:
+                # Usage order within each specificity tier (search_columns put
+                # the narrowest matches first; keep that the primary key).
+                specificity = _specificity_tiers(t.columns, terms)
+                rank_table_columns(t, stats.get(str(getattr(t, "id", "") or "")), None)
+                t.columns = sorted(t.columns, key=lambda c: specificity.get(id(c), 0))
+
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = DescribeTablesInput(**tool_input)
 
@@ -125,9 +204,15 @@ class DescribeTablesTool(Tool):
         # tables + their business rules — re-fetching just burns a turn (models
         # otherwise loop on the schema's static instructions>0 markers).
         _seen: dict = runtime_ctx.setdefault("_describe_tables_seen", {})
-        _qkey = "|".join(sorted(str(q).strip().lower() for q in (data.query if isinstance(data.query, list) else [data.query]) if q))
+        query_terms = [q for q in (data.query if isinstance(data.query, list) else [data.query]) if isinstance(q, str) and q.strip()]
+        column_terms = [c.strip() for c in (data.columns if isinstance(data.columns, list) else [data.columns])
+                        if isinstance(c, str) and c.strip()]
+        _qkey = "|".join(sorted(str(q).strip().lower() for q in query_terms))
+        if column_terms:
+            _qkey += "#cols:" + "|".join(sorted(c.lower() for c in column_terms))
+        _qkey += "#ds:" + ",".join(sorted(data.data_source_ids or [])) + "#conn:" + ",".join(sorted(data.connection_ids or []))
         if _qkey and _qkey in _seen:
-            yield ToolStartEvent(type="tool.start", payload={"query": data.query})
+            yield ToolStartEvent(type="tool.start", payload={"query": data.query, "columns": data.columns})
             yield ToolEndEvent(type="tool.end", payload={
                 "output": {"success": True, "message": "already described this run"},
                 "observation": {"summary": (
@@ -140,7 +225,7 @@ class DescribeTablesTool(Tool):
         _seen[_qkey] = True
 
         # Emit start
-        yield ToolStartEvent(type="tool.start", payload={"query": data.query})
+        yield ToolStartEvent(type="tool.start", payload={"query": data.query, "columns": data.columns})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "collecting_index"})
 
         context_hub = runtime_ctx.get("context_hub")
@@ -149,7 +234,7 @@ class DescribeTablesTool(Tool):
 
         # Resolve queries into name patterns (always escaped literal + optional raw regex)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "resolving_patterns"})
-        queries = data.query if isinstance(data.query, list) else [data.query]
+        queries = query_terms
         name_patterns: list[str] = []
         special = re.compile(r"[\^\$\.\*\+\?\[\]\(\)\{\}\|]")
         for q in queries:
@@ -205,6 +290,13 @@ class DescribeTablesTool(Tool):
                 # always have columns); never breaks the tool.
                 await self._sample_thin_tables(ctx, runtime_ctx)
 
+                # Column search: keep only matching columns; without
+                # a table query, keep only the tables that have a match.
+                if column_terms:
+                    yield ToolProgressEvent(type="tool.progress", payload={"stage": "searching_columns"})
+                    await self._apply_column_search(ctx, column_terms, keep_unmatched=bool(query_terms),
+                                                    per_ds_limit=max(1, int(data.limit or 10)), runtime_ctx=runtime_ctx)
+
                 # Compute counts before render limits
                 try:
                     searched_sources = len(getattr(ctx, "data_sources", []) or [])
@@ -251,14 +343,24 @@ class DescribeTablesTool(Tool):
                     ds_type = getattr(ds_info, "type", None)
                     for t in (getattr(ds, "tables", []) or [])[:per_ds_cap]:
                         # Columns preview
+                        # The same bounded column list the model saw: a column
+                        # search's matches, or a wide table's top columns.
                         col_items: list[dict[str, Any]] = []
+                        cols_total = None
+                        cols_matched = None
                         try:
-                            for c in (getattr(t, "columns", []) or []):
+                            from app.ai.context.column_ranking import curate_columns
+                            _cur = curate_columns(t)
+                            match = getattr(t, "column_match", None)
+                            cols_total = (match or {}).get("total", _cur.total)
+                            cols_matched = (match or {}).get("matched") if match else None
+                            for c in _cur.shown:
                                 col_items.append({
                                     "name": getattr(c, "name", None),
                                     "dtype": getattr(c, "dtype", None),
                                     "description": getattr(c, "description", None),
                                     "metadata": getattr(c, "metadata", None),
+                                    "usage_count": getattr(c, "usage_count", None),
                                 })
                         except Exception:
                             col_items = []
@@ -286,6 +388,8 @@ class DescribeTablesTool(Tool):
                             "metadata": getattr(t, "metadata_json", None),
                             "columns": col_items,
                             "usage": usage,
+                            "columns_total": cols_total,
+                            "columns_matched": cols_matched,
                         })
             output["top_tables"] = top_tables
         except Exception:
@@ -294,6 +398,7 @@ class DescribeTablesTool(Tool):
         # Include the original query explicitly for UI display after reloads
         try:
             output["search_query"] = data.query
+            output["search_columns"] = data.columns
         except Exception:
             pass
 
@@ -392,8 +497,12 @@ class DescribeTablesTool(Tool):
             instructions_section = InstructionsSection(items=instruction_items)
             instructions_excerpt = instructions_section.render()
 
+        summary = f"Described {matched_tables_total} tables across {searched_sources} data sources."
+        if column_terms:
+            summary = (f"Column search for {', '.join(column_terms)}: {matched_tables_total} tables with matching "
+                       f"columns across {searched_sources} data sources.")
         observation = {
-            "summary": f"Described {matched_tables_total} tables across {searched_sources} data sources.",
+            "summary": summary,
             "analysis_complete": False,
             "final_answer": None,
             "schemas_excerpt": schemas_excerpt,

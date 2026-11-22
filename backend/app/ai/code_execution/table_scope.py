@@ -203,6 +203,24 @@ _SAFE_TABLE_FUNCTIONS = frozenset({
     "generate_date_array", "generate_timestamp_array",
 })
 
+# More of them, each only on the dialect whose engine has it as a built-in:
+# on another engine the name may be any function.
+_DIALECT_TABLE_FUNCTIONS = {
+    "postgres": frozenset({
+        "regexp_matches", "json_to_record", "jsonb_to_record", "json_populate_record",
+        "jsonb_populate_record", "jsonb_path_query", "json_object_keys",
+        "jsonb_object_keys", "generate_subscripts",
+    }),
+}
+# DuckDB's json_tree makes rows from a JSON value: under LATERAL only.
+_DUCKDB_LATERAL_FUNCTIONS = frozenset({"json_tree"})
+
+
+def _safe_table_functions(dialect: str | None) -> frozenset[str]:
+    """The table functions that read no table on `dialect`."""
+    return _SAFE_TABLE_FUNCTIONS | _DIALECT_TABLE_FUNCTIONS.get(dialect, frozenset())
+
+
 # Generators of Spark, Databricks and Hive: under LATERAL VIEW or LATERAL
 # there, called by their bare name, they make rows from their arguments.
 # Anywhere else, and on any other dialect, the name is a function like any
@@ -219,7 +237,7 @@ _DENIED_FUNCTION = re.compile(
     r"query_to_xml.*|table_to_xml.*|schema_to_xml.*|database_to_xml.*|cursor_to_xml.*|"
     r"dblink.*|pg_read_.*|pg_ls_.*|lo_.*|"
     r"system\$.*|external_query|"
-    r"read_(csv|json|parquet|text|blob|ndjson|xlsx).*|sqlite_scan|postgres_scan|mysql_scan|"
+    r"read_(csv|json|parquet|text|blob|ndjson|xlsx|duckdb).*|sqlite_scan|postgres_.*|mysql_scan|"
     r"openrowset|openquery|opendatasource|"
     r"url|file|s3|gcs|hdfs|remote|remotesecure|mysql|postgresql|jdbc|odbc|"
     r"joinget.*|dictget.*|dicthas|dictisin|hascolumnintable)$",
@@ -258,6 +276,15 @@ def _func_name(node) -> str:
         return str(node.sql_name() or "")
     except Exception:
         return ""
+
+
+def _refuse_denied_functions(stmt, denied: re.Pattern = _DENIED_FUNCTION) -> None:
+    from sqlglot import exp
+
+    for fn in stmt.find_all(exp.Func):
+        name = _func_name(fn)
+        if name and denied.match(name):
+            raise _unverifiable_function(name)
 
 
 def _name_part(ident, dialect: str | None) -> str:
@@ -782,7 +809,9 @@ def _duckdb_tables(sql: str) -> tuple[str | None, list[Name]]:
     for function in sorted(stmt.functions | stmt.table_functions):
         if _DENIED_FUNCTION.match(function) or DENIED_FUNCTIONS["duckdb"].fullmatch(function):
             raise _unverifiable_function(function)
-    for function in sorted(stmt.table_functions - _SAFE_TABLE_FUNCTIONS):
+    # (A function of `_DUCKDB_LATERAL_FUNCTIONS` is judged where it stands,
+    # by the checks on the parsed SELECT.)
+    for function in sorted(stmt.table_functions - _SAFE_TABLE_FUNCTIONS - _DUCKDB_LATERAL_FUNCTIONS):
         raise _unverifiable_function(function)
     return select, [tuple(part for part in table if part) for table in sorted(stmt.tables)]
 
@@ -888,10 +917,7 @@ def _check_statements(statements: list, dialect: str, scope: TableScope,
         _check_names_of_disabled_tables(stmt, scope)
         if dialect == "clickhouse":
             _check_clickhouse_with_lambdas(stmt)
-        for fn in stmt.find_all(exp.Func):
-            name = _func_name(fn)
-            if name and _DENIED_FUNCTION.match(name):
-                raise _unverifiable_function(name)
+        _refuse_denied_functions(stmt)
         if dialect == "clickhouse":
             _check_clickhouse_settings(stmt)
         # A denied name as a column or a field: the read-only guard's list,
@@ -905,10 +931,11 @@ def _check_statements(statements: list, dialect: str, scope: TableScope,
                 if field_denied.fullmatch(node.name.lower()):
                     raise _unverifiable_function(node.name)
 
+        safe_functions = _safe_table_functions(dialect)
         for tfr in stmt.find_all(exp.TableFromRows):
             inner = tfr.this
             name = _func_name(inner).lower() if inner is not None else ""
-            if isinstance(inner, exp.Anonymous) and name not in _SAFE_TABLE_FUNCTIONS:
+            if isinstance(inner, exp.Anonymous) and name not in safe_functions:
                 raise TableScopeViolation(
                     f"TABLE({name.upper() or '...'}(...)) is not allowed in agent queries, "
                     "because the table it reads cannot be checked."
@@ -925,7 +952,7 @@ def _check_statements(statements: list, dialect: str, scope: TableScope,
             name = _func_name(target).lower() if isinstance(target, exp.Func) else ""
             if isinstance(target, exp.Func) and not isinstance(target, exp.Anonymous):
                 continue  # typed built-ins sqlglot knows (GENERATE_SERIES, ...)
-            if name in _SAFE_TABLE_FUNCTIONS:
+            if name in safe_functions:
                 continue
             raise TableScopeViolation(
                 f"'{t.sql(dialect=dialect)[:80]}' is not allowed as a query source, because "
@@ -936,19 +963,27 @@ def _check_statements(statements: list, dialect: str, scope: TableScope,
         # checked above; over a name or a call they are not. A call passes
         # as it would in FROM (a typed built-in or a row-producing function);
         # so do a Spark, Databricks or Hive generator under LATERAL VIEW or
-        # LATERAL there, and T-SQL's nodes() method of an xml column.
+        # LATERAL there, and T-SQL's nodes() method of an xml column. Inside
+        # TABLE(...) only such a call passes.
         for lateral in stmt.find_all(exp.Lateral):
             target = lateral.this
-            if isinstance(target, (exp.Subquery, exp.Query)):
+            in_table = isinstance(target, exp.TableFromRows)
+            if in_table:
+                target = target.this
+            if isinstance(target, (exp.Subquery, exp.Query)) and not in_table:
                 continue
             if isinstance(target, exp.Func) and (not isinstance(target, exp.Anonymous)
-                                                 or _func_name(target).lower() in _SAFE_TABLE_FUNCTIONS):
+                                                 or _func_name(target).lower() in safe_functions):
                 continue
             if (dialect in _LATERAL_GENERATOR_DIALECTS and isinstance(target, exp.Anonymous)
-                    and lateral.args.get("cross_apply") is None
+                    and lateral.args.get("cross_apply") is None and not in_table
                     and _func_name(target).lower() in _LATERAL_GENERATORS):
                 continue
-            if dialect in _XML_NODES_DIALECTS and _is_xml_nodes_call(lateral):
+            if dialect in _XML_NODES_DIALECTS and not in_table and _is_xml_nodes_call(lateral):
+                continue
+            if (dialect == "duckdb" and isinstance(target, exp.Anonymous) and not in_table
+                    and lateral.args.get("cross_apply") is None
+                    and _func_name(target).lower() in _DUCKDB_LATERAL_FUNCTIONS):
                 continue
             raise TableScopeViolation(
                 f"'{lateral.sql(dialect=dialect)[:80]}' is not allowed as a query source, because "
@@ -1053,6 +1088,27 @@ def _dialect_keywords(dialect: str | None) -> frozenset[str]:
     return frozenset(k.upper() for k in Dialect.get_or_raise(dialect or None).tokenizer_class.KEYWORDS)
 
 
+def _parse_for_refs(sql: str, dialect: str) -> list:
+    from app.ai.code_execution.sql_parser import parse_guard_sql
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
+    try:
+        return [s for s in parse_guard_sql(sql, dialect)
+                if s is not None and not isinstance(s, exp.Semicolon)]
+    except SqlglotError as e:
+        raise TableScopeViolation(
+            "Could not verify which tables this query reads, so it was not run. "
+            "Rewrite it as a plain SELECT over <database>.<table> names."
+        ) from e
+
+
+def parse_for_refs(sql: str, dialect: str) -> list:
+    """`sql` parsed once, for callers that run several checks on it
+    (`table_refs_of`, `refuse_unchecked_reads_of`). Unreadable SQL raises."""
+    return _parse_for_refs(sql, dialect)
+
+
 def table_refs(sql: str, dialect: str) -> list[Name]:
     """Every table `sql` reads, as lowercased name parts, CTE names left out
     (`tables_read`: the same CTE visibility and WITH-loop rules as the table
@@ -1060,18 +1116,12 @@ def table_refs(sql: str, dialect: str) -> list[Name]:
 
     Unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`.
     """
-    from app.ai.code_execution.sql_parser import parse_guard_sql
-    from sqlglot import exp
-    from sqlglot.errors import SqlglotError
+    return table_refs_of(_parse_for_refs(sql, dialect), dialect)
 
-    try:
-        statements = [s for s in parse_guard_sql(sql, dialect)
-                      if s is not None and not isinstance(s, exp.Semicolon)]
-    except SqlglotError as e:
-        raise TableScopeViolation(
-            "Could not verify which tables this query reads, so it was not run. "
-            "Rewrite it as a plain SELECT over <database>.<table> names."
-        ) from e
+
+def table_refs_of(statements: list, dialect: str | None = None) -> list[Name]:
+    """`table_refs` over statements already parsed by `parse_for_refs`."""
+    from sqlglot import exp
 
     refs: list[Name] = []
     for stmt in statements:
@@ -1695,6 +1745,26 @@ def check_nonparsing_table_scope(sql: str, engine: str, scope: TableScope, schem
         _check_names_of_disabled_tables(stmt, scope)  # with the stored names split at every dot too
     _check_statements(statements, dialect, stored, None, [])
     _nonparsing_cross_check(tokens, statements, scopes, engine)
+
+
+def refuse_unchecked_reads(sql: str, dialect: str, extra_denied: re.Pattern | None = None) -> None:
+    """Raise TableScopeViolation when `sql` calls a denied function, or one matching
+    `extra_denied`, anywhere in the query; unreadable SQL raises too. Applies with no
+    scope attached.
+
+    Deliberately no rule on LATERAL / APPLY sources here: one applied to every
+    connector refused built-ins that read no table (SQL Server `.nodes()`, Spark
+    `inline_outer`, DuckDB `json_tree`). A connector that needs a stricter rule
+    applies it with the engine's own parser (see PostgresqlMultiClient)."""
+    refuse_unchecked_reads_of(_parse_for_refs(sql, dialect), extra_denied)
+
+
+def refuse_unchecked_reads_of(statements: list, extra_denied: re.Pattern | None = None) -> None:
+    """`refuse_unchecked_reads` over statements already parsed by `parse_for_refs`."""
+    for stmt in statements:
+        _refuse_denied_functions(stmt)
+        if extra_denied is not None:
+            _refuse_denied_functions(stmt, extra_denied)
 
 
 def enforce_table_scope(client, query) -> None:

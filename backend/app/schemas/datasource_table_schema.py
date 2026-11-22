@@ -65,6 +65,10 @@ class DataSourceTableSchema(BaseModel):
     metadata_json: Optional[Dict[str, Any]] = None
     # Column names hidden from this agent's schema context (None = none hidden).
     excluded_columns: Optional[List[str]] = None
+    # Per-column usage, keyed by column name: {usage_count,
+    # success_count, failure_count, pos_feedback_count, neg_feedback_count}.
+    # Only columns with recorded usage appear; returned with with_stats.
+    column_stats: Optional[Dict[str, Dict[str, int]]] = None
     # Connection info (for multi-connection support)
     connection_id: Optional[str] = None
     connection_name: Optional[str] = None

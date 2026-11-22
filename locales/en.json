@@ -530,7 +530,22 @@
     "instructions": "Instructions",
     "emptyLabel": "Start typing to search",
     "emptyQueryLabel": "No results found",
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "placeholderInReport": "Search this report, reports, agents, instructions…",
+    "inThisReport": "In this report",
+    "reportScopeHint": "Type report: to search only this report",
+    "reportPrefix": "report:",
+    "tabs": {
+      "all": "All",
+      "reports": "Reports",
+      "agents": "Agents",
+      "instructions": "Instructions",
+      "dashboards": "Dashboards"
+    },
+    "tabsLabel": "Categories",
+    "tabsHint": "categories",
+    "dashboards": "Dashboards",
+    "untitledDashboard": "Untitled dashboard"
   },
   "smoke": {
     "hello": "Hello",
@@ -1424,6 +1439,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM usage for this conversation",
     "turnTokensTooltip": "Planner LLM tokens for this turn",
+    "tokensInOut": "in {input} / out {output}",
+    "tokensIn": "In",
+    "tokensOut": "Out",
+    "tokensCached": "Cached",
+    "stepTokens": "Tokens",
+    "stepTokensTooltip": "This step's planner call. Input includes cached tokens. LLM calls made inside the tool are not counted.",
+    "modelUnknown": "Unknown model",
+    "modelUnknownTooltip": "No per-call LLM usage was recorded for this run",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Models in this turn",
+    "modelCalls": "{count} call | {count} calls",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Auto routing ran these calls on {model} instead of {baseline}",
+    "autoRoutedRunTooltip": "Auto routing was on for this run",
+    "primaryModel": "Primary",
     "turnUsageTooltip": "LLM usage for this turn",
     "setup": "Setup",
     "setupTooltip": "Time from run start until the first step began (context building, etc.)",
@@ -1514,7 +1544,30 @@
       "copied": "Trace JSON copied to clipboard",
       "failed": "Couldn't export the trace"
     },
-    "hiddenTurns": "{count} later turn hidden: it or an earlier turn reached an agent you don't manage | {count} later turns hidden: they or an earlier turn reached an agent you don't manage"
+    "hiddenTurns": "{count} later turn hidden: it or an earlier turn reached an agent you don't manage | {count} later turns hidden: they or an earlier turn reached an agent you don't manage",
+    "contextColumns": {
+      "ofTotal": "{shown} of {total} columns",
+      "allColumns": "{total} columns",
+      "why": "Why these columns",
+      "reason": {
+        "usage_ranked": "Ranked by column usage",
+        "structural_only": "No usage yet: keys, timestamps and IDs first",
+        "all_columns": "All columns fit the budget"
+      },
+      "signal": {
+        "mentioned": "{n} named in the task",
+        "usage": "{n} by usage",
+        "instructions": "{n} referenced by instructions",
+        "structural": "{n} keys, timestamps or IDs",
+        "sample": "{n} sampled across column groups",
+        "schema_order": "{n} in catalog order"
+      },
+      "shown": "Columns in context",
+      "folded": "Folded (searchable with describe_tables)",
+      "otherColumns": "{count} other columns",
+      "usedTimes": "used {count}×",
+      "score": "score {score}"
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -2655,6 +2708,19 @@
       "connected": "Connected",
       "askAgain": "Ask again",
       "readyHint": "Connected. Run your question again to use it."
+    },
+    "describeTables": {
+      "searching": "Searching {query}…",
+      "searched": "Searched {names}",
+      "searchedMore": "Searched {names} +{count}",
+      "columnsMatching": "columns matching {terms}",
+      "column": "Column",
+      "type": "Type",
+      "used": "Used",
+      "showingOf": "Top {shown} of {total} columns, most used first",
+      "matchingOf": "{matched} of {total} columns match {terms}",
+      "noMatch": "No column matches {terms}",
+      "more": "+{count} more"
     }
   },
   "entityCreate": {
@@ -2945,7 +3011,17 @@
     "noManagedGroupsHint": "You don't manage any groups.",
     "toastManagerAdded": "Member is now a group manager",
     "toastManagerRemoved": "Manager role removed",
-    "failedToUpdateManager": "Failed to update group manager"
+    "failedToUpdateManager": "Failed to update group manager",
+    "models": {
+      "title": "Default models",
+      "hint": "What this group's members start on. Only models the group can already use are listed.",
+      "default": "Default model",
+      "small": "Small model",
+      "orgDefault": "Organization default",
+      "setByAdmin": "{model} (set by an admin)",
+      "saved": "Group models updated",
+      "failed": "Could not update the group's models"
+    }
   },
   "quotaPolicies": {
     "searchPlaceholder": "Search quotas...",
@@ -4319,6 +4395,10 @@
         "show_world": {
           "name": "World view",
           "description": "Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K columns per table",
+          "description": "How many columns of a wide table the agent sees in full in its context, ranked by column usage, instruction references and keys/timestamps. The rest are summarized by prefix and stay searchable with describe_tables. 0 = no limit."
         }
       },
       "permissionMode": {
@@ -4517,7 +4597,8 @@
         "configure": "Configure",
         "summaryDecision": "{model} picks the starting model (min confidence {pct}%)",
         "decisionUnavailable": "The decision model chosen for routing is disabled or removed, so requests start on the small model. Choose another one in Configure.",
-        "saved": "Auto router updated"
+        "saved": "Auto router updated",
+        "decisionRestricted": "Only members who may use {model} get the upfront decision. Everyone else starts on the small model."
       },
       "decision": {
         "badge": "Decision",
@@ -4558,7 +4639,24 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: unredacted",
-      "piiBadgeTooltip": "The PII policy this provider's prompts get. Change it in Settings → PII Protection."
+      "piiBadgeTooltip": "The PII policy this provider's prompts get. Change it in Settings → PII Protection.",
+      "providerManagers": {
+        "title": "Provider managers",
+        "hint": "Members who run this provider without being LLM admins.",
+        "can": "They can change its credentials and connection settings, turn its models on or off, and edit those models' settings and routing hints.",
+        "cannot": "They can't add models, change prices, defaults or model access, or turn on the Auto router. A model they turn on starts restricted until an admin opens it.",
+        "addPlaceholder": "Add a member…",
+        "add": "Add",
+        "remove": "Remove manager",
+        "loading": "Loading…",
+        "none": "No managers yet. Only LLM admins manage this provider.",
+        "added": "Manager added",
+        "removed": "Manager removed",
+        "failed": "Could not update the provider's managers",
+        "banner": "You manage {providers}. Defaults, model access, prices and the Auto router are set by an admin.",
+        "priceAdminOnly": "Only an admin can change prices.",
+        "restricted": "Restricted: only people an admin gives access can use it."
+      }
     },
     "licensePage": {
       "title": "License",
@@ -5380,6 +5478,14 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "postgresqlMulti": {
+      "databasesTitle": "Databases",
+      "databasesDescription": "Comma-separated database names, globs and !-exclusions, e.g. tenant_*, !tenant_test. Matching is case-sensitive. Every matching database is unified into one set of tables with a tenant_db column.",
+      "discoveryDatabaseTitle": "Discovery Database",
+      "discoveryDatabaseDescription": "Database used to list the server's databases. Default: postgres.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikCloud": {
       "appFilterDescription": "Optional comma-separated app names or IDs within the selected spaces. Empty includes all matching apps. Use IDs for names containing commas."
     },
@@ -5645,7 +5751,14 @@
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider",
       "model_is_group_default": "This model is the default for group(s): {groups}. Change their default first.",
-      "group_default_invalid": "The model must be enabled and be a chat model in this organization."
+      "group_default_invalid": "The model must be enabled and be a chat model in this organization.",
+      "group_default_not_available": "This group can't use that model. Ask an admin to give the group access first.",
+      "group_default_priority_admin_only": "Only an admin can change a group's priority.",
+      "provider_holds_default": "This provider holds the organization's default model. Ask an admin to change the default first.",
+      "provider_manager_admin_only": "Only an admin can do that on this provider.",
+      "provider_manager_not_member": "Only a member of this organization can manage a provider.",
+      "provider_key_required_for_new_destination": "Enter the API key again when changing where this provider connects.",
+      "provider_host_identity_admin_only": "This provider signs in with the server's own cloud identity. Only an admin can change where it connects or switch it to that sign-in."
     },
     "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
     "memory.disabled": "User memory is turned off for this organization.",
@@ -6691,6 +6804,8 @@
       "colTools": "Tools",
       "colDuration": "Duration",
       "colCost": "Cost",
+      "colModel": "Model",
+      "pivotModel": "Show runs that used this model",
       "colFeedback": "Feedback",
       "expandRow": "Show tool calls",
       "pivotReport": "Show this conversation",
@@ -7787,7 +7902,10 @@
     "showAllColumns": "Show all",
     "hideAllColumns": "Hide all",
     "includeColumn": "Include {name} in agent context",
-    "columnHidden": "hidden"
+    "columnHidden": "hidden",
+    "usedHeader": "Used",
+    "usedTooltip": "Executed queries that used this column (failed attempts count less in ranking)",
+    "sortedByUsage": "Most used first"
   },
   "fork": {
     "preparing": "Preparing your copy…",
@@ -9052,5 +9170,56 @@
       }
     },
     "builtinBadge": "Built-in"
+  },
+  "cachedColumns": {
+    "title": "Columns",
+    "hint": "Descriptions and the re-aggregation flag come from the source catalog. Anything you change here is kept on every refresh.",
+    "column": "Column",
+    "type": "Type",
+    "description": "Description",
+    "details": "Details",
+    "aggregation": "Re-aggregation",
+    "descriptionPlaceholder": "No description at the source. Describe this column for the agent.",
+    "additive": "Additive",
+    "notAdditive": "Not additive",
+    "unknown": "Unknown",
+    "additiveHint": "Values can be summed across rows.",
+    "notAdditiveHint": "Summing across rows gives a wrong number. The agent is told not to.",
+    "unknownHint": "Could not be determined from the query. Choose one so the agent knows.",
+    "undecided": "Re-aggregation could not be determined for: {columns}. Set it so the agent knows whether these may be summed.",
+    "copiedFrom": "Copied from {source}",
+    "measureFrom": "Measure {source}",
+    "computedAs": "Computed: {expression}",
+    "edited": "Edited",
+    "editedHint": "Set by an admin. A refresh will not change it.",
+    "reset": "Reset to source",
+    "drift": "Definition changed",
+    "driftHint": "The source definition of this column changed since the table last described it.",
+    "driftPrevious": "Previously: {expression}",
+    "markReviewed": "Mark reviewed",
+    "rlsTitle": "The source uses row-level security",
+    "rlsBody": "{tables} is protected by row-level security at the source. This copy holds every row the connection can read, and source roles are not carried over. Decide who sees which rows on the Row-level security tab.",
+    "rlsOpen": "Open Row-level security",
+    "rlsSaveFirst": "Available once the table is saved.",
+    "generatedDescription": "Generated from the columns and kept up to date on each refresh. Edit it to write your own.",
+    "reasons": {
+      "sum": "sum",
+      "count": "count",
+      "numeric_column": "numeric value",
+      "distinct_count": "distinct count",
+      "average": "average",
+      "ratio": "ratio",
+      "min_max": "minimum / maximum",
+      "time_intelligence": "time intelligence",
+      "share_of_total": "share of a total",
+      "statistic": "statistic",
+      "offset": "constant added after aggregation",
+      "unreadable": "definition not readable",
+      "complex": "too complex to classify",
+      "not_numeric": "not a number",
+      "grouping_key": "grouping key",
+      "key": "identifier",
+      "set_by_admin": "set by an admin"
+    }
   }
 }

@@ -126,6 +126,9 @@ _CLIENT_TABLE: dict[tuple[str, str], ClientEntry] = dict([
     # DuckDB SQL over catalog tables the client registers by name in an
     # in-memory DuckDB (`sql_guard._check_duckdb_table`).
     _sql("iceberg_client", "IcebergClient", "duckdb", frozenset({"as_of", "snapshot_id"})),
+    # DuckDB SQL over the unified views of many tenant databases; the client
+    # checks every table as DuckDB reads the query (`postgresql_multi_guard`).
+    _sql("postgresql_multi_client", "PostgresqlMultiClient", "duckdb"),
     # Calcite's lexer (Dremio) and the HiveServer2 engines' lexers (Hive,
     # Impala, Spark Thrift Server) are not pinned against sqlglot's.
     _sql("dremio_client", "DremioClient", "dremio", unknown_lexer=True),
@@ -184,8 +187,8 @@ _FILE = "file or document id / JSON file spec, not query text"
 _ID = "positional id, not query text"
 
 PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
-    _refused("elasticsearch_client", "ElasticsearchClient", f"{_JSON}, elasticsearch_client.py:1144"),
-    _refused("opensearch_client", "OpenSearchClient", f"{_JSON}, opensearch_client.py:382"),
+    _refused("elasticsearch_client", "ElasticsearchClient", f"{_JSON}, elasticsearch_client.py:1153"),
+    _refused("opensearch_client", "OpenSearchClient", f"{_JSON}, opensearch_client.py:376"),
     _refused("brocade_client", "BrocadeClient", f"{_JSON}, brocade_client.py:448"),
     _refused("appdynamics_client", "AppDynamicsClient", f"{_JSON}, appdynamics_client.py:458"),
     _refused("aria_operations_client", "AriaOperationsClient", f"{_JSON}, aria_operations_client.py:634"),
@@ -311,8 +314,8 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             "'#' anywhere but at the start or after a space, a tab or a line end; "
             "'@{' refused anywhere, oracle_bi_client.py:420"),
     _exempt("opensearch_client", "OpenSearchClient",
-            f"{_DISPATCH}: known envelope keys only (opensearch_client.py:401), an index to _search, "
-            "or one parsed SQL SELECT before the SQL plugin, opensearch_client.py:450"),
+            f"{_DISPATCH}: known envelope keys only (opensearch_client.py:395), an index to _search, "
+            "or one parsed SQL SELECT before the SQL plugin, opensearch_client.py:438"),
     _exempt("sisense_client", "SisenseClient",
             f"{_DISPATCH}: one parsed SQL SELECT before any request, the table lookup included, "
             "sisense_client.py:449"),
@@ -331,7 +334,7 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     _exempt("aws_cloudwatch_client", "AwsCloudWatchClient",
             f"{_LANGUAGE}: Logs Insights start_query and metric reads only, aws_cloudwatch_client.py:456"),
     _exempt("elasticsearch_client", "ElasticsearchClient",
-            f"{_SPEC}: index (no / ? #) to _search, or the SQL / ES|QL query APIs, elasticsearch_client.py:1206"),
+            f"{_SPEC}: index (no / ? #) to _search, or the SQL / ES|QL query APIs, elasticsearch_client.py:1222"),
     # A JSON spec or ids the client maps onto read requests it builds.
     _exempt("appdynamics_client", "AppDynamicsClient", f"{_SPEC}: catalog tables to GETs, appdynamics_client.py:306"),
     _exempt("aria_operations_client", "AriaOperationsClient", f"{_SPEC}: table to a _q_ read handler, aria_operations_client.py:660"),
@@ -367,7 +370,7 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     _exempt("tableau_client", "TableauClient",
             f"{_SPEC}: datasource and field specs to VizQL query-datasource, tableau_client.py:388"),
     _exempt("mecm_client", "MecmClient", f"{_SPEC}: OData options on a GET, mecm_client.py:292"),
-    _exempt("priority_erp_client", "PriorityErpClient", f"{_SPEC}: OData options on a GET, priority_erp_client.py:243"),
+    _exempt("priority_erp_client", "PriorityErpClient", f"{_SPEC}: OData options on a GET, priority_erp_client.py:285"),
     _exempt("sap_datasphere_client", "SapDatasphereClient", f"{_SPEC}: OData options on a GET, sap_datasphere_client.py:488"),
     # A file, message or item id (or a JSON file spec) read from the source.
     # With indexed file tables, SQL text goes to one DuckDB SELECT over the
@@ -406,7 +409,7 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     # No text statement at all.
     _exempt("browser_client", "BrowserClient", "keyword-only API: execute_query(self, **kwargs), browser_client.py:79"),
     _exempt("tool_provider_base", "ToolProviderClient", "no execute_query text: defines none, tool_provider_base.py:9"),
-    _exempt("bow_client", "BowClient", "structured spec mapped to read endpoints: a BowQuery request, bow_client.py:68"),
+    _exempt("bow_client", "BowClient", "structured spec mapped to read endpoints: a BowQuery request, bow_client.py:74"),
 ])
 
 

@@ -32,6 +32,7 @@ import pandas as pd
 
 from app.ai.code_execution.sandbox import landlock, seccomp
 from app.ai.code_execution.sandbox.config import DEFAULT_MAX_RESULT_MB
+from app.ai.code_execution.sandbox.search_results import exec_dataframe_code
 from app.ai.code_execution.sandbox.namespace import (
     CLIENTS_GLOBAL,
     BrowserHelper,
@@ -245,7 +246,7 @@ def _run_data_job(job: Dict[str, Any], rpc: _Rpc):
     if browser is not None:
         namespace["browser"] = browser
 
-    exec(job["code"], namespace)
+    exec_dataframe_code(job["code"], namespace, search_summaries=job.get("search_summaries", False))
     generate_df = namespace.get("generate_df")
     if not generate_df:
         raise RuntimeError("No generate_df function found in code")

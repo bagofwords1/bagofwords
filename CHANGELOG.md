@@ -1,5 +1,31 @@
 # Release Notes
 
+## Version 0.0.634 (November 22, 2026)
+- Added a PostgreSQL (multi-database) connector: one server with a database per tenant, queried across tenants (#1879, originally #1808 by @roytev)
+- Added WhatsApp "typing…" while the agent works on a question; the user's message now shows as read when the run starts (#1880)
+- Added a tappable dashboard link in WhatsApp when the agent builds a dashboard (#1881)
+- Added the owning agent's icon on tool group headers in reports and shared conversations (#1884)
+- Added LLM provider managers, who run one provider's key, models and settings, and group managers choosing their group's default models (#1885)
+- Added `result_format=raw` for Elasticsearch and OpenSearch searches, returning the engine response in a single cell (#1882)
+- Fixed chart images missing from chat channel replies on SQLite installs (#1881)
+- Fixed Slack, Teams, Google Chat and WhatsApp re-sending the previous chart after a dashboard or generated image (#1881)
+- Fixed Elasticsearch and OpenSearch searches dropping filters, count-only searches showing zero matches, and nested aggregation metrics missing from results; saved queries using unsupported options such as `highlight`, `script_fields` or `explain` now return an error and must be revised (#1882)
+- Fixed row-by-row reads of large Elasticsearch and OpenSearch results taking tens of seconds, and empty aggregation groups dropping their expected columns and nullable integers turning into floats (#1882)
+- Fixed the Auto router's decision model reading requests from users who aren't allowed to use it; they now start on the small model (#1885)
+
+## Version 0.0.633 (November 22, 2026)
+- Added in-report search to ⌘K: find any message in the open report, including unloaded pages, and jump to it (#1863)
+- Added category tabs to ⌘K: All, Reports, Agents, Instructions, Dashboards (#1864)
+- Added per-step input/output tokens and the run's model to the trace modal, and a diagnosis filter on LLM runs (#1869)
+- Added column meanings from the catalog to cached tables, flagging columns that must not be summed (#1868)
+- Added column search to table descriptions, and a cap on wide tables' columns in the agent's context, ranked by usage (#1876)
+- Changed Priority ERP cached tables to load forms in verified pages instead of one capped request (#1867)
+- Fixed an open report's dashboard refreshing more than once per new version (#1866)
+- Fixed SQLite connections hiding tables whose names have spaces, dashes or non-ASCII characters (#1877)
+- Fixed a Git instruction sync failing entirely when a synced file was removed from the repo (#1872)
+- Fixed WhatsApp replies being dropped when an organization has more than one WhatsApp number (#1874)
+- Fixed self-built Docker images including `backend/.env`, uploads and test files (#1877)
+
 ## Version 0.0.632 (November 22, 2026)
 - Added "Save as cached table" beside Save Query on a result, opening the custom-table dialog pre-filled with the agent's query, and a progress bar on a table's first load (#1859)
 - Added custom tables on SAP BusinessObjects, and paged DAX custom tables on Analysis Services (#1857)
@@ -63,6 +89,7 @@
 - Added a numbered citation on the answer's claims that previews, and opens, the result behind it; chat channels get the same as `[1]` footnotes (#1770)
 - Added GPT-6.2 Sol and Astra to the OpenAI models; Sol is the new managed OpenAI default — $2/$10 per million tokens, up from Terra's $1/$5 (#1820)
 - Added named PII protection policies assigned per LLM provider, with an Exempt option, under Settings → PII Protection (#1821) — Enterprise
+- Added a PostgreSQL (multi-database) connection: one connection over many single-tenant databases on the same server, queried as unified tables with a `tenant_db` column; database names, globs and !-exclusions pick the tenants (#1808)
 - Changed a steered prompt to appear above the step that picked it up, on the report page, after a reload and on shared links (#1802)
 - Changed, on multi-organization deployments only: creating an organization needs an instance administrator, a personal API key works only in its own organization, an existing account joins another organization by invite, a sign-up domain is assigned by an instance administrator, and a first sign-in links to an existing account by email only from a trusted provider — `trust_email_for_linking`
 - Changed `security.block_private_outbound` to also cover Cosmos DB, Couchbase, Iceberg, Azure Blob and Kubernetes endpoints and SQL Server failover hosts
@@ -87,6 +114,7 @@
 - Fixed notifications from one organization showing in another
 - Fixed a removed member keeping roles, access grants and API keys after being invited again
 - Fixed saved queries and dashboards failing with a missing-key error after an agent or connection is renamed (#1822)
+- Fixed agent queries reaching tables outside the agent's selection through a LATERAL or APPLY table function (#1808)
 
 ## Version 0.0.628 (November 18, 2026)
 - Added Admin → System logs: read, search, filter and delete the server's own logs in the app (#1697) — kept 7 days, up to 1 GB; `BOW_SYSTEM_LOGS_DIR`, `BOW_SYSTEM_LOGS_RETENTION_DAYS`, `BOW_SYSTEM_LOGS_MAX_SIZE_MB`

@@ -71,4 +71,10 @@ assert.equal(
 
 assert.equal(newerPaneVersion({ ...base, selected: null }), null, 'nothing selected: nothing to offer')
 
+// A stream or another list read can populate the picker before the poll.
+const alreadyListed = { ...base, followLatest: true, newestHere: { id: 'v8', version: 8 }, knownHere: new Set(['v8']) }
+assert.equal(newerPaneVersion(alreadyListed)?.id, 'v8')
+assert.equal(newerPaneVersion({ ...alreadyListed, selected: alreadyListed.newestHere }), null)
+assert.equal(newerPaneVersion({ ...base, followLatest: true, elsewhere: [fromB], knownElsewhere: new Set([fromB.id]) })?.id, fromB.id)
+
 console.log('newerDashboardVersion: ok')

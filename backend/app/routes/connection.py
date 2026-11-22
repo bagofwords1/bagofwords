@@ -1639,6 +1639,8 @@ async def preview_custom_query(
     return await custom_query_service.preview(
         db, connection, payload.definition_sql, current_user, target=payload.target,
         refresh_config=payload.refresh_config.model_dump() if payload.refresh_config else None,
+        schedule=payload.model_dump(
+            include={"refresh_schedule_mode", "refresh_interval_minutes", "refresh_at_time"}),
     )
 
 
@@ -1714,6 +1716,14 @@ async def custom_query_from_result(
     return CustomQueryFromResult(definition_sql=definition)
 
 
+def _column_edits(payload):
+    """The admin's column edits as plain dicts holding only the fields that
+    were actually sent, or None when the payload does not carry any."""
+    if payload.columns is None:
+        return None
+    return [c.model_dump(exclude_unset=True) for c in payload.columns]
+
+
 @router.post("/{connection_id}/custom-queries", response_model=CustomQuerySchema)
 @requires_resource_permission('connection', 'manage_connection')
 async def create_custom_query(
@@ -1739,6 +1749,7 @@ async def create_custom_query(
         target=payload.target,
         refresh_mode=payload.refresh_mode,
         refresh_config=payload.refresh_config.model_dump(exclude_unset=True) if payload.refresh_config else None,
+        columns=_column_edits(payload),
     )
     try:
         await audit_service.log(
@@ -1781,6 +1792,7 @@ async def update_custom_query(
         organization_timezone=await custom_query_service._org_timezone(db, organization),
         refresh_mode=payload.refresh_mode,
         refresh_config=payload.refresh_config.model_dump(exclude_unset=True) if payload.refresh_config else None,
+        columns=_column_edits(payload),
         **({"target": payload.target} if "target" in payload.model_fields_set else {}),
     )
     try:

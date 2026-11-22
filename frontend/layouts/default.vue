@@ -956,13 +956,15 @@
     'manage_identity_providers',
   ]
   const canAccessAdminArea = computed(() =>
-    adminAreaPermissions.some(permission => useCan(permission)) || isGroupManagerOnly.value
+    adminAreaPermissions.some(permission => useCan(permission)) || isScopedManagerOnly.value
   )
-  // A group manager holds `manage_members` on their group(s) only, not
-  // org-wide, so none of the permissions above match. The entry still shows
-  // for them; `adminLanding` opens it on Groups.
-  const isGroupManagerOnly = computed(() =>
-    !adminAreaPermissions.some(permission => useCan(permission)) && useCanAny('manage_members', 'group')
+  // A group manager holds `manage_members` on their group(s) only, and a
+  // provider manager `manage` on their LLM provider(s) only — not org-wide, so
+  // none of the permissions above match. The entry still shows for them;
+  // `adminLanding` opens it on Groups or LLM.
+  const isScopedManagerOnly = computed(() =>
+    !adminAreaPermissions.some(permission => useCan(permission))
+      && (useCanAny('manage_members', 'group') || useCanAny('manage_llm', 'llm_provider'))
   )
 
   const mainNavItems: NavItem[] = [

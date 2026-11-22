@@ -238,6 +238,9 @@
                     {{ membersHint }}
                 </p>
 
+                <!-- The group's default models: an LLM admin, or this group's manager -->
+                <GroupModelDefaults v-if="selectedGroup && canSetGroupModels" :group-id="selectedGroup.id" />
+
                 <!-- Add member -->
                 <div v-if="canEditMembers" class="flex gap-2 mb-4">
                     <USelectMenu
@@ -450,6 +453,12 @@ function canAdminister(group: GroupData | null): boolean {
 // Members modal state
 const showMembersModal = ref(false)
 const selectedGroup = ref<GroupData | null>(null)
+
+// Who may pick this group's default models: an org LLM admin, or a manager of
+// this group (the backend limits a manager to models the group can already use).
+const canSetGroupModels = computed(() =>
+    hasFeature('llm_access_control') && (useCan('manage_llm') || isManagerOf(selectedGroup.value))
+)
 
 // A SCIM-pushed group's name and members belong to the identity provider; the
 // API refuses hand edits (409 group.managed_by_scim), so don't offer them.

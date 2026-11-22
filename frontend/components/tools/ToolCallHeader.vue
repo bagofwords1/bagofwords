@@ -3,7 +3,10 @@
     <button type="button"
       class="tool-call-control my-0.5 inline-flex w-fit max-w-full items-center gap-1.5 rounded py-0.5 text-start text-chat text-ink-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
       :aria-expanded="expandable ? expanded : undefined" :disabled="!expandable" @click="$emit('toggle')">
-      <Icon :name="failed ? 'heroicons-exclamation-triangle' : icon" class="h-3.5 w-3.5 shrink-0" :class="{ 'text-amber-600': failed }" aria-hidden="true" />
+      <DataSourceIcon v-if="!failed && agent" :icon-token="agent.icon_token" :icon="agent.icon" :type="agent.type"
+        :connector-key="agent.connector_key" class="h-3.5 w-3.5 shrink-0 object-contain" />
+      <AgentIcon v-else-if="!failed && agent === null" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <Icon v-else :name="failed ? 'heroicons-exclamation-triangle' : icon" class="h-3.5 w-3.5 shrink-0" :class="{ 'text-amber-600': failed }" aria-hidden="true" />
       <span v-if="failed" class="sr-only">{{ t('tools.common.failed') }}</span>
       <bdi class="tool-call-label" :class="{ 'is-running': active }"><slot name="label">{{ label }}</slot></bdi>
       <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="h-3 w-3 shrink-0 rtl-flip" :class="{ invisible: !expandable }" aria-hidden="true" />
@@ -13,7 +16,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
+import AgentIcon from '~/components/icons/AgentIcon.vue'
+import { toolAgentIconKey } from '~/utils/toolAgentIcon'
+const agent = inject(toolAgentIconKey, undefined)
 import { useResponseI18n } from '~/composables/useResponseI18n'
 const { t } = useResponseI18n()
 const props = withDefaults(defineProps<{

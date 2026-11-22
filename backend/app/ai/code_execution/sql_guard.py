@@ -692,7 +692,11 @@ def ensure_read_only(client, query) -> Union[str, dict]:
     elif profile.kind == "sql":
         if profile.dialect in _LEXED_DIALECTS:
             return _check_postgres(query, profile.dialect)
-        if profile.dialect == "duckdb":
+        if profile.family == "PostgresqlMultiClient":
+            # The client names unified views, not a DuckDB connection's own
+            # tables, and checks each as DuckDB reads the query.
+            check_sql(query, profile.dialect)
+        elif profile.dialect == "duckdb":
             _check_duckdb_client(client, query)
         else:
             check_sql(query, profile.dialect, unknown_lexer=profile.unknown_lexer)

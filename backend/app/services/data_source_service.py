@@ -215,6 +215,16 @@ def _invalidate_agent_schema_cache(organization) -> None:
 SAME_AS_CURRENT_USER = object()
 
 
+def _visible_column_stats(stats_by_col, columns):
+    """Column usage limited to the columns the caller is shown (a reader never
+    learns the name of a column the agent manager hid)."""
+    if not stats_by_col:
+        return None
+    visible = {str((c or {}).get("name") or "").lower() for c in (columns or []) if isinstance(c, dict)}
+    out = {k: v for k, v in stats_by_col.items() if k.lower() in visible}
+    return out or None
+
+
 class DataSourceService:
 
     def __init__(self):
@@ -4846,6 +4856,23 @@ class DataSourceService:
                 else:
                     stats_by_name[(s.table_fqn or '').lower()] = s
 
+        # Per-column usage for this page's tables only (one query).
+        column_stats_by_table: dict = {}
+        if with_stats and table_rows:
+            from app.services.column_usage_service import ColumnUsageService
+            _cs = await ColumnUsageService().load_stats(db, [str(t.id) for t in table_rows])
+            for _tid, _by_col in _cs.items():
+                column_stats_by_table[_tid] = {
+                    s.column_name: {
+                        "usage_count": int(s.usage_count or 0),
+                        "success_count": int(s.success_count or 0),
+                        "failure_count": int(s.failure_count or 0),
+                        "pos_feedback_count": int(s.pos_feedback_count or 0),
+                        "neg_feedback_count": int(s.neg_feedback_count or 0),
+                    }
+                    for s in _by_col.values()
+                }
+
         # Convert to schema objects
         tables = []
         for table in table_rows:
@@ -4906,6 +4933,7 @@ class DataSourceService:
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
                 excluded_columns=_excluded,
+                column_stats=_visible_column_stats(column_stats_by_table.get(str(table.id)), _cols),
                 # Connection info
                 connection_id=conn_id,
                 connection_name=conn_name,

@@ -133,7 +133,27 @@ def _mapping(platform):
 
 
 def _adapter():
-    return SimpleNamespace(add_reaction=AsyncMock(), send_dm_in_thread=AsyncMock())
+    # WhatsApp messages also start the "typing…" indicator on the adapter.
+    return SimpleNamespace(
+        add_reaction=AsyncMock(), send_dm_in_thread=AsyncMock(),
+        phone_number_id=lambda: "PNID_1", send_typing_indicator=AsyncMock(return_value="sent"),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_typing_state(monkeypatch):
+    """WhatsApp runs here start real "typing…" loops: keep their state out
+    of the module globals other tests see, and stop the loops afterwards."""
+    from collections import OrderedDict
+    from app.services.platform_adapters import whatsapp_typing
+    for name in ("_chats", "_runs", "_bound"):
+        monkeypatch.setattr(whatsapp_typing, name, {})
+    for name in ("_ended_ids", "_early_ends"):
+        monkeypatch.setattr(whatsapp_typing, name, OrderedDict())
+    yield
+    for chat in whatsapp_typing._chats.values():
+        if chat.task is not None:
+            chat.task.cancel()
 
 
 def _plain_db():

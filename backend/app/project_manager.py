@@ -144,16 +144,102 @@ class ProjectManager:
                 f"DB refresh failed in [{label}] ({type(e).__name__}: {e}); continuing"
             )
 
-    async def emit_table_usage(self, db, report: Report, step: Step, data_model: dict, user_id: str | None = None, user_role: str | None = None, source_type: str | None = None):
+    async def emit_step_usage(
+        self,
+        db,
+        report: Report,
+        step: Step,
+        *,
+        data_model: dict | None = None,
+        tables_by_source: list[dict] | None = None,
+        executed_queries: list | None = None,
+        success: bool | None = None,
+        user_id: str | None = None,
+        user_role: str | None = None,
+    ) -> int:
+        """Record a finished step's table AND column usage.
+
+        Columns come from the step's executed queries (parsed against the
+        agent's catalog: SQL via sqlglot, search DSL envelopes via the DSL
+        walker), merged with the data-model lineage. Each table gets one
+        ``TableUsageEvent`` per step (its ``columns`` list is the validated
+        set); the column stats of every newly recorded event are then written
+        in one batched upsert. ``success`` defaults to the step's status.
+        Best-effort: never raises. Returns the number of column rows written.
+        """
+        from app.services.column_usage_service import ColumnUsageService, TableColumnUsage
+
+        try:
+            ok = (step.status == "success") if success is None else bool(success)
+            report_ds_ids = [str(ds.id) for ds in (getattr(report, 'data_sources', []) or [])]
+            tbs_ds_ids = [str(g.get("data_source_id")) for g in (tables_by_source or [])
+                          if isinstance(g, dict) and g.get("data_source_id")]
+            lineage_entries = []
+            try:
+                lineage_entries = await extract_tables_from_data_model(db, data_model or {}, report_ds_ids)
+            except Exception as e:
+                self.logger.warning(f"emit_step_usage lineage failed: {e}")
+            lineage = {e["datasource_table_id"]: e.get("columns") or [] for e in lineage_entries
+                       if e.get("datasource_table_id")}
+            col_service = ColumnUsageService()
+            columns_by_table = {}
+            try:
+                columns_by_table = await col_service.columns_for_step(
+                    db, list(dict.fromkeys(tbs_ds_ids + report_ds_ids)), executed_queries or [], lineage,
+                )
+            except Exception as e:
+                self.logger.warning(f"emit_step_usage column extraction failed: {e}")
+
+            recorded: list[str] = []
+            recorded += await self.emit_table_usage(
+                db, report, step, data_model or {}, user_id=user_id, user_role=user_role,
+                success=ok, columns_by_table=columns_by_table, lineage_entries=lineage_entries,
+            )
+            # Tables the executed SQL read that neither the data model nor
+            # tables_by_source names (a join the result columns omit).
+            extra = [
+                {"data_source_id": u.data_source_id, "tables": [u.table_name]}
+                for key, u in columns_by_table.items() if key not in recorded
+            ]
+            recorded += await self.emit_table_usage_from_tables_by_source(
+                db, report, step, list(tables_by_source or []) + extra, user_id=user_id,
+                user_role=user_role, source_type="sql", success=ok, columns_by_table=columns_by_table,
+            )
+            fresh = [columns_by_table[k] for k in dict.fromkeys(recorded) if k in columns_by_table]
+            if not fresh:
+                return 0
+            return await col_service.record_step_usage(
+                db, org_id=str(report.organization_id), usages=fresh, success=ok, user_role=user_role,
+            )
+        except Exception as e:
+            # No session-wide rollback here: on the agent's shared single-writer
+            # session it would discard other pending writes. The stats upsert
+            # runs in its own savepoint (ColumnUsageService._upsert).
+            self.logger.warning(f"emit_step_usage failed: {e}")
+            return 0
+
+    @staticmethod
+    def _event_columns(table_id, columns_by_table, fallback) -> list:
+        usage = (columns_by_table or {}).get(str(table_id)) if table_id else None
+        if usage is not None:
+            return sorted(usage.columns)
+        return list(fallback or [])
+
+    async def emit_table_usage(self, db, report: Report, step: Step, data_model: dict, user_id: str | None = None, user_role: str | None = None, source_type: str | None = None, *, success: bool | None = None, columns_by_table: dict | None = None, lineage_entries: list | None = None) -> list[str]:
+        """TableUsageEvents from the step's data-model lineage. Returns the
+        DataSourceTable ids whose event was newly recorded."""
+        recorded: list[str] = []
         try:
             report_ds_ids = [str(ds.id) for ds in (getattr(report, 'data_sources', []) or [])]
-            lineage_entries = await extract_tables_from_data_model(db, data_model, report_ds_ids)
+            if lineage_entries is None:
+                lineage_entries = await extract_tables_from_data_model(db, data_model, report_ds_ids)
             for entry in lineage_entries:
                 ds_id = entry.get("datasource_id") or (report_ds_ids[0] if len(report_ds_ids) == 1 else None)
                 table_name = entry.get("table_name")
                 if not ds_id or not table_name:
                     continue
                 table_fqn = table_name.lower()
+                table_id = entry.get("datasource_table_id")
                 payload = TableUsageEventCreate(
                     org_id=str(report.organization_id),
                     report_id=str(report.id),
@@ -161,27 +247,31 @@ class ProjectManager:
                     step_id=str(step.id),
                     user_id=user_id,
                     table_fqn=table_fqn,
-                    datasource_table_id=entry.get("datasource_table_id"),
+                    datasource_table_id=table_id,
                     source_type=source_type or "sql",
-                    columns=entry.get("columns") or [],
-                    success=(step.status == "success"),
+                    columns=self._event_columns(table_id, columns_by_table, entry.get("columns")),
+                    success=(step.status == "success") if success is None else bool(success),
                     user_role=user_role,
                     role_weight=None,
                 )
-                await self.table_usage_service.record_usage_event(db=db, payload=payload)
+                if await self.table_usage_service.record_usage_event(db=db, payload=payload) and table_id:
+                    recorded.append(str(table_id))
         except Exception as e:
             self.logger.warning(f"emit_table_usage failed: {e}")
+        return recorded
 
-    async def emit_table_usage_from_tables_by_source(self, db, report: Report, step: Step, tables_by_source: list[dict] | None, user_id: str | None = None, user_role: str | None = None, source_type: str | None = "sql"):
+    async def emit_table_usage_from_tables_by_source(self, db, report: Report, step: Step, tables_by_source: list[dict] | None, user_id: str | None = None, user_role: str | None = None, source_type: str | None = "sql", *, success: bool | None = None, columns_by_table: dict | None = None) -> list[str]:
         """Fallback emission when Step.data_model has no columns.
 
         Uses tool_input.tables_by_source to emit TableUsageEvent rows and upsert TableStats.
         - Skips entries without a resolvable data_source_id (unless the report has exactly one DS).
         - Looks up datasource_table_id for enrichment when possible.
+        Returns the DataSourceTable ids whose event was newly recorded.
         """
+        recorded: list[str] = []
         try:
-            if not tables_by_source or not isinstance(tables_by_source, list):
-                return
+            if not tables_by_source or not isinstance(tables_by_source, list) or step is None:
+                return recorded
 
             # Determine single-DS fallback if applicable
             report_ds_ids = [str(ds.id) for ds in (getattr(report, 'data_sources', []) or [])]
@@ -217,22 +307,21 @@ class ProjectManager:
                     resolved_fqn = table_name.lower()
                     try:
                         table_lower = table_name.lower()
-                        stmt = _select(DataSourceTable).where(
+                        stmt = _select(DataSourceTable.id, DataSourceTable.name).where(
                             DataSourceTable.datasource_id == ds_id,
                             (
                                 (_func.lower(DataSourceTable.name) == table_lower)
                                 | (_func.lower(DataSourceTable.name).like(f'%.{table_lower}'))
                             )
                         )
-                        res = await db.execute(stmt)
-                        row = res.scalar_one_or_none()
+                        rows = (await db.execute(stmt)).all()
+                        # An exact name wins; otherwise only an unambiguous suffix match.
+                        exact = [r for r in rows if str(r[1] or "").lower() == table_lower]
+                        row = exact[0] if len(exact) == 1 else (rows[0] if len(rows) == 1 else None)
                         if row:
-                            ds_table_id = str(row.id)
+                            ds_table_id = str(row[0])
                             # Prefer the canonical name from catalog (often includes schema, e.g., 'public.customer')
-                            try:
-                                resolved_fqn = str(getattr(row, "name", resolved_fqn) or resolved_fqn).lower()
-                            except Exception:
-                                pass
+                            resolved_fqn = str(row[1] or resolved_fqn).lower()
                     except Exception:
                         ds_table_id = None
 
@@ -245,14 +334,16 @@ class ProjectManager:
                         table_fqn=resolved_fqn,
                         datasource_table_id=ds_table_id,
                         source_type=source_type or "sql",
-                        columns=[],
-                        success=(step.status == "success"),
+                        columns=self._event_columns(ds_table_id, columns_by_table, []),
+                        success=(step.status == "success") if success is None else bool(success),
                         user_role=user_role,
                         role_weight=None,
                     )
-                    await self.table_usage_service.record_usage_event(db=db, payload=payload)
+                    if await self.table_usage_service.record_usage_event(db=db, payload=payload) and ds_table_id:
+                        recorded.append(ds_table_id)
         except Exception as e:
             self.logger.warning(f"emit_table_usage_from_tables_by_source failed: {e}")
+        return recorded
 
     async def create_error_completion(self, db, head_completion, error):
         error_completion = Completion(model=head_completion.model,completion={"content": error, "error": True},

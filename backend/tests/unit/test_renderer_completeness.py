@@ -30,7 +30,7 @@ A = {
     "PostgresqlClient", "AwsRedshiftClient", "MysqlClient", "MariadbClient", "MSSQLClient", "MsFabricClient",
     "OracledbClient", "SqliteClient", "SnowflakeClient", "BigqueryClient", "AwsAthenaClient", "TrinoClient",
     "ClickhouseClient", "DatabricksSqlClient", "SparkConnectClient", "DuckDBClient", "TeradataClient",
-    "DruidClient", "IcebergClient", "DremioClient", "HiveClient",
+    "DruidClient", "IcebergClient", "PostgresqlMultiClient", "DremioClient", "HiveClient",
     # Renderer filled on a guarded row.
     "Db2Client", "IbmiClient", "SplunkClient",
     # Renderer-only rows.
@@ -104,7 +104,7 @@ def test_the_enumeration_covers_the_registry_and_the_accelerated_client(classes)
 
     names = [c.__name__ for c in classes]
     assert FastQueryClient in classes
-    assert len(names) == len(set(names)) == 110
+    assert len(names) == len(set(names)) == 111
     # Registry entries without a client_path resolve through the naming fallback.
     for key in ("postgresql", "oracledb", "bigquery", "netsuite", "mysql", "mariadb",
                 "clickhouse", "pinot", "druid", "aws_cost", "vertica", "aws_redshift", "sybase"):

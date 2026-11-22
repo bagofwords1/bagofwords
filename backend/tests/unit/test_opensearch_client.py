@@ -346,6 +346,13 @@ class TestExecuteQuery:
                 '{"index": "orders", "collection": "x", "explain_me": true}')
         assert fake.calls == []
 
+    def test_non_search_keys_rejected_before_request(self, transport):
+        fake = transport({})
+        with pytest.raises(ValueError, match="explain_me"):
+            OpenSearchClient(host="h").execute_query(
+                '{"index": "orders", "collection": "x", "explain_me": true}')
+        assert not fake.calls
+
     def test_http_error_raises(self, transport):
         transport({("POST", "/orders/_search"): _FakeResponse(400, {"error": "parse error"},
                                                               text="parse error")})

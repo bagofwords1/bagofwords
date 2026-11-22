@@ -1319,6 +1319,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM-användning för denna konversation",
     "turnTokensTooltip": "Planerarens LLM-tokens för denna tur",
+    "tokensInOut": "in {input} / ut {output}",
+    "tokensIn": "In",
+    "tokensOut": "Ut",
+    "tokensCached": "Cachat",
+    "stepTokens": "Token",
+    "stepTokensTooltip": "Planerarens anrop för det här steget. Indata inkluderar cachade token. LLM-anrop inuti verktyget räknas inte.",
+    "modelUnknown": "Okänd modell",
+    "modelUnknownTooltip": "Ingen LLM-användning per anrop registrerades för den här körningen",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modeller i den här omgången",
+    "modelCalls": "{count} anrop | {count} anrop",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Automatisk routning körde de här anropen på {model} i stället för {baseline}",
+    "autoRoutedRunTooltip": "Automatisk routning var på för den här körningen",
+    "primaryModel": "Primär",
     "turnUsageTooltip": "LLM-användning för denna tur",
     "setup": "Förberedelse",
     "setupTooltip": "Tid från start till första steget (kontextbygge m.m.)",
@@ -1409,7 +1424,30 @@
       "copied": "Spårnings-JSON kopierad till urklipp",
       "failed": "Det gick inte att exportera spårningen"
     },
-    "hiddenTurns": "{count} senare tur dold: den eller en tidigare tur använde en agent du inte hanterar | {count} senare turer dolda: de eller en tidigare tur använde en agent du inte hanterar"
+    "hiddenTurns": "{count} senare tur dold: den eller en tidigare tur använde en agent du inte hanterar | {count} senare turer dolda: de eller en tidigare tur använde en agent du inte hanterar",
+    "contextColumns": {
+      "ofTotal": "{shown} av {total} kolumner",
+      "allColumns": "{total} kolumner",
+      "why": "Varför dessa kolumner",
+      "reason": {
+        "usage_ranked": "Rankade efter kolumnanvändning",
+        "structural_only": "Ingen användning än: nycklar, tidsstämplar och ID:n först",
+        "all_columns": "Alla kolumner ryms inom gränsen"
+      },
+      "signal": {
+        "mentioned": "{n} nämnda i uppgiften",
+        "usage": "{n} efter användning",
+        "instructions": "{n} refererade i instruktioner",
+        "structural": "{n} nycklar, tidsstämplar eller ID:n",
+        "sample": "{n} som urval ur kolumngrupperna",
+        "schema_order": "{n} i katalogordning"
+      },
+      "shown": "Kolumner i kontexten",
+      "folded": "Grupperade (sökbara med describe_tables)",
+      "otherColumns": "{count} andra kolumner",
+      "usedTimes": "använd {count}×",
+      "score": "poäng {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -2313,6 +2351,19 @@
       "connected": "Ansluten",
       "askAgain": "Fråga igen",
       "readyHint": "Ansluten. Kör frågan igen för att använda den."
+    },
+    "describeTables": {
+      "searching": "Söker {query}…",
+      "searched": "Sökte {names}",
+      "searchedMore": "Sökte {names} +{count}",
+      "columnsMatching": "kolumner som matchar {terms}",
+      "column": "Kolumn",
+      "type": "Typ",
+      "used": "Användningar",
+      "showingOf": "De {shown} främsta av {total} kolumner, mest använda först",
+      "matchingOf": "{matched} av {total} kolumner matchar {terms}",
+      "noMatch": "Ingen kolumn matchar {terms}",
+      "more": "+{count} till"
     }
   },
   "entityCreate": {
@@ -2563,7 +2614,17 @@
     "noManagedGroupsHint": "Du hanterar inga grupper.",
     "toastManagerAdded": "Medlemmen är nu gruppansvarig",
     "toastManagerRemoved": "Ansvarig-rollen borttagen",
-    "failedToUpdateManager": "Det gick inte att uppdatera gruppansvarig"
+    "failedToUpdateManager": "Det gick inte att uppdatera gruppansvarig",
+    "models": {
+      "title": "Standardmodeller",
+      "hint": "Vad gruppens medlemmar börjar med. Bara modeller som gruppen redan får använda visas.",
+      "default": "Standardmodell",
+      "small": "Liten modell",
+      "orgDefault": "Organisationens standard",
+      "setByAdmin": "{model} (vald av en administratör)",
+      "saved": "Gruppens modeller uppdaterade",
+      "failed": "Det gick inte att uppdatera gruppens modeller"
+    }
   },
   "signupPolicy": {
     "title": "Domänbaserad registrering",
@@ -3754,6 +3815,10 @@
         "show_world": {
           "name": "Världsvy",
           "description": "Visar en brytare på sidan Agenter som öppnar Värld: en karta över agenterna, kunskapen, källorna och arbetet som binder samman din organisation. Varje användare ser bara det hen har åtkomst till."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K kolumner per tabell",
+          "description": "Hur många kolumner i en bred tabell agenten ser i sin helhet i kontexten, rankade efter kolumnanvändning, referenser i instruktioner och nycklar/tidsstämplar. Resten sammanfattas per prefix och går att söka med describe_tables. 0 = ingen gräns."
         }
       },
       "permissionMode": {
@@ -3937,7 +4002,27 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: omaskerad",
-      "piiBadgeTooltip": "PII-policyn som den här leverantörens prompter får. Ändra den under Inställningar → Skydd av personuppgifter."
+      "piiBadgeTooltip": "PII-policyn som den här leverantörens prompter får. Ändra den under Inställningar → Skydd av personuppgifter.",
+      "providerManagers": {
+        "title": "Leverantörsansvariga",
+        "hint": "Medlemmar som sköter den här leverantören utan att vara LLM-administratörer.",
+        "can": "De kan ändra inloggningsuppgifter och anslutningsinställningar, slå på eller av dess modeller och redigera modellernas inställningar och routningstips.",
+        "cannot": "De kan inte lägga till modeller, ändra priser, standardmodeller eller modellåtkomst, eller slå på den automatiska routern. En modell de slår på börjar begränsad tills en administratör öppnar den.",
+        "addPlaceholder": "Lägg till en medlem…",
+        "add": "Lägg till",
+        "remove": "Ta bort ansvarig",
+        "loading": "Läser in…",
+        "none": "Inga ansvariga än. Bara LLM-administratörer sköter den här leverantören.",
+        "added": "Ansvarig tillagd",
+        "removed": "Ansvarig borttagen",
+        "failed": "Det gick inte att uppdatera leverantörens ansvariga",
+        "banner": "Du ansvarar för {providers}. Standardmodeller, modellåtkomst, priser och den automatiska routern bestäms av en administratör.",
+        "priceAdminOnly": "Bara en administratör kan ändra priser.",
+        "restricted": "Begränsad: bara personer som en administratör ger åtkomst kan använda den."
+      },
+      "autoRouterModal": {
+        "decisionRestricted": "Bara medlemmar som får använda {model} får beslutet i förväg. Alla andra börjar på den lilla modellen."
+      }
     },
     "licensePage": {
       "title": "Licens",
@@ -4669,6 +4754,14 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "postgresqlMulti": {
+      "databasesTitle": "Databaser",
+      "databasesDescription": "Kommaseparerade databasnamn, glob-mönster och !-undantag, t.ex. tenant_*, !tenant_test. Matchningen är skiftlägeskänslig. Alla matchande databaser slås samman till en uppsättning tabeller med en kolumn tenant_db.",
+      "discoveryDatabaseTitle": "Databas för identifiering",
+      "discoveryDatabaseDescription": "Databas som används för att lista serverns databaser. Standard: postgres.",
+      "tableExcludeTitle": "Mönster för att utesluta tabeller",
+      "tableExcludeDescription": "Valfritt reguljärt uttryck; tabeller vars namn matchar indexeras inte, t.ex. ^day_\\d{'{'}2{'}'}. Om du ändrar det tas nyligen uteslutna tabeller och agentens val av dem bort vid nästa indexering."
+    },
     "qlikCloud": {
       "appFilterDescription": "Valfria kommaseparerade appnamn eller ID:n i valda utrymmen. Tomt inkluderar alla matchande appar. Använd ID:n för namn som innehåller kommatecken."
     },
@@ -4931,7 +5024,14 @@
       "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
       "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören",
       "model_is_group_default": "Modellen är standardmodell för grupperna: {groups}. Ändra deras standardmodell först.",
-      "group_default_invalid": "Modellen måste vara aktiverad och vara en chattmodell i den här organisationen."
+      "group_default_invalid": "Modellen måste vara aktiverad och vara en chattmodell i den här organisationen.",
+      "group_default_not_available": "Den här gruppen får inte använda den modellen. Be en administratör ge gruppen åtkomst först.",
+      "group_default_priority_admin_only": "Bara en administratör kan ändra en grupps prioritet.",
+      "provider_holds_default": "Den här leverantören har organisationens standardmodell. Be en administratör ändra standarden först.",
+      "provider_manager_admin_only": "Bara en administratör kan göra det hos den här leverantören.",
+      "provider_manager_not_member": "Bara en medlem i den här organisationen kan ansvara för en leverantör.",
+      "provider_key_required_for_new_destination": "Ange API-nyckeln igen när du ändrar vart den här leverantören ansluter.",
+      "provider_host_identity_admin_only": "Den här leverantören loggar in med serverns egen molnidentitet. Bara en administratör kan ändra vart den ansluter eller byta till den inloggningen."
     },
     "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort.",
     "memory.disabled": "Användarminnet är avstängt i den här organisationen.",
@@ -5863,6 +5963,8 @@
       "colTools": "Verktyg",
       "colDuration": "Varaktighet",
       "colCost": "Kostnad",
+      "colModel": "Modell",
+      "pivotModel": "Visa körningar som använde den här modellen",
       "colFeedback": "Feedback",
       "expandRow": "Visa verktygsanrop",
       "pivotReport": "Visa den här konversationen",
@@ -6477,7 +6579,22 @@
     "reports": "Senaste rapporterna",
     "suggestInstruction": "Föreslå instruktion",
     "suggestInstructionWithQuery": "Föreslå instruktionen ”{query}”",
-    "suggestionHint": "skickad för granskning"
+    "suggestionHint": "skickad för granskning",
+    "placeholderInReport": "Sök i den här rapporten, rapporter, agenter, instruktioner…",
+    "inThisReport": "I den här rapporten",
+    "reportScopeHint": "Skriv report: för att bara söka i den här rapporten",
+    "reportPrefix": "rapport:",
+    "tabs": {
+      "all": "Alla",
+      "reports": "Rapporter",
+      "agents": "Agenter",
+      "instructions": "Instruktioner",
+      "dashboards": "Dashboards"
+    },
+    "tabsLabel": "Kategorier",
+    "tabsHint": "kategorier",
+    "dashboards": "Dashboards",
+    "untitledDashboard": "Namnlös dashboard"
   },
   "promptParams": {
     "title": "Fyll i parametrar — {title}",
@@ -7077,7 +7194,10 @@
     "exitFullscreen": "Avsluta helskärm",
     "searchColumns": "Sök kolumner…",
     "noColumns": "Inga matchande kolumner",
-    "centrality": "Centralitet"
+    "centrality": "Centralitet",
+    "usedHeader": "Användningar",
+    "usedTooltip": "Körda frågor som använde kolumnen (misslyckade försök väger mindre i rankningen)",
+    "sortedByUsage": "Mest använda först"
   },
   "fork": {
     "preparing": "Förbereder din kopia…",
@@ -8086,5 +8206,56 @@
       }
     },
     "builtinBadge": "Inbyggd"
+  },
+  "cachedColumns": {
+    "title": "Kolumner",
+    "hint": "Beskrivningar och flaggan för omaggregering kommer från källkatalogen. Det du ändrar här behålls vid varje uppdatering.",
+    "column": "Kolumn",
+    "type": "Typ",
+    "description": "Beskrivning",
+    "details": "Detaljer",
+    "aggregation": "Omaggregering",
+    "descriptionPlaceholder": "Ingen beskrivning i källan. Beskriv kolumnen för agenten.",
+    "additive": "Additiv",
+    "notAdditive": "Inte additiv",
+    "unknown": "Okänd",
+    "additiveHint": "Värdena kan summeras över rader.",
+    "notAdditiveHint": "Att summera över rader ger ett felaktigt tal. Agenten får veta att den inte ska göra det.",
+    "unknownHint": "Kunde inte avgöras utifrån frågan. Välj ett alternativ så att agenten vet.",
+    "undecided": "Omaggregering kunde inte avgöras för: {columns}. Ange den så att agenten vet om de får summeras.",
+    "copiedFrom": "Kopierad från {source}",
+    "measureFrom": "Mått {source}",
+    "computedAs": "Beräknad: {expression}",
+    "edited": "Redigerad",
+    "editedHint": "Angiven av en administratör. En uppdatering ändrar den inte.",
+    "reset": "Återställ till källan",
+    "drift": "Definitionen har ändrats",
+    "driftHint": "Källdefinitionen för kolumnen har ändrats sedan tabellen senast beskrev den.",
+    "driftPrevious": "Tidigare: {expression}",
+    "markReviewed": "Markera som granskad",
+    "rlsTitle": "Källan använder säkerhet på radnivå",
+    "rlsBody": "{tables} skyddas av säkerhet på radnivå i källan. Den här kopian innehåller alla rader som anslutningen kan läsa, och källans roller följer inte med. Bestäm vem som ser vilka rader på fliken Säkerhet på radnivå.",
+    "rlsOpen": "Öppna Säkerhet på radnivå",
+    "rlsSaveFirst": "Tillgängligt när tabellen har sparats.",
+    "generatedDescription": "Genererad utifrån kolumnerna och hålls aktuell vid varje uppdatering. Redigera den för att skriva en egen.",
+    "reasons": {
+      "sum": "summa",
+      "count": "antal",
+      "numeric_column": "numeriskt värde",
+      "distinct_count": "antal unika",
+      "average": "medelvärde",
+      "ratio": "kvot",
+      "min_max": "minimum / maximum",
+      "time_intelligence": "tidsintelligens",
+      "share_of_total": "andel av en total",
+      "statistic": "statistik",
+      "offset": "konstant adderad efter aggregering",
+      "unreadable": "definitionen kan inte läsas",
+      "complex": "för komplex för att klassificera",
+      "not_numeric": "inte ett tal",
+      "grouping_key": "grupperingsnyckel",
+      "key": "identifierare",
+      "set_by_admin": "angiven av en administratör"
+    }
   }
 }

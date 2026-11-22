@@ -1264,8 +1264,9 @@ _DUCKDB_SPACES = {c for c in NON_ASCII_SPACES if ord(c) not in (0x85, 0x1680, 0x
 def _engine_space(family: str, c: str) -> bool:
     if c in _LINE_BREAKS:
         return False
-    # Iceberg queries run on DuckDB.
-    return family == "MSSQLClient" or (family in ("DuckDBClient", "IcebergClient") and c in _DUCKDB_SPACES)
+    # Iceberg and multi-database Postgres queries run on DuckDB.
+    return family == "MSSQLClient" or (
+        family in ("DuckDBClient", "IcebergClient", "PostgresqlMultiClient") and c in _DUCKDB_SPACES)
 
 
 @pytest.mark.parametrize("family", SQL_FAMILIES)

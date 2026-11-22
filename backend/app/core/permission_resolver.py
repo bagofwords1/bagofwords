@@ -81,6 +81,14 @@ RESOURCE_PERM_IMPLIES: dict[str, dict[str, set[str]]] = {
         # Managing all agents on a connection includes being able to create them.
         "manage_data_sources": {"create_data_sources"},
     },
+    "llm_provider": {
+        # A provider manager (resource grant set on the provider by an org LLM
+        # admin) manages that provider and its models — not org-wide LLM
+        # settings. Implying `manage_llm` on the provider lets the
+        # resource-scoped route door admit them; each route then checks the
+        # specific provider (app/routes/llm.py, _require_provider_manage).
+        "manage": {"manage_llm"},
+    },
     "project": {
         # Managing a project implies seeing it.
         "manage": {"view"},
@@ -1229,6 +1237,48 @@ def llm_access_control_active() -> bool:
         return has_feature("llm_access_control")
     except Exception:
         return False
+
+
+async def group_granted_model_ids(db: AsyncSession, org_id: str, group_id: str) -> tuple[bool, set]:
+    """(all_models, model ids) a group's members may use *because of the group*,
+    not counting the group's own default / small default.
+
+    Used to bound what a group manager may pick as their group's default: a
+    group default grants ``use`` to the group's members, so letting a manager
+    pick any model would let them hand their group access an admin never gave
+    it. The answer is the explicit ``use`` grants on the group itself and on the
+    roles assigned to the group. ``all_models`` is True when a role assigned to
+    the group carries full admin access (every model is then usable). Open
+    (unrestricted) models are not listed; callers add them.
+    """
+    from app.models.role import Role
+    from app.models.role_assignment import RoleAssignment
+
+    ra_stmt = select(RoleAssignment.role_id).where(
+        RoleAssignment.organization_id == str(org_id),
+        RoleAssignment.principal_type == "group",
+        RoleAssignment.principal_id == str(group_id),
+    )
+    if hasattr(RoleAssignment, "deleted_at"):
+        ra_stmt = ra_stmt.where(RoleAssignment.deleted_at.is_(None))
+    role_ids = [str(r) for r in (await db.execute(ra_stmt)).scalars().all()]
+    if role_ids:
+        perms_rows = (await db.execute(select(Role.permissions).where(Role.id.in_(role_ids)))).scalars().all()
+        if any(isinstance(p, list) and FULL_ADMIN in p for p in perms_rows):
+            return True, set()
+
+    conds = [and_(ResourceGrant.principal_type == "group", ResourceGrant.principal_id == str(group_id))]
+    if role_ids:
+        conds.append(and_(ResourceGrant.principal_type == "role", ResourceGrant.principal_id.in_(role_ids)))
+    rows = (await db.execute(
+        select(ResourceGrant.resource_id, ResourceGrant.permissions).where(
+            or_(*conds),
+            ResourceGrant.organization_id == str(org_id),
+            ResourceGrant.resource_type == "llm_model",
+            ResourceGrant.deleted_at.is_(None),
+        )
+    )).all()
+    return False, {str(rid) for rid, perms in rows if isinstance(perms, list) and "use" in perms}
 
 
 async def get_accessible_model_ids(

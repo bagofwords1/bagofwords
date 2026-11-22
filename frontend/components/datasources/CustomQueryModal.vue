@@ -132,11 +132,15 @@
           </div>
           <div class="col-span-2">
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description <span class="text-ink-muted">(optional)</span></label>
-            <input
-              v-model="form.description" data-testid="cq-description"
+            <textarea
+              v-model="form.description" data-testid="cq-description" rows="1" v-text-dir
               placeholder="What this data represents — shown to the agent"
-              class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-1.5 dark:bg-gray-900 dark:text-white"
+              class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-1.5 dark:bg-gray-900 dark:text-white resize-y min-h-[2.125rem]"
+              :class="{ 'h-[4.5rem]': descriptionIsGenerated }"
             />
+            <p v-if="descriptionIsGenerated" data-testid="cq-description-generated" class="text-2xs text-ink-muted mt-1">
+              {{ t('cachedColumns.generatedDescription') }}
+            </p>
           </div>
         </div>
 
@@ -219,6 +223,30 @@
               </tbody>
             </table>
           </div>
+
+          <!-- The source table carries the indexer's row-level security
+               marker. The copy holds every row the connection can read and
+               the source's roles are NOT carried over, so say so and point at
+               the tab where the copy's own policy is set. -->
+          <div v-if="rlsSources.length && !cq?.rls_enabled" data-testid="cq-rls-source-warning"
+               class="mt-3 flex items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
+            <UIcon name="heroicons-shield-exclamation" class="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+            <div class="text-xs text-amber-800 dark:text-amber-200">
+              <p class="font-medium">{{ t('cachedColumns.rlsTitle') }}</p>
+              <p class="mt-0.5">{{ t('cachedColumns.rlsBody', { tables: rlsSources.join(', ') }) }}</p>
+              <button v-if="editing" type="button" data-testid="cq-rls-source-open"
+                      class="mt-1 font-medium underline" @click="tab = 'rls'">{{ t('cachedColumns.rlsOpen') }}</button>
+              <p v-else class="mt-1 text-amber-700 dark:text-amber-300">{{ t('cachedColumns.rlsSaveFirst') }}</p>
+            </div>
+          </div>
+
+          <CachedColumnsEditor
+            v-if="describedColumns.length"
+            v-model:edits="columnEdits"
+            :columns="describedColumns"
+            :reviewed="reviewedDrift"
+            @review="(name: string) => reviewedDrift = new Set([...reviewedDrift, name])"
+          />
         </div>
       </div>
 
@@ -810,6 +838,11 @@
 
 <script setup lang="ts">
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
+import CachedColumnsEditor from '@/components/datasources/CachedColumnsEditor.vue'
+import {
+  columnEditsPayload, descriptionAfterSuggestion, descriptionToSave, editsFromColumns, hasColumnMetadata,
+  type ColumnEdit,
+} from '~/utils/columnMetadata'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 const ROW_LIMIT = 100
 
@@ -887,8 +920,8 @@ const isDax = computed(() => (activeConnectionType.value || '').toLowerCase() ==
 // says; the query is sent to the connector as written.
 const SQL_TYPES = [
   'aws_athena', 'aws_redshift', 'bigquery', 'clickhouse', 'databricks_sql', 'druid', 'duckdb', 'mariadb',
-  'ms_fabric', 'mssql', 'mysql', 'oracledb', 'postgresql', 'snowflake', 'spark_connect', 'sqlite',
-  'starburst', 'sybase', 'teradata', 'trino',
+  'ms_fabric', 'mssql', 'mysql', 'oracledb', 'postgresql', 'postgresql_multi', 'snowflake', 'spark_connect',
+  'sqlite', 'starburst', 'sybase', 'teradata', 'trino',
 ]
 const queryLanguage = computed(() => {
   const type = (activeConnectionType.value || '').toLowerCase()
@@ -937,6 +970,31 @@ const deleting = ref(false)
 const refreshingNow = ref(false)
 const preview = ref<any>(null)
 const previewError = ref('')
+
+// ---------------------------------------------------------------------------
+// What the columns mean
+// ---------------------------------------------------------------------------
+// The preview (or the saved table) returns each column with what the source
+// catalog knows about it. The admin's edits are kept apart from that, by
+// column name, so running the preview again does not lose them.
+const { t } = useI18n()
+const columnEdits = ref<Record<string, ColumnEdit>>({})
+const reviewedDrift = ref<Set<string>>(new Set())
+// The description the backend generated from the columns, when the field is
+// showing it. Sent as empty on save, so it stays generated.
+const generatedDescription = ref('')
+const describedColumns = computed<any[]>(() =>
+  (preview.value?.columns || []).filter((c: any) => c?.name).some(hasColumnMetadata)
+    ? (preview.value?.columns || []).filter((c: any) => c?.name)
+    : [])
+const rlsSources = computed<string[]>(() => preview.value?.rls_sources || [])
+const descriptionIsGenerated = computed(() =>
+  !!generatedDescription.value && form.description.trim() === generatedDescription.value.trim())
+
+function suggestDescription(text: string | null | undefined) {
+  form.description = descriptionAfterSuggestion(form.description, generatedDescription.value, text)
+  generatedDescription.value = text || ''
+}
 
 const form = reactive({
   name: '',
@@ -1114,6 +1172,9 @@ watch(() => props.modelValue, (open) => {
   tab.value = 'query'
   preview.value = null
   previewError.value = ''
+  columnEdits.value = editsFromColumns(props.cq?.columns || [])
+  reviewedDrift.value = new Set()
+  generatedDescription.value = ''
   rlsPreviewUserId.value = ''
   loadRlsFromCq()
   loadIncrFromCq()
@@ -1131,7 +1192,12 @@ watch(() => props.modelValue, (open) => {
     form.refresh_at_time = props.cq.refresh_at_time || '03:00'
     // Editing an existing relation: its columns are already known, so the
     // preview gate does not apply until the SQL is changed.
-    preview.value = { columns: props.cq.columns || [], rows: [], budget_error: null, estimated_rows: props.cq.no_rows }
+    preview.value = {
+      columns: props.cq.columns || [], rows: [], budget_error: null, estimated_rows: props.cq.no_rows,
+      rls_sources: props.cq.rls_sources || [],
+    }
+    // No description of the admin's own: show the one built from the columns.
+    suggestDescription(props.cq.generated_description)
   } else {
     form.name = props.initialName || ''
     form.description = ''
@@ -1323,6 +1389,9 @@ async function runPreview() {
           definition_sql: form.definition_sql,
           target: targetPayload(),
           refresh_config: { cursor_column: incr.cursor_column || null, cursor_kind: incr.cursor_kind || null },
+          refresh_schedule_mode: form.refresh_schedule_mode,
+          refresh_interval_minutes: form.refresh_interval_minutes,
+          refresh_at_time: form.refresh_schedule_mode === 'time' ? form.refresh_at_time : null,
         },
       },
     )
@@ -1330,6 +1399,7 @@ async function runPreview() {
       previewError.value = error.value?.data?.detail || 'Query failed'
     } else {
       preview.value = data.value
+      suggestDescription((data.value as any)?.suggested_description)
     }
   } catch (e: any) {
     previewError.value = e?.message || String(e)
@@ -1428,7 +1498,11 @@ async function onSave() {
     const body: any = {
       name: form.name.trim(),
       definition_sql: form.definition_sql,
-      description: form.description || null,
+      // Always a string: an emptied description must be able to clear a
+      // stored one, and an untouched generated one is stored as empty.
+      description: descriptionToSave(form.description, generatedDescription.value),
+      // The complete set of column edits; a column left out follows its source.
+      columns: columnEditsPayload(describedColumns.value, columnEdits.value, reviewedDrift.value),
       refresh_schedule_mode: form.refresh_schedule_mode,
       refresh_interval_minutes: form.refresh_interval_minutes,
       refresh_at_time: form.refresh_schedule_mode === 'time' ? form.refresh_at_time : null,

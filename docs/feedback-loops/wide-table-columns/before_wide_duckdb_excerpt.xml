@@ -1,0 +1,51 @@
+<table name="events_wide_5000" cols="5000" score="0.0">
+<columns>
+<column name="row_id" dtype="BIGINT"/>
+<column name="event_time" dtype="TIMESTAMP"/>
+<column name="account_id" dtype="BIGINT"/>
+<column name="host_name" dtype="VARCHAR"/>
+<column name="cpu_user_pct_000" dtype="DOUBLE"/>
+<column name="cpu_system_pct_000" dtype="DOUBLE"/>
+<column name="cpu_iowait_pct_000" dtype="DOUBLE"/>
+<column name="cpu_steal_pct_000" dtype="DOUBLE"/>
+<column name="cpu_idle_pct_000" dtype="DOUBLE"/>
+<column name="cpu_load_1m_000" dtype="DOUBLE"/>
+<column name="cpu_load_5m_000" dtype="DOUBLE"/>
+<column name="cpu_load_15m_000" dtype="DOUBLE"/>
+<column name="mem_used_bytes_000" dtype="DOUBLE"/>
+<column name="mem_free_bytes_000" dtype="DOUBLE"/>
+<column name="mem_cached_bytes_000" dtype="DOUBLE"/>
+<column name="mem_swap_used_bytes_000" dtype="DOUBLE"/>
+<column name="mem_rss_bytes_000" dtype="DOUBLE"/>
+<column name="mem_heap_bytes_000" dtype="DOUBLE"/>
+<column name="disk_read_bytes_000" dtype="DOUBLE"/>
+<column name="disk_write_bytes_000" dtype="DOUBLE"/>
+<column name="disk_read_ops_000" dtype="DOUBLE"/>
+<column name="disk_write_ops_000" dtype="DOUBLE"/>
+<column name="disk_queue_depth_000" dtype="DOUBLE"/>
+... [4954 lines elided by the probe] ...
+<column name="disk_queue_depth_110" dtype="DOUBLE"/>
+<column name="disk_util_pct_110" dtype="DOUBLE"/>
+<column name="net_rx_bytes_110" dtype="DOUBLE"/>
+<column name="net_tx_bytes_110" dtype="DOUBLE"/>
+<column name="net_rx_packets_110" dtype="DOUBLE"/>
+<column name="net_tx_packets_110" dtype="DOUBLE"/>
+<column name="net_rx_errors_110" dtype="DOUBLE"/>
+<column name="net_tx_errors_110" dtype="DOUBLE"/>
+<column name="net_drops_110" dtype="DOUBLE"/>
+<column name="svc_request_count_110" dtype="DOUBLE"/>
+<column name="svc_error_count_110" dtype="DOUBLE"/>
+<column name="svc_latency_p50_ms_110" dtype="DOUBLE"/>
+<column name="svc_latency_p95_ms_110" dtype="DOUBLE"/>
+<column name="svc_latency_p99_ms_110" dtype="DOUBLE"/>
+<column name="svc_saturation_110" dtype="DOUBLE"/>
+<column name="app_queue_len_110" dtype="DOUBLE"/>
+<column name="app_jobs_done_110" dtype="DOUBLE"/>
+<column name="app_jobs_failed_110" dtype="DOUBLE"/>
+<column name="app_cache_hits_110" dtype="DOUBLE"/>
+<column name="app_cache_misses_110" dtype="DOUBLE"/>
+<column name="app_gc_pause_ms_110" dtype="DOUBLE"/>
+<column name="kpi_signups_110" dtype="DOUBLE"/>
+<column name="kpi_logins_110" dtype="DOUBLE"/>
+</columns>
+</table>

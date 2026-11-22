@@ -50,6 +50,7 @@ from app.schemas.data_sources.lakehouse import (
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
+    PostgreSQLMultiConfig,
     BrocadeConfig,
     BrocadeCredentials,
     SharePointOnpremConfig,
@@ -686,6 +687,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=PostgreSQLCredentials, scopes=["system","user"])
         }),
         client_path=None
+    ),
+    "postgresql_multi": DataSourceRegistryEntry(
+        type="postgresql_multi",
+        title="PostgreSQL (multi-database)",
+        description="Query many single-tenant databases on one PostgreSQL server as unified tables with a tenant_db column.",
+        config_schema=PostgreSQLMultiConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=PostgreSQLCredentials, scopes=["system"])
+        }),
+        client_path="app.data_sources.clients.postgresql_multi_client.PostgresqlMultiClient",
     ),
     "sqlite": DataSourceRegistryEntry(
         type="sqlite",

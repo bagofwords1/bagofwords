@@ -55,19 +55,20 @@ yarn-error.log
 .yarn-integrity
 .npm
 
-# Python
-__pycache__/
-*.py[cod]
+# Python. Bare names match only at the context root, and `COPY ./backend`
+# ships whatever reaches the context, so nested dev state needs `**/`.
+**/__pycache__/
+**/*.py[cod]
 *$py.class
 *.so
 .Python
 env/
 venv/
-.venv/
+**/.venv/
 ENV/
 env.bak/
 venv.bak/
-.pytest_cache/
+**/.pytest_cache/
 .coverage
 htmlcov/
 .tox/
@@ -87,25 +88,31 @@ frontend/.nuxt/
 frontend/.output/
 
 # Database files
-*.db
+**/*.db
 backend/db/*.db
 
-# Environment files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.envrc
+# Environment files: secrets. A dev checkout keeps them in backend/.env,
+# which a root-only `.env` rule let `COPY ./backend` bake into the image.
+**/.env
+**/.env.*
+!**/.env.example
+**/.envrc
 
 # Test files and coverage
 coverage/
 .nyc_output/
-tests/
-test/
-spec/
-*.test.js
-*.spec.js
+# Docker matches a bare `tests/` only at the context root, so nested suites
+# (backend/tests, frontend/tests) need the `**/` form to stay out of the image.
+**/tests/
+**/test/
+**/spec/
+**/*.test.js
+**/*.spec.js
+
+# Backend dev/benchmark tooling: never imported by the app at runtime.
+backend/loadtest/
+backend/bow-eval.py
+backend/repro_dup_schedule.py
 
 # Docker files (exclude from build context)
 Dockerfile*
@@ -145,6 +152,7 @@ k8s/
 !bow-config.yaml
 
 # Other
-uploads/
+# Users' uploaded files (backend/uploads in a dev checkout): data, never image content.
+**/uploads/
 .sass-cache/
 .cache/
