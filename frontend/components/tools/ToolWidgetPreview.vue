@@ -1239,12 +1239,16 @@ const { ensureLoaded: ensureCachedTableNames } = useCachedTableNames()
 const cacheCandidate = computed(() => {
   if (props.compact || props.readonly || !canViewCode.value) return null
   if (!isCustomQueriesEnabled.value) return null
+  // The card can show a run other than the one this tool execution recorded:
+  // a parameterized query re-run with other values, or a viewer's own run.
+  // The query on record would then not be the query behind the rows.
+  if (cardParamSpecs.value.length || viewerRun.value?.queryId) return null
   const candidate = cacheCandidateFrom(props.toolExecution?.result_json)
   if (!candidate) return null
   return useCan('manage_connection', { type: 'connection', id: candidate.connectionId }) ? candidate : null
 })
 
-watch(cacheCandidate, (c) => { if (c) ensureCacheConnections(c.dataSourceId) }, { immediate: true })
+watch(cacheCandidate, (c) => { if (c) ensureCacheConnections(c.connectionId) }, { immediate: true })
 
 const cacheConnection = computed(() => cacheConnectionFor(cacheCandidate.value))
 const canSaveAsCachedTable = computed(() => !!cacheCandidate.value && !!cacheConnection.value)

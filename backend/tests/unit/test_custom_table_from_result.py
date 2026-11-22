@@ -63,6 +63,15 @@ def test_a_query_another_connection_answered_is_not_this_connections():
     assert single_query_of(_result(["SELECT 1"], [_timing(connection_id=None)]), CONN) is None
 
 
+def test_a_parameterized_result_has_no_single_definition():
+    """Its captured text holds one viewer's values, and its card can be re-run
+    with others: the query on record is then not the query behind the rows."""
+    result = {**_result(["SELECT * FROM sales WHERE month = '2026-01'"], [_timing()]),
+              "parameters": [{"name": "month", "type": "string"}]}
+    assert single_query_of(result, CONN) is None
+    assert single_query_of({**result, "parameters": []}, CONN) is not None
+
+
 def test_a_failed_query_is_not_offered():
     assert single_query_of(_result(["SELECT 1"], [_timing(error="timeout")]), CONN) is None
 

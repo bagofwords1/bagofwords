@@ -1369,9 +1369,7 @@ async function pollSaveProgress(connectionId: string, name: string) {
   if (saveProgressBusy) return
   saveProgressBusy = true
   try {
-    const { data, error } = await useMyFetch(`/connections/${connectionId}/custom-queries`, { method: 'GET' })
-    if (error.value || !Array.isArray(data.value)) return
-    const row: any = (data.value as any[]).find((q: any) => q?.name === name)
+    const row = await customTableNamed(connectionId, name)
     if (!row) return
     const live = row.refresh_progress
     const load = row.load_progress
@@ -1390,11 +1388,15 @@ async function pollSaveProgress(connectionId: string, name: string) {
 // A create that failed during its first load leaves the table behind (with
 // the error on it) so it can be fixed and retried; a create refused before
 // that (bad name, name taken) leaves nothing.
+// One table's state by name. Scoped to that table on purpose: this is polled
+// every second while a load runs, and the full list costs a query per table.
 async function customTableNamed(connectionId: string, name: string): Promise<any | null> {
   try {
-    const { data, error } = await useMyFetch(`/connections/${connectionId}/custom-queries`, { method: 'GET' })
-    if (error.value || !Array.isArray(data.value)) return null
-    return (data.value as any[]).find((q: any) => q?.name === name) || null
+    const { data, error } = await useMyFetch(
+      `/connections/${connectionId}/custom-queries/progress`, { method: 'GET', query: { name } })
+    const row: any = data.value
+    if (error.value || !row?.exists) return null
+    return row
   } catch {
     return null
   }

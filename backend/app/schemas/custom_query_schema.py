@@ -133,6 +133,28 @@ class CustomQueryFromResult(BaseModel):
     definition_sql: str
 
 
+class CustomQueryCapability(BaseModel):
+    """Whether a custom table can be created on a connection right now."""
+
+    supported: bool
+    id: str
+    name: str
+    type: Optional[str] = None
+
+
+class CustomQueryProgress(BaseModel):
+    """One custom table's load state, looked up by name."""
+
+    exists: bool
+    id: Optional[str] = None
+    last_refresh_status: Optional[str] = None
+    last_refreshed_at: Optional[str] = None
+    # {"rows", "source_rows", "started_at", "trigger"} while a refresh runs.
+    refresh_progress: Optional[dict] = None
+    # {"rows", "source_rows"} for a chunked first load in progress.
+    load_progress: Optional[dict] = None
+
+
 class CustomQueryTarget(BaseModel):
     """One place a custom table on this connection can run against — a Power
     BI semantic model, with the tables the catalog knows in it."""

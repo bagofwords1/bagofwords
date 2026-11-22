@@ -254,12 +254,15 @@ def single_query_of(result_json, connection_id: str) -> Optional[str]:
     this connection answered without error and without going through a cached
     table. Each exclusion is a result with no single definition worth keeping:
     several queries (which one?), a structured request (not editable as a
-    query), another connection's query, a failed one, or one that already read
-    a cached copy.
+    query), another connection's query, a failed one, one that already read a
+    cached copy, or a parameterized one (the captured text is one viewer's
+    values, and a card that was re-run with others shows different rows).
     """
     from app.services.client_keys import FAST_SUFFIX
 
     result = result_json if isinstance(result_json, dict) else {}
+    if result.get("parameters"):
+        return None
     queries, timings = result.get("executed_queries"), result.get("query_timings")
     if not isinstance(queries, list) or not isinstance(timings, list):
         return None
@@ -745,9 +748,15 @@ class CustomQueryService:
         would cache the cache.
 
         The caller is a connection admin (the route requires it), but the
-        result belongs to somebody's report: they must also be able to open
-        that report and see its code, or this would be a way to read the
-        queries of reports they cannot see.
+        result belongs to somebody's conversation. They get its query only if
+        they could read that conversation: the same rule the completions route
+        applies (its owner, an organization admin, or a collaborator on its
+        project), on top of report visibility and permission to view code.
+        Sharing an agent with the report's owner is not enough.
+
+        The result must also still be what its card shows: once the query has
+        been edited, the card displays a later run and this one's text would
+        be the wrong definition.
         """
         from app.core.code_visibility import can_view_code
         from app.core.derived_access import can_view_report
@@ -777,8 +786,16 @@ class CustomQueryService:
         if report is None or not await can_view_report(db, current_user, organization, report):
             raise not_found
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if not await self._can_read_conversation(db, current_user, report, resolved):
+            raise not_found
         if not can_view_code(resolved):
             raise HTTPException(status_code=403, detail="You cannot view the query behind this result")
+        if await self._superseded(db, tool_execution):
+            raise HTTPException(
+                status_code=422,
+                detail="This result's query has been edited since it ran. Open the current "
+                       "result to save it as a cached table.",
+            )
 
         query = single_query_of(tool_execution.result_json, str(connection.id))
         if query is None:
@@ -788,6 +805,94 @@ class CustomQueryService:
                        "query against this connection.",
             )
         return query
+
+    @staticmethod
+    async def _can_read_conversation(db: AsyncSession, user: User, report, resolved) -> bool:
+        """Whether `user` may read a report's conversation: the rule on
+        `GET /reports/{id}/completions` (`view_reports`, owner only, with the
+        read-only bypasses for organization admins and project collaborators)."""
+        from app.core.permission_resolver import FULL_ADMIN
+
+        if str(report.user_id) == str(user.id):
+            return True
+        if FULL_ADMIN in resolved.org_permissions:
+            return True
+        project_id = getattr(report, "project_id", None)
+        if not project_id:
+            return False
+        from sqlalchemy.orm import lazyload
+        from app.models.project import Project
+        from app.services.project_service import project_service
+
+        project = (await db.execute(
+            select(Project).options(lazyload("*")).where(
+                Project.id == project_id, Project.organization_id == report.organization_id)
+        )).scalar_one_or_none()
+        return project is not None and await project_service.user_can_view_project(db, user, project)
+
+    @staticmethod
+    async def _superseded(db: AsyncSession, tool_execution) -> bool:
+        """Whether the query this result created has since moved to another
+        step (it was edited and saved), so its card no longer shows this run."""
+        from app.models.query import Query
+        from app.models.step import Step
+
+        step_id = getattr(tool_execution, "created_step_id", None)
+        if not step_id:
+            return False
+        current = (await db.execute(
+            select(Query.default_step_id)
+            .join(Step, Step.query_id == Query.id)
+            .where(Step.id == str(step_id))
+        )).scalar_one_or_none()
+        return bool(current) and str(current) != str(step_id)
+
+    def capability(self, connection: Connection, *, enabled: bool) -> dict:
+        """Whether a custom table can be created on this connection right now:
+        the feature is on for the organization (`enabled`, the route's beta
+        gate) and the connection can host one. Answers False instead of
+        refusing, so a caller deciding whether to offer the action needs no
+        error handling."""
+        supported = bool(enabled)
+        if supported:
+            try:
+                self.ensure_accelerable(connection)
+            except HTTPException:
+                supported = False
+        return {"supported": supported, "id": str(connection.id), "name": connection.name,
+                "type": connection.type}
+
+    async def progress_of(self, db: AsyncSession, connection_id: str, name: str) -> dict:
+        """One custom table's load state, by name: whether it exists, how its
+        last refresh ended and how far a running one has got. One row and, only
+        while something is running, one run lookup — whatever else the
+        connection holds."""
+        row = (await db.execute(
+            select(ConnectionTable).where(
+                ConnectionTable.connection_id == str(connection_id),
+                ConnectionTable.kind == KIND_BOW,
+                ConnectionTable.deleted_at.is_(None),
+                ConnectionTable.name == name,
+            )
+        )).scalars().first()
+        if row is None:
+            return {"exists": False}
+        live = {}
+        if row.last_refresh_status in ("pending", "running"):
+            live = await runs.live_progress(db, [row.id])
+        state = row.refresh_state if isinstance(row.refresh_state, dict) else {}
+        load = state.get("load") if isinstance(state.get("load"), dict) else None
+        load_progress = None
+        if load and load.get("windows"):
+            load_progress = {"rows": load.get("rows") or 0, "source_rows": load.get("source_rows")}
+        return {
+            "exists": True,
+            "id": str(row.id),
+            "last_refresh_status": row.last_refresh_status,
+            "last_refreshed_at": row.last_refreshed_at.isoformat() if row.last_refreshed_at else None,
+            "refresh_progress": live.get(str(row.id)),
+            "load_progress": load_progress,
+        }
 
     async def create(
         self,

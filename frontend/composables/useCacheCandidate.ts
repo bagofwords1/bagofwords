@@ -10,6 +10,7 @@
  *   - the result came from more than one query, so there is no single
  *     definition to keep
  *   - it was already answered from a cached table (`…::fast` client)
+ *   - the result is parameterized, or its card is showing a re-run
  *   - the connection cannot host custom tables (per-user credentials, or a
  *     connector that cannot run a query)
  *   - the viewer is not an admin of that connection
@@ -38,35 +39,41 @@ export async function fetchCacheDefinition(
 }
 
 /**
- * Connections of an agent that can host custom tables, fetched once per agent
- * per page and shared by every result card that asks.
+ * Whether a connection can host a custom table right now, asked of the
+ * connection itself and shared by every result card on the page.
+ *
+ * Asked per connection, not per agent: the action needs `manage_connection`,
+ * and someone who has it may hold no more than ordinary access to the agent
+ * the result came from. A lookup that failed is not remembered, so a blip does
+ * not hide the action for the rest of the page's life.
  */
 export function useCacheConnections() {
-  const cache = useState<Record<string, CacheConnection[]>>('bow-cache-connections', () => ({}))
+  const cache = useState<Record<string, CacheConnection | null>>('bow-cache-connections', () => ({}))
   const pending = useState<Record<string, boolean>>('bow-cache-connections-pending', () => ({}))
 
-  async function ensureLoaded(dataSourceId: string) {
-    if (!dataSourceId || cache.value[dataSourceId] || pending.value[dataSourceId]) return
-    pending.value = { ...pending.value, [dataSourceId]: true }
-    let found: CacheConnection[] = []
+  async function ensureLoaded(connectionId: string) {
+    if (!connectionId || connectionId in cache.value || pending.value[connectionId]) return
+    pending.value = { ...pending.value, [connectionId]: true }
     try {
-      const { data, error } = await useMyFetch(`/data_sources/${dataSourceId}/connections`, { method: 'GET' })
-      if (!error.value && Array.isArray(data.value)) {
-        found = (data.value as any[])
-          .filter((c: any) => c?.custom_queries_supported)
-          .map((c: any) => ({ id: String(c.id), name: c.name, type: c.type }))
+      const { data, error } = await useMyFetch(
+        `/connections/${connectionId}/custom-queries/capability`, { method: 'GET' })
+      if (!error.value && data.value) {
+        const c: any = data.value
+        cache.value = {
+          ...cache.value,
+          [connectionId]: c.supported ? { id: String(c.id), name: c.name, type: c.type } : null,
+        }
       }
     } catch {
-      /* no offer is the safe outcome */
+      /* not remembered: the next card to ask tries again */
+    } finally {
+      pending.value = { ...pending.value, [connectionId]: false }
     }
-    cache.value = { ...cache.value, [dataSourceId]: found }
-    pending.value = { ...pending.value, [dataSourceId]: false }
   }
 
   function connectionFor(candidate: CacheCandidate | null): CacheConnection | null {
     if (!candidate) return null
-    const list = cache.value[candidate.dataSourceId] || []
-    return list.find((c) => c.id === candidate.connectionId) || null
+    return cache.value[candidate.connectionId] || null
   }
 
   return { ensureLoaded, connectionFor }

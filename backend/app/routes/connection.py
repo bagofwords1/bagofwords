@@ -59,7 +59,9 @@ from app.schemas.custom_query_schema import (
     CustomQueryRlsUpdate,
     CustomQuerySchema,
     RlsPrincipal,
+    CustomQueryCapability,
     CustomQueryFromResult,
+    CustomQueryProgress,
     CustomQueryTarget,
     CustomTableRunDetail,
     CustomTableRunList,
@@ -1646,6 +1648,44 @@ async def list_custom_query_targets(
     await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     return await custom_query_service.list_targets(db, connection)
+
+
+@router.get("/{connection_id}/custom-queries/capability", response_model=CustomQueryCapability)
+@requires_resource_permission('connection', 'manage_connection')
+async def custom_query_capability(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Whether this connection can host a custom table right now. For callers
+    deciding whether to offer one (the result card's "save as cached table"):
+    answered from the connection alone, so a connection admin gets an answer
+    without also managing an agent that uses it."""
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    try:
+        await custom_query_service.ensure_enabled(db, organization)
+    except HTTPException:
+        # Switched off for the organization: an answer, not an error, so the
+        # caller simply does not offer the action.
+        return custom_query_service.capability(connection, enabled=False)
+    return custom_query_service.capability(connection, enabled=True)
+
+
+@router.get("/{connection_id}/custom-queries/progress", response_model=CustomQueryProgress)
+@requires_resource_permission('connection', 'manage_connection')
+async def custom_query_progress(
+    connection_id: str,
+    name: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """One custom table's load state, by name. What a saving dialog polls: its
+    cost does not grow with the number of custom tables on the connection."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    return await custom_query_service.progress_of(db, str(connection.id), name)
 
 
 @router.get("/{connection_id}/custom-queries/from-result/{tool_execution_id}",

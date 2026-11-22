@@ -17,12 +17,15 @@ for (const [label, value] of [
   ['no connection recorded', result(timing({ connection_id: null }))],
   ['no agent recorded', result(timing({ data_source_id: undefined }))],
   ['already read from a cached table', result(timing({ client_key: 'Sales:warehouse::fast' }))],
+  ['parameterized result', { ...result(timing()), parameters: [{ name: 'month' }] }],
 ]) {
   assert.equal(cacheCandidateFrom(value), null, label)
 }
 
 // The query text is never needed to decide: a listed result does not carry it.
 assert.ok(cacheCandidateFrom({ query_timings: [timing()], executed_queries: undefined }))
+// An empty parameter list is not a parameterized result.
+assert.ok(cacheCandidateFrom({ query_timings: [timing()], parameters: [] }))
 
 // Names follow the backend rule ^[A-Za-z_][A-Za-z0-9_]{0,62}$.
 const RULE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/

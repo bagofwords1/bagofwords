@@ -15,7 +15,7 @@ semantic model, with Claude Haiku 5.5 as the agent's model.
 | Result card (`frontend/components/tools/ToolWidgetPreview.vue`) | "Save as cached table" button in the bottom action bar, beside Save Query |
 | Rules (`frontend/utils/cacheCandidate.ts`, `frontend/composables/useCacheCandidate.ts`) | When the button is offered; the suggested table name |
 | Dialog (`frontend/components/datasources/CustomQueryModal.vue`) | First-load progress bar; a clear outcome when the first load fails |
-| API (`backend/app/routes/connection.py`) | `GET /connections/{id}/custom-queries/from-result/{tool_execution_id}` returns the query behind a result; the list route adds `refresh_progress` |
+| API (`backend/app/routes/connection.py`) | Under `/connections/{id}/custom-queries`: `from-result/{tool_execution_id}` returns the query behind a result, `capability` says whether the connection can host a custom table, `progress?name=` reports one table's load state |
 | Service (`backend/app/services/custom_query_service.py`, `custom_table_runs.py`) | `single_query_of`, `definition_from_result`, `_reporting_progress`, `live_progress` |
 | Loader (`backend/app/data_sources/fast/loader.py`, `extractor.py`) | `Limits.on_rows`: the running row total after every batch |
 | Query capture (`backend/app/ai/code_execution/code_execution.py`) | Each query timing records `connection_id`, `data_source_id`, `client_key` |
@@ -26,6 +26,7 @@ All of these must hold; otherwise it is hidden, not disabled:
 
 - custom tables are switched on for the organization (AI settings);
 - the result came from exactly one query, with no error;
+- the result is not parameterized and the card is not showing a re-run;
 - that query ran on the connection itself, not through a cached table
   (`…::fast` client);
 - the connection can host custom tables (shared credentials, queryable type);
@@ -33,8 +34,9 @@ All of these must hold; otherwise it is hidden, not disabled:
 - the card is not read-only (a shared or public view) and the viewer may see code.
 
 The server checks again when the dialog asks for the query: connection admin
-(route guard), able to open the report, able to view code, and the result is
-one query against that connection.
+(route guard), able to read that conversation (its owner, an organization
+admin, or a collaborator on its project), able to view code, the result is one
+query against that connection, and its query has not been edited since.
 
 ## Sandbox setup
 
@@ -141,6 +143,25 @@ because the file is still being sealed and published after the last row.
 - **A failed first load left the dialog inviting a second "Create".** The table
   row already exists at that point, so the retry could only fail on the name.
   The dialog now says the table was created, shows the error, and closes.
+
+## After review
+
+Four findings from code review were fixed and re-verified:
+
+- **Access:** the query endpoint now applies the conversation's own rule. A
+  connection admin who merely shares an agent with a report's owner gets the
+  same 404 as for an unknown id. Covered by an API test that fails without the
+  check.
+- **Displayed run:** parameterized results are not offered, and the server
+  refuses a result whose query was edited afterwards.
+- **Capability lookup:** asked of the connection, so a connection admin who
+  does not manage the agent still gets the button.
+- **Polling:** the dialog polls one table's progress, not the connection's
+  whole list.
+
+Re-run in the browser afterwards: the page made one `capability` call, one
+`from-result` call and 116 `progress` calls during a 116-second, 131,308-row
+load, and no call to the full list or to the agent's connections.
 
 ## Not covered
 

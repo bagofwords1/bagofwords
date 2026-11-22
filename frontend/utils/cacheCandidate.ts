@@ -29,6 +29,9 @@ export interface CacheConnection {
  * the dialog, see `fetchCacheDefinition`), so nothing here depends on it.
  */
 export function cacheCandidateFrom(resultJson: any): CacheCandidate | null {
+  // A parameterized result is one viewer's values; its card can be re-run
+  // with others and then shows rows this query did not produce.
+  if (Array.isArray(resultJson?.parameters) && resultJson.parameters.length) return null
   const timings = resultJson?.query_timings
   if (!Array.isArray(timings) || timings.length !== 1) return null
   const timing = timings[0] || {}
