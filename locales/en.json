@@ -3010,7 +3010,17 @@
     "noManagedGroupsHint": "You don't manage any groups.",
     "toastManagerAdded": "Member is now a group manager",
     "toastManagerRemoved": "Manager role removed",
-    "failedToUpdateManager": "Failed to update group manager"
+    "failedToUpdateManager": "Failed to update group manager",
+    "models": {
+      "title": "Default models",
+      "hint": "What this group's members start on. Only models the group can already use are listed.",
+      "default": "Default model",
+      "small": "Small model",
+      "orgDefault": "Organization default",
+      "setByAdmin": "{model} (set by an admin)",
+      "saved": "Group models updated",
+      "failed": "Could not update the group's models"
+    }
   },
   "quotaPolicies": {
     "searchPlaceholder": "Search quotas...",
@@ -4586,7 +4596,8 @@
         "configure": "Configure",
         "summaryDecision": "{model} picks the starting model (min confidence {pct}%)",
         "decisionUnavailable": "The decision model chosen for routing is disabled or removed, so requests start on the small model. Choose another one in Configure.",
-        "saved": "Auto router updated"
+        "saved": "Auto router updated",
+        "decisionRestricted": "Only members who may use {model} get the upfront decision. Everyone else starts on the small model."
       },
       "decision": {
         "badge": "Decision",
@@ -4627,7 +4638,24 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: unredacted",
-      "piiBadgeTooltip": "The PII policy this provider's prompts get. Change it in Settings → PII Protection."
+      "piiBadgeTooltip": "The PII policy this provider's prompts get. Change it in Settings → PII Protection.",
+      "providerManagers": {
+        "title": "Provider managers",
+        "hint": "Members who run this provider without being LLM admins.",
+        "can": "They can change its credentials and connection settings, turn its models on or off, and edit those models' settings and routing hints.",
+        "cannot": "They can't add models, change prices, defaults or model access, or turn on the Auto router. A model they turn on starts restricted until an admin opens it.",
+        "addPlaceholder": "Add a member…",
+        "add": "Add",
+        "remove": "Remove manager",
+        "loading": "Loading…",
+        "none": "No managers yet. Only LLM admins manage this provider.",
+        "added": "Manager added",
+        "removed": "Manager removed",
+        "failed": "Could not update the provider's managers",
+        "banner": "You manage {providers}. Defaults, model access, prices and the Auto router are set by an admin.",
+        "priceAdminOnly": "Only an admin can change prices.",
+        "restricted": "Restricted: only people an admin gives access can use it."
+      }
     },
     "licensePage": {
       "title": "License",
@@ -5712,7 +5740,12 @@
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider",
       "model_is_group_default": "This model is the default for group(s): {groups}. Change their default first.",
-      "group_default_invalid": "The model must be enabled and be a chat model in this organization."
+      "group_default_invalid": "The model must be enabled and be a chat model in this organization.",
+      "group_default_not_available": "This group can't use that model. Ask an admin to give the group access first.",
+      "group_default_priority_admin_only": "Only an admin can change a group's priority.",
+      "provider_holds_default": "This provider holds the organization's default model. Ask an admin to change the default first.",
+      "provider_manager_admin_only": "Only an admin can do that on this provider.",
+      "provider_manager_not_member": "Only a member of this organization can manage a provider."
     },
     "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
     "memory.disabled": "User memory is turned off for this organization.",

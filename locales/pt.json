@@ -2613,7 +2613,17 @@
     "noManagedGroupsHint": "Você não gerencia nenhum grupo.",
     "toastManagerAdded": "O membro agora é gestor do grupo",
     "toastManagerRemoved": "Função de gestor removida",
-    "failedToUpdateManager": "Falha ao atualizar o gestor do grupo"
+    "failedToUpdateManager": "Falha ao atualizar o gestor do grupo",
+    "models": {
+      "title": "Modelos padrão",
+      "hint": "Com que modelo os membros deste grupo começam. Só aparecem os modelos que o grupo já pode usar.",
+      "default": "Modelo padrão",
+      "small": "Modelo pequeno",
+      "orgDefault": "Padrão da organização",
+      "setByAdmin": "{model} (definido por um administrador)",
+      "saved": "Modelos do grupo atualizados",
+      "failed": "Não foi possível atualizar os modelos do grupo"
+    }
   },
   "signupPolicy": {
     "title": "Cadastro baseado em domínio",
@@ -3991,7 +4001,27 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: sem ocultar",
-      "piiBadgeTooltip": "A política de dados pessoais aplicada aos prompts deste provedor. Altere em Configurações → Proteção de dados pessoais."
+      "piiBadgeTooltip": "A política de dados pessoais aplicada aos prompts deste provedor. Altere em Configurações → Proteção de dados pessoais.",
+      "providerManagers": {
+        "title": "Gestores do provedor",
+        "hint": "Membros que gerem este provedor sem serem administradores de LLM.",
+        "can": "Podem alterar as credenciais e as configurações de conexão, ativar ou desativar os modelos e editar as configurações e as orientações de roteamento desses modelos.",
+        "cannot": "Não podem adicionar modelos, alterar preços, modelos padrão ou acesso a modelos, nem ativar o roteador automático. Um modelo que ativam começa restrito até que um administrador o abra.",
+        "addPlaceholder": "Adicionar um membro…",
+        "add": "Adicionar",
+        "remove": "Remover gestor",
+        "loading": "Carregando…",
+        "none": "Ainda não há gestores. Apenas administradores de LLM gerem este provedor.",
+        "added": "Gestor adicionado",
+        "removed": "Gestor removido",
+        "failed": "Não foi possível atualizar os gestores do provedor",
+        "banner": "Você gere {providers}. Modelos padrão, acesso a modelos, preços e o roteador automático são definidos por um administrador.",
+        "priceAdminOnly": "Apenas um administrador pode alterar preços.",
+        "restricted": "Restrito: só quem recebe acesso de um administrador pode usá-lo."
+      },
+      "autoRouterModal": {
+        "decisionRestricted": "Apenas membros que podem usar {model} recebem a decisão prévia. Os demais começam no modelo pequeno."
+      }
     },
     "licensePage": {
       "title": "Licença",
@@ -4983,7 +5013,12 @@
       "model_id_not_editable": "Somente modelos personalizados em provedores Azure, AWS Bedrock ou personalizados (compatíveis com OpenAI) podem ter o ID do modelo editado",
       "model_id_duplicate": "O modelo \"{model_id}\" já existe neste provedor",
       "model_is_group_default": "Este modelo é o padrão dos grupos: {groups}. Altere primeiro o padrão deles.",
-      "group_default_invalid": "O modelo tem de estar ativado e ser um modelo de chat desta organização."
+      "group_default_invalid": "O modelo tem de estar ativado e ser um modelo de chat desta organização.",
+      "group_default_not_available": "Este grupo não pode usar esse modelo. Peça antes a um administrador para dar acesso ao grupo.",
+      "group_default_priority_admin_only": "Apenas um administrador pode alterar a prioridade de um grupo.",
+      "provider_holds_default": "Este provedor tem o modelo padrão da organização. Peça antes a um administrador para alterar o padrão.",
+      "provider_manager_admin_only": "Apenas um administrador pode fazer isso neste provedor.",
+      "provider_manager_not_member": "Apenas um membro desta organização pode gerir um provedor."
     },
     "data_source.in_use": "O agente \"{agent}\" ainda está em uso ({reference}), então não pode ser excluído. Nada foi excluído.",
     "memory.disabled": "A memória do usuário está desativada nesta organização.",
