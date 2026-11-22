@@ -316,15 +316,26 @@ def _parse_for_refs(sql: str, dialect: str) -> list:
         ) from e
 
 
+def parse_for_refs(sql: str, dialect: str) -> list:
+    """`sql` parsed once, for callers that run several checks on it
+    (`table_refs_of`, `refuse_unchecked_reads_of`). Unreadable SQL raises."""
+    return _parse_for_refs(sql, dialect)
+
+
 def table_refs(sql: str, dialect: str) -> list[Name]:
     """Every table `sql` reads, as lowercased name parts, CTE names left out.
 
     Unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`.
     """
+    return table_refs_of(_parse_for_refs(sql, dialect))
+
+
+def table_refs_of(statements: list) -> list[Name]:
+    """`table_refs` over statements already parsed by `parse_for_refs`."""
     from sqlglot import exp
 
     refs: list[Name] = []
-    for stmt in _parse_for_refs(sql, dialect):
+    for stmt in statements:
         if isinstance(stmt, (exp.Command, exp.Describe, exp.Use)) or type(stmt).__name__ == "Show":
             raise TableScopeViolation(
                 "SHOW, DESCRIBE and similar statements are not allowed here. "
@@ -355,7 +366,12 @@ def refuse_unchecked_reads(sql: str, dialect: str, extra_denied: re.Pattern | No
     connector refused built-ins that read no table (SQL Server `.nodes()`, Spark
     `inline_outer`, DuckDB `json_tree`). A connector that needs a stricter rule
     applies it with the engine's own parser (see PostgresqlMultiClient)."""
-    for stmt in _parse_for_refs(sql, dialect):
+    refuse_unchecked_reads_of(_parse_for_refs(sql, dialect), extra_denied)
+
+
+def refuse_unchecked_reads_of(statements: list, extra_denied: re.Pattern | None = None) -> None:
+    """`refuse_unchecked_reads` over statements already parsed by `parse_for_refs`."""
+    for stmt in statements:
         _refuse_denied_functions(stmt)
         if extra_denied is not None:
             _refuse_denied_functions(stmt, extra_denied)

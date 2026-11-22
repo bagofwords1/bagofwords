@@ -1,7 +1,10 @@
+import contextlib
+import contextvars
 import json
 import logging
 import re
 import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from time import monotonic
 
 import duckdb
@@ -12,20 +15,21 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlglot import exp
 
-from app.ai.code_execution.sql_parser import parse_guard_sql
 from app.ai.code_execution.table_scope import (
     TABLE_SCOPE_ATTR,
     TableScopeViolation,
-    refuse_unchecked_reads,
-    table_refs,
+    parse_for_refs,
+    refuse_unchecked_reads_of,
+    table_refs_of,
 )
 from app.ai.prompt_formatters import Table, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.database_spec import parse_database_spec, select_databases, spec_matches
 from app.data_sources.clients.discovery import IncompleteDiscoveryError, require_complete_discovery
 from app.data_sources.clients.postgresql_client import PostgresqlClient
-from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN, unify_catalogs
+from app.data_sources.clients.postgresql_multi_catalog import COLUMN_TYPES_KEY, TENANT_COLUMN, unify_catalogs
 from app.data_sources.clients.postgresql_multi_engine import (
+    ExtensionUnavailable,
     PgConn,
     TenantEngine,
     build_default_engine,
@@ -52,6 +56,10 @@ from app.utils.safe_regex import compile_bounded
 logger = logging.getLogger(__name__)
 
 ENGINE_TTL_SECONDS = 600
+# Tenant databases probed or read at once by Test connection and indexing.
+# Each holds one server connection for the duration of its probe, so this also
+# bounds the connections taken from the server's slots.
+TENANT_WORKERS = 8
 DIALECT = "duckdb"
 UNREADABLE_TENANTS_KEY = "unreadable_tenants"
 INDEXED_TENANTS_KEY = "indexed_tenants"
@@ -126,6 +134,7 @@ class PostgresqlMultiClient(DataSourceClient):
         self._includes, self._excludes, _ = parse_database_spec(databases)
         self._schemas = [s.strip() for s in schema.split(",") if s.strip()] if isinstance(schema, str) else []
         self._views: dict[str, list[str]] = {}
+        self._view_types: dict[str, dict[str, str]] = {}
         self._indexed_tenants: list[str] = []
         self._excluded_tenants: dict[str, list[str]] = {}
         self._unreadable: list[dict] = []
@@ -229,10 +238,15 @@ class PostgresqlMultiClient(DataSourceClient):
             tenants = self._discover()
             if not tenants:
                 raise RuntimeError(self._no_match_message())
-            for database in discovery_items(tenants, "databases", label=lambda d: d):
-                tables = self._read_tenant(database, matcher)
-                if tables is not None:
-                    per_tenant[database] = tables
+            with _tenant_pool(tenants) as submit:
+                futures = {database: submit(self._read_tenant, database, matcher) for database in tenants}
+                # Progress is reported from this thread, in order, as each
+                # tenant's read finishes.
+                for database in discovery_items(tenants, "databases", label=lambda d: d):
+                    tables = futures[database].result()
+                    if tables is not None:
+                        per_tenant[database] = tables
+            self._unreadable.sort(key=lambda entry: entry["name"])
         if not per_tenant:
             raise RuntimeError(f"None of the {len(tenants)} matching tenant databases could be read")
 
@@ -251,6 +265,7 @@ class PostgresqlMultiClient(DataSourceClient):
 
     def _learn(self, entries, *, replace: bool) -> None:
         views = {} if replace else dict(self._views)
+        view_types = {} if replace else dict(self._view_types)
         excluded = {} if replace else dict(self._excluded_tenants)
         unreadable = set() if replace else set(self._unreadable_names)
         indexed = set() if replace else set(self._indexed_tenants)
@@ -262,11 +277,15 @@ class PostgresqlMultiClient(DataSourceClient):
             if not tenants:
                 continue
             views[name] = tenants
+            columns = meta.get(COLUMN_TYPES_KEY)
+            if isinstance(columns, dict):
+                view_types[name] = {str(k): str(v) for k, v in columns.items() if isinstance(v, str)}
             excluded[name] = [t for t in meta.get("excluded_tenants") or [] if isinstance(t, str) and self._in_spec(t)]
             unreadable.update(
                 t for t in meta.get(UNREADABLE_TENANTS_KEY) or [] if isinstance(t, str) and self._in_spec(t)
             )
         self._views = views
+        self._view_types = {k: v for k, v in view_types.items() if k in views}
         self._excluded_tenants = {k: v for k, v in excluded.items() if v}
         self._unreadable_names = sorted(unreadable)
         self._indexed_tenants = sorted(indexed)
@@ -294,9 +313,10 @@ class PostgresqlMultiClient(DataSourceClient):
         engine runs what DuckDB reads, so that reading decides which views are
         built and is what keeps a query that sqlglot misreads from reaching a
         table, a tenant database or a shared view it should not."""
-        refs = table_refs(sql, DIALECT)
-        refuse_unchecked_reads(sql, DIALECT, extra_denied=_DUCKDB_CATALOG_READERS)
-        statements = [s for s in parse_guard_sql(sql, DIALECT) if s is not None and not isinstance(s, exp.Semicolon)]
+        # sqlglot parses once; every sqlglot-side check reads the same statements.
+        statements = parse_for_refs(sql, DIALECT)
+        refs = table_refs_of(statements)
+        refuse_unchecked_reads_of(statements, extra_denied=_DUCKDB_CATALOG_READERS)
         if any(isinstance(stmt, exp.Pragma) for stmt in statements):
             raise TableScopeViolation(
                 "PRAGMA statements are not allowed: the unified tables are already described in the schema."
@@ -349,6 +369,7 @@ class PostgresqlMultiClient(DataSourceClient):
         one costs a round of connections to every tenant, so creating every
         indexed view up front made the first query pay tenants x tables."""
         needed = {name: self._views[name] for name in used if name in self._views}
+        types = {name: self._view_types[name] for name in needed if name in self._view_types}
         if self._connection_id():
             engine = get_engine(
                 self._pg_conn(),
@@ -356,21 +377,22 @@ class PostgresqlMultiClient(DataSourceClient):
                 ttl_seconds=ENGINE_TTL_SECONDS,
                 tenants=self._engine_tenants(),
                 connection_id=self._connection_id(),
+                types=types,
             )
         else:
-            engine = self._unshared_engine(needed)
+            engine = self._unshared_engine(needed, types)
         self._learn_engine(engine)
         return engine
 
-    def _unshared_engine(self, needed: dict[str, list[str]]) -> TenantEngine:
+    def _unshared_engine(self, needed: dict[str, list[str]], types=None) -> TenantEngine:
         with self._own_engine_lock:
             engine = self._own_engine
             if engine is None:
-                engine = build_default_engine(self._pg_conn(), needed, tenants=self._engine_tenants())
+                engine = build_default_engine(self._pg_conn(), needed, tenants=self._engine_tenants(), types=types)
                 self._own_engine = engine if engine.attached else None
-            else:
-                engine.ensure_views(needed)
-            return engine
+                return engine
+        engine.ensure_views(needed, types)
+        return engine
 
     def _discard(self, engine: TenantEngine) -> bool:
         if self._connection_id():
@@ -413,7 +435,12 @@ class PostgresqlMultiClient(DataSourceClient):
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         used = self._check_table_refs(sql)
-        engine = self._engine(used)
+        try:
+            engine = self._engine(used)
+        except ExtensionUnavailable:
+            raise
+        except duckdb.Error as exc:
+            raise self._without_connection_details(exc) from None
         try:
             return self._run(engine, sql)
         except duckdb.Error as exc:
@@ -464,10 +491,12 @@ class PostgresqlMultiClient(DataSourceClient):
                         "message": self._no_match_message(),
                     }
                 unreadable = []
-                for database in tenants:
-                    reason = self._probe_tenant(database)
-                    if reason:
-                        unreadable.append({"name": database, "reason": reason})
+                with _tenant_pool(tenants) as submit:
+                    futures = {database: submit(self._probe_tenant, database) for database in tenants}
+                    for database in tenants:
+                        reason = futures[database].result()
+                        if reason:
+                            unreadable.append({"name": database, "reason": reason})
         except Exception as e:
             logger.debug("Listing databases from %s failed: %s", self.discovery_database, self._redacted(str(e)))
             return {
@@ -638,6 +667,24 @@ def _json_structure_types(stmt: exp.Expression) -> list[str]:
 
 def _postgres_side(exc: duckdb.Error) -> bool:
     return type(exc) is duckdb.Error or isinstance(exc, (duckdb.IOException, duckdb.ConnectionException))
+
+
+@contextlib.contextmanager
+def _tenant_pool(tenants: list[str]):
+    """A `submit(fn, *args)` running up to TENANT_WORKERS tenant probes at
+    once, each in a copy of the caller's context (so `ephemeral()` engines and
+    cancellation checks follow it). Leaving the block cancels what has not
+    started, so a failure or cancellation does not wait for every tenant."""
+    pool = ThreadPoolExecutor(max_workers=max(1, min(TENANT_WORKERS, len(tenants))),
+                              thread_name_prefix="pg-multi-tenant")
+
+    def submit(fn, *args) -> Future:
+        return pool.submit(contextvars.copy_context().run, fn, *args)
+
+    try:
+        yield submit
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def _relation_vanished(exc: duckdb.Error) -> bool:

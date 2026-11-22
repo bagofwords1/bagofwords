@@ -32,7 +32,7 @@ class _StubEngine:
         self.closed = False
         self.built_at = engine_module.monotonic()
 
-    def ensure_views(self, views):
+    def ensure_views(self, views, types=None):
         pass
 
     def close(self):
@@ -225,3 +225,108 @@ def test_expire_soon_shortens_a_cached_engine_to_the_degraded_ttl(monkeypatch, c
 
     assert get_engine(CONN, VIEWS, ttl_seconds=600, connection_id="c1") is not first
     assert len(built) == 2
+
+
+def test_invalidating_during_a_build_does_not_start_a_second_build_beside_it(monkeypatch):
+    # A re-index while a query thread is building used to wipe the build
+    # locks, so the next caller built a second engine in parallel and every
+    # tenant was attached twice. Now the next caller waits, and builds afresh
+    # (the interrupted build predates the re-index, so it is not reused).
+    builds: list = []
+    running, peak = [0], [0]
+    lock = threading.Lock()
+    release = threading.Event()
+
+    def slow_build(conn, views, **kwargs):
+        with lock:
+            builds.append(1)
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        release.wait(5)
+        with lock:
+            running[0] -= 1
+        return _StubEngine()
+
+    monkeypatch.setattr(engine_module, "build_engine", slow_build)
+    got: dict = {}
+    first = threading.Thread(target=lambda: got.setdefault("first", get_engine(CONN, VIEWS, connection_id="c1")))
+    first.start()
+    assert _wait_for(lambda: len(builds) == 1, timeout=5)
+
+    invalidate_engines("c1")
+    second = threading.Thread(target=lambda: got.setdefault("second", get_engine(CONN, VIEWS, connection_id="c1")))
+    second.start()
+    assert not _wait_for(lambda: len(builds) > 1, timeout=0.5)  # waits, does not build beside it
+    release.set()
+    first.join()
+    second.join()
+
+    assert peak[0] == 1
+    assert len(builds) == 2
+    assert got["second"] is not got["first"]
+    assert get_engine(CONN, VIEWS, connection_id="c1") is got["second"]
+
+
+def test_a_new_view_on_a_cached_engine_does_not_hold_up_other_queries(monkeypatch):
+    built = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    class _SlowViews(_StubEngine):
+        def ensure_views(self, views, types=None):
+            if "public.slow" in views:
+                entered.set()
+                release.wait(5)
+
+    def build(conn, views, **kwargs):
+        built.append(_SlowViews())
+        return built[-1]
+
+    monkeypatch.setattr(engine_module, "build_engine", build)
+    engine = get_engine(CONN, VIEWS, connection_id="c1")
+    slow = threading.Thread(
+        target=lambda: get_engine(CONN, {"public.slow": ["tenant_a"]}, tenants=["tenant_a", "tenant_b"],
+                                  connection_id="c1"))
+    slow.start()
+    assert entered.wait(5)
+
+    done = threading.Event()
+    other = threading.Thread(target=lambda: (get_engine(CONN, VIEWS, connection_id="c1"), done.set()))
+    other.start()
+    finished_while_slow_view_builds = done.wait(2)
+    release.set()
+    slow.join()
+    other.join()
+
+    assert finished_while_slow_view_builds
+    assert len(built) == 1 and engine is built[0]
+
+
+def test_cached_engines_are_capped_least_recently_used_first(monkeypatch, clock):
+    monkeypatch.setenv(engine_module.MAX_CACHED_ENGINES_ENV, "2")
+    built = _counting_build(monkeypatch)
+    a = get_engine(CONN, VIEWS, connection_id="a")
+    clock[0] += 1
+    b = get_engine(CONN, VIEWS, connection_id="b")
+    clock[0] += 1
+    assert get_engine(CONN, VIEWS, connection_id="a") is a  # a is now the most recently used
+    clock[0] += 1
+    get_engine(CONN, VIEWS, connection_id="c")
+
+    assert len(engine_module._cache) == 2
+    assert get_engine(CONN, VIEWS, connection_id="a") is a
+    assert get_engine(CONN, VIEWS, connection_id="b") is not b
+    assert len(built) == 4
+
+
+def test_bookkeeping_of_unused_keys_is_pruned_when_engines_expire(monkeypatch, clock):
+    _counting_build(monkeypatch)
+    for password in ("old", "new"):  # a credential rotation changes the key
+        get_engine(PgConn(host="db.invalid", port=5432, user="reader", password=password, sslmode="disable"),
+                   VIEWS, ttl_seconds=60, connection_id="c1")
+    assert len(engine_module._build_locks) == 2
+    clock[0] += 61
+    get_engine(CONN, VIEWS, ttl_seconds=60, connection_id="other")
+
+    assert len(engine_module._build_locks) == 1
+    assert set(engine_module._finished_builds) <= set(engine_module._build_locks)

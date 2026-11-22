@@ -335,3 +335,83 @@ def test_unsaved_client_retry_onto_a_newer_engine_keeps_its_rebuild_budget():
     assert client._discard(current) is True
     client._own_engine = rebuilt
     assert client._discard(rebuilt) is False
+
+
+def test_test_connection_probes_tenants_in_parallel_within_a_bound(monkeypatch):
+    import threading
+    import time as _time
+
+    from app.data_sources.clients import postgresql_multi_client as client_module
+
+    tenants = [f"tenant_{i:02d}" for i in range(24)]
+    client = _client()
+    monkeypatch.setattr(client, "_discover", lambda: tenants)
+    lock, running, peak = threading.Lock(), [0], [0]
+
+    def probe(database):
+        with lock:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        _time.sleep(0.1)
+        with lock:
+            running[0] -= 1
+        return "permission denied" if database == "tenant_05" else None
+
+    monkeypatch.setattr(client, "_probe_tenant", probe)
+    started = _time.monotonic()
+    result = client.test_connection()
+    elapsed = _time.monotonic() - started
+
+    assert result["success"], result
+    assert "tenant_05" in result["message"]
+    assert peak[0] == client_module.TENANT_WORKERS  # parallel, never more than the bound
+    assert elapsed < 24 * 0.1 / 2  # 2.4 s serially
+
+
+def test_engine_build_failure_reaches_the_agent_as_a_duckdb_error(monkeypatch):
+    import duckdb
+
+    client = _client()
+    monkeypatch.setattr(client, "_check_table_refs", lambda sql: ["public.orders"])
+
+    from app.data_sources.clients.postgresql_multi_engine import ExtensionUnavailable
+
+    def no_extension(used):
+        raise ExtensionUnavailable("The DuckDB postgres extension is not available on this server")
+
+    monkeypatch.setattr(client, "_engine", no_extension)
+    with pytest.raises(duckdb.IOException, match="extension is not available"):
+        client.execute_query("SELECT * FROM public.orders")
+
+
+def test_postgres_extension_load_failure_names_the_fix(monkeypatch):
+    import duckdb
+
+    from app.data_sources.clients import postgresql_multi_engine as engine_module
+
+    class _Offline:
+        def execute(self, sql):
+            if sql.startswith(("LOAD", "INSTALL")):
+                raise duckdb.IOException("Failed to download extension from extensions.duckdb.org")
+
+    monkeypatch.delenv(engine_module.EXTENSION_DIR_ENV, raising=False)
+    with pytest.raises(duckdb.IOException, match=engine_module.EXTENSION_DIR_ENV):
+        engine_module._load_postgres_extension(_Offline())
+
+
+@pytest.mark.parametrize(("postgres", "duckdb_type"), [
+    ("integer", "BIGINT"), ("numeric(12,2)", "DECIMAL(12,2)"), ("character varying(50)", "VARCHAR"),
+    ("timestamp without time zone", "TIMESTAMP"), ("timestamp with time zone", "TIMESTAMP WITH TIME ZONE"),
+    ("boolean", "BOOLEAN"), ("date", "DATE"),
+])
+def test_coarse_type_matches_postgres_and_duckdb_names(postgres, duckdb_type):
+    from app.data_sources.clients.postgresql_multi_engine import coarse_type
+
+    assert coarse_type(postgres) == coarse_type(duckdb_type) is not None
+
+
+def test_coarse_type_tells_numbers_from_text_and_skips_arrays():
+    from app.data_sources.clients.postgresql_multi_engine import coarse_type
+
+    assert coarse_type("numeric") != coarse_type("VARCHAR")
+    assert coarse_type("integer[]") is None and coarse_type("my_enum") is None

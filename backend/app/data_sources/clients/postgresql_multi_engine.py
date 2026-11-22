@@ -21,6 +21,11 @@ DEGRADED_ENGINE_TTL_SECONDS = 30
 # However busy a healthy engine is, it is rebuilt at least this often, so
 # drift nobody detected (a grant change, a new column) is picked up.
 MAX_ENGINE_LIFETIME_SECONDS = 3600
+# At most this many engines are cached per worker process (each holds up to
+# DEFAULT_MEMORY_LIMIT and DEFAULT_THREADS); the least recently used is dropped
+# first. Overridable with BOW_POSTGRES_MULTI_MAX_ENGINES.
+MAX_CACHED_ENGINES_ENV = "BOW_POSTGRES_MULTI_MAX_ENGINES"
+DEFAULT_MAX_CACHED_ENGINES = 4
 EXTENSION_DIR_ENV = "BOW_DUCKDB_EXTENSION_DIR"
 
 _SECRET_NAME = "bow_tenant_server"
@@ -48,6 +53,7 @@ class TenantEngine:
         self._settled: dict[str, tuple[str, ...]] = {}
         self._reading: dict[str, tuple[str, ...]] = {}
         self._created: set[str] = set()
+        self._expected: dict[str, dict[str, str]] = {}
         self._lock = threading.Lock()
         self.cache_key = None
         self.built_at = monotonic()
@@ -129,11 +135,16 @@ class TenantEngine:
             finally:
                 cur.close()
 
-    def ensure_views(self, views: dict[str, list[str]]) -> None:
+    def ensure_views(self, views: dict[str, list[str]], types: dict[str, dict[str, str]] | None = None) -> None:
+        """Create the views not yet created. `types` are the column types the
+        index recorded per view, checked against what the tenants serve now."""
         wanted = {name: tuple(sorted(set(members))) for name, members in views.items()}
         if all(self._settled.get(name) == members for name, members in wanted.items()):
             return
         with self._lock:
+            for name, columns in (types or {}).items():
+                if columns:
+                    self._expected[name] = dict(columns)
             cur = self._con.cursor()
             try:
                 for name, members in sorted(wanted.items()):
@@ -176,9 +187,11 @@ class TenantEngine:
             return
         try:
             self._write_view(cur, name, schema, table, attached)
-            return
         except duckdb.Error as exc:
             logger.info("View %s needs a per-tenant check: %s", name, failure_category(exc))
+        else:
+            self._leave_out_drifted(cur, name, schema, table, attached)
+            return
         readable = []
         for tenant in attached:
             try:
@@ -192,6 +205,52 @@ class TenantEngine:
             return
         try:
             self._write_view(cur, name, schema, table, readable)
+        except duckdb.Error as exc:
+            logger.warning("Could not create view %s: %s", name, failure_category(exc))
+            self._drop(cur, name)
+
+    def _leave_out_drifted(self, cur, name: str, schema: str, table: str, tenants: list[str]) -> None:
+        """Re-apply indexing's type rule at build time: a tenant whose column
+        changed type since indexing (numeric to text, say) would turn the whole
+        unified column into text, or fail the view. The view's own types are
+        read first (one cheap round); only when a column's type family differs
+        from the index is each tenant described, and the drifted ones left out."""
+        expected = {col: coarse_type(t) for col, t in (self._expected.get(name) or {}).items()}
+        expected = {col: fam for col, fam in expected.items() if fam}
+        if not expected:
+            return
+        try:
+            served = {row[0]: coarse_type(row[1]) for row in cur.execute(
+                f"DESCRIBE memory.{_ident(schema)}.{_ident(table)}").fetchall()}
+        except duckdb.Error as exc:
+            logger.warning("Could not read the column types of view %s: %s", name, failure_category(exc))
+            return
+        drifted = [col for col, fam in expected.items() if served.get(col) and served[col] != fam]
+        if not drifted:
+            return
+        keep, changed = [], {}
+        for tenant in tenants:
+            try:
+                rows = cur.execute(f"DESCRIBE {_table_ref(self._aliases[tenant], schema, table)}").fetchall()
+            except duckdb.Error as exc:
+                changed[tenant] = failure_category(exc)
+                continue
+            types = {row[0]: row[1] for row in rows}
+            bad = [f"{col} is now {types[col]}" for col in drifted
+                   if col in types and coarse_type(types[col]) and coarse_type(types[col]) != expected[col]]
+            if bad:
+                changed[tenant] = "column type changed since indexing: " + ", ".join(bad)
+            else:
+                keep.append(tenant)
+        if not changed:
+            return
+        for tenant, reason in sorted(changed.items()):
+            self._leave_out(name, tenant, reason)
+        if not keep:
+            self._drop(cur, name)
+            return
+        try:
+            self._write_view(cur, name, schema, table, keep)
         except duckdb.Error as exc:
             logger.warning("Could not create view %s: %s", name, failure_category(exc))
             self._drop(cur, name)
@@ -288,14 +347,61 @@ def _split_view_name(name: str) -> tuple[str, str]:
     return schema, table
 
 
+_NUMBER_TYPES = re.compile(
+    r"^(tinyint|smallint|integer|int|int2|int4|int8|bigint|hugeint|utinyint|usmallint|uinteger|ubigint|uhugeint|"
+    r"real|float|float4|float8|double|double precision|numeric|decimal)\b"
+)
+_TEXT_TYPES = re.compile(r"^(text|varchar|character varying|character|char|bpchar|string)\b")
+
+
+def coarse_type(dtype: str | None) -> str | None:
+    """A type's broad family, comparable between a Postgres type name (as the
+    index records it) and a DuckDB one (as a view serves it). None when the
+    type is not one this check understands; such columns are not checked."""
+    t = " ".join((dtype or "").lower().split())
+    if not t or "[" in t:
+        return None  # arrays and other nested types are left to the index's own rule
+    if _NUMBER_TYPES.match(t):
+        return "number"
+    if _TEXT_TYPES.match(t):
+        return "text"
+    if t.startswith("timestamp"):
+        return "timestamptz" if ("with time zone" in t and "without" not in t) or t == "timestamptz" else "timestamp"
+    if t in ("date", "boolean", "bool", "uuid", "json", "jsonb", "bytea", "blob", "interval"):
+        return {"bool": "boolean", "jsonb": "json", "bytea": "blob"}.get(t, t)
+    if t.startswith("time"):
+        return "time"
+    return None
+
+
+class ExtensionUnavailable(duckdb.IOException):
+    """DuckDB's postgres extension could not be loaded. Its message names the
+    fix and holds no connection details, so it reaches the user as is."""
+
+
 def _load_postgres_extension(con: duckdb.DuckDBPyConnection) -> None:
+    """Load DuckDB's postgres extension: from BOW_DUCKDB_EXTENSION_DIR when set
+    (the Docker image ships it there), else whatever is already installed for
+    this user, and only then try to download it. A failure names the fix
+    instead of surfacing a raw download error (air-gapped installs)."""
     extension_dir = os.environ.get(EXTENSION_DIR_ENV)
-    if extension_dir:
-        con.execute(f"SET extension_directory = {_sql_literal(extension_dir)}")
-        con.execute("SET autoinstall_known_extensions = false")
-    else:
-        con.execute("INSTALL postgres")
-    con.execute("LOAD postgres")
+    try:
+        if extension_dir:
+            con.execute(f"SET extension_directory = {_sql_literal(extension_dir)}")
+            con.execute("SET autoinstall_known_extensions = false")
+            con.execute("LOAD postgres")
+            return
+        try:
+            con.execute("LOAD postgres")
+        except duckdb.Error:
+            con.execute("INSTALL postgres")
+            con.execute("LOAD postgres")
+    except duckdb.Error as exc:
+        logger.warning("Could not load the DuckDB postgres extension: %s", exc)
+        raise ExtensionUnavailable(
+            "The DuckDB postgres extension is not available on this server, so tenant databases cannot be "
+            f"queried. Install it, or point {EXTENSION_DIR_ENV} at a directory that has it."
+        ) from None
 
 
 def _create_secret(con: duckdb.DuckDBPyConnection, conn: PgConn) -> None:
@@ -330,8 +436,12 @@ def build_engine(
     pg_connection_limit: int,
     pg_idle_timeout_ms: int,
     tenants: list[str] | None = None,
+    types: dict[str, dict[str, str]] | None = None,
 ) -> TenantEngine:
-    con = duckdb.connect()
+    # Replacement scans are a per-cursor setting that cursors take from the
+    # connection's config, not from a later SET on the parent: off here, a
+    # one-part name in agent SQL can never resolve to a Python object.
+    con = duckdb.connect(config={"python_enable_replacements": False})
     try:
         _load_postgres_extension(con)
         con.execute(f"SET memory_limit = {_sql_literal(memory_limit)}")
@@ -359,19 +469,24 @@ def build_engine(
             else:
                 aliases[tenant] = alias
 
+        # The same seal as _duckdb_lockdown.lock_connection, minus file paths
+        # (this engine reads no files): replacement scans off (see connect),
+        # secrets stay redacted, no external access, settings frozen.
+        con.execute("SET allow_unredacted_secrets = false")
         con.execute("SET enable_external_access = false")
         con.execute("SET lock_configuration = true")
         engine = TenantEngine(
             con, aliases, [{"name": name, "reason": reason} for name, reason in sorted(failures.items())]
         )
-        engine.ensure_views(views)
+        engine.ensure_views(views, types)
     except BaseException:
         con.close()
         raise
     return engine
 
 
-def build_default_engine(conn: PgConn, views: dict[str, list[str]], *, tenants: list[str] | None = None) -> TenantEngine:
+def build_default_engine(conn: PgConn, views: dict[str, list[str]], *, tenants: list[str] | None = None,
+                         types: dict[str, dict[str, str]] | None = None) -> TenantEngine:
     return build_engine(
         conn,
         views,
@@ -381,6 +496,7 @@ def build_default_engine(conn: PgConn, views: dict[str, list[str]], *, tenants: 
         pg_connection_limit=DEFAULT_PG_CONNECTION_LIMIT,
         pg_idle_timeout_ms=DEFAULT_PG_IDLE_TIMEOUT_MS,
         tenants=_engine_tenants(views, tenants),
+        types=types,
     )
 
 
@@ -398,6 +514,10 @@ _forced_rebuilds: dict[_CacheKey, float] = {}
 _finished_builds: dict[_CacheKey, int] = {}
 _last_builds: dict[_CacheKey, TenantEngine] = {}
 _waiting: dict[_CacheKey, int] = {}
+# Tokens of builds that were running when their connection was invalidated:
+# they finish (holding their lock, so nothing builds beside them) but are
+# neither cached nor handed to the callers waiting behind them.
+_stale_builds: set[object] = set()
 
 
 def _cache_key(conn: PgConn, tenants: list[str], connection_id: str) -> _CacheKey:
@@ -407,6 +527,40 @@ def _cache_key(conn: PgConn, tenants: list[str], connection_id: str) -> _CacheKe
 
 def _drop_expired(now: float) -> None:
     for key in [k for k, (_, expires_at) in _cache.items() if expires_at <= now]:
+        del _cache[key]
+    _prune_idle(now)
+
+
+def _prune_idle(now: float) -> None:
+    """Forget the bookkeeping of keys nobody is using: no cached engine, no
+    build running and no caller waiting. Keys hash the credentials and the
+    tenant list, so without this a password rotation or a tenant-set change
+    left entries behind for the life of the worker."""
+    busy = set(_cache) | set(_building) | set(_waiting)
+    for key in [k for k in _build_locks if k not in busy]:
+        del _build_locks[key]
+        _finished_builds.pop(key, None)
+    for key in [k for k in _finished_builds if k not in busy and k not in _build_locks]:
+        del _finished_builds[key]
+    for key in [k for k, at in _forced_rebuilds.items() if k not in busy and now - at >= DEGRADED_ENGINE_TTL_SECONDS]:
+        del _forced_rebuilds[key]
+
+
+def max_cached_engines() -> int:
+    try:
+        return max(1, int(os.environ.get(MAX_CACHED_ENGINES_ENV, DEFAULT_MAX_CACHED_ENGINES)))
+    except ValueError:
+        return DEFAULT_MAX_CACHED_ENGINES
+
+
+def _make_room(keep: _CacheKey) -> None:
+    """Drop the least recently used engines until one more fits. Dropped, not
+    closed: queries still running on their cursors keep them alive."""
+    limit = max_cached_engines()
+    others = sorted((expires, k) for k, (_, expires) in _cache.items() if k != keep)
+    while others and len(others) + 1 > limit:
+        _, key = others.pop(0)
+        logger.warning("Dropping a cached tenant engine to stay within %d engines per process", limit)
         del _cache[key]
 
 
@@ -442,6 +596,7 @@ def get_engine(
     *,
     tenants: list[str] | None = None,
     connection_id: str = "",
+    types: dict[str, dict[str, str]] | None = None,
 ) -> TenantEngine:
     all_tenants = _engine_tenants(views, tenants)
     key = _cache_key(conn, all_tenants, connection_id)
@@ -451,7 +606,14 @@ def get_engine(
         _waiting[key] = _waiting.get(key, 0) + 1
     try:
         with build_lock:
-            return _cached_or_built(conn, views, ttl_seconds, all_tenants, key, seen_builds)
+            engine, reused = _cached_or_built(conn, views, ttl_seconds, all_tenants, key, seen_builds, types)
+        if reused:
+            # Outside the build lock: creating a view this engine has not
+            # made yet makes a round to every tenant, and queries that need
+            # no new view should not wait for it. The engine's own lock
+            # serializes view creation.
+            _use_cached(engine, key, views, ttl_seconds, types)
+        return engine
     finally:
         with _cache_lock:
             _waiting[key] = _waiting.get(key, 1) - 1
@@ -460,7 +622,24 @@ def get_engine(
                 _last_builds.pop(key, None)
 
 
-def _cached_or_built(conn, views, ttl_seconds, all_tenants, key, seen_builds) -> TenantEngine:
+def _use_cached(engine: TenantEngine, key, views, ttl_seconds: int, types) -> None:
+    was_degraded = engine.degraded
+    engine.ensure_views(views, types)
+    with _cache_lock:
+        if key in _cache and _cache[key][0] is engine:
+            if engine.degraded and not was_degraded:
+                _cache[key] = (engine, min(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
+            elif not engine.degraded:
+                # Kept while in use: a healthy engine expires `ttl_seconds`
+                # after its last query, not after it was built, so a busy
+                # connection does not pay for a rebuild every ten minutes.
+                # `_expiry` still caps it at MAX_ENGINE_LIFETIME_SECONDS
+                # after the build.
+                _cache[key] = (engine, max(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
+
+
+def _cached_or_built(conn, views, ttl_seconds, all_tenants, key, seen_builds, types=None) -> tuple[TenantEngine, bool]:
+    """The cached engine (and True), or a newly built one (and False)."""
     token = object()
     with _cache_lock:
         _drop_expired(monotonic())
@@ -470,38 +649,31 @@ def _cached_or_built(conn, views, ttl_seconds, all_tenants, key, seen_builds) ->
         if not cached:
             _building[key] = token
     if cached:
-        engine = cached[0]
-        was_degraded = engine.degraded
-        engine.ensure_views(views)
-        with _cache_lock:
-            if key in _cache and _cache[key][0] is engine:
-                if engine.degraded and not was_degraded:
-                    _cache[key] = (engine, min(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
-                elif not engine.degraded:
-                    # Kept while in use: a healthy engine expires `ttl_seconds`
-                    # after its last query, not after it was built, so a busy
-                    # connection does not pay for a rebuild every ten minutes.
-                    # `_expiry` still caps it at MAX_ENGINE_LIFETIME_SECONDS
-                    # after the build.
-                    _cache[key] = (engine, max(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
-        return engine
+        return cached[0], True
     try:
-        engine = build_default_engine(conn, views, tenants=all_tenants)
+        engine = build_default_engine(conn, views, tenants=all_tenants, types=types)
     except BaseException:
         with _cache_lock:
+            _stale_builds.discard(token)
             if _building.get(key) is token:
                 del _building[key]
         raise
     with _cache_lock:
+        if token in _stale_builds:
+            _stale_builds.discard(token)
+            if _building.get(key) is token:
+                del _building[key]
+            return engine, False
         if _building.get(key) is token:
             del _building[key]
             _finished_builds[key] = _finished_builds.get(key, 0) + 1
             if engine.attached:
                 engine.cache_key = key
+                _make_room(key)
                 _cache[key] = (engine, _expiry(engine, monotonic(), ttl_seconds))
             elif _waiting.get(key, 0) > 1:
                 _last_builds[key] = engine
-    return engine
+    return engine, False
 
 
 def forced_rebuild_allowed(last: float | None, now: float) -> bool:
@@ -525,8 +697,20 @@ def evict_engine(engine: TenantEngine) -> bool:
 
 
 def invalidate_engines(connection_id: str | None = None) -> None:
-    # Engines are dropped, not closed: queries still running on their cursors keep them alive.
+    """Drop the cached engines (of one connection, or all), so the next query
+    builds a fresh one. Engines are dropped, not closed: queries still running
+    on their cursors keep them alive.
+
+    Build locks are left alone: a re-index while a query thread is building
+    would otherwise hand the next caller a fresh lock and start a second build
+    in parallel, attaching every tenant again. The running build finishes
+    under its lock but is marked stale, so it is not cached and the next
+    caller builds afresh once it is done."""
     with _cache_lock:
-        for registry in (_cache, _build_locks, _building, _forced_rebuilds, _finished_builds, _last_builds, _waiting):
+        for registry in (_cache, _forced_rebuilds, _last_builds):
             for key in [k for k in registry if connection_id is None or k[0] == connection_id]:
                 del registry[key]
+        for key, token in _building.items():
+            if connection_id is None or key[0] == connection_id:
+                _stale_builds.add(token)
+        _prune_idle(monotonic())

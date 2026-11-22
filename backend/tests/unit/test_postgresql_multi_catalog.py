@@ -1,5 +1,12 @@
+import pytest
+
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
-from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN, unify_catalogs
+from app.data_sources.clients.postgresql_multi_catalog import (
+    COLUMN_TYPES_KEY,
+    TENANT_COLUMN,
+    type_family,
+    unify_catalogs,
+)
 
 
 def col(name, dtype="text"):
@@ -208,3 +215,55 @@ def test_same_column_spelling_in_every_tenant_is_not_a_collision():
     })
     assert [t.name for t in catalog.tables] == ["public.orders"]
     assert catalog.excluded == []
+
+
+@pytest.mark.parametrize(("types", "advertised"), [
+    (["integer", "bigint"], "bigint"),
+    (["smallint", "integer", "integer"], "integer"),
+    (["character varying(50)", "character varying(100)"], "text"),
+    (["text", "character varying"], "text"),
+    (["numeric(10,2)", "numeric(12,2)"], "numeric"),
+    (["real", "double precision"], "double precision"),
+    (["timestamp(3) without time zone", "timestamp without time zone"], "timestamp without time zone"),
+])
+def test_types_duckdb_merges_without_loss_keep_every_tenant(types, advertised):
+    # Half the tenants migrated orders.id to bigint: none of them drops out.
+    catalog = unify_catalogs({
+        f"t{i}": [table("public.orders", [("x", dtype)])] for i, dtype in enumerate(types)
+    })
+    orders = by_name(catalog)["public.orders"]
+    assert orders.metadata_json["tenants"] == [f"t{i}" for i in range(len(types))]
+    assert orders.metadata_json["excluded_tenants"] == []
+    assert [c.dtype for c in orders.columns if c.name == "x"] == [advertised]
+    assert catalog.excluded == []
+
+
+@pytest.mark.parametrize(("majority", "minority"), [
+    ("numeric", "text"),
+    ("integer", "double precision"),
+    ("timestamp without time zone", "timestamp with time zone"),
+    ("integer", "integer[]"),
+])
+def test_types_that_do_not_merge_safely_still_leave_the_minority_out(majority, minority):
+    catalog = unify_catalogs({
+        "a": [table("public.t", [("x", majority)])],
+        "b": [table("public.t", [("x", majority)])],
+        "c": [table("public.t", [("x", minority)])],
+    })
+    assert by_name(catalog)["public.t"].metadata_json["tenants"] == ["a", "b"]
+    assert catalog.excluded[0]["tenant"] == "c"
+
+
+def test_type_family_of_postgres_type_names():
+    assert type_family("int8") == type_family("integer") == "integer"
+    assert type_family("character varying(255)") == type_family("TEXT") == "text"
+    assert type_family("timestamp(6) with time zone") == "timestamp with time zone"
+    assert type_family("uuid") == "uuid"
+
+
+def test_indexed_column_types_are_recorded_for_build_time_checks():
+    catalog = unify_catalogs({
+        "a": [table("public.orders", [("id", "integer"), ("total", "numeric")])],
+        "b": [table("public.orders", [("id", "bigint"), ("total", "numeric")])],
+    })
+    assert by_name(catalog)["public.orders"].metadata_json[COLUMN_TYPES_KEY] == {"id": "bigint", "total": "numeric"}

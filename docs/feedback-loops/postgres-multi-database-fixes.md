@@ -129,11 +129,40 @@ A forged "permission denied" text in agent SQL leaves nobody out: the tenants
 are left out only when Postgres itself says the login lacks `SELECT`
 (`test_a_forged_permission_error_leaves_no_readable_tenant_out`).
 
+## Review notes carried over from #1808
+
+The notes left on #1808 (multi-tenant merge, DuckDB seal, concurrency, scale)
+all still applied to this branch; all are addressed here.
+
+| Note | Change | Test (fails before, passes after) |
+|---|---|---|
+| Benign type drift dropped tenants (`integer` vs `bigint` on a tie, `varchar(50)` vs `varchar(100)`) | indexing compares type families DuckDB merges without loss (integers, floats, text/varchar, numeric, timestamps by zone) and advertises the widest; `numeric` vs `text`, `integer` vs `double`, `timestamp` vs `timestamptz` still leave the minority out | `test_tenants_mid_migration_to_bigint_are_all_queried`, catalog unit tests |
+| Engine seal re-implemented `lock_connection` without `python_enable_replacements=false` / `allow_unredacted_secrets=false` | both set; replacement scans are a per-cursor setting a later `SET` on the parent does not reach, so it is passed in the connection's config | `test_the_engine_is_sealed_like_every_other_duckdb_session` |
+| Re-index during a build started a second build beside it | `invalidate_engines` leaves the build locks alone; the running build finishes under its lock, is marked stale and not reused, and the next caller builds afresh after it | `test_invalidating_during_a_build_does_not_start_a_second_build_beside_it` (+ the existing `test_build_interrupted_by_invalidate_is_not_cached`) |
+| A new view on a cached engine held the build lock | views are created after the build lock is released, under the engine's own lock | `test_a_new_view_on_a_cached_engine_does_not_hold_up_other_queries` |
+| Test connection and indexing read tenants one by one | up to 8 tenants at once (`TENANT_WORKERS`, also the connection bound), in the caller's context, progress reported in order | `test_test_connection_probes_tenants_in_parallel_within_a_bound` |
+| Engine builds did not re-check column types | index stores each view's column types; a view is checked once when created (one cheap round) and, only if a column's type family moved, each tenant is described and the changed ones are left out and named | `test_a_tenant_whose_column_type_changed_after_indexing_is_left_out` |
+| `INSTALL postgres` at query time, raw error | an installed extension is loaded first, download tried last; failure says what to set (`BOW_DUCKDB_EXTENSION_DIR`) and reaches the user as is | `test_postgres_extension_load_failure_names_the_fix`, `test_engine_build_failure_reaches_the_agent_as_a_duckdb_error` |
+| 2 GB / 4 threads per engine, no bound on cached engines | at most 4 engines per process (`BOW_POSTGRES_MULTI_MAX_ENGINES`), least recently used dropped first | `test_cached_engines_are_capped_least_recently_used_first` |
+| Same SQL parsed three times by sqlglot | parsed once; the shared checks take the parsed statements (`parse_for_refs`, `table_refs_of`, `refuse_unchecked_reads_of`) | existing guard suites |
+| Build bookkeeping never pruned | keys with no engine, build or caller are pruned on expiry and on invalidate | `test_bookkeeping_of_unused_keys_is_pruned_when_engines_expire` |
+
+Measured on the same 30 tenants x 40 tables (local server):
+
+| | Before these changes | After |
+|---|---|---|
+| Test connection | 0.24 s | 0.13 s |
+| Indexing | 0.55 s | 0.24–0.31 s |
+| First query (statements on the server) | 540 | 630 (+90: the type check, 3 pool checks per tenant) |
+| Later queries | 180 | 180 |
+
+The parallel gain grows with network latency; locally each round trip is ~0.3 ms.
+
 ## Tests
 
 | Suite | Result |
 |---|---|
-| PR integration tests against real Postgres (`test_postgresql_multi_engine.py`, `test_postgresql_multi_client.py`) | 95 passed; 98 after review |
+| PR integration tests against real Postgres (`test_postgresql_multi_engine.py`, `test_postgresql_multi_client.py`) | 95 passed; 98 after review; 102 after the #1808 notes |
 | New integration test (hidden table via quoting form, two shapes) on #1808's code | both fail ("did not raise") |
 | PR unit tests + shared guard tests | pass (`test_table_scope_guard.py` 374) |
 | `test_postgresql_multi_reading.py` (new, DuckDB-side check) | pass |

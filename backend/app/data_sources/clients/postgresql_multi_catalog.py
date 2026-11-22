@@ -1,9 +1,11 @@
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
 
 TENANT_COLUMN = "tenant_db"
+COLUMN_TYPES_KEY = "column_types"
 
 
 @dataclass
@@ -16,15 +18,63 @@ def _schema_of(table: Table) -> str:
     return (table.metadata_json or {}).get("schema") or table.name.split(".", 1)[0]
 
 
-def _majority_types(members: dict[str, Table]) -> dict[str, str]:
+# Type families DuckDB's UNION ALL BY NAME merges without loss: tenants whose
+# column types differ only within one family are not a conflict. The unified
+# column is advertised as the family's widest member. Anything else (numeric
+# vs text, integer vs double, a timestamp with vs without time zone) still is.
+_INTEGER_RANKS = {"smallint": 0, "int2": 0, "integer": 1, "int": 1, "int4": 1, "bigint": 2, "int8": 2}
+_FLOAT_RANKS = {"real": 0, "float4": 0, "double precision": 1, "float8": 1}
+_TEXT = re.compile(r"^(text|character varying|varchar|character|char|bpchar)(\s*\(\d+\))?$")
+_NUMERIC = re.compile(r"^(numeric|decimal)(\s*\(\s*\d+\s*(,\s*\d+\s*)?\))?$")
+_TEMPORAL = re.compile(r"^(timestamp|time)(\s*\(\d+\))?(\s+(without|with) time zone)?$")
+
+
+def type_family(dtype: str | None) -> str:
+    """The merge family of a Postgres type name as indexing reports it
+    (`information_schema` names, or `format_type` with a modifier)."""
+    t = " ".join((dtype or "").lower().split())
+    if t in _INTEGER_RANKS:
+        return "integer"
+    if t in _FLOAT_RANKS:
+        return "float"
+    if _TEXT.match(t):
+        return "text"
+    if _NUMERIC.match(t):
+        return "numeric"
+    match = _TEMPORAL.match(t)
+    if match:
+        zone = "with time zone" if match.group(4) == "with" else "without time zone"
+        return f"{match.group(1)} {zone}"
+    return t
+
+
+def _family_type(family: str, dtypes: set[str]) -> str:
+    """The type advertised for a column whose tenants' types are `dtypes`,
+    all in `family`."""
+    if len(dtypes) == 1:
+        return next(iter(dtypes))
+    normalized = {" ".join(d.lower().split()) for d in dtypes}
+    if family == "integer":
+        return max(normalized, key=lambda d: _INTEGER_RANKS[d])
+    if family == "float":
+        return max(normalized, key=lambda d: _FLOAT_RANKS[d])
+    return family  # text, numeric, "timestamp without time zone", ...
+
+
+def _majority_types(members: dict[str, Table]) -> dict[str, tuple[str, str]]:
+    """For each column, (majority family, advertised type)."""
     seen: dict[str, Counter] = {}
+    spellings: dict[tuple[str, str], set[str]] = {}
     for tenant in sorted(members):
         for column in members[tenant].columns or []:
-            seen.setdefault(column.name, Counter())[column.dtype] += 1
+            family = type_family(column.dtype)
+            seen.setdefault(column.name, Counter())[family] += 1
+            spellings.setdefault((column.name, family), set()).add(column.dtype or "")
     majority = {}
     for name, counts in seen.items():
         top = max(counts.values())
-        majority[name] = min((dtype for dtype, count in counts.items() if count == top), key=lambda d: d or "")
+        family = min(f for f, count in counts.items() if count == top)
+        majority[name] = (family, _family_type(family, spellings[(name, family)]))
     return majority
 
 
@@ -34,7 +84,7 @@ def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> 
     dropped: list[str] = []
     for tenant in sorted(members):
         conflicts = [
-            c for c in members[tenant].columns or [] if c.dtype != expected[c.name]
+            c for c in members[tenant].columns or [] if type_family(c.dtype) != expected[c.name][0]
         ]
         if conflicts:
             dropped.append(tenant)
@@ -44,7 +94,7 @@ def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> 
                     "tenant": tenant,
                     "column": c.name,
                     "type": c.dtype,
-                    "expected_type": expected[c.name],
+                    "expected_type": expected[c.name][1],
                 })
         else:
             included.append(tenant)
@@ -68,11 +118,11 @@ def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> 
         for c in source.columns or []:
             if c.name not in column_names:
                 column_names.add(c.name)
-                columns.append(TableColumn(name=c.name, dtype=expected[c.name], description=c.description))
+                columns.append(TableColumn(name=c.name, dtype=expected[c.name][1], description=c.description))
         for pk in source.pks or []:
             if pk.name not in pk_names:
                 pk_names.add(pk.name)
-                pks.append(TableColumn(name=pk.name, dtype=expected.get(pk.name, pk.dtype)))
+                pks.append(TableColumn(name=pk.name, dtype=expected[pk.name][1] if pk.name in expected else pk.dtype))
         for fk in source.fks or []:
             edge = (fk.column.name, fk.references_name, fk.references_column.name)
             if edge not in edge_set:
@@ -83,7 +133,7 @@ def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> 
 
     fks = [
         ForeignKey(
-            column=TableColumn(name=col, dtype=expected.get(col)),
+            column=TableColumn(name=col, dtype=expected[col][1] if col in expected else None),
             references_name=ref,
             references_column=TableColumn(name=ref_col, dtype=None),
         )
@@ -108,6 +158,9 @@ def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> 
             "schema": _schema_of(next(iter(members.values()))),
             "tenants": included,
             "excluded_tenants": dropped,
+            # What each column was when indexed; engine builds check tenants
+            # still serve these (postgresql_multi_engine._leave_out_drifted).
+            COLUMN_TYPES_KEY: {c.name: c.dtype for c in columns if c.name != TENANT_COLUMN and c.dtype},
         },
     )
 

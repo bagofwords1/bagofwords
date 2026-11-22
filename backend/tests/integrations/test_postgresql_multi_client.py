@@ -929,3 +929,64 @@ def test_a_table_hidden_from_sqlglot_is_refused_before_it_reaches_a_tenant(multi
         client.execute_query(sql)
     # The same agent's ordinary query still runs.
     assert len(client.execute_query("SELECT tenant_db FROM public.orders")) > 0
+
+
+def test_tenants_mid_migration_to_bigint_are_all_queried(multi_tenant_server):
+    # Half the tenants moved items.id to bigint: indexing used to drop the
+    # tenants still on integer on a tie.
+    _create_tenant(multi_tenant_server, "widen_1", ["CREATE TABLE public.items (id integer, label varchar(20))",
+                                                    "INSERT INTO public.items VALUES (1, 'a')"])
+    _create_tenant(multi_tenant_server, "widen_2", ["CREATE TABLE public.items (id bigint, label varchar(80))",
+                                                    "INSERT INTO public.items VALUES (9000000000, 'b')"])
+    client = _client(multi_tenant_server, databases="widen_*", connection_id="conn-widen")
+    items = {t.name: t for t in client.get_schemas()}["public.items"]
+
+    assert items.metadata_json["tenants"] == ["widen_1", "widen_2"]
+    assert {c.name: c.dtype for c in items.columns}["id"] == "bigint"
+    df = client.execute_query("SELECT tenant_db, id FROM public.items ORDER BY tenant_db")
+    assert list(df["tenant_db"]) == ["widen_1", "widen_2"]
+    assert list(df["id"]) == [1, 9000000000]
+
+
+def test_a_tenant_whose_column_type_changed_after_indexing_is_left_out(multi_tenant_server, caplog):
+    for name, amount in (("retyped_1", 10), ("retyped_2", 20), ("retyped_3", 30)):
+        _create_tenant(multi_tenant_server, name, ["CREATE TABLE public.ledger (id int, amount numeric(12,2))",
+                                                   f"INSERT INTO public.ledger VALUES (1, {amount})"])
+    client = _client(multi_tenant_server, databases="retyped_*", connection_id="conn-retyped")
+    client.get_schemas()
+    _alter_tenant(multi_tenant_server, "retyped_3", "ALTER TABLE public.ledger ALTER COLUMN amount TYPE text")
+
+    with caplog.at_level(logging.WARNING):
+        df = client.execute_query("SELECT tenant_db, amount FROM public.ledger ORDER BY tenant_db")
+
+    # Without the check the union turns every tenant's amount into text.
+    assert list(df["tenant_db"]) == ["retyped_1", "retyped_2"]
+    assert [float(v) for v in df["amount"]] == [10.0, 20.0]
+    assert any("retyped_3" in line and "public.ledger" in line for line in client.description.splitlines())
+    assert any("amount is now VARCHAR" in r.getMessage() for r in caplog.records)
+
+
+def test_the_engine_is_sealed_like_every_other_duckdb_session(multi_tenant_server):
+    client = _client(multi_tenant_server, databases="public", connection_id="conn-sealed")
+    client.get_schemas()
+    client.execute_query("SELECT count(*) FROM public.orders")
+    engine = engine_module.peek_engine(client._pg_conn(), tenants=client._engine_tenants(), connection_id="conn-sealed")
+    cur = engine.cursor()
+
+    settings = {name: cur.execute(f"SELECT current_setting('{name}')").fetchone()[0] for name in (
+        "python_enable_replacements", "allow_unredacted_secrets", "enable_external_access", "lock_configuration")}
+
+    assert settings == {"python_enable_replacements": False, "allow_unredacted_secrets": False,
+                        "enable_external_access": False, "lock_configuration": True}
+    with pytest.raises(duckdb.Error):
+        cur.execute("SET python_enable_replacements = true")
+
+
+def test_test_connection_names_every_unreadable_tenant_after_probing_in_parallel(multi_tenant_server):
+    client = _client(multi_tenant_server, connection_id=None)
+
+    result = client.test_connection()
+
+    assert result["success"], result
+    for tenant in UNREADABLE_TENANTS:
+        assert tenant in result["message"]
