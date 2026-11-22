@@ -6474,7 +6474,11 @@
     "reports": "Недавние отчёты",
     "suggestInstruction": "Предложить инструкцию",
     "suggestInstructionWithQuery": "Предложить инструкцию «{query}»",
-    "suggestionHint": "отправлено на проверку"
+    "suggestionHint": "отправлено на проверку",
+    "placeholderInReport": "Поиск в этом отчёте, отчётах, агентах, инструкциях…",
+    "inThisReport": "В этом отчёте",
+    "reportScopeHint": "Введите report:, чтобы искать только в этом отчёте",
+    "reportPrefix": "отчёт:"
   },
   "promptParams": {
     "title": "Заполните параметры — {title}",

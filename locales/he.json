@@ -7251,7 +7251,11 @@
     "agents": "סוכנים",
     "instructions": "הנחיות",
     "emptyLabel": "התחל להקליד כדי לחפש",
-    "emptyQueryLabel": "לא נמצאו תוצאות"
+    "emptyQueryLabel": "לא נמצאו תוצאות",
+    "placeholderInReport": "חיפוש בדוח הזה, בדוחות, בסוכנים ובהנחיות…",
+    "inThisReport": "בדוח הזה",
+    "reportScopeHint": "הקלידו report: כדי לחפש רק בדוח הזה",
+    "reportPrefix": "דוח:"
   },
   "promptParams": {
     "title": "מלא את הפרמטרים — {title}",

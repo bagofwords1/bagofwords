@@ -6474,7 +6474,11 @@
     "reports": "Rapports récents",
     "suggestInstruction": "Suggérer une instruction",
     "suggestInstructionWithQuery": "Suggérer l'instruction « {query} »",
-    "suggestionHint": "envoyé pour révision"
+    "suggestionHint": "envoyé pour révision",
+    "placeholderInReport": "Rechercher dans ce rapport, les rapports, agents, instructions…",
+    "inThisReport": "Dans ce rapport",
+    "reportScopeHint": "Tapez report: pour chercher uniquement dans ce rapport",
+    "reportPrefix": "rapport:"
   },
   "promptParams": {
     "title": "Renseignez les paramètres — {title}",

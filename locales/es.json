@@ -7231,7 +7231,11 @@
     "agents": "Agentes",
     "instructions": "Instrucciones",
     "emptyLabel": "Empieza a escribir para buscar",
-    "emptyQueryLabel": "No se encontraron resultados"
+    "emptyQueryLabel": "No se encontraron resultados",
+    "placeholderInReport": "Buscar en este informe, informes, agentes, instrucciones…",
+    "inThisReport": "En este informe",
+    "reportScopeHint": "Escribe report: para buscar solo en este informe",
+    "reportPrefix": "informe:"
   },
   "promptParams": {
     "title": "Rellena los parámetros — {title}",

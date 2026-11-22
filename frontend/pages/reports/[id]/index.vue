@@ -135,7 +135,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-ink-muted mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<ResponseLanguageScope :locale="m.prompt?.response_locale" :question-dir="replyDirHints.get(String(m.id))" :blocks="m.completion_blocks" v-slot="{ t: responseT, dir: responseDir }" v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" :data-scroll-key="m._render_key || m.id" :data-message-role="m.role" class="transcript-message text-gray-700 dark:text-gray-300 text-chat" :class="{ 'turn-enter': (m._render_key || m.id) === pinnedId }">
+					<ResponseLanguageScope :locale="m.prompt?.response_locale" :question-dir="replyDirHints.get(String(m.id))" :blocks="m.completion_blocks" v-slot="{ t: responseT, dir: responseDir }" v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" :data-scroll-key="m._render_key || m.id" :data-message-role="m.role" class="transcript-message text-gray-700 dark:text-gray-300 text-chat" :class="{ 'turn-enter': (m._render_key || m.id) === pinnedId, 'message-search-hit': String(m.id) === highlightedMessageId }">
 						<!-- Legacy compaction marker rows: hidden (the divider is
 						     state-derived from the watermark, rendered below) -->
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
@@ -2102,7 +2102,7 @@ const navTurns = computed<NavTurn[]>(() => {
 })
 
 // Jump from the turn navigator: bring the prompt to the top of the view.
-function jumpToTurn(messageId: string) {
+function jumpToTurn(messageId: string, behavior: ScrollBehavior = 'smooth') {
 	const container = scrollContainer.value
 	if (!container) return
 	const el = container.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null
@@ -2110,8 +2110,81 @@ function jumpToTurn(messageId: string) {
 	endPinHold()
 	isFollowing.value = false
 	const top = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 16
-	container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+	container.scrollTo({ top: Math.max(0, top), behavior })
 }
+
+const findMessageEl = (messageId: string) =>
+	scrollContainer.value?.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null
+
+// Load older pages until `messageId` is rendered. The transcript only holds the
+// pages scrolled so far; `until` asks for everything down to the message in one
+// request, and the loop covers the server's cap. Meant for every "go to
+// message X" entry point (⌘K hits today). Resolves true when rendered.
+async function ensureMessageRendered(messageId: string): Promise<boolean> {
+	const loaded = () => messages.value.some(m => String(m.id) === messageId)
+	// Release the sticky-follow / pin hold first so the prepends and the jump
+	// aren't fought by the bottom pin (see the isFollowing contract below).
+	endPinHold()
+	isFollowing.value = false
+	for (let guard = 0; !loaded() && hasMore.value && guard < 50; guard++) {
+		if (isLoadingMore.value) { await new Promise(r => setTimeout(r, 50)); continue }
+		const before = cursorBefore.value
+		await loadPreviousCompletions({ until: messageId })
+		// A failed fetch leaves the cursor where it was; don't spin on it.
+		if (cursorBefore.value === before && !loaded() && loadMoreFailures > 0) return false
+	}
+	if (!loaded()) return false
+	await nextTick()
+	return !!findMessageEl(messageId)
+}
+
+const highlightedMessageId = ref<string | null>(null)
+let highlightTimer: ReturnType<typeof setTimeout> | null = null
+
+// Bring a message (on any page) into view and flash it.
+async function jumpToMessage(messageId: string) {
+	if (!(await ensureMessageRendered(messageId))) return
+	// A long smooth scroll across many turns outlasts the highlight; go there
+	// directly when the target is more than ~1.5 screens away.
+	const target = findMessageEl(messageId)
+	const container = scrollContainer.value
+	const far = !!(target && container &&
+		Math.abs(target.getBoundingClientRect().top - container.getBoundingClientRect().top) > container.clientHeight * 1.5)
+	jumpToTurn(messageId, far ? 'auto' : 'smooth')
+	// Prepends above can still settle (images, lazy cards): re-aim once.
+	setTimeout(() => {
+		const el = findMessageEl(messageId)
+		const container = scrollContainer.value
+		if (!el || !container) return
+		const offset = el.getBoundingClientRect().top - container.getBoundingClientRect().top
+		if (Math.abs(offset - 16) > 24) jumpToTurn(messageId, 'auto')
+	}, 400)
+	if (highlightTimer) clearTimeout(highlightTimer)
+	highlightedMessageId.value = null
+	await nextTick()
+	highlightedMessageId.value = messageId
+	// Steering bubbles render inside their parent turn, outside the :class binding.
+	const el = findMessageEl(messageId)
+	if (el && !el.classList.contains('transcript-message')) {
+		el.classList.remove('message-search-hit'); void el.offsetWidth; el.classList.add('message-search-hit')
+	}
+	highlightTimer = setTimeout(() => {
+		highlightedMessageId.value = null
+		findMessageEl(messageId)?.classList.remove('message-search-hit')
+	}, 2000)
+}
+
+// ⌘K "In this report": register while mounted.
+const { registerReport, unregisterReport } = useCommandPalette()
+onMounted(() => registerReport({
+	id: report_id,
+	title: () => report.value?.title || '',
+	jumpTo: jumpToMessage,
+}))
+onBeforeUnmount(() => {
+	unregisterReport(report_id)
+	if (highlightTimer) clearTimeout(highlightTimer)
+})
 
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
@@ -5596,7 +5669,7 @@ function scheduleTopUpIfPinned(progressed: boolean) {
     }, delay)
 }
 
-async function loadPreviousCompletions() {
+async function loadPreviousCompletions(opts: { until?: string } = {}) {
     if (isLoadingMore.value || !hasMore.value) return
     const container = scrollContainer.value
     if (!container) return
@@ -5604,7 +5677,9 @@ async function loadPreviousCompletions() {
     const prevHeight = container.scrollHeight
     let progressed = false
     try {
-        const qs = cursorBefore.value ? `&before=${encodeURIComponent(cursorBefore.value)}` : ''
+        let qs = cursorBefore.value ? `&before=${encodeURIComponent(cursorBefore.value)}` : ''
+        // until: one widened page that reaches down to that message (jumps).
+        if (opts.until) qs += `&until=${encodeURIComponent(opts.until)}`
         const { data, error } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}${qs}`)
         const response = data.value as any
         if (error?.value || !response) {
@@ -7350,6 +7425,19 @@ onMounted(async () => {
 }
 @media (prefers-reduced-motion: reduce) {
   .completion-enter { animation: none; }
+}
+
+/* ⌘K jump target: a brief tint that fades out. */
+@keyframes message-search-hit {
+  0%, 35% { background-color: rgb(250 204 21 / 0.22); }
+  100% { background-color: transparent; }
+}
+.message-search-hit {
+  border-radius: 0.5rem;
+  animation: message-search-hit 2s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-search-hit { animation: none; outline: 2px solid rgb(250 204 21 / 0.6); outline-offset: 4px; }
 }
 
 @keyframes turn-enter {
