@@ -2613,7 +2613,17 @@
     "noManagedGroupsHint": "Vous ne gérez aucun groupe.",
     "toastManagerAdded": "Le membre est maintenant gestionnaire du groupe",
     "toastManagerRemoved": "Rôle de gestionnaire retiré",
-    "failedToUpdateManager": "Échec de la mise à jour du gestionnaire du groupe"
+    "failedToUpdateManager": "Échec de la mise à jour du gestionnaire du groupe",
+    "models": {
+      "title": "Modèles par défaut",
+      "hint": "Le modèle sur lequel démarrent les membres de ce groupe. Seuls les modèles que le groupe peut déjà utiliser sont proposés.",
+      "default": "Modèle par défaut",
+      "small": "Petit modèle",
+      "orgDefault": "Défaut de l'organisation",
+      "setByAdmin": "{model} (défini par un administrateur)",
+      "saved": "Modèles du groupe mis à jour",
+      "failed": "Impossible de mettre à jour les modèles du groupe"
+    }
   },
   "signupPolicy": {
     "title": "Inscription par domaine",
@@ -3991,7 +4001,27 @@
       },
       "piiBadge": "DP : {policy}",
       "piiBadgeExempt": "DP : non masqué",
-      "piiBadgeTooltip": "La politique de données personnelles appliquée aux prompts de ce fournisseur. Modifiez-la dans Paramètres → Protection des données personnelles."
+      "piiBadgeTooltip": "La politique de données personnelles appliquée aux prompts de ce fournisseur. Modifiez-la dans Paramètres → Protection des données personnelles.",
+      "providerManagers": {
+        "title": "Gestionnaires du fournisseur",
+        "hint": "Membres qui gèrent ce fournisseur sans être administrateurs LLM.",
+        "can": "Ils peuvent modifier ses identifiants et ses paramètres de connexion, activer ou désactiver ses modèles, et modifier les paramètres et les consignes de routage de ces modèles.",
+        "cannot": "Ils ne peuvent pas ajouter de modèles, changer les prix, les modèles par défaut ou l'accès aux modèles, ni activer le routeur automatique. Un modèle qu'ils activent démarre restreint jusqu'à ce qu'un administrateur l'ouvre.",
+        "addPlaceholder": "Ajouter un membre…",
+        "add": "Ajouter",
+        "remove": "Retirer le gestionnaire",
+        "loading": "Chargement…",
+        "none": "Aucun gestionnaire pour l'instant. Seuls les administrateurs LLM gèrent ce fournisseur.",
+        "added": "Gestionnaire ajouté",
+        "removed": "Gestionnaire retiré",
+        "failed": "Impossible de mettre à jour les gestionnaires du fournisseur",
+        "banner": "Vous gérez {providers}. Les modèles par défaut, l'accès aux modèles, les prix et le routeur automatique sont définis par un administrateur.",
+        "priceAdminOnly": "Seul un administrateur peut modifier les prix.",
+        "restricted": "Restreint : seules les personnes à qui un administrateur donne accès peuvent l'utiliser."
+      },
+      "autoRouterModal": {
+        "decisionRestricted": "Seuls les membres autorisés à utiliser {model} obtiennent la décision préalable. Les autres démarrent sur le petit modèle."
+      }
     },
     "licensePage": {
       "title": "Licence",
@@ -4991,7 +5021,14 @@
       "model_id_not_editable": "Seuls les modèles personnalisés sur les fournisseurs Azure, AWS Bedrock ou personnalisés (compatibles OpenAI) peuvent voir leur ID de modèle modifié",
       "model_id_duplicate": "Le modèle « {model_id} » existe déjà chez ce fournisseur",
       "model_is_group_default": "Ce modèle est le modèle par défaut des groupes : {groups}. Modifiez d'abord leur modèle par défaut.",
-      "group_default_invalid": "Le modèle doit être activé et être un modèle de chat de cette organisation."
+      "group_default_invalid": "Le modèle doit être activé et être un modèle de chat de cette organisation.",
+      "group_default_not_available": "Ce groupe ne peut pas utiliser ce modèle. Demandez d'abord à un administrateur de donner accès au groupe.",
+      "group_default_priority_admin_only": "Seul un administrateur peut modifier la priorité d'un groupe.",
+      "provider_holds_default": "Ce fournisseur contient le modèle par défaut de l'organisation. Demandez d'abord à un administrateur de changer le modèle par défaut.",
+      "provider_manager_admin_only": "Seul un administrateur peut faire cela sur ce fournisseur.",
+      "provider_manager_not_member": "Seul un membre de cette organisation peut gérer un fournisseur.",
+      "provider_key_required_for_new_destination": "Saisissez à nouveau la clé d'API lorsque vous changez la destination de connexion de ce fournisseur.",
+      "provider_host_identity_admin_only": "Ce fournisseur se connecte avec l'identité cloud du serveur lui-même. Seul un administrateur peut changer sa destination ou passer à ce mode de connexion."
     },
     "data_source.in_use": "L'agent « {agent} » est encore utilisé ({reference}) ; il ne peut donc pas être supprimé. Rien n'a été supprimé.",
     "memory.disabled": "La mémoire utilisateur est désactivée dans cette organisation.",

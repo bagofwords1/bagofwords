@@ -2933,7 +2933,17 @@
     "noManagedGroupsHint": "No gestionas ningún grupo.",
     "toastManagerAdded": "El miembro ahora es gestor del grupo",
     "toastManagerRemoved": "Rol de gestor retirado",
-    "failedToUpdateManager": "No se pudo actualizar el gestor del grupo"
+    "failedToUpdateManager": "No se pudo actualizar el gestor del grupo",
+    "models": {
+      "title": "Modelos predeterminados",
+      "hint": "Con qué empiezan los miembros de este grupo. Solo aparecen los modelos que el grupo ya puede usar.",
+      "default": "Modelo predeterminado",
+      "small": "Modelo pequeño",
+      "orgDefault": "Predeterminado de la organización",
+      "setByAdmin": "{model} (definido por un administrador)",
+      "saved": "Modelos del grupo actualizados",
+      "failed": "No se pudieron actualizar los modelos del grupo"
+    }
   },
   "quotaPolicies": {
     "searchPlaceholder": "Buscar cuotas...",
@@ -4485,7 +4495,8 @@
         "configure": "Configurar",
         "summaryDecision": "{model} elige el modelo inicial (confianza mínima {pct}%)",
         "decisionUnavailable": "El modelo de decisión elegido para el enrutamiento está desactivado o eliminado, así que las solicitudes empiezan en el modelo pequeño. Elige otro en Configurar.",
-        "saved": "Enrutador automático actualizado"
+        "saved": "Enrutador automático actualizado",
+        "decisionRestricted": "Solo los miembros que pueden usar {model} reciben la decisión previa. Los demás empiezan con el modelo pequeño."
       },
       "decision": {
         "badge": "Decisión",
@@ -4526,7 +4537,24 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: sin ocultar",
-      "piiBadgeTooltip": "La política de PII que reciben los prompts de este proveedor. Cámbiala en Configuración → Protección de datos personales."
+      "piiBadgeTooltip": "La política de PII que reciben los prompts de este proveedor. Cámbiala en Configuración → Protección de datos personales.",
+      "providerManagers": {
+        "title": "Administradores del proveedor",
+        "hint": "Miembros que gestionan este proveedor sin ser administradores de LLM.",
+        "can": "Pueden cambiar sus credenciales y su conexión, activar o desactivar sus modelos y editar la configuración y las pautas de enrutamiento de esos modelos.",
+        "cannot": "No pueden añadir modelos ni cambiar precios, modelos predeterminados o el acceso a modelos, ni activar el enrutador automático. Un modelo que activan empieza restringido hasta que un administrador lo abra.",
+        "addPlaceholder": "Añadir un miembro…",
+        "add": "Añadir",
+        "remove": "Quitar administrador",
+        "loading": "Cargando…",
+        "none": "Aún no hay administradores. Solo los administradores de LLM gestionan este proveedor.",
+        "added": "Administrador añadido",
+        "removed": "Administrador quitado",
+        "failed": "No se pudieron actualizar los administradores del proveedor",
+        "banner": "Gestionas {providers}. Los modelos predeterminados, el acceso a modelos, los precios y el enrutador automático los define un administrador.",
+        "priceAdminOnly": "Solo un administrador puede cambiar los precios.",
+        "restricted": "Restringido: solo pueden usarlo las personas a las que un administrador dé acceso."
+      }
     },
     "licensePage": {
       "title": "Licencia",
@@ -5645,7 +5673,14 @@
       "model_id_not_editable": "Solo se puede editar el ID de modelo de los modelos personalizados en proveedores Azure, AWS Bedrock o personalizados (compatibles con OpenAI)",
       "model_id_duplicate": "El modelo «{model_id}» ya existe en este proveedor",
       "model_is_group_default": "Este modelo es el predeterminado de los grupos: {groups}. Cambia primero su modelo predeterminado.",
-      "group_default_invalid": "El modelo debe estar habilitado y ser un modelo de chat de esta organización."
+      "group_default_invalid": "El modelo debe estar habilitado y ser un modelo de chat de esta organización.",
+      "group_default_not_available": "Este grupo no puede usar ese modelo. Pide a un administrador que primero le dé acceso al grupo.",
+      "group_default_priority_admin_only": "Solo un administrador puede cambiar la prioridad de un grupo.",
+      "provider_holds_default": "Este proveedor tiene el modelo predeterminado de la organización. Pide a un administrador que primero cambie el predeterminado.",
+      "provider_manager_admin_only": "Solo un administrador puede hacer eso en este proveedor.",
+      "provider_manager_not_member": "Solo un miembro de esta organización puede administrar un proveedor.",
+      "provider_key_required_for_new_destination": "Vuelve a introducir la clave de API al cambiar a dónde se conecta este proveedor.",
+      "provider_host_identity_admin_only": "Este proveedor inicia sesión con la identidad en la nube del propio servidor. Solo un administrador puede cambiar a dónde se conecta o activar ese inicio de sesión."
     },
     "data_source.in_use": "El agente \"{agent}\" todavía está en uso ({reference}), así que no se puede eliminar. No se eliminó nada.",
     "memory.disabled": "La memoria del usuario está desactivada en esta organización.",

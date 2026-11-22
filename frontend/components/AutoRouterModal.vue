@@ -68,6 +68,16 @@
                                     <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted" />
                                 </UTooltip>
                             </span>
+                            <!-- The decision model reads each request, so it follows
+                                 model access like any chat model. -->
+                            <span
+                                v-if="selectedDecisionModel?.is_restricted"
+                                class="sm:col-span-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400"
+                                data-testid="auto-router-decision-restricted"
+                            >
+                                <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                                {{ $t('settings.llms.autoRouterModal.decisionRestricted', { model: selectedDecisionModel.name }) }}
+                            </span>
                         </span>
                     </span>
                 </label>
@@ -93,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-type DecisionModel = { id: string; name: string; is_enabled: boolean; provider?: { name: string } };
+type DecisionModel = { id: string; name: string; is_enabled: boolean; is_restricted?: boolean; provider?: { name: string } };
 type RoutingDecision = { method: 'small_model' | 'decision'; decision_model_id: string | null; min_confidence: number };
 
 const props = defineProps<{
@@ -116,6 +126,7 @@ const open = computed({
 
 const decisionModels = computed(() => (props.decisionModels || []).filter((m) => m.is_enabled));
 const hasDecisionModels = computed(() => decisionModels.value.length > 0);
+const selectedDecisionModel = computed(() => decisionModels.value.find((m) => m.id === decisionModelId.value));
 
 const method = ref<'small_model' | 'decision'>('small_model');
 const decisionModelId = ref<string | null>(null);

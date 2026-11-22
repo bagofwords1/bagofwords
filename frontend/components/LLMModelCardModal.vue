@@ -97,7 +97,7 @@
                      Actions menu). set_default has no "unset", only promotion of
                      another model, so these are buttons rather than draft toggles.
                      Decision models can never be a default (they cannot chat). -->
-                <div v-if="!isDecision" class="flex items-center justify-between py-2.5">
+                <div v-if="!isDecision && orgAdmin" class="flex items-center justify-between py-2.5">
                     <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.llms.badgeDefault') }}</span>
                     <span v-if="model.is_default" class="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
                     <UButton
@@ -110,7 +110,7 @@
                         {{ $t('settings.llms.makeDefault') }}
                     </UButton>
                 </div>
-                <div v-if="!isDecision" class="flex items-center justify-between py-2.5">
+                <div v-if="!isDecision && orgAdmin" class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.smallDefaultTooltip')">
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.badgeSmallDefault') }}</span>
                     </UTooltip>
@@ -175,21 +175,23 @@
                 <LLMModelDecisionSection v-else ref="decisionRef" :model="model" />
                 <!-- Cost -->
                 <div class="flex items-center justify-between py-2.5">
-                    <UTooltip :text="$t('settings.llms.costEditTooltip')">
+                    <UTooltip :text="orgAdmin ? $t('settings.llms.costEditTooltip') : $t('settings.llms.providerManagers.priceAdminOnly')">
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colCost') }}</span>
                     </UTooltip>
                     <div class="flex items-center gap-2">
                         <label class="flex items-center gap-1 text-2xs text-ink-muted uppercase tracking-wide">
                             {{ $t('settings.llms.costInput') }}
                             <input v-model.number="costInDraft" type="number" min="0" step="0.01"
+                                :disabled="!orgAdmin"
                                 data-testid="card-cost-input"
-                                class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 text-end normal-case focus:outline-none focus:border-blue-500" />
+                                class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 text-end normal-case focus:outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed" />
                         </label>
                         <label v-if="!isDecision" class="flex items-center gap-1 text-2xs text-ink-muted uppercase tracking-wide">
                             {{ $t('settings.llms.costOutput') }}
                             <input v-model.number="costOutDraft" type="number" min="0" step="0.01"
+                                :disabled="!orgAdmin"
                                 data-testid="card-cost-output"
-                                class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 text-end normal-case focus:outline-none focus:border-blue-500" />
+                                class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 text-end normal-case focus:outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed" />
                         </label>
                     </div>
                 </div>
@@ -198,7 +200,7 @@
             <!-- Footer -->
             <div class="mt-4 flex items-center">
                 <template v-if="!confirmingDelete">
-                    <UTooltip :text="deleteBlocked ? $t('settings.llms.deleteModelBlockedDefault') : ''" :prevent="!deleteBlocked">
+                    <UTooltip v-if="orgAdmin" :text="deleteBlocked ? $t('settings.llms.deleteModelBlockedDefault') : ''" :prevent="!deleteBlocked">
                         <UButton
                             color="red" variant="ghost" size="xs" icon="i-heroicons-trash"
                             :disabled="deleteBlocked"
@@ -235,10 +237,13 @@
 // Minimal per-model settings card. Every control is a local draft — Save
 // applies all changes (each field maps to its own endpoint), Cancel/X
 // discards them.
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: boolean;
     model: any | null;
-}>();
+    // False for a provider manager: no default promotion, delete or price
+    // changes (org-wide decisions); everything else on the card is theirs.
+    orgAdmin?: boolean;
+}>(), { orgAdmin: true });
 
 const emit = defineEmits(['update:modelValue', 'updated', 'deleted']);
 

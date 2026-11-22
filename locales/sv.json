@@ -2613,7 +2613,17 @@
     "noManagedGroupsHint": "Du hanterar inga grupper.",
     "toastManagerAdded": "Medlemmen är nu gruppansvarig",
     "toastManagerRemoved": "Ansvarig-rollen borttagen",
-    "failedToUpdateManager": "Det gick inte att uppdatera gruppansvarig"
+    "failedToUpdateManager": "Det gick inte att uppdatera gruppansvarig",
+    "models": {
+      "title": "Standardmodeller",
+      "hint": "Vad gruppens medlemmar börjar med. Bara modeller som gruppen redan får använda visas.",
+      "default": "Standardmodell",
+      "small": "Liten modell",
+      "orgDefault": "Organisationens standard",
+      "setByAdmin": "{model} (vald av en administratör)",
+      "saved": "Gruppens modeller uppdaterade",
+      "failed": "Det gick inte att uppdatera gruppens modeller"
+    }
   },
   "signupPolicy": {
     "title": "Domänbaserad registrering",
@@ -3991,7 +4001,27 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: omaskerad",
-      "piiBadgeTooltip": "PII-policyn som den här leverantörens prompter får. Ändra den under Inställningar → Skydd av personuppgifter."
+      "piiBadgeTooltip": "PII-policyn som den här leverantörens prompter får. Ändra den under Inställningar → Skydd av personuppgifter.",
+      "providerManagers": {
+        "title": "Leverantörsansvariga",
+        "hint": "Medlemmar som sköter den här leverantören utan att vara LLM-administratörer.",
+        "can": "De kan ändra inloggningsuppgifter och anslutningsinställningar, slå på eller av dess modeller och redigera modellernas inställningar och routningstips.",
+        "cannot": "De kan inte lägga till modeller, ändra priser, standardmodeller eller modellåtkomst, eller slå på den automatiska routern. En modell de slår på börjar begränsad tills en administratör öppnar den.",
+        "addPlaceholder": "Lägg till en medlem…",
+        "add": "Lägg till",
+        "remove": "Ta bort ansvarig",
+        "loading": "Läser in…",
+        "none": "Inga ansvariga än. Bara LLM-administratörer sköter den här leverantören.",
+        "added": "Ansvarig tillagd",
+        "removed": "Ansvarig borttagen",
+        "failed": "Det gick inte att uppdatera leverantörens ansvariga",
+        "banner": "Du ansvarar för {providers}. Standardmodeller, modellåtkomst, priser och den automatiska routern bestäms av en administratör.",
+        "priceAdminOnly": "Bara en administratör kan ändra priser.",
+        "restricted": "Begränsad: bara personer som en administratör ger åtkomst kan använda den."
+      },
+      "autoRouterModal": {
+        "decisionRestricted": "Bara medlemmar som får använda {model} får beslutet i förväg. Alla andra börjar på den lilla modellen."
+      }
     },
     "licensePage": {
       "title": "Licens",
@@ -4991,7 +5021,14 @@
       "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
       "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören",
       "model_is_group_default": "Modellen är standardmodell för grupperna: {groups}. Ändra deras standardmodell först.",
-      "group_default_invalid": "Modellen måste vara aktiverad och vara en chattmodell i den här organisationen."
+      "group_default_invalid": "Modellen måste vara aktiverad och vara en chattmodell i den här organisationen.",
+      "group_default_not_available": "Den här gruppen får inte använda den modellen. Be en administratör ge gruppen åtkomst först.",
+      "group_default_priority_admin_only": "Bara en administratör kan ändra en grupps prioritet.",
+      "provider_holds_default": "Den här leverantören har organisationens standardmodell. Be en administratör ändra standarden först.",
+      "provider_manager_admin_only": "Bara en administratör kan göra det hos den här leverantören.",
+      "provider_manager_not_member": "Bara en medlem i den här organisationen kan ansvara för en leverantör.",
+      "provider_key_required_for_new_destination": "Ange API-nyckeln igen när du ändrar vart den här leverantören ansluter.",
+      "provider_host_identity_admin_only": "Den här leverantören loggar in med serverns egen molnidentitet. Bara en administratör kan ändra vart den ansluter eller byta till den inloggningen."
     },
     "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort.",
     "memory.disabled": "Användarminnet är avstängt i den här organisationen.",

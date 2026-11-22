@@ -2613,7 +2613,17 @@
     "noManagedGroupsHint": "Non gestisci alcun gruppo.",
     "toastManagerAdded": "Il membro ora è gestore del gruppo",
     "toastManagerRemoved": "Ruolo di gestore rimosso",
-    "failedToUpdateManager": "Impossibile aggiornare il gestore del gruppo"
+    "failedToUpdateManager": "Impossibile aggiornare il gestore del gruppo",
+    "models": {
+      "title": "Modelli predefiniti",
+      "hint": "Il modello con cui partono i membri del gruppo. Sono elencati solo i modelli che il gruppo può già usare.",
+      "default": "Modello predefinito",
+      "small": "Modello piccolo",
+      "orgDefault": "Predefinito dell'organizzazione",
+      "setByAdmin": "{model} (impostato da un amministratore)",
+      "saved": "Modelli del gruppo aggiornati",
+      "failed": "Impossibile aggiornare i modelli del gruppo"
+    }
   },
   "signupPolicy": {
     "title": "Registrazione basata su dominio",
@@ -3991,7 +4001,27 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: non oscurato",
-      "piiBadgeTooltip": "La policy dati personali applicata ai prompt di questo provider. Modificala in Impostazioni → Protezione dei dati personali."
+      "piiBadgeTooltip": "La policy dati personali applicata ai prompt di questo provider. Modificala in Impostazioni → Protezione dei dati personali.",
+      "providerManagers": {
+        "title": "Gestori del provider",
+        "hint": "Membri che gestiscono questo provider senza essere amministratori LLM.",
+        "can": "Possono modificare le credenziali e le impostazioni di connessione, attivare o disattivare i suoi modelli e modificare le impostazioni e le indicazioni di instradamento di quei modelli.",
+        "cannot": "Non possono aggiungere modelli, cambiare prezzi, modelli predefiniti o accesso ai modelli, né attivare il router automatico. Un modello che attivano parte limitato finché un amministratore non lo apre.",
+        "addPlaceholder": "Aggiungi un membro…",
+        "add": "Aggiungi",
+        "remove": "Rimuovi gestore",
+        "loading": "Caricamento…",
+        "none": "Nessun gestore per ora. Solo gli amministratori LLM gestiscono questo provider.",
+        "added": "Gestore aggiunto",
+        "removed": "Gestore rimosso",
+        "failed": "Impossibile aggiornare i gestori del provider",
+        "banner": "Gestisci {providers}. Modelli predefiniti, accesso ai modelli, prezzi e router automatico sono decisi da un amministratore.",
+        "priceAdminOnly": "Solo un amministratore può cambiare i prezzi.",
+        "restricted": "Limitato: solo chi riceve l'accesso da un amministratore può usarlo."
+      },
+      "autoRouterModal": {
+        "decisionRestricted": "Solo i membri che possono usare {model} ricevono la decisione iniziale. Tutti gli altri partono dal modello piccolo."
+      }
     },
     "licensePage": {
       "title": "Licenza",
@@ -4991,7 +5021,14 @@
       "model_id_not_editable": "Solo i modelli personalizzati su provider Azure, AWS Bedrock o personalizzati (compatibili con OpenAI) possono avere l'ID modello modificato",
       "model_id_duplicate": "Il modello «{model_id}» esiste già su questo provider",
       "model_is_group_default": "Questo modello è il predefinito dei gruppi: {groups}. Cambia prima il loro predefinito.",
-      "group_default_invalid": "Il modello deve essere abilitato ed essere un modello di chat di questa organizzazione."
+      "group_default_invalid": "Il modello deve essere abilitato ed essere un modello di chat di questa organizzazione.",
+      "group_default_not_available": "Questo gruppo non può usare quel modello. Chiedi prima a un amministratore di dare accesso al gruppo.",
+      "group_default_priority_admin_only": "Solo un amministratore può cambiare la priorità di un gruppo.",
+      "provider_holds_default": "Questo provider contiene il modello predefinito dell'organizzazione. Chiedi prima a un amministratore di cambiare il predefinito.",
+      "provider_manager_admin_only": "Solo un amministratore può farlo su questo provider.",
+      "provider_manager_not_member": "Solo un membro di questa organizzazione può gestire un provider.",
+      "provider_key_required_for_new_destination": "Inserisci di nuovo la chiave API quando cambi la destinazione a cui si collega questo provider.",
+      "provider_host_identity_admin_only": "Questo provider accede con l'identità cloud del server stesso. Solo un amministratore può cambiare la destinazione o passare a questo tipo di accesso."
     },
     "data_source.in_use": "L'agente \"{agent}\" è ancora in uso ({reference}), quindi non può essere eliminato. Non è stato eliminato nulla.",
     "memory.disabled": "La memoria utente è disattivata in questa organizzazione.",
