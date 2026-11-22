@@ -9,7 +9,7 @@
 - Added `result_format=raw` for Elasticsearch and OpenSearch searches, returning the engine response in a single cell (#1882)
 - Fixed chart images missing from chat channel replies on SQLite installs (#1881)
 - Fixed Slack, Teams, Google Chat and WhatsApp re-sending the previous chart after a dashboard or generated image (#1881)
-- Fixed Elasticsearch and OpenSearch searches dropping filters, count-only searches showing zero matches, and nested aggregation metrics missing from results; unsupported search options now return an error (#1882)
+- Fixed Elasticsearch and OpenSearch searches dropping filters, count-only searches showing zero matches, and nested aggregation metrics missing from results; saved queries using unsupported options such as `highlight`, `script_fields` or `explain` now return an error and must be revised (#1882)
 - Fixed row-by-row reads of large Elasticsearch and OpenSearch results taking tens of seconds, and empty aggregation groups dropping their expected columns and nullable integers turning into floats (#1882)
 - Fixed the Auto router's decision model reading requests from users who aren't allowed to use it; they now start on the small model (#1885)
 
