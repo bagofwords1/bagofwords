@@ -166,11 +166,15 @@ def _cached_meta_for(ct):
     if getattr(ct, "kind", None) != KIND_BOW:
         return False, None, None, None
     ts = getattr(ct, "last_refreshed_at", None)
+    # No description from the admin: say what the columns themselves establish
+    # (grain, measures and whether each may be summed, source, schedule).
+    meta = getattr(ct, "metadata_json", None)
+    generated = meta.get("generated_description") if isinstance(meta, dict) else None
     return (
         True,
         ts.isoformat(timespec="minutes") if ts else None,
         _next_refresh_for(ct),
-        getattr(ct, "description", None),
+        (getattr(ct, "description", None) or "").strip() or generated or None,
     )
 
 
@@ -603,7 +607,8 @@ class SchemaContextBuilder:
                                 for k in ("role", "kind", "hidden", "is_partition",
                                           "relationship_key", "returns", "format_string",
                                           "data_category", "display_folder", "sort_by_column",
-                                          "summarize_by", "contents", "from_form")
+                                          "summarize_by", "contents", "from_form",
+                                          "additive", "additive_reason", "source")
                                 if k in canon_meta
                             } or None
                         columns.append({

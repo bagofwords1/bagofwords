@@ -240,6 +240,23 @@ _COLUMN_META_KEYS: tuple[str, ...] = (
 )
 
 
+def _aggregation_attr(col_meta: dict, dtype) -> str:
+    """` aggregation="..."` for a cached table's column that must not simply
+    be summed (a distinct count, a ratio, an average), or "".
+
+    A cached table holds results at one grain, and the model's reflex for a
+    coarser question is SUM(column). For these columns that returns a wrong
+    number with no error, so the column itself says so, next to its name.
+    """
+    try:
+        from app.data_sources.fast.column_metadata import agent_note
+
+        note = agent_note(col_meta, dtype)
+    except Exception:
+        return ""
+    return f' aggregation="{xml_escape(note)}"' if note else ""
+
+
 def _render_analysis_services_semantics_xml(t: PromptTable) -> str:
     """Render Tabular semantics that cannot be represented as PK/FK tags."""
     try:
@@ -528,6 +545,7 @@ class TablesSchemaContext(ContextSection):
                         # XML (hidden="true"), not as Python (hidden="True").
                         mv = str(mv).lower() if isinstance(mv, bool) else str(mv)
                         attrs += f' {mk}="{xml_escape(mv)}"'
+                    attrs += _aggregation_attr(col_meta, c.dtype)
                 col_parts.append(f'<column {attrs}/>')
             cols = "\n".join(col_parts)
 
@@ -1095,6 +1113,7 @@ class TablesSchemaContext(ContextSection):
                             # as XML (hidden="true"), not Python (hidden="True").
                             mv = str(mv).lower() if isinstance(mv, bool) else str(mv)
                             col_attrs += f' {mk}="{xml_escape(mv)}"'
+                        col_attrs += _aggregation_attr(col_meta, c.dtype)
                     col_parts.append(f'<column {col_attrs}/>')
                 cols = "\n".join(col_parts)
                 pks = "\n".join(
