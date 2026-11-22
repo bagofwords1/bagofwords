@@ -4723,6 +4723,14 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "postgresqlMulti": {
+      "databasesTitle": "Datenbanken",
+      "databasesDescription": "Durch Kommas getrennte Datenbanknamen, Glob-Muster und !-Ausschlüsse, z. B. tenant_*, !tenant_test. Beim Abgleich wird zwischen Groß- und Kleinschreibung unterschieden. Alle passenden Datenbanken werden zu einem Satz von Tabellen mit einer Spalte tenant_db zusammengeführt.",
+      "discoveryDatabaseTitle": "Datenbank für die Erkennung",
+      "discoveryDatabaseDescription": "Datenbank, über die die Datenbanken des Servers aufgelistet werden. Standard: postgres.",
+      "tableExcludeTitle": "Muster zum Ausschließen von Tabellen",
+      "tableExcludeDescription": "Optionaler regulärer Ausdruck; Tabellen, deren Name passt, werden nicht indexiert, z. B. ^day_\\d{'{'}2{'}'}. Eine Änderung entfernt bei der nächsten Indexierung neu ausgeschlossene Tabellen und ihre Auswahl im Agenten."
+    },
     "qlikCloud": {
       "appFilterDescription": "Optionale, kommagetrennte App-Namen oder IDs in den ausgewählten Bereichen. Leer umfasst alle passenden Apps. Für Namen mit Kommas IDs verwenden."
     },

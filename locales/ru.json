@@ -4723,6 +4723,14 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "postgresqlMulti": {
+      "databasesTitle": "Базы данных",
+      "databasesDescription": "Имена баз данных, glob-шаблоны и исключения с !, через запятую, например tenant_*, !tenant_test. Сопоставление учитывает регистр. Все подходящие базы данных объединяются в один набор таблиц со столбцом tenant_db.",
+      "discoveryDatabaseTitle": "База данных для обнаружения",
+      "discoveryDatabaseDescription": "База данных, через которую получается список баз данных сервера. По умолчанию: postgres.",
+      "tableExcludeTitle": "Шаблон исключения таблиц",
+      "tableExcludeDescription": "Необязательное регулярное выражение; таблицы с совпадающим именем не индексируются, например ^day_\\d{'{'}2{'}'}. При его изменении при следующей индексации удаляются вновь исключённые таблицы и их выбор в агенте."
+    },
     "qlikCloud": {
       "appFilterDescription": "Необязательный список имён или ID приложений через запятую в выбранных пространствах. Пустое поле включает все подходящие приложения. Для имён с запятыми используйте ID."
     },

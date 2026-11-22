@@ -89,6 +89,7 @@
 - Added a numbered citation on the answer's claims that previews, and opens, the result behind it; chat channels get the same as `[1]` footnotes (#1770)
 - Added GPT-6.2 Sol and Astra to the OpenAI models; Sol is the new managed OpenAI default — $2/$10 per million tokens, up from Terra's $1/$5 (#1820)
 - Added named PII protection policies assigned per LLM provider, with an Exempt option, under Settings → PII Protection (#1821) — Enterprise
+- Added a PostgreSQL (multi-database) connection: one connection over many single-tenant databases on the same server, queried as unified tables with a `tenant_db` column; database names, globs and !-exclusions pick the tenants (#1808)
 - Changed a steered prompt to appear above the step that picked it up, on the report page, after a reload and on shared links (#1802)
 - Changed, on multi-organization deployments only: creating an organization needs an instance administrator, a personal API key works only in its own organization, an existing account joins another organization by invite, a sign-up domain is assigned by an instance administrator, and a first sign-in links to an existing account by email only from a trusted provider — `trust_email_for_linking`
 - Changed `security.block_private_outbound` to also cover Cosmos DB, Couchbase, Iceberg, Azure Blob and Kubernetes endpoints and SQL Server failover hosts
@@ -113,6 +114,7 @@
 - Fixed notifications from one organization showing in another
 - Fixed a removed member keeping roles, access grants and API keys after being invited again
 - Fixed saved queries and dashboards failing with a missing-key error after an agent or connection is renamed (#1822)
+- Fixed agent queries reaching tables outside the agent's selection through a LATERAL or APPLY table function (#1808)
 
 ## Version 0.0.628 (November 18, 2026)
 - Added Admin → System logs: read, search, filter and delete the server's own logs in the app (#1697) — kept 7 days, up to 1 GB; `BOW_SYSTEM_LOGS_DIR`, `BOW_SYSTEM_LOGS_RETENTION_DAYS`, `BOW_SYSTEM_LOGS_MAX_SIZE_MB`

@@ -4723,6 +4723,14 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "postgresqlMulti": {
+      "databasesTitle": "Databaser",
+      "databasesDescription": "Kommaseparerade databasnamn, glob-mönster och !-undantag, t.ex. tenant_*, !tenant_test. Matchningen är skiftlägeskänslig. Alla matchande databaser slås samman till en uppsättning tabeller med en kolumn tenant_db.",
+      "discoveryDatabaseTitle": "Databas för identifiering",
+      "discoveryDatabaseDescription": "Databas som används för att lista serverns databaser. Standard: postgres.",
+      "tableExcludeTitle": "Mönster för att utesluta tabeller",
+      "tableExcludeDescription": "Valfritt reguljärt uttryck; tabeller vars namn matchar indexeras inte, t.ex. ^day_\\d{'{'}2{'}'}. Om du ändrar det tas nyligen uteslutna tabeller och agentens val av dem bort vid nästa indexering."
+    },
     "qlikCloud": {
       "appFilterDescription": "Valfria kommaseparerade appnamn eller ID:n i valda utrymmen. Tomt inkluderar alla matchande appar. Använd ID:n för namn som innehåller kommatecken."
     },
