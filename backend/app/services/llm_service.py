@@ -274,17 +274,29 @@ class LLMService:
         # test_connection). A provider manager who points the provider somewhere
         # new must enter the key again, or the org's stored secret would be
         # sent to a destination they chose.
-        if as_manager and (before_secret[0] or before_secret[1]):
-            moved = any(
-                before_config.get(k, default) != after_config.get(k, default)
-                for k, default in _DESTINATION_CONFIG_KEYS.items()
-            )
-            new_secret = bool((credentials or {}).get("api_key") or (credentials or {}).get("api_secret"))
-            if moved and not new_secret:
+        moved = any(
+            before_config.get(k, default) != after_config.get(k, default)
+            for k, default in _DESTINATION_CONFIG_KEYS.items()
+        )
+        if as_manager and moved and (before_secret[0] or before_secret[1]):
+            # Like test_connection: no stored secret survives the move. Both
+            # slots are cleared and rebuilt from this submission alone (the
+            # credential merge would otherwise keep whichever one was omitted),
+            # then checked against what the provider's auth mode needs.
+            provider.api_key = None
+            provider.api_secret = None
+            self._set_provider_credentials(provider, credentials or {})
+            if provider.api_key is None:
+                # Nothing submitted: store empty credentials (as for a provider
+                # created without a key) so modes that need none still decrypt.
+                provider.encrypt_credentials(None, None)
+            missing = self._missing_secrets_for_auth_mode(provider)
+            if missing:
                 await db.rollback()
                 raise AppError.bad_request(
                     ErrorCode.LLM_PROVIDER_KEY_REQUIRED_FOR_NEW_DESTINATION,
                     "Enter the API key again when changing where this provider connects.",
+                    missing=", ".join(missing),
                 )
         changed_settings = sorted(
             k for k in set(before_config) | set(after_config) if before_config.get(k) != after_config.get(k)
@@ -1311,13 +1323,10 @@ class LLMService:
         turn existing models on or off and their per-model settings. Not: add a
         model, change a price, or turn off a model others start on."""
         existing = {str(m.id): m for m in (provider.models or []) if m.deleted_at is None}
-        deleted = {str(m.id) for m in (provider.models or []) if m.deleted_at is not None}
         turning_off = []
         for model in models or []:
-            # A soft-deleted model of this provider (a stale dialog can echo
-            # one back) changes nothing; an id from elsewhere is still refused.
-            if model.id and str(model.id) in deleted:
-                continue
+            # (Soft-deleted ids were already dropped by _update_models; an id
+            # from another provider is refused here.)
             if not model.id or str(model.id) not in existing:
                 raise AppError.forbidden(
                     ErrorCode.LLM_PROVIDER_MANAGER_ADMIN_ONLY,
@@ -2594,6 +2603,35 @@ class LLMService:
 
         await db.commit()
 
+    @staticmethod
+    def _missing_secrets_for_auth_mode(provider: LLMProvider) -> list:
+        """The secret slots this provider's active auth mode needs but doesn't
+        have (mirrors how app.ai.llm.LLM reads them): Azure api_key → key,
+        Entra client secret → the secret slot, Entra default → none; Bedrock
+        api_key → key, access_keys → both, IAM → none; Vertex service account
+        → key, ADC → none; custom (OpenAI-compatible) → none (keyless local
+        endpoints are valid); every other provider → key."""
+        cfg = provider.additional_config if isinstance(provider.additional_config, dict) else {}
+        ptype = provider.provider_type
+        if ptype == "azure":
+            mode = cfg.get("auth_mode") or "api_key"
+            need = {"api_key": ["api_key"], "entra_client_secret": ["api_secret"]}.get(mode, [])
+        elif ptype == "bedrock":
+            mode = cfg.get("auth_mode") or "iam"
+            need = {"api_key": ["api_key"], "access_keys": ["api_key", "api_secret"]}.get(mode, [])
+        elif ptype == "vertex":
+            need = ["api_key"] if (cfg.get("auth_mode") or "adc") == "service_account" else []
+        elif ptype == "custom":
+            need = []
+        else:
+            need = ["api_key"]
+        try:
+            key, secret = provider.decrypt_credentials()
+        except Exception:
+            key, secret = None, None
+        have = {"api_key": bool(key), "api_secret": bool(secret)}
+        return [slot for slot in need if not have[slot]]
+
     def _set_provider_credentials(
         self, 
         provider: LLMProvider,
@@ -2843,6 +2881,11 @@ class LLMService:
         *,
         as_manager: bool = False,
     ):
+        # A soft-deleted model of this provider (a stale dialog can echo one
+        # back) is dropped here, once, for both the manager check and the
+        # writes below — it must never be updated or re-enabled.
+        deleted_ids = {str(m.id) for m in (provider.models or []) if m.deleted_at is not None}
+        models = [m for m in (models or []) if not (m.id and str(m.id) in deleted_ids)]
         if as_manager:
             await self._check_manager_model_changes(db, organization, provider, models)
         # Check if org already has default models (needed for new model creation)
@@ -3049,7 +3092,9 @@ class LLMService:
                 if should_be_small_default:
                     has_small_default_model = True
 
-        await db.commit()
+        # No commit here: update_provider commits the whole save (provider
+        # settings + models) once, so a refused save leaves nothing behind.
+        await db.flush()
     
     async def set_default_model(
         self, 

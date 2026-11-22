@@ -251,6 +251,31 @@ Re-run: provider/group/decision delegation, `test_llm_providers.py`, LLM model
 access, decision models, group defaults, auto routing, the registry ratchet and
 pricing overrides — 174 passed, 5 skipped.
 
+## Review follow-ups (round 2)
+
+All three confirmed against the code; each has a test that fails on the
+previous commit (4/4):
+
+1. **[P1] The move check accepted the wrong credential.** It passed if *either*
+   secret slot was submitted, but the credential merge kept the stored value of
+   the omitted slot — an API-key provider could keep its key across a move, and
+   an Azure Entra `client_secret` (a valid replacement) was ignored. On a move,
+   a provider manager's save now clears both slots, rebuilds them from the
+   submission alone (`_set_provider_credentials`), and requires what the active
+   auth mode reads (`_missing_secrets_for_auth_mode`: Azure key / Entra client
+   secret / Entra default none; Bedrock key / access keys both / IAM none;
+   Vertex service account key / ADC none; custom none; others the key).
+   `test_moving_the_destination_never_keeps_the_omitted_stored_secret`,
+   `test_azure_entra_client_secret_counts_as_the_credential_for_a_move`.
+2. **[P2] The save wasn't atomic.** `_update_models` committed before the
+   destination check, so a 400 could leave a model turned on and restricted. It
+   now only flushes; `update_provider` commits once.
+   `test_a_refused_save_leaves_models_and_endpoint_untouched`.
+3. **[P2] Deleted rows were still written.** The round-1 skip covered
+   validation only. `_update_models` now drops soft-deleted ids of the provider
+   once, before both the manager check and the writes (for admins too).
+   `test_a_stale_dialog_never_reenables_a_deleted_model`.
+
 ## What this proves / regression notes
 
 - The rule "only an org admin widens model access" holds on every write path a

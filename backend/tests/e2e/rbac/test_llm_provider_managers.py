@@ -449,3 +449,109 @@ def test_a_managers_save_keeps_an_admin_set_price(cast):
     assert r.status_code == 200, r.text
     after = _model(c, mid)
     assert after["input_cost_per_million_tokens_usd"] == 0.5 and after["output_cost_per_million_tokens_usd"] == 1.5
+
+
+# ── review round 2 ─────────────────────────────────────────────────────────
+
+def _stored(pid):
+    """(api_key, api_secret, additional_config) as stored for a provider."""
+    import asyncio
+    from app.dependencies import async_session_maker
+    from app.models.llm_provider import LLMProvider
+
+    async def _go():
+        async with async_session_maker() as db:
+            p = await db.get(LLMProvider, pid)
+            try:
+                key, secret = p.decrypt_credentials()
+            except Exception:
+                key, secret = None, None
+            return key, secret, dict(p.additional_config or {})
+    return asyncio.run(_go())
+
+
+@pytest.mark.e2e
+def test_moving_the_destination_never_keeps_the_omitted_stored_secret(cast):
+    """Submitting only the *other* secret slot used to pass the check while the
+    merge kept the stored API key, which then went to the new host."""
+    c = cast
+    pid = _openai_provider(c, "oai2", [], c.alice)
+    key_before, _, _ = _stored(pid)
+    assert key_before == "sk-org-secret"
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}",
+               json={"credentials": {"base_url": "https://collector.example.com/v1", "api_secret": "decoy"}})
+    assert r.status_code == 400 and r.json().get("error_code") == "llm.provider_key_required_for_new_destination", r.text
+    key, _secret, cfg = _stored(pid)
+    assert key == "sk-org-secret" and not cfg.get("base_url"), "a refused move changes nothing"
+    # A real key for the new host: saved, and only the submitted secrets remain.
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}",
+               json={"credentials": {"base_url": "https://collector.example.com/v1", "api_key": "sk-new-host"}})
+    assert r.status_code == 200, r.text
+    key, secret, cfg = _stored(pid)
+    assert key == "sk-new-host" and secret is None and cfg["base_url"] == "https://collector.example.com/v1"
+
+
+@pytest.mark.e2e
+def test_azure_entra_client_secret_counts_as_the_credential_for_a_move(cast):
+    c = cast
+    r = c.call(c.admin, "POST", "llm/providers", json={
+        "name": f"az-{uuid.uuid4().hex[:6]}", "provider_type": "azure",
+        "credentials": {"endpoint_url": "https://old-resource.openai.azure.com/", "auth_mode": "entra_client_secret",
+                        "tenant_id": "t-1", "client_id": "c-1", "client_secret": "org-client-secret"},
+        "models": [],
+    })
+    assert r.status_code == 200, r.text
+    pid = r.json()["id"]
+    assert c.call(c.admin, "PUT", f"llm/providers/{pid}/managers/{c.alice['user_id']}").status_code == 200
+    move = {"endpoint_url": "https://new-resource.openai.azure.com/", "auth_mode": "entra_client_secret",
+            "tenant_id": "t-1", "client_id": "c-1"}
+    # No secret, or an API key (not what Entra auth uses): refused.
+    for extra in ({}, {"api_key": "not-the-client-secret"}):
+        r = c.call(c.alice, "PUT", f"llm/providers/{pid}", json={"credentials": {**move, **extra}})
+        assert r.status_code == 400, (extra, r.text)
+    assert _stored(pid)[1] == "org-client-secret"
+    # A new client secret: accepted, and it is what's stored.
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}", json={"credentials": {**move, "client_secret": "new-client-secret"}})
+    assert r.status_code == 200, r.text
+    _key, secret, cfg = _stored(pid)
+    assert secret == "new-client-secret" and cfg["endpoint_url"] == "https://new-resource.openai.azure.com/"
+
+
+@pytest.mark.e2e
+def test_a_refused_save_leaves_models_and_endpoint_untouched(cast):
+    """The model writes used to commit before the destination check, so a 400
+    still left a model turned on (and restricted)."""
+    c = cast
+    pid = _openai_provider(c, "atomic", [{"model_id": "atomic-a", "name": "Atomic A", "is_custom": True}], c.alice)
+    mid = next(m["id"] for m in c.call(c.admin, "GET", "llm/models", params={"kind": "all", "manage": "true"}).json()
+               if m["provider"]["id"] == pid)
+    assert c.call(c.admin, "POST", f"llm/models/{mid}/toggle?enabled=false").status_code == 200
+    _prov, models = _dialog_models(c, c.alice, pid)
+    models = [dict(m, is_enabled=True) if m["id"] == mid else m for m in models]
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}",
+               json={"credentials": {"base_url": "https://collector.example.com/v1"}, "models": models})
+    assert r.status_code == 400, r.text
+    after = _model(c, mid)
+    assert after["is_enabled"] is False and after["is_restricted"] is False
+    assert not _stored(pid)[2].get("base_url")
+
+
+@pytest.mark.e2e
+def test_a_stale_dialog_never_reenables_a_deleted_model(cast):
+    c = cast
+    assert c.call(c.admin, "DELETE", f"llm/models/{c.m.a1}").status_code == 200
+    _prov, models = _dialog_models(c, c.alice, c.pa)
+    stale = models + [{"id": c.m.a1, "model_id": "gone", "name": "gone", "is_enabled": True}]
+    for actor in (c.alice, c.admin):
+        assert c.call(actor, "PUT", f"llm/providers/{c.pa}", json={"models": stale}).status_code == 200
+
+    import asyncio
+    from app.dependencies import async_session_maker
+    from app.models.llm_model import LLMModel
+
+    async def _row():
+        async with async_session_maker() as db:
+            m = await db.get(LLMModel, c.m.a1)
+            return m.deleted_at is not None, m.is_enabled
+    deleted, enabled = asyncio.run(_row())
+    assert deleted and enabled is False
