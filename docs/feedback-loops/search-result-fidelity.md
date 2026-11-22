@@ -68,3 +68,11 @@ Pandas 2.3.3 copies DataFrame attrs during row selection. The default table used
 At 5,000 buckets, a separate single-run comparison took 49.02 s on the parent implementation and 38.5 ms on the updated implementation. The synthetic response contained one bucket per integer i, with key i, doc_count 1 and avg.value i.
 
 Two further localhost report questions used Claude Haiku 5.5. Each turn saved a table on its first create_data call. The retry-event breakdown returned 5,000 events per service, with checkout highest at 306 ms. The blank southern dashboard question returned 100,000 events overall and no southern services. Direct terms and maximum aggregations independently confirmed the answers. Haiku questioned the uniformity of the retry counts; the fixture has precisely 20,000 events whose event_kind equals retry.
+
+## Parent counts and empty percentiles
+
+Repeat the opt-in contract test above against both engines. A region with one document and no matching child keeps its count of one. The missing child key and child count are null. A match-all filter with three documents keeps its count even when its child has no buckets. An empty histogram exposes the requested p95 and pipeline columns with zero rows. Reading an undeclared percentile raises a missing-column error.
+
+The same cases ran through the subprocess executor against the 100,000-event Elasticsearch fixture. All four service parents retained 25,000 documents when a child terms include-list selected only billing. A filter on east retained 33,334 documents with an empty child. The southern hourly p95 table had zero rows. Reading the unrequested 59th percentile with a zero fallback raised a schema error.
+
+Two Claude Haiku 5.5 questions exercised the report UI. Asked for event totals and counts over 307 ms per service, it kept all four services and returned 333 slow events each for billing and search and zero each for checkout and gateway. Asked why the southern hourly p95 chart was blank, it reported that the index contained no southern observations and left p95 uncalculated.

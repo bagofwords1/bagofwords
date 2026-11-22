@@ -146,7 +146,7 @@ def metric_columns(name, body):
         return {name: body}
     if "value" in body and set(body) <= {"value", "value_as_string", "meta"}:
         return {name: body.get("value_as_string", body["value"])}
-    if set(body) == {"values"} and isinstance(body["values"], dict):
+    if "values" in body and set(body) <= {"values", "meta"} and isinstance(body["values"], dict):
         return {f"{name}.{key}": value for key, value in body["values"].items()}
     if any(not isinstance(value, (list, dict)) for value in body.values()):
         columns = {}
@@ -187,10 +187,38 @@ def _declared_layout(specs):
             grouped |= child_groups
             columns[f"{name}.doc_count"] = None
             columns.update(dict.fromkeys(_single_bucket_key(name, key) for key in children))
-        elif "stats" in spec or "extended_stats" in spec:
+        elif kinds & {"percentiles", "percentiles_bucket", "percentile_ranks"}:
+            kind = next(iter(kinds & {"percentiles", "percentiles_bucket", "percentile_ranks"}))
+            options = spec[kind]
+            if not isinstance(options, dict):
+                continue
+            if options.get("keyed") is False:
+                # The unkeyed array is kept together as one metric column.
+                columns[name] = None
+                continue
+            ranks = (options.get("values", []) if kind == "percentile_ranks"
+                     else options.get("percents", [1, 5, 25, 50, 75, 95, 99]))
+            for rank in ranks:
+                if type(rank) in (float, int):
+                    key = f"{name}.{float(rank)}"
+                    columns[key] = None
+                    if "format" in options:
+                        columns[f"{key}_as_string"] = None
+        elif kinds & {"min_bucket", "max_bucket"}:
+            columns.update(dict.fromkeys((f"{name}.value", f"{name}.keys")))
+        elif "derivative" in spec and isinstance(spec["derivative"], dict) and "unit" in spec["derivative"]:
+            columns.update(dict.fromkeys((f"{name}.value", f"{name}.normalized_value")))
+        elif kinds & {"stats", "extended_stats", "stats_bucket", "extended_stats_bucket"}:
             columns.update(dict.fromkeys(f"{name}.{key}" for key in ("count", "min", "max", "avg", "sum")))
+            if kinds & {"extended_stats", "extended_stats_bucket"}:
+                columns.update(dict.fromkeys(f"{name}.{key}" for key in (
+                    "sum_of_squares", "variance", "variance_population", "variance_sampling",
+                    "std_deviation", "std_deviation_population", "std_deviation_sampling")))
+                columns.update(dict.fromkeys(f"{name}.std_deviation_bounds.{key}" for key in (
+                    "upper", "lower", "upper_population", "lower_population", "upper_sampling", "lower_sampling")))
         elif kinds & {"avg", "min", "max", "sum", "value_count", "cardinality", "weighted_avg",
-                      "bucket_script", "avg_bucket", "sum_bucket", "cumulative_sum", "serial_diff"}:
+                      "bucket_script", "avg_bucket", "sum_bucket", "cumulative_sum", "serial_diff",
+                      "derivative", "moving_fn", "cumulative_cardinality"}:
             columns[name] = None
     return columns, grouped
 
@@ -199,11 +227,11 @@ def _single_bucket_key(name, key):
     return key if key == "doc_count" else f"{name}.{key}"
 
 
-def flatten_aggregations(aggregations, specs):
+def flatten_aggregations(aggregations, specs, *, inside_parent=False):
     """Return rows, ordered columns and whether rows represent buckets."""
     if not aggregations:
         columns, grouped = _declared_layout(specs)
-        return [], columns, grouped
+        return ([{}] if inside_parent else []), columns, grouped
     rows = []
     columns = {}
     metrics = {}
@@ -213,7 +241,7 @@ def flatten_aggregations(aggregations, specs):
         children_spec = spec.get("aggs", spec.get("aggregations", {})) if isinstance(spec, dict) else {}
         if isinstance(body, dict) and "doc_count" in body and "buckets" not in body:
             nested = {key: value for key, value in body.items() if isinstance(value, dict)}
-            children, child_columns, child_groups = flatten_aggregations(nested, children_spec)
+            children, child_columns, child_groups = flatten_aggregations(nested, children_spec, inside_parent=True)
             parent = {f"{name}.{key}": value for key, value in body.items() if key not in nested}
             columns.update(dict.fromkeys(parent))
             columns.update(dict.fromkeys(_single_bucket_key(name, key) for key in child_columns))
@@ -243,13 +271,25 @@ def flatten_aggregations(aggregations, specs):
         for bucket in buckets:
             base = {name: bucket.get("key_as_string", bucket.get("key")), "doc_count": bucket.get("doc_count")}
             children = {k: v for k, v in bucket.items() if isinstance(v, dict) and k != "key"}
-            child_rows, child_columns, child_groups = flatten_aggregations(children, children_spec)
+            child_rows, child_columns, child_groups = flatten_aggregations(children, children_spec, inside_parent=True)
             columns.update(child_columns)
             if child_groups:
-                base[f"{name}.doc_count"] = base["doc_count"]
+                base[f"{name}.doc_count"] = base.pop("doc_count")
                 columns[f"{name}.doc_count"] = None
             for child in child_rows if child_groups else (child_rows or [{}]):
                 rows.append({**base, **child})
+    if isinstance(specs, dict):
+        # Pipeline metrics can be absent from an individual bucket (e.g. the
+        # first derivative). Their declared columns still belong to its schema.
+        absent = {name: specs[name] for name in specs if name not in aggregations}
+        if absent:
+            declared, has_groups = _declared_layout(absent)
+            columns.update(declared)
+            grouped |= has_groups
     if grouped:
+        if inside_parent and not rows:
+            # The caller has an actual parent. Keep its metrics and let the
+            # absent child cells be null. At the root an empty group has no rows.
+            return [metrics], columns, True
         return [{**metrics, **row} for row in rows], columns, True
     return [metrics] if metrics else [], columns, False

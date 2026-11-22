@@ -64,5 +64,25 @@ def test_live_search_contract(client_type, variable):
         assert empty.attrs["total_hits"] == {"value": 3, "relation": "eq"}
         with pytest.raises(KeyError):
             empty["unrequested_metric"]
+        parent = search(aggs={"region": {"terms": {"field": "region"}, "aggs": {
+            "east_only": {"terms": {"field": "region", "include": ["east"]}}}}}).set_index("region")
+        assert parent["region.doc_count"].to_dict() == {"east": 2, "west": 1}
+        assert parent.loc["west", ["east_only", "doc_count"]].isna().all()
+        assert parent.loc["east", "doc_count"] == 2
+        scope = search(aggs={"all_events": {"filter": {"match_all": {}}, "aggs": {
+            "south_only": {"terms": {"field": "region", "include": ["south"]}}}}})
+        assert scope["all_events.doc_count"].tolist() == [3]
+        assert scope["all_events.south_only"].isna().all()
+        histogram = {"bins": {"histogram": {"field": "event_id", "interval": 1}, "aggs": {
+            "latency": {"percentiles": {"field": "event_id", "percents": [95]}},
+            "by_region": {"terms": {"field": "region"}},
+            "busiest": {"max_bucket": {"buckets_path": "by_region>_count"}},
+            "change": {"derivative": {"buckets_path": "latency[95]"}}}}}
+        populated = search(aggs=histogram)
+        empty = search(query={"term": {"region": "south"}}, aggs=histogram)
+        assert set(empty.columns) == set(populated.columns)
+        assert empty[["latency.95.0", "change", "busiest.value", "busiest.keys"]].empty
+        with pytest.raises(KeyError):
+            empty["latency.59.0"]
     finally:
         requests.delete(endpoint, timeout=15).raise_for_status()

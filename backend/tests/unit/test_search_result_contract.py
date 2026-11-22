@@ -219,10 +219,39 @@ def test_empty_nested_bucket_keeps_parent_and_child_schema(search):
         "terms": {"field": "host"}, "aggs": {"peak": {"max": {"field": "elapsed"}}}}}}}
     response = {"aggregations": {"scope": {"doc_count": 15, "hosts": {"buckets": []}}}}
     frame, _ = search({"aggs": aggs}, response)
-    assert frame.empty
+    assert frame["scope.doc_count"].tolist() == [15]
+    assert frame.drop(columns="scope.doc_count").isna().all().all()
     assert list(frame.columns) == ["scope.doc_count", "scope.hosts", "doc_count", "scope.peak"]
 
 
 def test_raw_response_rejects_partial_results(search):
     with pytest.raises(ValueError, match="partial|timed out"):
         search({"size": 1}, {"timed_out": True, "hits": {"hits": []}}, result_format="raw")
+
+
+def test_parent_with_no_children_keeps_its_own_metrics(search):
+    child = {"terms": {"field": "status"}}
+    query = {"aggs": {"service": {"terms": {"field": "service"}, "aggs": {
+        "codes": child, "peak": {"max": {"field": "latency"}}}}}}
+    buckets = [{"key": "a", "doc_count": 7, "peak": {"value": 44}, "codes": {"buckets": []}},
+               {"key": "b", "doc_count": 5, "peak": {"value": 11},
+                "codes": {"buckets": [{"key": 503, "doc_count": 2}]}}]
+    frame, _ = search(query, {"aggregations": {"service": {"buckets": buckets}}})
+    assert frame["service.doc_count"].tolist() == [7, 5]
+    assert frame["peak"].tolist() == [44, 11]
+    assert frame.iloc[0][["codes", "doc_count"]].isna().all()
+    assert frame.iloc[1]["doc_count"] == 2
+
+
+def test_empty_histogram_retains_requested_metrics(search):
+    spec = {"histogram": {"field": "latency", "interval": 10}, "aggs": {
+        "lat": {"percentiles": {"field": "latency", "percents": [50, 95]}},
+        "delta": {"derivative": {"buckets_path": "lat[95]"}},
+        "children": {"terms": {"field": "service"}},
+        "high": {"max_bucket": {"buckets_path": "children>_count"}}}}
+    frame, _ = search({"aggs": {"bin": spec}}, {"aggregations": {"bin": {"buckets": []}}})
+    assert frame.empty
+    assert list(frame.columns) == ["bin", "doc_count", "lat.50.0", "lat.95.0", "delta",
+                                   "children", "high.value", "high.keys", "bin.doc_count"]
+    with pytest.raises(KeyError):
+        frame["lat.99.0"]
