@@ -1409,7 +1409,30 @@
       "copied": "Trace-JSON in die Zwischenablage kopiert",
       "failed": "Trace konnte nicht exportiert werden"
     },
-    "hiddenTurns": "{count} späterer Schritt ausgeblendet: er oder ein früherer nutzte einen Agenten, den Sie nicht verwalten | {count} spätere Schritte ausgeblendet: sie oder ein früherer nutzten einen Agenten, den Sie nicht verwalten"
+    "hiddenTurns": "{count} späterer Schritt ausgeblendet: er oder ein früherer nutzte einen Agenten, den Sie nicht verwalten | {count} spätere Schritte ausgeblendet: sie oder ein früherer nutzten einen Agenten, den Sie nicht verwalten",
+    "contextColumns": {
+      "ofTotal": "{shown} von {total} Spalten",
+      "allColumns": "{total} Spalten",
+      "why": "Warum diese Spalten",
+      "reason": {
+        "usage_ranked": "Nach Spaltennutzung gerankt",
+        "structural_only": "Noch keine Nutzung: Schlüssel, Zeitstempel und IDs zuerst",
+        "all_columns": "Alle Spalten passen ins Budget"
+      },
+      "signal": {
+        "mentioned": "{n} in der Aufgabe genannt",
+        "usage": "{n} nach Nutzung",
+        "instructions": "{n} in Anweisungen referenziert",
+        "structural": "{n} Schlüssel, Zeitstempel oder IDs",
+        "sample": "{n} als Stichprobe aus den Spaltengruppen",
+        "schema_order": "{n} in Katalogreihenfolge"
+      },
+      "shown": "Spalten im Kontext",
+      "folded": "Zusammengefasst (mit describe_tables durchsuchbar)",
+      "otherColumns": "{count} weitere Spalten",
+      "usedTimes": "{count}× verwendet",
+      "score": "Score {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -2313,6 +2336,19 @@
       "connected": "Verbunden",
       "askAgain": "Erneut fragen",
       "readyHint": "Verbunden. Stellen Sie Ihre Frage erneut, um ihn zu nutzen."
+    },
+    "describeTables": {
+      "searching": "Suche {query}…",
+      "searched": "Gesucht: {names}",
+      "searchedMore": "Gesucht: {names} +{count}",
+      "columnsMatching": "Spalten passend zu {terms}",
+      "column": "Spalte",
+      "type": "Typ",
+      "used": "Verwendungen",
+      "showingOf": "Top {shown} von {total} Spalten, meistgenutzte zuerst",
+      "matchingOf": "{matched} von {total} Spalten passen zu {terms}",
+      "noMatch": "Keine Spalte passt zu {terms}",
+      "more": "+{count} weitere"
     }
   },
   "entityCreate": {
@@ -3753,6 +3789,10 @@
         "show_world": {
           "name": "Weltansicht",
           "description": "Zeigt auf der Agenten-Seite einen Schalter, der die Welt öffnet: eine Karte der Agenten, des Wissens, der Quellen und der Arbeit, die Ihre Organisation verbinden. Jeder Benutzer sieht nur, worauf er Zugriff hat."
+        },
+        "top_k_schema_columns": {
+          "name": "Top-K-Spalten pro Tabelle",
+          "description": "Wie viele Spalten einer breiten Tabelle der Agent vollständig im Kontext sieht, gerankt nach Spaltennutzung, Verweisen in Anweisungen und Schlüsseln/Zeitstempeln. Der Rest wird nach Präfix zusammengefasst und bleibt mit describe_tables durchsuchbar. 0 = kein Limit."
         }
       },
       "permissionMode": {
@@ -7074,7 +7114,10 @@
     "exitFullscreen": "Vollbild verlassen",
     "searchColumns": "Spalten suchen…",
     "noColumns": "Keine passenden Spalten",
-    "centrality": "Zentralität"
+    "centrality": "Zentralität",
+    "usedHeader": "Verwendungen",
+    "usedTooltip": "Ausgeführte Abfragen, die diese Spalte verwendet haben (fehlgeschlagene Versuche zählen im Ranking weniger)",
+    "sortedByUsage": "Meistgenutzte zuerst"
   },
   "fork": {
     "preparing": "Deine Kopie wird vorbereitet…",

@@ -1488,7 +1488,30 @@
       "copied": "JSON de la traza copiado al portapapeles",
       "failed": "No se pudo exportar la traza"
     },
-    "hiddenTurns": "{count} turno posterior oculto: este o uno anterior usó un agente que no administras | {count} turnos posteriores ocultos: estos o uno anterior usaron un agente que no administras"
+    "hiddenTurns": "{count} turno posterior oculto: este o uno anterior usó un agente que no administras | {count} turnos posteriores ocultos: estos o uno anterior usaron un agente que no administras",
+    "contextColumns": {
+      "ofTotal": "{shown} de {total} columnas",
+      "allColumns": "{total} columnas",
+      "why": "Por qué estas columnas",
+      "reason": {
+        "usage_ranked": "Ordenadas por uso de columnas",
+        "structural_only": "Aún sin uso: primero claves, marcas de tiempo e IDs",
+        "all_columns": "Todas las columnas caben en el límite"
+      },
+      "signal": {
+        "mentioned": "{n} nombradas en la tarea",
+        "usage": "{n} por uso",
+        "instructions": "{n} referenciadas por instrucciones",
+        "structural": "{n} claves, marcas de tiempo o IDs",
+        "sample": "{n} de muestra entre grupos de columnas",
+        "schema_order": "{n} en orden del catálogo"
+      },
+      "shown": "Columnas en el contexto",
+      "folded": "Agrupadas (se pueden buscar con describe_tables)",
+      "otherColumns": "{count} columnas más",
+      "usedTimes": "usada {count}×",
+      "score": "puntuación {score}"
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -2629,6 +2652,19 @@
       "connected": "Conectado",
       "askAgain": "Volver a preguntar",
       "readyHint": "Conectado. Vuelve a ejecutar tu pregunta para usarlo."
+    },
+    "describeTables": {
+      "searching": "Buscando {query}…",
+      "searched": "Buscado {names}",
+      "searchedMore": "Buscado {names} +{count}",
+      "columnsMatching": "columnas que coinciden con {terms}",
+      "column": "Columna",
+      "type": "Tipo",
+      "used": "Usos",
+      "showingOf": "Las {shown} columnas principales de {total}, las más usadas primero",
+      "matchingOf": "{matched} de {total} columnas coinciden con {terms}",
+      "noMatch": "Ninguna columna coincide con {terms}",
+      "more": "+{count} más"
     }
   },
   "entityCreate": {
@@ -4232,6 +4268,10 @@
         "show_world": {
           "name": "Vista Mundo",
           "description": "Muestra en la página de Agentes un interruptor que abre Mundo: un mapa de los agentes, el conocimiento, las fuentes y el trabajo que conectan tu organización. Cada usuario ve solo lo que tiene permiso para ver."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K de columnas por tabla",
+          "description": "Cuántas columnas de una tabla ancha ve el agente completas en su contexto, ordenadas por uso de columnas, referencias en instrucciones y claves/marcas de tiempo. El resto se resume por prefijo y se puede buscar con describe_tables. 0 = sin límite."
         }
       },
       "permissionMode": {
@@ -7755,7 +7795,10 @@
     "showAllColumns": "Mostrar todas",
     "hideAllColumns": "Ocultar todas",
     "includeColumn": "Incluir {name} en el contexto del agente",
-    "columnHidden": "oculta"
+    "columnHidden": "oculta",
+    "usedHeader": "Usos",
+    "usedTooltip": "Consultas ejecutadas que usaron esta columna (los intentos fallidos pesan menos en el ranking)",
+    "sortedByUsage": "Las más usadas primero"
   },
   "fork": {
     "preparing": "Preparando tu copia…",

@@ -1409,7 +1409,30 @@
       "copied": "Spårnings-JSON kopierad till urklipp",
       "failed": "Det gick inte att exportera spårningen"
     },
-    "hiddenTurns": "{count} senare tur dold: den eller en tidigare tur använde en agent du inte hanterar | {count} senare turer dolda: de eller en tidigare tur använde en agent du inte hanterar"
+    "hiddenTurns": "{count} senare tur dold: den eller en tidigare tur använde en agent du inte hanterar | {count} senare turer dolda: de eller en tidigare tur använde en agent du inte hanterar",
+    "contextColumns": {
+      "ofTotal": "{shown} av {total} kolumner",
+      "allColumns": "{total} kolumner",
+      "why": "Varför dessa kolumner",
+      "reason": {
+        "usage_ranked": "Rankade efter kolumnanvändning",
+        "structural_only": "Ingen användning än: nycklar, tidsstämplar och ID:n först",
+        "all_columns": "Alla kolumner ryms inom gränsen"
+      },
+      "signal": {
+        "mentioned": "{n} nämnda i uppgiften",
+        "usage": "{n} efter användning",
+        "instructions": "{n} refererade i instruktioner",
+        "structural": "{n} nycklar, tidsstämplar eller ID:n",
+        "sample": "{n} som urval ur kolumngrupperna",
+        "schema_order": "{n} i katalogordning"
+      },
+      "shown": "Kolumner i kontexten",
+      "folded": "Grupperade (sökbara med describe_tables)",
+      "otherColumns": "{count} andra kolumner",
+      "usedTimes": "använd {count}×",
+      "score": "poäng {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -2313,6 +2336,19 @@
       "connected": "Ansluten",
       "askAgain": "Fråga igen",
       "readyHint": "Ansluten. Kör frågan igen för att använda den."
+    },
+    "describeTables": {
+      "searching": "Söker {query}…",
+      "searched": "Sökte {names}",
+      "searchedMore": "Sökte {names} +{count}",
+      "columnsMatching": "kolumner som matchar {terms}",
+      "column": "Kolumn",
+      "type": "Typ",
+      "used": "Användningar",
+      "showingOf": "De {shown} främsta av {total} kolumner, mest använda först",
+      "matchingOf": "{matched} av {total} kolumner matchar {terms}",
+      "noMatch": "Ingen kolumn matchar {terms}",
+      "more": "+{count} till"
     }
   },
   "entityCreate": {
@@ -3753,6 +3789,10 @@
         "show_world": {
           "name": "Världsvy",
           "description": "Visar en brytare på sidan Agenter som öppnar Värld: en karta över agenterna, kunskapen, källorna och arbetet som binder samman din organisation. Varje användare ser bara det hen har åtkomst till."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K kolumner per tabell",
+          "description": "Hur många kolumner i en bred tabell agenten ser i sin helhet i kontexten, rankade efter kolumnanvändning, referenser i instruktioner och nycklar/tidsstämplar. Resten sammanfattas per prefix och går att söka med describe_tables. 0 = ingen gräns."
         }
       },
       "permissionMode": {
@@ -7074,7 +7114,10 @@
     "exitFullscreen": "Avsluta helskärm",
     "searchColumns": "Sök kolumner…",
     "noColumns": "Inga matchande kolumner",
-    "centrality": "Centralitet"
+    "centrality": "Centralitet",
+    "usedHeader": "Användningar",
+    "usedTooltip": "Körda frågor som använde kolumnen (misslyckade försök väger mindre i rankningen)",
+    "sortedByUsage": "Mest använda först"
   },
   "fork": {
     "preparing": "Förbereder din kopia…",

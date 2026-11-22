@@ -541,14 +541,20 @@
                         :data-testid="`cols-hide-all-${table.name}`" @click="setAllColumnsVisible(table, false)">{{ t('tableErd.hideAllColumns') }}</button>
                     </span>
                   </div>
-                  <div class="grid text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1" :class="canUpdate ? 'grid-cols-[1.5rem_1fr_1fr]' : 'grid-cols-2'">
+                  <div class="grid text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1" :class="columnGridClass(canUpdate)">
                     <div v-if="canUpdate"></div>
                     <div>Name</div>
                     <div>Type</div>
+                    <UTooltip :text="t('tableErd.usedTooltip')" class="justify-self-end">
+                      <span class="inline-flex items-center gap-1" :data-testid="`cols-used-header-${table.name}`">
+                        {{ t('tableErd.usedHeader') }}
+                        <UIcon v-if="hasColumnUsage(table)" name="heroicons-arrow-down" class="w-3 h-3" :aria-label="t('tableErd.sortedByUsage')" />
+                      </span>
+                    </UTooltip>
                   </div>
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
-                    <label v-for="col in table.columns" :key="col.name" class="grid items-center text-xs px-2 py-1"
-                      :class="[canUpdate ? 'grid-cols-[1.5rem_1fr_1fr] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900' : 'grid-cols-2']"
+                    <label v-for="col in columnsByUsage(table)" :key="col.name" class="grid items-center text-xs px-2 py-1"
+                      :class="[columnGridClass(canUpdate), canUpdate ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900' : '']"
                       :data-testid="`col-row-${table.name}-${col.name}`">
                       <UCheckbox v-if="canUpdate" color="blue" :model-value="isColumnVisible(table, col.name)" :disabled="saving"
                         :aria-label="t('tableErd.includeColumn', { name: col.name })"
@@ -558,6 +564,7 @@
                         <span v-if="!isColumnVisible(table, col.name)" class="shrink-0 text-2xs px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.columnHidden') }}</span>
                       </div>
                       <div :class="isColumnVisible(table, col.name) ? 'text-gray-500 dark:text-gray-400' : 'text-ink-muted'">{{ col.dtype || col.type }}</div>
+                      <div class="text-end nums text-gray-500 dark:text-gray-400" :data-testid="`col-usage-${table.name}-${col.name}`">{{ columnUsage(table, col.name) || '—' }}</div>
                     </label>
                   </div>
                 </div>
@@ -745,6 +752,8 @@ type Table = {
   columns?: Column[];
   // Column names hidden from this agent's context (null/absent = none).
   excluded_columns?: string[] | null;
+  // Per-column usage (with_stats): { [column]: { usage_count, success_count, ... } }
+  column_stats?: Record<string, { usage_count?: number; success_count?: number; failure_count?: number; pos_feedback_count?: number; neg_feedback_count?: number }> | null;
   pks?: any[];
   fks?: ForeignKey[];
   last_used_at?: string;
@@ -1508,6 +1517,36 @@ function hiddenColumnCount(table: Table): number {
   if (!excluded.length) return 0
   const hidden = new Set(excluded.map(n => n.toLowerCase()))
   return (table.columns || []).filter(c => hidden.has(c.name.toLowerCase())).length
+}
+
+// Column usage (BOW-215): executed queries per column, from ColumnStats.
+function columnUsage(table: Table, column: string): number {
+  const stats = table.column_stats || {}
+  return Number(stats[column]?.usage_count || 0)
+}
+
+function hasColumnUsage(table: Table): boolean {
+  return Object.values(table.column_stats || {}).some((s: any) => Number(s?.usage_count || 0) > 0)
+}
+
+function columnNetFeedback(table: Table, column: string): number {
+  const s = (table.column_stats || {})[column]
+  return Number(s?.pos_feedback_count || 0) - Number(s?.neg_feedback_count || 0)
+}
+
+// Most used first, ties broken by net thumbs (up minus down); columns with
+// no usage keep catalog order.
+function columnsByUsage(table: Table): Column[] {
+  const cols = table.columns || []
+  if (!hasColumnUsage(table)) return cols
+  return cols
+    .map((c, i) => ({ c, i, u: columnUsage(table, c.name), f: columnNetFeedback(table, c.name) }))
+    .sort((a, b) => (b.u - a.u) || (b.f - a.f) || (a.i - b.i))
+    .map(x => x.c)
+}
+
+function columnGridClass(canUpdateCols: boolean): string {
+  return canUpdateCols ? 'grid-cols-[1.5rem_1fr_1fr_4rem]' : 'grid-cols-[1fr_1fr_4rem]'
 }
 
 function isColumnVisible(table: Table, column: string): boolean {
