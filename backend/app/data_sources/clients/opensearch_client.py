@@ -30,6 +30,7 @@ class OpenSearchClient(DataSourceClient):
     # one literal either way.
     sql_literal_style = "doubled"
     sql_in_json_envelope = True
+    search_summary_results = True
 
     # The engine's default max_result_window: size + from must stay under it.
     MAX_RESULT_WINDOW = 10_000
@@ -408,7 +409,7 @@ class OpenSearchClient(DataSourceClient):
 
         result = self._request("POST", f"/{index}/_search", json_body=body)
 
-        return search_frame(result, body, include_index=False)
+        return search_frame(result, body, include_index=False, opensearch=True)
 
     def _execute_sql(self, sql: str) -> pd.DataFrame:
         """Run a statement via the bundled SQL plugin (`POST /_plugins/_sql`)."""

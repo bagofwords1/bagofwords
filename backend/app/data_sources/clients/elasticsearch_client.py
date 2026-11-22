@@ -116,6 +116,7 @@ class ElasticsearchClient(DataSourceClient):
     # structure: string literals): standard.
     sql_literal_style = "standard"
     sql_in_json_envelope = True
+    search_summary_results = True
 
     # The engine's default max_result_window: size + from must stay under it.
     MAX_RESULT_WINDOW = 10_000
@@ -251,6 +252,8 @@ class ElasticsearchClient(DataSourceClient):
         elif isinstance(node, dict):
             if "id" in node and ("path" in node or "field" in node) and isinstance(node.get("index"), str):
                 self._check_target(node["index"])
+            if "_id" in node and isinstance(node.get("_index"), str):
+                self._check_target(node["_index"])
             shape = node.get("indexed_shape")
             if isinstance(shape, dict) and "id" in shape:
                 self._check_target(shape.get("index", "shapes"))

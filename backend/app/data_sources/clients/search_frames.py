@@ -15,7 +15,8 @@ SEARCH_KEYS = frozenset({
 SEARCH_GUIDE = """
 Search DSL: use {"index": "...", "body": {...}} or put search keys beside index.
 For an exact document count use size: 0 and track_total_hits: true with your query.
-Read df.iloc[0]["doc_count"]; relation "eq" means exact and "gte" means at least.
+In both inspections and saved tables, read row = df.iloc[0], then row["doc_count"]
+and row["relation"]. Report an exact count only for "eq"; "gte" means at least.
 len(df) counts the page rows only. For a filtered group use a filter aggregation;
 the returned columns are <name>.doc_count and <name>.<metric>. A top-level
 scalar metric is the column named by its aggregation. To get the overall count
@@ -28,8 +29,8 @@ For a filter "subset" containing that metric, read df["subset.peak"]. Inspect df
 column is an error; never substitute zero for a missing count.
 Use post_filter for document hits only; put a filter in query to scope aggregations too.
 Requested fields are fields.<name> arrays, and _sort holds search_after cursor values.
-An explicit positive size with aggregations returns one envelope row with raw hits and
-aggregations. Use size: 0 for a flattened aggregation table.
+Aggregation searches always return a flattened table. Read df.attrs["hits"] for
+the document page when size is positive and df.attrs["aggregations"] for the tree.
 """
 
 
@@ -61,28 +62,34 @@ def search_body(envelope, supported):
     return body
 
 
-def search_frame(result, body, *, include_index):
-    if result.get("timed_out") or result.get("terminated_early") or (result.get("_shards") or {}).get("failed"):
+def search_frame(result, body, *, include_index, opensearch=False):
+    # OpenSearch flags collector optimization on complete aggregation-only searches.
+    has_aggs = "aggs" in body or "aggregations" in body
+    optimized = opensearch and body["size"] == 0 and has_aggs and not body.get("terminate_after")
+    if result.get("timed_out") or (result.get("terminated_early") and not optimized) or (result.get("_shards") or {}).get("failed"):
         raise QueryGuardrailError("Search returned partial results (timeout, early termination or failed shards).")
     hits = result.get("hits", {})
     total = hits.get("total")
     docs = hits.get("hits", [])
-    if "aggs" in body or "aggregations" in body:
-        aggs = result["aggregations"]
+    if type(total) is int and total >= 0:
+        # An integer has no precision marker. Exact tracking is guaranteed only
+        # for an explicit exact request (also the default for count-only reads).
+        total = {"value": total, "relation": "eq" if body.get("track_total_hits") is True else "gte"}
+    if has_aggs:
+        aggs = result.get("aggregations") or {}
+        frame = pd.DataFrame(flatten_aggregations(aggs))
+        frame.attrs["aggregations"] = aggs
         if body["size"] > 0:
-            frame = pd.DataFrame([{"hits": docs, "aggregations": aggs, "total": total}])
-        else:
-            frame = pd.DataFrame(flatten_aggregations(aggs))
-            frame.attrs["aggregations"] = aggs
-            if (
-                body.get("track_total_hits") is True
-                and isinstance(total, dict)
-                and len(frame) == 1
-                and not {"doc_count", "relation"}.intersection(frame.columns)
-                and all(isinstance(agg, dict) and "buckets" not in agg for agg in aggs.values())
-            ):
-                frame["doc_count"] = total["value"]
-                frame["relation"] = total["relation"]
+            frame.attrs["hits"] = docs
+        if (
+            body.get("track_total_hits") is True
+            and isinstance(total, dict)
+            and len(frame) == 1
+            and not {"doc_count", "relation"}.intersection(frame.columns)
+            and all(isinstance(agg, dict) and "buckets" not in agg for agg in aggs.values())
+        ):
+            frame["doc_count"] = total["value"]
+            frame["relation"] = total["relation"]
     elif body["size"] == 0:
         if not isinstance(total, dict) or total.get("relation") not in ("eq", "gte"):
             raise ValueError("Search returned no usable hit count")
@@ -90,6 +97,18 @@ def search_frame(result, body, *, include_index):
     else:
         frame = pd.json_normalize([hit.get("_source") or {} for hit in docs], sep=".")
         if docs:
+            # Reserve metadata names while preserving every colliding source field.
+            reserved = {"_id"}
+            if include_index:
+                reserved.add("_index")
+            if any("sort" in hit for hit in docs):
+                reserved.add("_sort")
+            reserved.update(f"fields.{key}" for hit in docs for key in hit.get("fields", {}))
+            for name in sorted(reserved.intersection(frame.columns)):
+                alias = f"_source.{name}"
+                while alias in frame.columns or alias in reserved:
+                    alias = f"_source.{alias}"
+                frame.rename(columns={name: alias}, inplace=True)
             frame.insert(0, "_id", [hit.get("_id") for hit in docs])
             if include_index:
                 frame.insert(1, "_index", [hit.get("_index") for hit in docs])
@@ -97,6 +116,8 @@ def search_frame(result, body, *, include_index):
                 frame.insert(len(frame.columns), "_sort", [hit.get("sort") for hit in docs])
             for key in sorted({key for hit in docs for key in hit.get("fields", {})}):
                 frame.insert(len(frame.columns), f"fields.{key}", [hit.get("fields", {}).get(key) for hit in docs])
+    if body["size"] == 0 or has_aggs:
+        frame.attrs["bow_search_summary"] = list(frame.columns)
     if total is not None:
         frame.attrs["total_hits"] = total
     return frame
@@ -105,7 +126,7 @@ def search_frame(result, body, *, include_index):
 def metric_columns(name, body):
     if not isinstance(body, dict):
         return {name: body}
-    if "value" in body and set(body) <= {"value", "value_as_string"}:
+    if "value" in body and set(body) <= {"value", "value_as_string", "meta"}:
         return {name: body.get("value_as_string", body["value"])}
     if set(body) == {"values"} and isinstance(body["values"], dict):
         return {f"{name}.{key}": value for key, value in body["values"].items()}

@@ -20,6 +20,7 @@ from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, Frozen
 from app.ai.http.safe_client import SafeHttpClient
 from app.ai.data_visibility import allow_llm_see_data, cut_before_value, names_only_structure, redact_error_text
 from app.ai.code_execution.sandbox.config import MODE_INPROCESS, sandbox_mode
+from app.ai.code_execution.sandbox.search_results import exec_dataframe_code
 from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exported
     # READ_TEXT_* and _build_read_text stay importable from this module: tests
     # and callers reference them here, the sandbox child imports them from
@@ -1838,6 +1839,7 @@ class StreamingCodeExecutor:
             loadables=loadables,
             params=params,
             client_keys=[str(k) for k in (wrapped_clients or {}).keys()],
+            search_summaries=any(getattr(c, "search_summary_results", False) is True for c in wrapped_clients.values()),
             client_aliases=dict(getattr(wrapped_clients, "former", None) or {}),
             http_enabled=http_client is not None,
             load_step_enabled=load_step_enabled,
@@ -1907,7 +1909,9 @@ class StreamingCodeExecutor:
             with _tracer.start_as_current_span("code_execution.stdout_lock") as lock_span:
                 lock_span.set_attribute("code_execution.lock_wait_ms", round((capture_started_at - wait_started) * 1000.0, 3))
                 lock_span.set_attribute("code_execution.code_chars", len(code or ""))
-                exec(code, local_namespace)
+                exec_dataframe_code(code, local_namespace, search_summaries=any(
+                    getattr(c, "search_summary_results", False) is True for c in wrapped_clients.values()
+                ))
                 generate_df = local_namespace.get('generate_df')
                 if not generate_df:
                     raise Exception("No generate_df function found in code")

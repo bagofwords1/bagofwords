@@ -51,8 +51,8 @@ def test_nested_metrics_and_mixed_results(search):
     frame, _ = search(query, result)
     assert frame.to_dict("records") == [{"group.doc_count": 13, "group.peak": 83}]
     mixed, _ = search({**query, "size": 1}, result)
-    assert mixed.iloc[0]["aggregations"] == agg
-    assert mixed.iloc[0]["hits"] == [hit]
+    assert mixed.attrs["aggregations"] == agg
+    assert mixed.attrs["hits"] == [hit]
 
 
 def test_unknown_option_is_rejected(search):
@@ -110,3 +110,72 @@ def test_single_child_bucket_stays_separate_from_sibling_series(search):
     assert frame["subset.regions"].dropna().tolist() == ["west"]
     assert frame["services"].dropna().tolist() == ["billing"]
     assert frame["doc_count"].tolist() == [5, 7]
+
+
+def test_legacy_total_and_empty_aggregations(search):
+    frame, _ = search({"size": 0}, {"hits": {"hits": [], "total": 5}})
+    assert frame.to_dict("records") == [{"doc_count": 5, "relation": "eq"}]
+    empty, _ = search({"aggs": {}}, {"hits": {"hits": [], "total": 0}})
+    assert empty.empty
+    assert empty.attrs["aggregations"] == {}
+
+
+def test_source_collisions_and_metric_metadata(search):
+    hit = {"_id": "1", "_source": {"fields": {"tag": "old"}, "_sort": "original"},
+           "fields": {"tag": ["projected"]}, "sort": [8]}
+    frame, _ = search({"size": 2, "fields": ["tag"]}, {"hits": {"hits": [hit]}})
+    row = frame.iloc[0]
+    assert row["fields.tag"] == ["projected"] and row["_source.fields.tag"] == "old"
+    assert row["_sort"] == [8] and row["_source._sort"] == "original"
+    frame, _ = search({"aggs": {"peak": {"max": {"field": "metric"}}}},
+                      {"aggregations": {"peak": {"value": 3, "meta": {"unit": "ms"}}}})
+    assert frame.iloc[0]["peak"] == 3
+
+
+@pytest.mark.parametrize("access", [
+    'row["wrong"]',
+    'row.get("wrong", 0)',
+    'row["wrong"] if "wrong" in frame.columns else 0',
+])
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+def test_generated_missing_summary_column_fails_with_actual_schema(monkeypatch, access, mode):
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+    client = ElasticsearchClient(host="localhost")
+    monkeypatch.setattr(client, "_request", lambda *args, **kwargs: {
+        "hits": {"hits": [], "total": {"value": 0, "relation": "eq"}}})
+    code = f'''def generate_df(ds_clients, excel_files):
+    frame = ds_clients["search"].execute_query('{{"index":"events","size":0}}')
+    row = frame.iloc[0]
+    return pd.DataFrame([{{"count": {access}}}])
+'''
+    with pytest.raises(Exception, match="Missing search result column 'wrong'.*doc_count.*relation"):
+        StreamingCodeExecutor().execute_code(code=code, ds_clients={"search": client}, excel_files=[])
+    good = code.replace(access, 'row["doc_count"]')
+    result, _, _ = StreamingCodeExecutor().execute_code(code=good, ds_clients={"search": client}, excel_files=[])
+    assert result.to_dict("records") == [{"count": 0}]
+
+
+def test_lookup_target_uses_connection_policy(monkeypatch):
+    client = ElasticsearchClient(host="localhost", allowed_index_patterns="events")
+    checked = []
+    monkeypatch.setattr(client, "_check_target", checked.append)
+    client._check_dsl_lookups({"like": [{"_index": "events", "_id": "sample"}]})
+    assert checked == ["events"]
+
+
+def test_generated_nested_summary_returns_count_and_peak(monkeypatch):
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+    client = ElasticsearchClient(host="localhost")
+    monkeypatch.setattr(client, "_request", lambda *args, **kwargs: {
+        "aggregations": {"active": {"doc_count": 4, "peak": {"value": 23}}}})
+    code = '''def generate_df(ds_clients, excel_files):
+    frame = ds_clients["search"].execute_query({"index": "events", "size": 0,
+        "aggs": {"active": {"filter": {"exists": {"field": "sensor"}},
+                            "aggs": {"peak": {"max": {"field": "elapsed"}}}}}})
+    return frame[["active.doc_count", "active.peak"]]
+'''
+    result, _, _ = StreamingCodeExecutor().execute_code(code=code, ds_clients={"search": client}, excel_files=[])
+    assert result.to_dict("records") == [{"active.doc_count": 4, "active.peak": 23}]

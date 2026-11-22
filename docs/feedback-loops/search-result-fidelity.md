@@ -26,7 +26,7 @@ TEST_ELASTICSEARCH_URL=http://localhost:9200 TEST_OPENSEARCH_URL=http://localhos
   .venv/bin/pytest -q tests/integrations/test_search_fidelity_live.py
 ```
 
-Elasticsearch 8.17.4 returned both the nested count and maximum. OpenSearch 3.10.0 flagged the zero-size nested maximum query as terminated early on the fixture. The test checks the engine's flag independently and requires an explicit error in that case. The mixed query returned the expected hit and nested maximum on both engines.
+Elasticsearch 8.17.4 returned both the nested count and maximum. OpenSearch 3.10.0 flagged the zero-size nested maximum query as terminated early on the fixture. OpenSearch can set this flag on a complete aggregation-only response. The live test requires the known count and maximum on both engines. Timeouts and failed shards still raise errors. The mixed query returned the expected hit and nested maximum on both engines.
 
 ## Local app verification
 
@@ -43,6 +43,12 @@ A separate 100,000-event synthetic index exercised column discovery and generate
 
 ## Result contract
 
-`backend/app/data_sources/clients/search_frames.py` validates envelope keys and constructs DataFrames. Both clients apply their engine-specific limits to the normalized request before sending it. An exact count is a row containing `doc_count` and `relation`. Every available raw hit total is also accessible through `df.attrs["total_hits"]`. Scalar aggregation columns use their aggregation names. The original aggregation tree is available in `df.attrs["aggregations"]` for aggregation-only requests. An explicit positive size with aggregations returns one row containing both result sections.
+`backend/app/data_sources/clients/search_frames.py` validates envelope keys and constructs DataFrames. Both clients apply their engine-specific limits to the normalized request before sending it. An exact count is a row containing `doc_count` and `relation`. Every available raw hit total is also accessible through `df.attrs["total_hits"]`. Scalar aggregation columns use their aggregation names. The original aggregation tree is available in `df.attrs["aggregations"]` for aggregation requests. An explicit positive size keeps the flat aggregation table and makes document hits available in df.attrs["hits"].
 
 The tests establish connector behavior independently of the language model. Live chat also exercises schema discovery, code generation and result interpretation. The documented retries matter when evaluating first-answer reliability.
+
+## Generated-code verification
+
+The inspection and chart tools both call StreamingCodeExecutor. Its search-summary checks report the missing name and the actual columns for direct scalar reads, pandas get calls with zero/null defaults, and column-membership checks with a zero/null fallback. The regression suite runs the observed false-zero expression in both the subprocess and in-process executors. It also checks genuine zero and nonzero nested aggregation results. These checks cover common access patterns in generated Python. Arbitrary downstream Python calculations can still introduce errors.
+
+In a fresh Haiku 5.5 report, the saved queue telemetry table contained 10 events and a maximum duration of 284 ms. A second prompt saved a genuine zero for HTTP 451. Each turn made one successful create_data call. Both agreed with direct engine queries. The saved count used the supported total_hits value metadata accessor even though the count-only guidance recommends the row's doc_count and relation columns.
