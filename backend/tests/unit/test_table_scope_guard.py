@@ -18,6 +18,7 @@ import sqlite3
 import pytest
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, TableAccessError
+from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
 from app.ai.code_execution.table_scope import (
     TABLE_SCOPE_ATTR,
     TableScope,
@@ -140,6 +141,322 @@ def test_functions_called_as_a_field_are_refused(sql, name, dialect):
 ])
 def test_dialect_features_over_active_tables_still_run(sql, dialect):
     check_table_scope(sql, dialect, SCOPE)
+
+
+APPLY_SCOPE = TableScope.from_names(active=["events"], inactive=["secret"])
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric", "oracle"])
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM events CROSS APPLY secret",
+    "SELECT * FROM events OUTER APPLY secret",
+    "SELECT * FROM events CROSS APPLY dbo.fn_rows(1)",
+    "SELECT * FROM events e CROSS APPLY fn_rows(e.id)",
+])
+def test_apply_over_a_name_or_a_call_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric", "oracle"])
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM events e CROSS APPLY (SELECT id FROM events f WHERE f.id = e.id) x",
+    "SELECT * FROM events e OUTER APPLY (SELECT id FROM events f WHERE f.id = e.id) x",
+])
+def test_apply_over_a_subquery_of_enabled_tables_still_runs(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric", "oracle"])
+def test_apply_over_a_subquery_of_a_disabled_table_is_refused(dialect):
+    with pytest.raises(TableScopeViolation, match="SECRET is not enabled"):
+        check_table_scope("SELECT * FROM events e CROSS APPLY (SELECT id FROM secret s WHERE s.id = e.id) x",
+                          dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    ("postgres", "SELECT * FROM events e, LATERAL secret"),
+    ("postgres", "SELECT * FROM events e, LATERAL other.fn_rows(e.id) r"),
+    ("postgres", "SELECT * FROM events e CROSS JOIN LATERAL fn_rows(e.id) r"),
+    ("snowflake", "SELECT * FROM events e, LATERAL secret"),
+])
+def test_lateral_over_a_name_or_an_unknown_call_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    ("postgres", "SELECT * FROM events e CROSS JOIN LATERAL jsonb_array_elements(e.items) i"),
+    ("postgres", "SELECT * FROM events e, LATERAL generate_series(1, e.n) g"),
+    ("postgres", "SELECT * FROM events e, LATERAL (SELECT 1 AS one) g"),
+    ("databricks", "SELECT id, tag FROM events LATERAL VIEW explode(tags) t AS tag"),
+    ("snowflake", "SELECT f.value FROM events e, LATERAL FLATTEN(input => e.items) f"),
+])
+def test_lateral_over_a_subquery_or_a_row_producing_function_still_runs(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# Row-producing functions of Spark, Databricks and Hive, and T-SQL's nodes()
+# method of an xml column: each reads only its arguments.
+@pytest.mark.parametrize("dialect, sql", [
+    *[(d, s) for d in ("spark", "databricks", "hive") for s in (
+        "SELECT id, a, b FROM events LATERAL VIEW json_tuple(payload, 'a', 'b') t AS a, b",
+        "SELECT id, k, v FROM events LATERAL VIEW stack(2, 'a', a, 'b', b) t AS k, v",
+        "SELECT id, h FROM events LATERAL VIEW parse_url_tuple(url, 'HOST') t AS h",
+        "SELECT id, p, tag FROM events LATERAL VIEW posexplode(tags) t AS p, tag",
+        "SELECT id, a FROM events LATERAL VIEW inline(items) t AS a",
+        "SELECT id, a FROM events LATERAL VIEW inline_outer(items) t AS a",
+        "SELECT id, tag FROM events LATERAL VIEW explode_outer(tags) t AS tag",
+        "SELECT id, tag FROM events LATERAL VIEW OUTER explode(tags) t AS tag",
+    )],
+    ("databricks", "SELECT e.id, v.value FROM events e, LATERAL variant_explode(e.payload) v"),
+    ("databricks", "SELECT e.id, v.value FROM events e, LATERAL variant_explode_outer(e.payload) v"),
+    *[(d, s) for d in ("tsql", "fabric") for s in (
+        "SELECT e.id, n.x.value('.', 'int') AS v FROM events e CROSS APPLY e.doc.nodes('/a/b') AS n(x)",
+        "SELECT e.id FROM events e OUTER APPLY e.doc.nodes('/a/b') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY e.doc.nodes('/a') AS n(x) CROSS APPLY n.x.nodes('/b') AS m(y)",
+        "SELECT events.id FROM events CROSS APPLY events.doc.nodes('/a/b') AS n(x)",
+    )],
+])
+def test_a_function_that_makes_rows_from_a_column_still_runs(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    *[(d, s) for d in ("tsql", "fabric") for s in (
+        "SELECT e.id FROM events e CROSS APPLY dbo.fn_rows(1)",
+        "SELECT e.id FROM events e CROSS APPLY secret",
+        "SELECT e.id FROM events e CROSS APPLY secret.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY dbo.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY dbo.secret.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY otherdb.dbo.secret.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY doc.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY e.doc.query('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY e.doc.nodes(e.id) AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY e.doc.nodes('/a', 1) AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY f.doc.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY events.doc.nodes('/a') AS n(x)",
+    )],
+    ("oracle", "SELECT e.id FROM events e CROSS APPLY e.doc.nodes('/a') n"),
+    *[(d, s) for d in ("spark", "databricks", "hive") for s in (
+        "SELECT id, tag FROM events LATERAL VIEW my_udtf(tags) t AS tag",
+        "SELECT id, tag FROM events LATERAL VIEW secret t AS tag",
+    )],
+    ("databricks", "SELECT e.id FROM events e, LATERAL read_files('/x') v"),
+])
+def test_apply_or_lateral_over_another_call_stays_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# A row limit is a number or a bound parameter. A name there is one more
+# source to an engine that reads the clause word as the table's alias.
+LIMIT_DIALECTS = ["tsql", "fabric", "oracle", "teradata", "trino", "presto", "athena", "snowflake", "spark",
+                  "databricks", "postgres", "mysql", "bigquery", "clickhouse", "redshift", "sqlite", "druid"]
+
+
+@pytest.mark.parametrize("dialect", LIMIT_DIALECTS)
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM events limit, secret",
+    "SELECT * FROM events limit, ledger",
+    "SELECT * FROM (SELECT * FROM events limit, ledger) t",
+    "SELECT * FROM events e limit, sys.objects",
+    "SELECT * FROM events LIMIT 5, ledger",
+    "SELECT * FROM events OFFSET ledger",
+    "SELECT * FROM events FETCH FIRST ledger ROWS ONLY",
+])
+def test_a_row_limit_that_is_a_name_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# The keyword as the alias of a joined table, with the join's USING or ON
+# after it, and then one more source.
+_AFTER_A_JOINED_ALIAS = tuple(
+    "FROM events a JOIN events {k} " + condition + source
+    for condition in ("USING (id)", "ON a.id = 1")
+    for source in (", ledger", " JOIN ledger ON 1 = 1", " ledger"))
+
+
+@pytest.mark.parametrize("dialect", sorted({d for d in CLIENT_DIALECTS.values() if d} | {"fabric", "presto"}))
+def test_no_keyword_in_alias_position_leaves_a_source_unchecked(dialect):
+    # After a table in FROM, with any keyword of the dialect where an alias
+    # may stand, a name that follows as a source is checked as a table.
+    # ClickHouse's ARRAY JOIN takes an array column, not a table.
+    from sqlglot import Dialect
+
+    keywords = sorted({k.lower() for k in Dialect.get_or_raise(dialect).tokenizer_class.KEYWORDS
+                       if k.replace("_", "a").isalnum() and k[0].isalpha()})
+    assert len(keywords) > 250 and {"limit", "offset", "fetch"} <= set(keywords)
+    ran = []
+    for keyword in keywords:
+        for form in ("FROM events {k}, ledger", "FROM events {k} JOIN ledger ON 1 = 1",
+                     "FROM events {k} CROSS JOIN ledger", "FROM (SELECT * FROM events {k}, ledger) t",
+                     "FROM events AS {k}, ledger", *_AFTER_A_JOINED_ALIAS):
+            try:
+                check_table_scope("SELECT * " + form.format(k=keyword), dialect, APPLY_SCOPE)
+            except TableScopeViolation:
+                continue
+            ran.append((keyword, form))
+    assert ran == ([("array", "FROM events {k} JOIN ledger ON 1 = 1")] if dialect == "clickhouse" else [])
+
+
+ALL_DIALECTS = sorted({d for d in CLIENT_DIALECTS.values() if d} | {"fabric", "presto"})
+
+
+_FOR_XML = "SELECT * FROM events FOR XML AUTO, ledger"
+
+
+# T-SQL, in which FOR is a reserved word, reads every name after FOR XML as
+# one of its options, never as a source.
+@pytest.mark.parametrize("dialect, sql", [(d, s) for d in ALL_DIALECTS for s in (
+    "SELECT * FROM events FOR SYSTEM_TIME AS OF '2020-01-01', ledger",
+    _FOR_XML,
+    "SELECT * FROM events NEXT VALUE FOR seq, ledger",
+    "SELECT * FROM events e FOR SYSTEM_TIME AS OF '2020-01-01' JOIN ledger ON 1 = 1",
+    "SELECT * FROM sales..ledger",
+    "SELECT * FROM events e, sales..ledger",
+) if not (s == _FOR_XML and d in ("tsql", "fabric"))])
+def test_a_source_after_a_for_clause_or_an_empty_name_part_is_checked(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
+@pytest.mark.parametrize("sql", ["SELECT * FROM events FOR XML AUTO, ELEMENTS", _FOR_XML])
+def test_the_options_of_for_xml_still_run_on_tsql(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# A WINDOW clause names each window as `name AS (specification)`. Anything
+# else there is refused: an engine in which WINDOW is no keyword reads it as
+# the alias of the table before it, and a name after it as one more source.
+@pytest.mark.parametrize("dialect", ALL_DIALECTS)
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM events a JOIN events window USING (id), ledger",
+    "SELECT * FROM events a JOIN events window USING (id), secret",
+    "SELECT * FROM events a JOIN events window USING (id), sys.objects",
+    "SELECT * FROM (SELECT * FROM events a JOIN events window USING (id), ledger) t",
+    "SELECT * FROM events window x (id), ledger",
+    "SELECT * FROM events WINDOW w AS (PARTITION BY id), ledger",
+    "SELECT * FROM events WINDOW w AS ()",
+    "SELECT * FROM events WINDOW w AS (PARTITION BY id), v AS ()",
+    "SELECT * FROM events WINDOW w AS (PARTITION BY id), v AS (w)",
+])
+def test_a_window_clause_entry_without_a_specification_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# A window named by a keyword: what may follow a table's alias starts with
+# one (USING, ON, WITH).
+@pytest.mark.parametrize("dialect", ALL_DIALECTS)
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM events a JOIN events window USING (ORDER BY id)",
+    "SELECT * FROM events window WITH (ORDER BY id)",
+    "SELECT SUM(id) OVER w FROM events WINDOW w AS (ORDER BY id), using AS (PARTITION BY kind)",
+])
+def test_a_window_named_by_a_keyword_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "trino", "redshift"])
+def test_a_window_with_a_quoted_name_still_runs(dialect):
+    check_table_scope('SELECT SUM(id) OVER "using" FROM events WINDOW "using" AS (ORDER BY id)', dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "mysql", "bigquery", "spark", "databricks", "clickhouse", "trino",
+                                     "sqlite", "duckdb", "redshift"])
+@pytest.mark.parametrize("sql", [
+    "SELECT SUM(id) OVER w FROM events WINDOW w AS (PARTITION BY kind ORDER BY id)",
+    "SELECT SUM(id) OVER w, MAX(id) OVER v FROM events WINDOW w AS (PARTITION BY kind), v AS (ORDER BY id)",
+    "SELECT SUM(id) OVER w FROM events WINDOW w AS (ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)",
+    "SELECT SUM(id) OVER w FROM events WINDOW v AS (PARTITION BY kind), w AS (v ORDER BY id)",
+])
+def test_a_window_clause_with_a_specification_still_runs(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# Spark, Databricks and Hive generators (json_tuple, stack, ...) make rows
+# from their arguments under LATERAL VIEW and LATERAL there, by their bare
+# name. In any other position, or on another dialect, the name is a function
+# the checks do not know.
+GENERATORS = ["inline_outer", "json_tuple", "parse_url_tuple", "stack", "variant_explode", "variant_explode_outer"]
+GENERATOR_DIALECTS = ("databricks", "hive", "spark")
+_UNDER_LATERAL = (
+    "SELECT * FROM events e LATERAL VIEW {f}(e.id) t AS a",
+    "SELECT * FROM events e LATERAL VIEW OUTER {f}(e.id) t AS a",
+    "SELECT * FROM events e, LATERAL {f}(e.id) t",
+    "SELECT * FROM events e CROSS JOIN LATERAL {f}(e.id) t",
+)
+_NOT_UNDER_LATERAL = (
+    "SELECT * FROM {f}(1) t",
+    "SELECT * FROM events e, {f}(e.id) t",
+    "SELECT * FROM events e JOIN {f}(e.id) t ON 1 = 1",
+    "SELECT * FROM events e CROSS JOIN {f}(e.id) t",
+    "SELECT * FROM x.{f}(1) t",
+    "SELECT * FROM events e, x.{f}(e.id) t",
+    "SELECT * FROM events e LATERAL VIEW x.{f}(e.id) t AS a",
+    "SELECT * FROM events e, LATERAL x.{f}(e.id) t",
+    "SELECT * FROM events e CROSS JOIN LATERAL x.{f}(e.id) t",
+    "SELECT * FROM TABLE({f}(1)) t",
+    "SELECT * FROM events e, TABLE({f}(e.id)) t",
+    "SELECT * FROM events e, LATERAL TABLE({f}(e.id)) t",
+    "SELECT * FROM events e CROSS APPLY {f}(e.id) t",
+    "SELECT * FROM events e OUTER APPLY {f}(e.id) t",
+)
+
+
+def _generator_forms_that_run(dialect, name, forms):
+    ran = []
+    for form in forms:
+        try:
+            check_table_scope(form.format(f=name), dialect, APPLY_SCOPE)
+        except TableScopeViolation:
+            continue
+        ran.append(form)
+    return ran
+
+
+@pytest.mark.parametrize("dialect", ALL_DIALECTS)
+@pytest.mark.parametrize("name", GENERATORS)
+def test_a_generator_outside_lateral_is_refused_on_every_dialect(dialect, name):
+    assert len(ALL_DIALECTS) == 20
+    assert _generator_forms_that_run(dialect, name, _NOT_UNDER_LATERAL) == []
+
+
+@pytest.mark.parametrize("dialect", ALL_DIALECTS)
+@pytest.mark.parametrize("name", GENERATORS)
+def test_a_generator_under_lateral_runs_only_on_spark_databricks_and_hive(dialect, name):
+    expected = list(_UNDER_LATERAL) if dialect in GENERATOR_DIALECTS else []
+    assert _generator_forms_that_run(dialect, name, _UNDER_LATERAL) == expected
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
+def test_a_top_that_is_a_name_is_refused(dialect):
+    with pytest.raises(TableScopeViolation, match="row limit"):
+        check_table_scope("SELECT TOP (ledger) * FROM events", dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    *[(d, s) for d in LIMIT_DIALECTS for s in (
+        "SELECT * FROM events LIMIT 10",
+        "SELECT * FROM events LIMIT 10 OFFSET 5",
+        "SELECT * FROM events ORDER BY id OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY",
+        "SELECT * FROM events FETCH FIRST 5 ROWS ONLY",
+    )],
+    ("tsql", "SELECT TOP 5 * FROM events"),
+    ("tsql", "SELECT TOP (5) PERCENT * FROM events"),
+    ("tsql", "SELECT TOP (@n) * FROM events"),
+    ("mysql", "SELECT * FROM events LIMIT 5, 10"),
+    ("postgres", "SELECT * FROM events LIMIT $1 OFFSET $2"),
+    ("bigquery", "SELECT * FROM events LIMIT @n"),
+    ("clickhouse", "SELECT * FROM events LIMIT 2 BY id"),
+    ("oracle", "SELECT * FROM events FETCH FIRST 5 PERCENT ROWS WITH TIES"),
+])
+def test_a_row_limit_that_is_a_number_or_a_parameter_still_runs(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
 
 
 @pytest.mark.parametrize("dialect", ["snowflake", "postgres", "mysql"])
@@ -290,10 +607,6 @@ NONPARSING_CLIENTS = [
     ("sap_hana_client", "SapHanaClient"),
     ("pinot_client", "PinotClient"),
 ]
-NONPARSING_REFUSAL = (
-    "The table selection on this connection cannot be checked for this connection type. "
-    "Enable all tables on the connection to let the agent query it."
-)
 
 
 def _nonparsing_client(module, name, scope):
@@ -323,12 +636,16 @@ NONPARSING_CODE = (
 
 
 @pytest.mark.parametrize("module, name", NONPARSING_CLIENTS)
-def test_a_client_the_check_cannot_parse_is_refused_when_any_table_is_disabled(module, name):
+def test_a_client_without_a_parser_dialect_reads_enabled_tables_while_one_is_disabled(module, name):
+    # The full matrix is in test_nonparsing_table_scope.py.
     client, sent = _nonparsing_client(module, name, TableScope.from_names(active=["orders"], inactive=["payroll"]))
-    with pytest.raises(TableAccessError) as refused:
-        StreamingCodeExecutor().execute_code(code=NONPARSING_CODE, ds_clients={"src": client}, excel_files=[])
-    assert str(refused.value) == NONPARSING_REFUSAL
-    assert sent == []
+    df, _, _ = StreamingCodeExecutor().execute_code(code=NONPARSING_CODE, ds_clients={"src": client}, excel_files=[])
+    assert df["n"].iloc[0] == 3
+    assert sent == ["SELECT COUNT(*) AS n FROM orders"]
+    with pytest.raises(TableAccessError, match="PAYROLL is not enabled for this agent"):
+        StreamingCodeExecutor().execute_code(code=NONPARSING_CODE.replace("orders", "payroll"),
+                                             ds_clients={"src": client}, excel_files=[])
+    assert sent == ["SELECT COUNT(*) AS n FROM orders"]
 
 
 @pytest.mark.parametrize("module, name", NONPARSING_CLIENTS)

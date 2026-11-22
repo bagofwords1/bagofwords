@@ -519,8 +519,8 @@ _NONPARSING_WRITE_WORDS = {"db2": _DB2_WRITE_KEYWORDS}
 # not known whether the engine reads a form (a server option, a string
 # prefix), the text is read both ways and must pass both.
 # A backslash escape in a string: Vertica's E'...'; SQL Anywhere's strings
-# (\\, \n, \x41).
-_NONPARSING_BACKSLASH = frozenset({"vertica", "sybase"})
+# (\\, \n, \x41); Pinot's E'...', perhaps.
+_NONPARSING_BACKSLASH = frozenset({"vertica", "sybase", "pinot"})
 # `[...]` as a quoted name: SQL Anywhere.
 _NONPARSING_BRACKETS = frozenset({"sybase"})
 # `//` as a line comment (refused outside strings): Pinot's Calcite parser,
@@ -532,6 +532,10 @@ _NONPARSING_PERCENT_COMMENTS = frozenset({"sybase"})
 # Backtick-quoted names: perhaps Pinot and SQL Anywhere. To the others a
 # backtick is code.
 _NONPARSING_BACKTICKS = frozenset({"pinot", "sybase"})
+# A quoted name that holds a dot is read (`nonparsing_normalized`) where the
+# catalog stores `schema.table` names, whose table part may hold dots: Db2
+# and IBM i, SQL Anywhere, HANA.
+_NONPARSING_DOTTED_NAMES = frozenset({"db2", "sybase", "hana"})
 # Dollar-quoted strings ($$...$$), refused outside strings: Vertica.
 _NONPARSING_DOLLAR_QUOTES = frozenset({"vertica"})
 # A dollar-quote tag, and a run of name characters a tag may stand in.
@@ -554,10 +558,12 @@ def _opens_dollar_quote(code: str) -> bool:
     return False
 
 
-def _nonparsing_readings(sql: str, engine: Optional[str], keep_comments: bool = False) -> list[tuple[str, str]]:
+def _nonparsing_readings(sql: str, engine: Optional[str], keep_comments: bool = False,
+                         normalize: bool = False) -> list[tuple[str, str]]:
     """`sql` with its literals and comments emptied (its comments kept as
-    written with `keep_comments`), in each way `engine` may read it, each
-    with the reading's name."""
+    written with `keep_comments`; normalized with `normalize`, see
+    `_generic_reading`), in each way `engine` may read it, each with the
+    reading's name."""
     out = []
     for backslash in (False, True) if engine in _NONPARSING_BACKSLASH else (False,):
         for percent in (False, True) if engine in _NONPARSING_PERCENT_COMMENTS else (False,):
@@ -567,8 +573,23 @@ def _nonparsing_readings(sql: str, engine: Optional[str], keep_comments: bool = 
                 name = "with " + " and ".join(parts) if parts else "with standard quoting"
                 out.append((name, _generic_reading(sql, False, backslash, brackets=engine in _NONPARSING_BRACKETS,
                                                    backticks=backticks, percent_comments=percent,
-                                                   keep_comments=keep_comments)))
+                                                   keep_comments=keep_comments, normalize=normalize,
+                                                   dotted_names=engine in _NONPARSING_DOTTED_NAMES)))
     return out
+
+
+def nonparsing_normalized(sql: str, engine: Optional[str]) -> str:
+    """`sql` normalized (`_generic_reading`) the one way every reading
+    `engine` may take of it agrees on. Raises ReadOnlyViolation when the
+    readings differ, or when one cannot be normalized."""
+    texts = {text for _reading, text in _nonparsing_readings(sql, engine, normalize=True)}
+    if len(texts) != 1:
+        raise ReadOnlyViolation(
+            "The query reads differently under this source's quoting rules (a backslash, a backtick or a % "
+            "changes where a string, a name or a comment ends). Remove them, or write each string with "
+            "doubled quotes ('it''s')."
+        )
+    return texts.pop()
 
 
 def _check_nonparsing(sql: str, engine: Optional[str]) -> None:
@@ -1419,7 +1440,8 @@ def _reading_starts(hash_comments: bool, brackets: bool, backticks: bool, percen
 
 
 def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: Optional[bool] = None, *,
-                     backticks: bool = True, percent_comments: bool = False, keep_comments: bool = False) -> str:
+                     backticks: bool = True, percent_comments: bool = False, keep_comments: bool = False,
+                     normalize: bool = False, dotted_names: bool = False) -> str:
     """`sql` with each literal, quoted name and comment replaced by a space:
     quotes doubled to escape them, `` `...` `` names unless `backticks` is
     off, plus `#` (or `%`) line comments and backslash escapes when asked
@@ -1428,7 +1450,13 @@ def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: O
     only before whitespace or a control character. With `keep_comments`,
     each comment stays as written (read as a comment, so a quote inside it
     opens nothing). From anything left open, the rest is read as code. One
-    pass."""
+    pass.
+
+    With `normalize`, a comment becomes a space, a string `''` and a quoted
+    name `"name"` with its text as read (`_normalized_name`, which reads a
+    dot in it with `dotted_names`); anything left open, a comment opened
+    inside a block comment and a name `_normalized_name` refuses raise
+    ReadOnlyViolation."""
     if brackets is None:
         brackets = not (hash_comments or backslash)
     starts = _reading_starts(hash_comments, brackets, backticks, percent_comments)
@@ -1454,11 +1482,42 @@ def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: O
         else:
             end = _quoted_end(sql, start, "]" if mark == "[" else mark, backslash and mark in "'\"")
         if end < 0:
+            if normalize:
+                raise ReadOnlyViolation(_UNREADABLE)
             out.append(sql[start:])
             break
-        out.append(sql[start:end] if keep_comments and mark in ("--", "#", "%", "/*") else " ")
+        if normalize:
+            if mark == "/*" and "/*" in sql[m.end():end - 2]:
+                raise _comment_inside_comment()
+            if mark in ("--", "#", "%", "/*"):
+                out.append(" ")
+            else:
+                out.append("''" if mark == "'" else _normalized_name(sql[start + 1:end - 1], mark,
+                                                                            dotted_names))
+        else:
+            out.append(sql[start:end] if keep_comments and mark in ("--", "#", "%", "/*") else " ")
         i = end
     return "".join(out)
+
+
+# What a quoted name may hold in a normalized reading (`_generic_reading`).
+_NORMALIZED_NAME = re.compile(r"[A-Za-z0-9_ -]+")
+_NORMALIZED_DOTTED_NAME = re.compile(r"[A-Za-z0-9_ .-]+")
+
+
+def _normalized_name(text: str, mark: str, dotted: bool = False) -> str:
+    """A quoted name's text between its quotes, written `"text"`: a doubled
+    closing quote read as one. A name holding anything but ASCII letters,
+    digits, spaces, `_` and `-` (so no quote, dot or backslash) is refused;
+    with `dotted`, a dot is read too."""
+    if mark != "[":
+        text = text.replace(mark * 2, mark)
+    if not (_NORMALIZED_DOTTED_NAME if dotted else _NORMALIZED_NAME).fullmatch(text):
+        raise ReadOnlyViolation(
+            "A quoted name holds a character other than an ASCII letter, a digit, a space, '_' or '-', which "
+            "the table checks for this source do not read. Use the name without it."
+        )
+    return '"' + text + '"'
 
 
 def _quoted_end(sql: str, start: int, close: str, backslash: bool) -> int:

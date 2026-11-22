@@ -2117,14 +2117,14 @@ def test_with_the_text_checks_off_the_engine_still_stops_a_quoted_name_outside_t
     """The engine lock, not the text check: a quoted name that is a file
     outside the database's folder and its URIs cannot be read."""
     beside = _folder(odd_names_db.parent.parent / "beside")
-    (beside / "private.csv").write_text("id\n42\n")
+    (beside / "private.csv").write_text("marker\nprivate-row-marker\n")
     monkeypatch.setattr(lockdown, "check_user_sql", lambda *a, **k: None)
     monkeypatch.setattr(lockdown, "check_session_sql", lambda *a, **k: None)
     client = DuckDBClient(database=str(odd_names_db))
     assert client.execute_query('SELECT id FROM "export.csv"')["id"][0] == 4
     with pytest.raises(Exception, match="(?i)disabled by configuration|permission") as refused:
         client.execute_query(f"SELECT * FROM {_quoted(beside / 'private.csv')}")
-    assert "42" not in str(refused.value)
+    assert "private-row-marker" not in str(refused.value)
 
 
 @pytest.mark.parametrize("sql", [

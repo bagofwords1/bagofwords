@@ -3528,9 +3528,9 @@ class DataSourceService:
         Covers the rows of THIS connection plus unlinked legacy rows, the same
         set `_attach_stored_table_metadata` reads. Nothing is attached when the
         data source has no table rows (never indexed: there is no selection to
-        enforce) or the client is not SQL. SQL the check cannot parse
+        enforce) or the client is not SQL. SQL without a sqlglot dialect
         (guard profile "nonparsing_sql") gets the scope too: its queries are
-        refused while the selection disables any table.
+        checked while the selection disables any table.
 
         Errors propagate: a client that should be scoped must not be handed
         out unscoped.

@@ -191,22 +191,25 @@ def _stub_of(module, name, sent):
 
 
 @pytest.mark.parametrize("module, name", NONPARSING_CLIENTS)
-def test_a_connection_the_check_cannot_parse_is_held_to_a_selection_with_a_disabled_table(
+def test_a_connection_without_a_parser_dialect_keeps_sql_access_to_its_enabled_tables(
         tmp_path, monkeypatch, module, name):
-    # The table names cannot be read from these engines' SQL, so a selection
-    # that disables anything refuses every query; one that disables nothing
-    # leaves the connection as it was.
+    # `secret` stays disabled throughout: the enabled table is still
+    # queryable, and the disabled one is refused before the client is called,
+    # read directly or joined from the enabled one.
     sent = []
     monkeypatch.setattr("app.services.data_source_service.resolve_client_class",
                         lambda _type: _stub_of(module, name, sent))
     path = tmp_path / "wh.db"
     ds_id = _run(_seed(path, ["events"], ["secret"]))
-    with pytest.raises(TableAccessError, match="cannot be checked for this connection type"):
-        _count(_run(_clients(ds_id)), "events")
-    assert sent == []
+    clients = _run(_clients(ds_id))
 
-    _run(_set_active(ds_id, "secret", True))
-    assert _count(_run(_clients(ds_id)), "events") == 3
+    assert _count(clients, "events") == 3
+    assert sent == ["SELECT COUNT(*) AS n FROM events"]
+
+    with pytest.raises(TableAccessError, match="SECRET is not enabled for this agent"):
+        _count(clients, "secret")
+    with pytest.raises(TableAccessError, match="SECRET is not enabled for this agent"):
+        _count(clients, "events e JOIN secret s ON e.id = s.id")
     assert sent == ["SELECT COUNT(*) AS n FROM events"]
 
 
