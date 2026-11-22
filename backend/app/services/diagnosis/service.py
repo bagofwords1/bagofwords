@@ -264,7 +264,7 @@ class DiagnosisService:
         agents: Dict[str, List[Dict[str, Any]]] = {}
         turns: Dict[str, int] = {}
         if report_ids:
-            agents = await self._agents_for_runs(db, [r.id for r in rows])
+            agents = await self.agents_for_runs(db, [r.id for r in rows])
             for rid, n in (await db.execute(
                 select(AE.report_id, func.count(AE.id))
                 .where(AE.report_id.in_(report_ids), AE.is_eval_run == False)  # noqa: E712
@@ -344,7 +344,7 @@ class DiagnosisService:
             next_cursor = self._encode_cursor(sort_value, str(last.id))
         return {"items": items, "next_cursor": next_cursor, "total": total}
 
-    async def _agents_for_runs(self, db, run_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    async def agents_for_runs(self, db, run_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """Agents per report as the UI renders them: name plus what the
         DataSourceIcon needs (type of the first connection, connector key,
         custom icon). One query; a data source with several connections

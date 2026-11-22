@@ -43,10 +43,22 @@ class RunModelUsageSchema(BaseModel):
     baseline_model_id: Optional[str] = None
 
 
+class RunAgentSchema(BaseModel):
+    """An agent (data source) the run drew on, with what DataSourceIcon needs."""
+    id: str
+    name: str
+    type: Optional[str] = None
+    connector_key: Optional[str] = None
+    icon: Optional[str] = None
+
+
 class AgentExecutionTraceResponse(BaseModel):
     folder_name: Optional[str] = None
     folder_names: List[str] = []
     used_agents: List[str] = []
+    # The run's agents by the diagnosis rule: the report's pinned agents for an
+    # ordinary run, the agents a folder run actually used.
+    agents: List[RunAgentSchema] = []
     agent_execution: AgentExecutionSchema
     completion_blocks: List[CompletionBlockV2Schema]
     head_prompt_snippet: Optional[str] = None
