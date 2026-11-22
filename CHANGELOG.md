@@ -5,8 +5,12 @@
 - Added category tabs to ⌘K: All, Reports, Agents, Instructions, Dashboards (#1864)
 - Added per-step input/output tokens and the run's model to the trace modal, and a diagnosis filter on LLM runs (#1869)
 - Added column meanings from the catalog to cached tables, flagging columns that must not be summed (#1868)
+- Added column search to table descriptions, and a cap on wide tables' columns in the agent's context, ranked by usage (#1876)
 - Changed Priority ERP cached tables to load forms in verified pages instead of one capped request (#1867)
 - Fixed an open report's dashboard refreshing more than once per new version (#1866)
+- Fixed SQLite connections hiding tables whose names have spaces, dashes or non-ASCII characters (#1877)
+- Fixed a Git instruction sync failing entirely when a synced file was removed from the repo (#1872)
+- Fixed self-built Docker images including `backend/.env`, uploads and test files (#1877)
 
 ## Version 0.0.632 (November 22, 2026)
 - Added "Save as cached table" beside Save Query on a result, opening the custom-table dialog pre-filled with the agent's query, and a progress bar on a table's first load (#1859)
