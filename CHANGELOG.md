@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.633 (November 22, 2026)
+- Added in-report search to ⌘K: find any message in the open report, including unloaded pages, and jump to it (#1863)
+- Added category tabs to ⌘K: All, Reports, Agents, Instructions, Dashboards (#1864)
+- Added per-step input/output tokens and the run's model to the trace modal, and a diagnosis filter on LLM runs (#1869)
+- Added column meanings from the catalog to cached tables, flagging columns that must not be summed (#1868)
+- Changed Priority ERP cached tables to load forms in verified pages instead of one capped request (#1867)
+- Fixed an open report's dashboard refreshing more than once per new version (#1866)
+
 ## Version 0.0.632 (November 22, 2026)
 - Added "Save as cached table" beside Save Query on a result, opening the custom-table dialog pre-filled with the agent's query, and a progress bar on a table's first load (#1859)
 - Added custom tables on SAP BusinessObjects, and paged DAX custom tables on Analysis Services (#1857)
