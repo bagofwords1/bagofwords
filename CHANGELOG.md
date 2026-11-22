@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.634 (November 22, 2026)
+- Added a PostgreSQL (multi-database) connector: one server with a database per tenant, queried across tenants (#1879)
+- Added WhatsApp "typing…" while the agent works on a question; the user's message now shows as read when the run starts (#1880)
+- Added a tappable dashboard link in WhatsApp when the agent builds a dashboard (#1881)
+- Fixed chart images missing from chat channel replies on SQLite installs (#1881)
+- Fixed Slack, Teams, Google Chat and WhatsApp re-sending the previous chart after a dashboard or generated image (#1881)
+- Fixed Elasticsearch and OpenSearch searches dropping filters, count-only searches showing zero matches, and nested aggregation metrics missing from results; unsupported search options now return an error (#1882)
+
 ## Version 0.0.633 (November 22, 2026)
 - Added in-report search to ⌘K: find any message in the open report, including unloaded pages, and jump to it (#1863)
 - Added category tabs to ⌘K: All, Reports, Agents, Instructions, Dashboards (#1864)
