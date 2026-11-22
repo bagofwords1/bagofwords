@@ -101,7 +101,7 @@ Drift, against the live tenants:
 | Column missing on 6 tenants (older migration) | union binds; those rows read NULL |
 | Table dropped on one tenant before the view was built | that tenant left out, 29 served |
 | Table dropped on another after the view was built | existing retry rebuilds, 28 served |
-| `SELECT` revoked on one tenant | the view fails until the next rebuild — **same as on #1808**, already listed there as a known limitation |
+| `SELECT` revoked on one tenant | after review: that tenant is left out of the view in place, the query answers from the rest, and the engine is marked degraded so a restored grant returns within 30 s (on #1808 the view failed until reindex: a rebuild alone puts the tenant back, since creating a view does not check `SELECT`) |
 
 ## In the product UI
 
@@ -116,11 +116,24 @@ Drift, against the live tenants:
   - "total of public.salaries for tenant_001": the agent said the table is not
     available to it.
 
+## After review
+
+| Finding | Change | Test (fails before, passes after) |
+|---|---|---|
+| `DECIMAL` results were rounded through float64 (`9007199254740993.01` came back `…994.0`) | results go through Arrow, `DECIMAL` columns as exact `Decimal` (as the single-database PostgreSQL connector returns them); other column types unchanged, duplicate names kept | `test_decimals_come_back_exact` |
+| `Amount` in one tenant and `amount` in another were listed as two columns but merged into one by `UNION ALL BY NAME` | indexing leaves the table out and reports it ("column names collide by case"), as it already does for table names | `test_column_names_that_differ_only_by_case_exclude_the_table` |
+| Test connection missed a login that can read only materialized views | the probe also counts materialized views it can `SELECT`, as indexing does | `test_a_login_that_reads_only_materialized_views_passes_test_connection` |
+| A revoked grant left a busy engine failing indefinitely | see the drift table above; plus a healthy engine is rebuilt at least hourly however busy | `test_revoked_select_on_one_tenant_leaves_it_out_without_a_rebuild`, `test_a_busy_healthy_engine_is_still_rebuilt_after_its_maximum_lifetime` |
+
+A forged "permission denied" text in agent SQL leaves nobody out: the tenants
+are left out only when Postgres itself says the login lacks `SELECT`
+(`test_a_forged_permission_error_leaves_no_readable_tenant_out`).
+
 ## Tests
 
 | Suite | Result |
 |---|---|
-| PR integration tests against real Postgres (`test_postgresql_multi_engine.py`, `test_postgresql_multi_client.py`) | 95 passed |
+| PR integration tests against real Postgres (`test_postgresql_multi_engine.py`, `test_postgresql_multi_client.py`) | 95 passed; 98 after review |
 | New integration test (hidden table via quoting form, two shapes) on #1808's code | both fail ("did not raise") |
 | PR unit tests + shared guard tests | pass (`test_table_scope_guard.py` 374) |
 | `test_postgresql_multi_reading.py` (new, DuckDB-side check) | pass |
@@ -136,4 +149,3 @@ every tenant failed to attach is named without being built.
 - Postgres as BOW's application database (SQLite here).
 - The per-query round of pool checks on every tenant (93 statements even for a
   query filtered to one tenant). Unchanged.
-- The revoked-grant case above.

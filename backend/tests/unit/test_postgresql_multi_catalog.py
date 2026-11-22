@@ -183,3 +183,28 @@ def test_tenant_column_is_reserved_in_any_case():
     })
     assert [t.name for t in catalog.tables] == ["public.ok"]
     assert [e["table"] for e in catalog.excluded] == ["public.bad"]
+
+
+def test_column_names_that_differ_only_by_case_exclude_the_table():
+    # DuckDB resolves names case-insensitively, so UNION ALL BY NAME would
+    # merge "Amount" and "amount" into one column of both tenants' values.
+    catalog = unify_catalogs({
+        "a": [table("public.orders", [("id", "integer"), ("Amount", "numeric")]),
+              table("public.ok", [("id", "integer")])],
+        "b": [table("public.orders", [("id", "integer"), ("amount", "numeric")])],
+    })
+    assert [t.name for t in catalog.tables] == ["public.ok"]
+    assert catalog.excluded == [{
+        "table": "public.orders",
+        "reason": "column names collide by case",
+        "columns": [["Amount", "amount"]],
+    }]
+
+
+def test_same_column_spelling_in_every_tenant_is_not_a_collision():
+    catalog = unify_catalogs({
+        "a": [table("public.orders", [("Amount", "numeric")])],
+        "b": [table("public.orders", [("Amount", "numeric")])],
+    })
+    assert [t.name for t in catalog.tables] == ["public.orders"]
+    assert catalog.excluded == []

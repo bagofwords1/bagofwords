@@ -112,6 +112,17 @@ def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> 
     )
 
 
+def _column_case_collisions(members: dict[str, Table]) -> list[list[str]]:
+    """Groups of column spellings that differ only by case, across every
+    tenant's copy of one table (and within one copy)."""
+    spellings: dict[str, set[str]] = {}
+    for table in members.values():
+        for column in table.columns or []:
+            name = column.name or ""
+            spellings.setdefault(name.casefold(), set()).add(name)
+    return [sorted(names) for _, names in sorted(spellings.items()) if len(names) > 1]
+
+
 def unify_catalogs(per_tenant: dict[str, list[Table]]) -> UnifiedCatalog:
     groups: dict[str, dict[str, Table]] = {}
     for tenant in sorted(per_tenant):
@@ -133,6 +144,17 @@ def unify_catalogs(per_tenant: dict[str, list[Table]]) -> UnifiedCatalog:
             TENANT_COLUMN in {(c.name or "").casefold() for c in t.columns or []} for t in members.values()
         ):
             catalog.excluded.append({"table": name, "reason": "has tenant_db column"})
+            continue
+        column_twins = _column_case_collisions(members)
+        if column_twins:
+            # DuckDB matches column names case-insensitively: UNION ALL BY NAME
+            # would merge `Amount` and `amount` into one column of both
+            # tenants' values while the catalog advertised two.
+            catalog.excluded.append({
+                "table": name,
+                "reason": "column names collide by case",
+                "columns": column_twins,
+            })
             continue
         unified = _unify_table(name, members, catalog.excluded)
         if unified is not None:

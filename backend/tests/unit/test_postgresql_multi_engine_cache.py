@@ -14,6 +14,7 @@ import pytest
 from app.data_sources.clients import postgresql_multi_engine as engine_module
 from app.data_sources.clients.postgresql_multi_engine import (
     DEGRADED_ENGINE_TTL_SECONDS,
+    MAX_ENGINE_LIFETIME_SECONDS,
     PgConn,
     evict_engine,
     get_engine,
@@ -29,6 +30,7 @@ class _StubEngine:
         self.attached = attached
         self.degraded = not attached
         self.closed = False
+        self.built_at = engine_module.monotonic()
 
     def ensure_views(self, views):
         pass
@@ -194,3 +196,32 @@ def test_callers_waiting_on_a_build_that_attached_nothing_reuse_its_result(monke
     release.set()
     get_engine(CONN, VIEWS, connection_id="c1")
     assert len(builds) == 2
+
+
+def test_a_busy_healthy_engine_is_still_rebuilt_after_its_maximum_lifetime(monkeypatch, clock):
+    built = _counting_build(monkeypatch)
+    first = get_engine(CONN, VIEWS, ttl_seconds=600, connection_id="c1")
+
+    # Queried every minute: each use slides the expiry, but never past the cap.
+    while clock[0] < 1000.0 + MAX_ENGINE_LIFETIME_SECONDS - 60:
+        clock[0] += 60
+        assert get_engine(CONN, VIEWS, ttl_seconds=600, connection_id="c1") is first
+    clock[0] = 1000.0 + MAX_ENGINE_LIFETIME_SECONDS
+
+    assert get_engine(CONN, VIEWS, ttl_seconds=600, connection_id="c1") is not first
+    assert len(built) == 2
+
+
+def test_expire_soon_shortens_a_cached_engine_to_the_degraded_ttl(monkeypatch, clock):
+    built = _counting_build(monkeypatch)
+    first = get_engine(CONN, VIEWS, ttl_seconds=600, connection_id="c1")
+    first.cache_key = next(iter(engine_module._cache))
+
+    first.degraded = True  # what leaving a tenant out of a view does
+    engine_module.expire_soon(first)
+    clock[0] += DEGRADED_ENGINE_TTL_SECONDS - 1
+    assert get_engine(CONN, VIEWS, ttl_seconds=600, connection_id="c1") is first
+    clock[0] += 2
+
+    assert get_engine(CONN, VIEWS, ttl_seconds=600, connection_id="c1") is not first
+    assert len(built) == 2

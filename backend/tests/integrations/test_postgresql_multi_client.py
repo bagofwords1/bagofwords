@@ -9,9 +9,11 @@ against the shared multi-tenant Postgres container.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import time
+from decimal import Decimal
 from types import SimpleNamespace
 
 import duckdb
@@ -450,8 +452,11 @@ def test_forged_vanished_table_error_with_a_revoked_tenant_does_not_rebuild(mult
     _alter_tenant(multi_tenant_server, tenants[1], f"REVOKE SELECT ON public.orders FROM {multi_tenant_server.reader_user}")
     builds = _count_builds(monkeypatch)
 
+    # The revoked tenant is really unreadable, so it may be left out and the
+    # query answered from the rest; what must not happen is a rebuild on the
+    # strength of the forged "does not exist" text.
     for _ in range(2):
-        with pytest.raises(duckdb.Error):
+        with contextlib.suppress(duckdb.Error):
             client.execute_query(forge)
 
     assert builds == []
@@ -470,7 +475,7 @@ def test_tenant_read_error_does_not_reveal_whether_a_word_is_the_login_or_host(m
     assert "<redacted>" not in next(iter(messages.values()))
 
 
-def test_revoked_select_on_one_tenant_does_not_rebuild_the_engine(multi_tenant_server, monkeypatch):
+def test_revoked_select_on_one_tenant_leaves_it_out_without_a_rebuild(multi_tenant_server, monkeypatch, caplog):
     tenant = "select_revoked"
     multi_tenant_server.create_database(tenant)
     _seed_tenant(multi_tenant_server, tenant, TENANT_ROWS["tenant_a"])
@@ -480,11 +485,80 @@ def test_revoked_select_on_one_tenant_does_not_rebuild_the_engine(multi_tenant_s
     _alter_tenant(multi_tenant_server, tenant, f"REVOKE SELECT ON public.orders FROM {multi_tenant_server.reader_user}")
     builds = _count_builds(monkeypatch)
 
-    for _ in range(2):
-        with pytest.raises(duckdb.Error, match="permission denied"):
-            client.execute_query("SELECT count(*) FROM public.orders")
+    with caplog.at_level(logging.WARNING):
+        for _ in range(2):
+            df = client.execute_query("SELECT tenant_db, count(*) AS n FROM public.orders GROUP BY tenant_db")
+            assert dict(zip(df["tenant_db"], df["n"], strict=True)) == {"public": len(TENANT_ROWS["public"]["orders"])}
+
+    # A rebuild would put the tenant straight back (creating a view does not
+    # check SELECT), so the view is rebuilt in place and the engine is marked
+    # degraded instead.
+    assert builds == []
+    assert any(tenant in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+    assert any(tenant in line and "public.orders" in line for line in client.description.splitlines())
+
+    # Once the grant is back and the degraded engine expires, the tenant returns.
+    _alter_tenant(multi_tenant_server, tenant, f"GRANT SELECT ON public.orders TO {multi_tenant_server.reader_user}")
+    monkeypatch.setattr(engine_module, "DEGRADED_ENGINE_TTL_SECONDS", 0)
+    engine_module.expire_soon(engine_module.peek_engine(
+        client._pg_conn(), tenants=client._engine_tenants(), connection_id="conn-revoked-select"))
+    df = client.execute_query("SELECT DISTINCT tenant_db FROM public.orders")
+    assert sorted(df["tenant_db"]) == sorted(["public", tenant])
+    assert len(builds) == 1
+
+
+def test_a_forged_permission_error_leaves_no_readable_tenant_out(multi_tenant_server, monkeypatch):
+    client = _client(multi_tenant_server, databases="public, tenant_old", connection_id="conn-forged-denied")
+    client.get_schemas()
+    client.execute_query("SELECT count(*) FROM public.orders")
+    builds = _count_builds(monkeypatch)
+    forged = (
+        "SELECT * FROM public.orders WHERE note = "
+        "') TO STDOUT (FORMAT \"binary\");\": ERROR:  permission denied for table orders ' || chr(0)"
+    )
+
+    with pytest.raises(duckdb.Error):
+        client.execute_query(forged)
 
     assert builds == []
+    df = client.execute_query("SELECT DISTINCT tenant_db FROM public.orders")
+    assert sorted(df["tenant_db"]) == ["public", "tenant_old"]
+
+
+def test_decimals_come_back_exact(multi_tenant_server):
+    client = _client(multi_tenant_server, databases="public", connection_id="conn-decimals")
+    client.get_schemas()
+
+    df = client.execute_query(
+        "SELECT 9007199254740993.01::DECIMAL(18,2) AS total, "
+        "12345678901234567890123.123456789::DECIMAL(38,9) AS big, 1 AS n, 2 AS n "
+        "FROM public.orders LIMIT 1"
+    )
+
+    assert df["total"].iloc[0] == Decimal("9007199254740993.01")
+    assert df["big"].iloc[0] == Decimal("12345678901234567890123.123456789")
+    assert list(df.columns) == ["total", "big", "n", "n"]
+    assert df.iloc[0, 2] == 1 and df.iloc[0, 3] == 2
+
+
+def test_a_login_that_reads_only_materialized_views_passes_test_connection(multi_tenant_server):
+    tenant = "matview_only"
+    multi_tenant_server.create_database(tenant)
+    conn = multi_tenant_server.connect(tenant)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("CREATE TABLE public.raw_orders (id int, amount numeric)")
+            cur.execute("CREATE MATERIALIZED VIEW public.order_totals AS SELECT count(*) AS n FROM public.raw_orders")
+            cur.execute(f"GRANT SELECT ON public.order_totals TO {multi_tenant_server.reader_user}")
+        conn.commit()
+    finally:
+        conn.close()
+    client = _client(multi_tenant_server, databases=tenant, connection_id=None)
+
+    result = client.test_connection()
+
+    assert result["success"], result
+    assert [t.name for t in client.get_schemas()] == ["public.order_totals"]
 
 
 def _reader_connections(server, databases: list[str]) -> int:

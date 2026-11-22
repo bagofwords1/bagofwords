@@ -6,6 +6,7 @@ from time import monotonic
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 import sqlglot
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -24,12 +25,12 @@ from app.data_sources.clients.database_spec import parse_database_spec, select_d
 from app.data_sources.clients.discovery import IncompleteDiscoveryError, require_complete_discovery
 from app.data_sources.clients.postgresql_client import PostgresqlClient
 from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN, unify_catalogs
-from app.data_sources.clients.postgresql_multi_guard import check_query
 from app.data_sources.clients.postgresql_multi_engine import (
     PgConn,
     TenantEngine,
     build_default_engine,
     evict_engine,
+    expire_soon,
     failure_category,
     forced_rebuild_allowed,
     get_engine,
@@ -37,6 +38,7 @@ from app.data_sources.clients.postgresql_multi_engine import (
     peek_engine,
     redact_connection_details,
 )
+from app.data_sources.clients.postgresql_multi_guard import check_query
 from app.data_sources.clients.progress import (
     discovery_items,
     discovery_progress,
@@ -64,9 +66,16 @@ _DUCKDB_CATALOG_READERS = re.compile(
 
 _DISCOVERY_SQL = "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname"
 
+# Materialized views are not in information_schema.tables, but indexing finds
+# them through pg_catalog, so a login that can read only materialized views
+# is readable too.
 _READABLE_TABLES_SQL = (
     "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
-    "WHERE table_schema NOT IN ('information_schema', 'pg_catalog'){schema_filter})"
+    "WHERE table_schema NOT IN ('information_schema', 'pg_catalog'){schema_filter}) "
+    "OR EXISTS (SELECT 1 FROM pg_catalog.pg_class c "
+    "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE c.relkind = 'm' AND n.nspname NOT IN ('information_schema', 'pg_catalog') "
+    "AND has_table_privilege(c.oid, 'SELECT'){matview_schema_filter})"
 )
 
 _GENERIC_TYPES = ("ARRAY", "USER-DEFINED")
@@ -78,6 +87,12 @@ _VANISHED_RELATION = re.compile(
     r'Failed to prepare COPY "COPY \(.*\) TO STDOUT \(FORMAT "binary"\);": ERROR:\s+relation "[^"]*" does not exist',
     re.DOTALL,
 )
+_PERMISSION_DENIED = re.compile(
+    r'Failed to prepare COPY "COPY \(.*\) TO STDOUT \(FORMAT "binary"\);": ERROR:\s+permission denied for '
+    r'(?:table|view|materialized view|relation) ',
+    re.DOTALL,
+)
+REVOKED_REASON = "SELECT no longer granted"
 
 _EXACT_TYPES_SQL = """
     SELECT c.table_schema, c.table_name, c.column_name, format_type(a.atttypid, NULL)
@@ -374,7 +389,7 @@ class PostgresqlMultiClient(DataSourceClient):
         cursor = engine.cursor()
         try:
             with track(self, cursor):
-                return cursor.execute(sql).fetchdf()
+                return _exact_frame(cursor, cursor.execute(sql).to_arrow_table())
         finally:
             cursor.close()
 
@@ -402,6 +417,9 @@ class PostgresqlMultiClient(DataSourceClient):
         try:
             return self._run(engine, sql)
         except duckdb.Error as exc:
+            revoked = engine.revoked_tables(used) if _permission_denied(exc) else []
+            if revoked:
+                return self._without_revoked(engine, used, sql, revoked)
             vanished = engine.vanished_tables(used) if _relation_vanished(exc) else []
             if not (vanished and self._discard(engine)):
                 raise self._without_connection_details(exc) from None
@@ -413,6 +431,26 @@ class PostgresqlMultiClient(DataSourceClient):
         del engine
         try:
             return self._run(self._engine(used), sql)
+        except duckdb.Error as exc:
+            raise self._without_connection_details(exc) from None
+
+    def _without_revoked(self, engine: TenantEngine, used: list[str], sql: str,
+                         revoked: list[tuple[str, str]]) -> pd.DataFrame:
+        """A tenant revoked SELECT on a table since the engine was built.
+        Creating a view does not check SELECT, so rebuilding the engine would
+        put the tenant straight back; instead its views go on without that
+        tenant until the engine, now degraded, expires and a restored grant
+        is picked up."""
+        logger.warning(
+            "Leaving tenants out of connection %s: %s",
+            self._connection_id() or "(unsaved)",
+            ", ".join(f"{view} is no longer readable in {tenant}" for view, tenant in revoked),
+        )
+        engine.leave_out_members(revoked, REVOKED_REASON)
+        expire_soon(engine)
+        self._learn_engine(engine)
+        try:
+            return self._run(engine, sql)
         except duckdb.Error as exc:
             raise self._without_connection_details(exc) from None
 
@@ -448,11 +486,11 @@ class PostgresqlMultiClient(DataSourceClient):
 
     def _probe_tenant(self, database: str) -> str | None:
         schema_filter = " AND table_schema = ANY(:schemas)" if self._schemas else ""
+        matview_schema_filter = " AND n.nspname = ANY(:schemas)" if self._schemas else ""
+        sql = _READABLE_TABLES_SQL.format(schema_filter=schema_filter, matview_schema_filter=matview_schema_filter)
         try:
             with self._tenant_client(database).connect() as conn:
-                readable = conn.execute(
-                    text(_READABLE_TABLES_SQL.format(schema_filter=schema_filter)), {"schemas": self._schemas}
-                ).scalar()
+                readable = conn.execute(text(sql), {"schemas": self._schemas}).scalar()
         except Exception as exc:
             logger.debug("Probing tenant database %s failed: %s", database, self._redacted(str(exc)))
             return failure_category(exc)
@@ -606,6 +644,25 @@ def _relation_vanished(exc: duckdb.Error) -> bool:
     return type(exc) is duckdb.Error and bool(_VANISHED_RELATION.match(str(exc)))
 
 
+def _permission_denied(exc: duckdb.Error) -> bool:
+    return type(exc) is duckdb.Error and bool(_PERMISSION_DENIED.match(str(exc)))
+
+
+def _exact_frame(cursor: duckdb.DuckDBPyConnection, table: pa.Table) -> pd.DataFrame:
+    """The result as DuckDB's own DataFrame conversion gives it, except that
+    DECIMAL columns hold exact `decimal.Decimal` values (as the single-database
+    PostgreSQL connector returns them) instead of float64, which rounds past
+    15-17 significant digits. Columns are renamed positionally for the
+    conversion so duplicate result names survive."""
+    names = table.column_names
+    frame = cursor.from_arrow(table.rename_columns([f"c{i}" for i in range(len(names))])).df()
+    for i, column in enumerate(table.schema):
+        if pa.types.is_decimal(column.type):
+            frame.isetitem(i, table.column(i).to_pandas())
+    frame.columns = names
+    return frame
+
+
 def _left_out_entry(entry: dict) -> dict:
     table = entry.get("table")
     if entry.get("column"):
@@ -619,4 +676,6 @@ def _left_out_entry(entry: dict) -> dict:
     reason = f"dropped: {entry.get('reason')}"
     if entry.get("with"):
         reason += f" with {', '.join(entry['with'])}"
+    if entry.get("columns"):
+        reason += f" ({'; '.join(' vs '.join(group) for group in entry['columns'])})"
     return {"name": table, "reason": reason}

@@ -18,6 +18,9 @@ DEFAULT_THREADS = 4
 DEFAULT_PG_CONNECTION_LIMIT = 4
 DEFAULT_PG_IDLE_TIMEOUT_MS = 30_000
 DEGRADED_ENGINE_TTL_SECONDS = 30
+# However busy a healthy engine is, it is rebuilt at least this often, so
+# drift nobody detected (a grant change, a new column) is picked up.
+MAX_ENGINE_LIFETIME_SECONDS = 3600
 EXTENSION_DIR_ENV = "BOW_DUCKDB_EXTENSION_DIR"
 
 _SECRET_NAME = "bow_tenant_server"
@@ -47,6 +50,7 @@ class TenantEngine:
         self._created: set[str] = set()
         self._lock = threading.Lock()
         self.cache_key = None
+        self.built_at = monotonic()
 
     @property
     def attached(self) -> bool:
@@ -67,30 +71,63 @@ class TenantEngine:
         self._con.close()
 
     def vanished_tables(self, view_names: list[str]) -> list[tuple[str, str]]:
+        """(view, tenant) pairs whose table no longer exists in that tenant."""
+        return [(view, tenant) for view, tenant, kind in self._probe_members(view_names) if kind == "gone"]
+
+    def revoked_tables(self, view_names: list[str]) -> list[tuple[str, str]]:
+        """(view, tenant) pairs whose table still exists in that tenant but
+        that this login can no longer SELECT from."""
+        return [(view, tenant) for view, tenant, kind in self._probe_members(view_names) if kind == "denied"]
+
+    def _probe_members(self, view_names: list[str]) -> list[tuple[str, str, str]]:
         relations: dict[str, list[tuple[str, str]]] = {}
         for name in sorted(set(view_names)):
             for tenant in self._reading.get(name, ()):
                 if tenant in self._aliases:
                     relations.setdefault(tenant, []).append((name, _qualified_pg_name(*_split_view_name(name))))
-        vanished = []
+        found = []
         cur = self._con.cursor()
         try:
             for tenant, members in sorted(relations.items()):
                 names = ", ".join(_pg_literal(qualified) for _, qualified in members)
-                probe = f"SELECT n FROM unnest(ARRAY[{names}]::text[]) AS n WHERE to_regclass(n) IS NULL"
+                probe = (
+                    "SELECT n, CASE WHEN to_regclass(n) IS NULL THEN 'gone' ELSE 'denied' END "
+                    f"FROM unnest(ARRAY[{names}]::text[]) AS n "
+                    "WHERE to_regclass(n) IS NULL OR NOT has_table_privilege(to_regclass(n), 'SELECT')"
+                )
                 try:
                     rows = cur.execute(
                         f"SELECT * FROM postgres_query({_sql_literal(self._aliases[tenant])}, {_sql_literal(probe)})"
                     ).fetchall()
                 except duckdb.Error as exc:
-                    logger.warning("Could not check tenant database %s for vanished tables: %s",
+                    logger.warning("Could not check tenant database %s for unreadable tables: %s",
                                    tenant, failure_category(exc))
                     continue
-                gone = {row[0] for row in rows}
-                vanished.extend((name, tenant) for name, qualified in members if qualified in gone)
+                kinds = {row[0]: row[1] for row in rows}
+                found.extend((name, tenant, kinds[q]) for name, q in members if q in kinds)
         finally:
             cur.close()
-        return vanished
+        return found
+
+    def leave_out_members(self, pairs: list[tuple[str, str]], reason: str) -> None:
+        """Rebuild each named view without the given tenants, and record them
+        as left out (which marks the engine degraded, so it is rebuilt soon
+        and a restored grant is picked up)."""
+        dropped: dict[str, set[str]] = {}
+        for view, tenant in pairs:
+            dropped.setdefault(view, set()).add(tenant)
+        with self._lock:
+            cur = self._con.cursor()
+            try:
+                for name, tenants in sorted(dropped.items()):
+                    keep = tuple(t for t in self._reading.get(name, ()) if t not in tenants)
+                    earlier = [e for e in self.left_out if e["view"] == name]
+                    self._create_view(cur, name, keep)
+                    self.left_out.extend(e for e in earlier if e not in self.left_out)
+                    for tenant in sorted(tenants):
+                        self._leave_out(name, tenant, reason)
+            finally:
+                cur.close()
 
     def ensure_views(self, views: dict[str, list[str]]) -> None:
         wanted = {name: tuple(sorted(set(members))) for name, members in views.items()}
@@ -374,7 +411,20 @@ def _drop_expired(now: float) -> None:
 
 
 def _expiry(engine: TenantEngine, now: float, ttl_seconds: int) -> float:
-    return now + (min(ttl_seconds, DEGRADED_ENGINE_TTL_SECONDS) if engine.degraded else ttl_seconds)
+    ttl = min(ttl_seconds, DEGRADED_ENGINE_TTL_SECONDS) if engine.degraded else ttl_seconds
+    return min(now + ttl, engine.built_at + MAX_ENGINE_LIFETIME_SECONDS)
+
+
+def expire_soon(engine: TenantEngine) -> None:
+    """Shorten a cached engine's life to the degraded TTL (after it left a
+    tenant out of a view mid-query)."""
+    key = getattr(engine, "cache_key", None)
+    if key is None:
+        return
+    with _cache_lock:
+        cached = _cache.get(key)
+        if cached is not None and cached[0] is engine:
+            _cache[key] = (engine, min(cached[1], monotonic() + DEGRADED_ENGINE_TTL_SECONDS))
 
 
 def peek_engine(conn: PgConn, *, tenants: list[str], connection_id: str = "") -> TenantEngine | None:
@@ -431,6 +481,8 @@ def _cached_or_built(conn, views, ttl_seconds, all_tenants, key, seen_builds) ->
                     # Kept while in use: a healthy engine expires `ttl_seconds`
                     # after its last query, not after it was built, so a busy
                     # connection does not pay for a rebuild every ten minutes.
+                    # `_expiry` still caps it at MAX_ENGINE_LIFETIME_SECONDS
+                    # after the build.
                     _cache[key] = (engine, max(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
         return engine
     try:
