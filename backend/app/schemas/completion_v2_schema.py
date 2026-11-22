@@ -299,6 +299,17 @@ class CompletionsV2Response(BaseModel):
     compaction: Optional[CompactionStateSchema] = None
 
 
+class CompletionSearchHit(BaseModel):
+    """One message matched by GET /reports/{id}/completions/search."""
+    completion_id: str
+    role: str
+    created_at: datetime
+    # Redacted window of the message text around the first match.
+    snippet: str
+    # The message's position, in the `next_before` format ("<ISO8601>~<id>").
+    cursor: str
+
+
 class CompactContextRequest(BaseModel):
     """Optional body for POST /context/compact (the composer's /compact)."""
     # Focus for the summary: "/compact focus on the churn numbers".

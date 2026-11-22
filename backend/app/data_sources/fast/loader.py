@@ -164,6 +164,9 @@ class Limits:
     deadline: float                                   # time.monotonic() value
     should_abort: Callable[[], bool] | None = None
     max_seconds: int = 0
+    # Told the running row total after every batch, so a caller can show how
+    # far a load has got. Called on the worker thread; must not raise.
+    on_rows: Callable[[int], None] | None = None
 
     def check(self) -> None:
         if self.should_abort is not None and self.should_abort():
@@ -469,6 +472,8 @@ class ArtifactWriter:
                     limits.check()
                     batch = normalize_table(raw)
                     read += batch.num_rows
+                    if limits.on_rows is not None:
+                        limits.on_rows(rows_before + read)
                     if rows_before + read > limits.max_rows:
                         raise ExtractionAborted(
                             f"Query returned more than the {limits.max_rows:,}-row limit "

@@ -1319,6 +1319,21 @@
     "tokensCount": "{count} token",
     "llmUsageTooltip": "Utilizzo LLM per questa conversazione",
     "turnTokensTooltip": "Token LLM del pianificatore per questo turno",
+    "tokensInOut": "input {input} / output {output}",
+    "tokensIn": "Input",
+    "tokensOut": "Output",
+    "tokensCached": "In cache",
+    "stepTokens": "Token",
+    "stepTokensTooltip": "Chiamata del pianificatore per questo passaggio. L'input include i token in cache. Le chiamate LLM effettuate all'interno dello strumento non sono conteggiate.",
+    "modelUnknown": "Modello sconosciuto",
+    "modelUnknownTooltip": "Nessun utilizzo LLM per chiamata registrato per questa esecuzione",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modelli in questo turno",
+    "modelCalls": "{count} chiamata | {count} chiamate",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Il routing automatico ha eseguito queste chiamate con {model} invece di {baseline}",
+    "autoRoutedRunTooltip": "Il routing automatico era attivo per questa esecuzione",
+    "primaryModel": "Principale",
     "turnUsageTooltip": "Utilizzo LLM per questo turno",
     "setup": "Preparazione",
     "setupTooltip": "Tempo dall'avvio al primo passo (costruzione del contesto, ecc.)",
@@ -1409,7 +1424,30 @@
       "copied": "JSON della traccia copiato negli appunti",
       "failed": "Impossibile esportare la traccia"
     },
-    "hiddenTurns": "{count} turno successivo nascosto: questo o uno precedente ha usato un agente che non gestisci | {count} turni successivi nascosti: questi o uno precedente hanno usato un agente che non gestisci"
+    "hiddenTurns": "{count} turno successivo nascosto: questo o uno precedente ha usato un agente che non gestisci | {count} turni successivi nascosti: questi o uno precedente hanno usato un agente che non gestisci",
+    "contextColumns": {
+      "ofTotal": "{shown} di {total} colonne",
+      "allColumns": "{total} colonne",
+      "why": "Perché queste colonne",
+      "reason": {
+        "usage_ranked": "Ordinate per utilizzo delle colonne",
+        "structural_only": "Nessun utilizzo ancora: prima chiavi, timestamp e ID",
+        "all_columns": "Tutte le colonne rientrano nel limite"
+      },
+      "signal": {
+        "mentioned": "{n} citate nell'attività",
+        "usage": "{n} per utilizzo",
+        "instructions": "{n} citate nelle istruzioni",
+        "structural": "{n} chiavi, timestamp o ID",
+        "sample": "{n} campionate tra i gruppi di colonne",
+        "schema_order": "{n} in ordine di catalogo"
+      },
+      "shown": "Colonne nel contesto",
+      "folded": "Raggruppate (ricercabili con describe_tables)",
+      "otherColumns": "altre {count} colonne",
+      "usedTimes": "usata {count}×",
+      "score": "punteggio {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -1884,6 +1922,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Modifica codice della query",
+      "saveAsCachedTable": "Salva come tabella in cache",
+      "saveAsCachedTableTooltip": "Memorizza questa query nella cache della connessione, così gli agenti rispondono da una copia locale",
+      "saveAsCachedTableFailed": "Impossibile aprire questo risultato per la cache",
       "editCode": "Modifica codice",
       "edit": "Modifica",
       "rows": "{count} righe",
@@ -2310,6 +2351,19 @@
       "connected": "Connesso",
       "askAgain": "Chiedi di nuovo",
       "readyHint": "Connesso. Ripeti la domanda per usarlo."
+    },
+    "describeTables": {
+      "searching": "Ricerca di {query}…",
+      "searched": "Cercato {names}",
+      "searchedMore": "Cercato {names} +{count}",
+      "columnsMatching": "colonne che corrispondono a {terms}",
+      "column": "Colonna",
+      "type": "Tipo",
+      "used": "Utilizzi",
+      "showingOf": "Le prime {shown} di {total} colonne, le più usate per prime",
+      "matchingOf": "{matched} di {total} colonne corrispondono a {terms}",
+      "noMatch": "Nessuna colonna corrisponde a {terms}",
+      "more": "+{count} in più"
     }
   },
   "entityCreate": {
@@ -3651,6 +3705,22 @@
           "name": "Tabelle personalizzate (beta)",
           "description": "Consente agli amministratori delle connessioni di definire SQL che BOW materializza in una copia locale cifrata secondo una pianificazione, così gli agenti rispondono dal risultato memorizzato anziché interrogare la sorgente a ogni turno. Beta: disattivato per impostazione predefinita."
         },
+        "custom_table_max_rows": {
+          "name": "Limite di righe della tabella personalizzata",
+          "description": "Numero massimo di righe che una tabella personalizzata può contenere. Una query che si stima o risulta restituirne di più viene rifiutata e i dati precedenti continuano a essere serviti. Da 1.000 a 100.000.000."
+        },
+        "custom_table_max_gb": {
+          "name": "Limite di dimensione della tabella personalizzata (GB)",
+          "description": "Risultato stimato più grande, e file in cache più grande, per una tabella personalizzata. Da 1 a 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Limite di lettura all'origine della tabella personalizzata (GB)",
+          "description": "Quantità massima di dati che l'origine può leggere per un aggiornamento, quando l'origine la comunica prima dell'esecuzione (BigQuery, Snowflake). Da 1 a 10.240."
+        },
+        "custom_table_max_requests": {
+          "name": "Limite di richieste della tabella personalizzata",
+          "description": "Numero massimo di richieste che un aggiornamento può inviare a un'origine letta pagina per pagina (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Aumentalo insieme al limite di righe: Power BI restituisce al massimo 100.000 righe per richiesta e consente circa 120 richieste al minuto. Da 16 a 10.000."
+        },
         "enable_agent_notes": {
           "name": "Note dell'agente",
           "description": "Consente all'agente di tenere note di lavoro per ogni report (un blocco appunti) che scrive e rilegge mentre risponde: piani, riscontri e cose da fare. Le note sono mostrate nel report ma non sono conoscenza condivisa. Quando è disattivato, gli strumenti per le note sono nascosti e le note non vengono inserite nel contesto."
@@ -3734,6 +3804,10 @@
         "show_world": {
           "name": "Vista Mondo",
           "description": "Mostra nella pagina Agenti un interruttore che apre Mondo: una mappa di agenti, conoscenza, fonti e lavoro che collegano la tua organizzazione. Ogni utente vede solo ciò a cui ha accesso."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K colonne per tabella",
+          "description": "Quante colonne di una tabella ampia l'agente vede per intero nel contesto, ordinate per utilizzo, riferimenti nelle istruzioni e chiavi/timestamp. Le altre sono riassunte per prefisso e restano ricercabili con describe_tables. 0 = nessun limite."
         }
       },
       "permissionMode": {
@@ -5849,6 +5923,8 @@
       "colTools": "Strumenti",
       "colDuration": "Durata",
       "colCost": "Costo",
+      "colModel": "Modello",
+      "pivotModel": "Mostra le esecuzioni che hanno usato questo modello",
       "colFeedback": "Feedback",
       "expandRow": "Mostra chiamate a strumenti",
       "pivotReport": "Mostra questa conversazione",
@@ -6463,7 +6539,22 @@
     "reports": "Report recenti",
     "suggestInstruction": "Suggerisci istruzione",
     "suggestInstructionWithQuery": "Suggerisci l'istruzione “{query}”",
-    "suggestionHint": "inviata per revisione"
+    "suggestionHint": "inviata per revisione",
+    "placeholderInReport": "Cerca in questo report, report, agenti, istruzioni…",
+    "inThisReport": "In questo report",
+    "reportScopeHint": "Digita report: per cercare solo in questo report",
+    "reportPrefix": "report:",
+    "tabs": {
+      "all": "Tutto",
+      "reports": "Report",
+      "agents": "Agenti",
+      "instructions": "Istruzioni",
+      "dashboards": "Dashboard"
+    },
+    "tabsLabel": "Categorie",
+    "tabsHint": "categorie",
+    "dashboards": "Dashboard",
+    "untitledDashboard": "Dashboard senza titolo"
   },
   "promptParams": {
     "title": "Compila i parametri — {title}",
@@ -7063,7 +7154,10 @@
     "exitFullscreen": "Esci da schermo intero",
     "searchColumns": "Cerca colonne…",
     "noColumns": "Nessuna colonna corrispondente",
-    "centrality": "Centralità"
+    "centrality": "Centralità",
+    "usedHeader": "Utilizzi",
+    "usedTooltip": "Query eseguite che hanno usato questa colonna (i tentativi falliti pesano meno nel ranking)",
+    "sortedByUsage": "Le più usate per prime"
   },
   "fork": {
     "preparing": "Preparazione della tua copia…",
@@ -8072,5 +8166,56 @@
       }
     },
     "builtinBadge": "Integrato"
+  },
+  "cachedColumns": {
+    "title": "Colonne",
+    "hint": "Le descrizioni e l’indicatore di riaggregazione provengono dal catalogo di origine. Ciò che modifichi qui viene mantenuto a ogni aggiornamento.",
+    "column": "Colonna",
+    "type": "Tipo",
+    "description": "Descrizione",
+    "details": "Dettagli",
+    "aggregation": "Riaggregazione",
+    "descriptionPlaceholder": "Nessuna descrizione nell’origine. Descrivi questa colonna per l’agente.",
+    "additive": "Additiva",
+    "notAdditive": "Non additiva",
+    "unknown": "Sconosciuta",
+    "additiveHint": "I valori possono essere sommati tra le righe.",
+    "notAdditiveHint": "Sommare tra le righe dà un numero sbagliato. All’agente viene detto di non farlo.",
+    "unknownHint": "Impossibile determinarla dalla query. Scegli un’opzione perché l’agente lo sappia.",
+    "undecided": "Non è stato possibile determinare la riaggregazione per: {columns}. Impostala perché l’agente sappia se possono essere sommate.",
+    "copiedFrom": "Copiata da {source}",
+    "measureFrom": "Misura {source}",
+    "computedAs": "Calcolata: {expression}",
+    "edited": "Modificata",
+    "editedHint": "Impostata da un amministratore. Un aggiornamento non la cambierà.",
+    "reset": "Ripristina il valore di origine",
+    "drift": "Definizione cambiata",
+    "driftHint": "La definizione di origine di questa colonna è cambiata dall’ultima volta che la tabella l’ha descritta.",
+    "driftPrevious": "In precedenza: {expression}",
+    "markReviewed": "Segna come verificata",
+    "rlsTitle": "L’origine usa la sicurezza a livello di riga",
+    "rlsBody": "{tables} è protetta dalla sicurezza a livello di riga nell’origine. Questa copia contiene ogni riga che la connessione può leggere e i ruoli dell’origine non vengono riportati. Decidi chi vede quali righe nella scheda Sicurezza a livello di riga.",
+    "rlsOpen": "Apri Sicurezza a livello di riga",
+    "rlsSaveFirst": "Disponibile dopo il salvataggio della tabella.",
+    "generatedDescription": "Generata dalle colonne e mantenuta aggiornata a ogni aggiornamento. Modificala per scriverne una tua.",
+    "reasons": {
+      "sum": "somma",
+      "count": "conteggio",
+      "numeric_column": "valore numerico",
+      "distinct_count": "conteggio dei distinti",
+      "average": "media",
+      "ratio": "rapporto",
+      "min_max": "minimo / massimo",
+      "time_intelligence": "intelligenza temporale",
+      "share_of_total": "quota di un totale",
+      "statistic": "statistica",
+      "offset": "costante aggiunta dopo l’aggregazione",
+      "unreadable": "definizione non leggibile",
+      "complex": "troppo complessa da classificare",
+      "not_numeric": "non è un numero",
+      "grouping_key": "chiave di raggruppamento",
+      "key": "identificatore",
+      "set_by_admin": "impostata da un amministratore"
+    }
   }
 }

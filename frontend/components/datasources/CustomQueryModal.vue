@@ -132,11 +132,15 @@
           </div>
           <div class="col-span-2">
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description <span class="text-ink-muted">(optional)</span></label>
-            <input
-              v-model="form.description" data-testid="cq-description"
+            <textarea
+              v-model="form.description" data-testid="cq-description" rows="1" v-text-dir
               placeholder="What this data represents — shown to the agent"
-              class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-1.5 dark:bg-gray-900 dark:text-white"
+              class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-1.5 dark:bg-gray-900 dark:text-white resize-y min-h-[2.125rem]"
+              :class="{ 'h-[4.5rem]': descriptionIsGenerated }"
             />
+            <p v-if="descriptionIsGenerated" data-testid="cq-description-generated" class="text-2xs text-ink-muted mt-1">
+              {{ t('cachedColumns.generatedDescription') }}
+            </p>
           </div>
         </div>
 
@@ -219,6 +223,30 @@
               </tbody>
             </table>
           </div>
+
+          <!-- The source table carries the indexer's row-level security
+               marker. The copy holds every row the connection can read and
+               the source's roles are NOT carried over, so say so and point at
+               the tab where the copy's own policy is set. -->
+          <div v-if="rlsSources.length && !cq?.rls_enabled" data-testid="cq-rls-source-warning"
+               class="mt-3 flex items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
+            <UIcon name="heroicons-shield-exclamation" class="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+            <div class="text-xs text-amber-800 dark:text-amber-200">
+              <p class="font-medium">{{ t('cachedColumns.rlsTitle') }}</p>
+              <p class="mt-0.5">{{ t('cachedColumns.rlsBody', { tables: rlsSources.join(', ') }) }}</p>
+              <button v-if="editing" type="button" data-testid="cq-rls-source-open"
+                      class="mt-1 font-medium underline" @click="tab = 'rls'">{{ t('cachedColumns.rlsOpen') }}</button>
+              <p v-else class="mt-1 text-amber-700 dark:text-amber-300">{{ t('cachedColumns.rlsSaveFirst') }}</p>
+            </div>
+          </div>
+
+          <CachedColumnsEditor
+            v-if="describedColumns.length"
+            v-model:edits="columnEdits"
+            :columns="describedColumns"
+            :reviewed="reviewedDrift"
+            @review="(name: string) => reviewedDrift = new Set([...reviewedDrift, name])"
+          />
         </div>
       </div>
 
@@ -736,6 +764,36 @@
         </div>
       </div>
 
+      <!-- First load of a new table: rows arriving from the source. Starts at
+           zero (the row is created before the source is asked anything) and
+           fills as batches land; a source that cannot be counted shows the
+           running row total with no fraction. -->
+      <div
+        v-if="saving && !editing"
+        data-testid="cq-save-progress"
+        :data-pct="savePct === null ? '' : savePct"
+        class="mt-4 rounded-md border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-900/20 px-3 py-2.5"
+      >
+        <div class="flex items-center justify-between text-xs text-blue-900 dark:text-blue-200">
+          <span class="font-medium" data-testid="cq-save-progress-label">{{ saveProgressLabel }}</span>
+          <span v-if="savePct !== null" class="tabular-nums" data-testid="cq-save-progress-pct">{{ savePct }}%</span>
+        </div>
+        <div
+          class="mt-2 h-1.5 w-full rounded-full bg-blue-100 dark:bg-blue-950 overflow-hidden"
+          role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="savePct ?? undefined"
+        >
+          <div
+            data-testid="cq-save-progress-bar"
+            class="h-full rounded-full bg-blue-600 transition-all duration-500"
+            :class="{ 'animate-pulse': savePct === null && !!saveProgress }"
+            :style="{ width: (savePct === null ? (saveProgress ? 100 : 0) : savePct) + '%' }"
+          ></div>
+        </div>
+        <p class="mt-1.5 text-2xs text-blue-800/80 dark:text-blue-300/80">
+          Reading from <span class="font-medium">{{ activeConnectionName }}</span>. Keep this window open until it finishes.
+        </p>
+      </div>
+
       <!-- Footer -->
       <div class="flex items-center justify-between mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
         <div class="text-2xs text-ink-muted">
@@ -780,6 +838,11 @@
 
 <script setup lang="ts">
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
+import CachedColumnsEditor from '@/components/datasources/CachedColumnsEditor.vue'
+import {
+  columnEditsPayload, descriptionAfterSuggestion, descriptionToSave, editsFromColumns, hasColumnMetadata,
+  type ColumnEdit,
+} from '~/utils/columnMetadata'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 const ROW_LIMIT = 100
 
@@ -907,6 +970,31 @@ const deleting = ref(false)
 const refreshingNow = ref(false)
 const preview = ref<any>(null)
 const previewError = ref('')
+
+// ---------------------------------------------------------------------------
+// What the columns mean
+// ---------------------------------------------------------------------------
+// The preview (or the saved table) returns each column with what the source
+// catalog knows about it. The admin's edits are kept apart from that, by
+// column name, so running the preview again does not lose them.
+const { t } = useI18n()
+const columnEdits = ref<Record<string, ColumnEdit>>({})
+const reviewedDrift = ref<Set<string>>(new Set())
+// The description the backend generated from the columns, when the field is
+// showing it. Sent as empty on save, so it stays generated.
+const generatedDescription = ref('')
+const describedColumns = computed<any[]>(() =>
+  (preview.value?.columns || []).filter((c: any) => c?.name).some(hasColumnMetadata)
+    ? (preview.value?.columns || []).filter((c: any) => c?.name)
+    : [])
+const rlsSources = computed<string[]>(() => preview.value?.rls_sources || [])
+const descriptionIsGenerated = computed(() =>
+  !!generatedDescription.value && form.description.trim() === generatedDescription.value.trim())
+
+function suggestDescription(text: string | null | undefined) {
+  form.description = descriptionAfterSuggestion(form.description, generatedDescription.value, text)
+  generatedDescription.value = text || ''
+}
 
 const form = reactive({
   name: '',
@@ -1084,6 +1172,9 @@ watch(() => props.modelValue, (open) => {
   tab.value = 'query'
   preview.value = null
   previewError.value = ''
+  columnEdits.value = editsFromColumns(props.cq?.columns || [])
+  reviewedDrift.value = new Set()
+  generatedDescription.value = ''
   rlsPreviewUserId.value = ''
   loadRlsFromCq()
   loadIncrFromCq()
@@ -1101,7 +1192,12 @@ watch(() => props.modelValue, (open) => {
     form.refresh_at_time = props.cq.refresh_at_time || '03:00'
     // Editing an existing relation: its columns are already known, so the
     // preview gate does not apply until the SQL is changed.
-    preview.value = { columns: props.cq.columns || [], rows: [], budget_error: null, estimated_rows: props.cq.no_rows }
+    preview.value = {
+      columns: props.cq.columns || [], rows: [], budget_error: null, estimated_rows: props.cq.no_rows,
+      rls_sources: props.cq.rls_sources || [],
+    }
+    // No description of the admin's own: show the one built from the columns.
+    suggestDescription(props.cq.generated_description)
   } else {
     form.name = props.initialName || ''
     form.description = ''
@@ -1293,6 +1389,9 @@ async function runPreview() {
           definition_sql: form.definition_sql,
           target: targetPayload(),
           refresh_config: { cursor_column: incr.cursor_column || null, cursor_kind: incr.cursor_kind || null },
+          refresh_schedule_mode: form.refresh_schedule_mode,
+          refresh_interval_minutes: form.refresh_interval_minutes,
+          refresh_at_time: form.refresh_schedule_mode === 'time' ? form.refresh_at_time : null,
         },
       },
     )
@@ -1300,6 +1399,7 @@ async function runPreview() {
       previewError.value = error.value?.data?.detail || 'Query failed'
     } else {
       preview.value = data.value
+      suggestDescription((data.value as any)?.suggested_description)
     }
   } catch (e: any) {
     previewError.value = e?.message || String(e)
@@ -1308,13 +1408,101 @@ async function runPreview() {
   }
 }
 
+// --- First-load progress ----------------------------------------------------
+// Creating a table answers only when its first load has finished, which for a
+// large result is minutes of one pending request. The row exists from the
+// start, so the list route can say how many rows have landed meanwhile.
+const saveProgress = ref<{ rows: number; source_rows: number | null } | null>(null)
+let saveProgressTimer: ReturnType<typeof setInterval> | null = null
+let saveProgressBusy = false
+
+const savePct = computed<number | null>(() => {
+  const p = saveProgress.value
+  if (!p) return 0
+  if (!p.source_rows) return p.rows > 0 ? null : 0
+  // Never 100 before the request itself returns: the file is still being
+  // sealed and published after the last row arrives.
+  return Math.max(0, Math.min(99, Math.floor((p.rows / p.source_rows) * 100)))
+})
+
+const saveProgressLabel = computed(() => {
+  const p = saveProgress.value
+  if (!p) return 'Starting…'
+  if (p.source_rows) {
+    if (p.rows >= p.source_rows) return `Finishing — ${p.rows.toLocaleString()} rows read`
+    return `Caching ${p.rows.toLocaleString()} of ${p.source_rows.toLocaleString()} rows`
+  }
+  return p.rows > 0 ? `Caching — ${p.rows.toLocaleString()} rows so far` : 'Counting rows at the source…'
+})
+
+async function pollSaveProgress(connectionId: string, name: string) {
+  if (saveProgressBusy) return
+  saveProgressBusy = true
+  try {
+    const row = await customTableNamed(connectionId, name)
+    if (!row) return
+    const live = row.refresh_progress
+    const load = row.load_progress
+    if (live) {
+      saveProgress.value = { rows: Number(live.rows || 0), source_rows: live.source_rows ? Number(live.source_rows) : null }
+    } else if (load) {
+      saveProgress.value = { rows: Number(load.rows || 0), source_rows: load.source_rows ? Number(load.source_rows) : null }
+    }
+  } catch {
+    /* progress is a courtesy: the save itself reports success or failure */
+  } finally {
+    saveProgressBusy = false
+  }
+}
+
+// A create that failed during its first load leaves the table behind (with
+// the error on it) so it can be fixed and retried; a create refused before
+// that (bad name, name taken) leaves nothing.
+// One table's state by name. Scoped to that table on purpose: this is polled
+// every second while a load runs, and the full list costs a query per table.
+async function customTableNamed(connectionId: string, name: string): Promise<any | null> {
+  try {
+    const { data, error } = await useMyFetch(
+      `/connections/${connectionId}/custom-queries/progress`, { method: 'GET', query: { name } })
+    const row: any = data.value
+    if (error.value || !row?.exists) return null
+    return row
+  } catch {
+    return null
+  }
+}
+
+function startSaveProgress(connectionId: string, name: string) {
+  stopSaveProgress()
+  saveProgress.value = null
+  saveProgressTimer = setInterval(() => { pollSaveProgress(connectionId, name) }, 1000)
+}
+
+function stopSaveProgress() {
+  if (saveProgressTimer) clearInterval(saveProgressTimer)
+  saveProgressTimer = null
+}
+
+onBeforeUnmount(stopSaveProgress)
+
 async function onSave() {
   saving.value = true
+  // Whether this name was already taken before we tried: a failed create is
+  // only "created, but not loaded" if this attempt is what created the row.
+  let existedBefore = false
+  if (!editing.value) {
+    existedBefore = !!(await customTableNamed(String(activeConnection.value.id), form.name.trim()))
+    startSaveProgress(String(activeConnection.value.id), form.name.trim())
+  }
   try {
     const body: any = {
       name: form.name.trim(),
       definition_sql: form.definition_sql,
-      description: form.description || null,
+      // Always a string: an emptied description must be able to clear a
+      // stored one, and an untouched generated one is stored as empty.
+      description: descriptionToSave(form.description, generatedDescription.value),
+      // The complete set of column edits; a column left out follows its source.
+      columns: columnEditsPayload(describedColumns.value, columnEdits.value, reviewedDrift.value),
       refresh_schedule_mode: form.refresh_schedule_mode,
       refresh_interval_minutes: form.refresh_interval_minutes,
       refresh_at_time: form.refresh_schedule_mode === 'time' ? form.refresh_at_time : null,
@@ -1335,7 +1523,24 @@ async function onSave() {
       : `/connections/${activeConnection.value.id}/custom-queries`
     const { data, error } = await useMyFetch(url, { method: editing.value ? 'PUT' : 'POST', body })
     if (error.value) {
-      toast.add({ title: 'Could not save', description: error.value?.data?.detail || 'Failed', color: 'red' })
+      const detail = error.value?.data?.detail || 'Failed'
+      const left = (!editing.value && !existedBefore)
+        ? await customTableNamed(String(activeConnection.value.id), body.name) : null
+      if (left && left.last_refresh_status === 'error') {
+        // The table exists; only its first load failed. Leaving this form
+        // open would invite a second "Create", which can only fail on the
+        // name. Say where the table is and let the list show its error.
+        toast.add({
+          title: 'Table created, but its first load failed',
+          description: `${detail} Open "${body.name}" from the agent's Tables page to retry or change it.`,
+          color: 'red',
+          timeout: 0,
+        })
+        emit('saved')
+        close()
+        return
+      }
+      toast.add({ title: 'Could not save', description: detail, color: 'red' })
       return
     }
     const saved: any = data.value
@@ -1347,6 +1552,7 @@ async function onSave() {
     emit('saved')
     close()
   } finally {
+    stopSaveProgress()
     saving.value = false
   }
 }

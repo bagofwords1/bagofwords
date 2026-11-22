@@ -1398,6 +1398,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "Uso de LLM en esta conversación",
     "turnTokensTooltip": "Tokens LLM del planificador en este turno",
+    "tokensInOut": "entrada {input} / salida {output}",
+    "tokensIn": "Entrada",
+    "tokensOut": "Salida",
+    "tokensCached": "En caché",
+    "stepTokens": "Tokens",
+    "stepTokensTooltip": "Llamada del planificador en este paso. La entrada incluye los tokens en caché. No se cuentan las llamadas LLM hechas dentro de la herramienta.",
+    "modelUnknown": "Modelo desconocido",
+    "modelUnknownTooltip": "No se registró el uso de LLM por llamada en esta ejecución",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modelos en este turno",
+    "modelCalls": "{count} llamada | {count} llamadas",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "El enrutamiento automático ejecutó estas llamadas con {model} en lugar de {baseline}",
+    "autoRoutedRunTooltip": "El enrutamiento automático estaba activo en esta ejecución",
+    "primaryModel": "Principal",
     "turnUsageTooltip": "Uso de LLM en este turno",
     "setup": "Preparación",
     "setupTooltip": "Tiempo desde el inicio hasta el primer paso (construcción de contexto, etc.)",
@@ -1488,7 +1503,30 @@
       "copied": "JSON de la traza copiado al portapapeles",
       "failed": "No se pudo exportar la traza"
     },
-    "hiddenTurns": "{count} turno posterior oculto: este o uno anterior usó un agente que no administras | {count} turnos posteriores ocultos: estos o uno anterior usaron un agente que no administras"
+    "hiddenTurns": "{count} turno posterior oculto: este o uno anterior usó un agente que no administras | {count} turnos posteriores ocultos: estos o uno anterior usaron un agente que no administras",
+    "contextColumns": {
+      "ofTotal": "{shown} de {total} columnas",
+      "allColumns": "{total} columnas",
+      "why": "Por qué estas columnas",
+      "reason": {
+        "usage_ranked": "Ordenadas por uso de columnas",
+        "structural_only": "Aún sin uso: primero claves, marcas de tiempo e IDs",
+        "all_columns": "Todas las columnas caben en el límite"
+      },
+      "signal": {
+        "mentioned": "{n} nombradas en la tarea",
+        "usage": "{n} por uso",
+        "instructions": "{n} referenciadas por instrucciones",
+        "structural": "{n} claves, marcas de tiempo o IDs",
+        "sample": "{n} de muestra entre grupos de columnas",
+        "schema_order": "{n} en orden del catálogo"
+      },
+      "shown": "Columnas en el contexto",
+      "folded": "Agrupadas (se pueden buscar con describe_tables)",
+      "otherColumns": "{count} columnas más",
+      "usedTimes": "usada {count}×",
+      "score": "puntuación {score}"
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -2097,6 +2135,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Editar código de consulta",
+      "saveAsCachedTable": "Guardar como tabla en caché",
+      "saveAsCachedTableTooltip": "Guarda esta consulta en caché en la conexión para que los agentes respondan desde una copia local",
+      "saveAsCachedTableFailed": "No se pudo abrir este resultado para guardarlo en caché",
       "editCode": "Editar código",
       "edit": "Editar",
       "rows": "{count} filas",
@@ -2626,6 +2667,19 @@
       "connected": "Conectado",
       "askAgain": "Volver a preguntar",
       "readyHint": "Conectado. Vuelve a ejecutar tu pregunta para usarlo."
+    },
+    "describeTables": {
+      "searching": "Buscando {query}…",
+      "searched": "Buscado {names}",
+      "searchedMore": "Buscado {names} +{count}",
+      "columnsMatching": "columnas que coinciden con {terms}",
+      "column": "Columna",
+      "type": "Tipo",
+      "used": "Usos",
+      "showingOf": "Las {shown} columnas principales de {total}, las más usadas primero",
+      "matchingOf": "{matched} de {total} columnas coinciden con {terms}",
+      "noMatch": "Ninguna columna coincide con {terms}",
+      "more": "+{count} más"
     }
   },
   "entityCreate": {
@@ -4062,6 +4116,22 @@
           "name": "Tablas personalizadas (beta)",
           "description": "Permite a los administradores de conexiones definir SQL que BOW materializa en una copia local cifrada según una programación, de modo que los agentes respondan desde el resultado almacenado en lugar de consultar la fuente en cada turno. Beta: desactivado por defecto."
         },
+        "custom_table_max_rows": {
+          "name": "Límite de filas de tabla personalizada",
+          "description": "Máximo de filas que puede contener una tabla personalizada. Una consulta que se estime o resulte devolver más se rechaza y se siguen sirviendo los datos anteriores. De 1.000 a 100.000.000."
+        },
+        "custom_table_max_gb": {
+          "name": "Límite de tamaño de tabla personalizada (GB)",
+          "description": "Mayor resultado estimado, y mayor archivo en caché, para una tabla personalizada. De 1 a 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Límite de lectura en origen de tabla personalizada (GB)",
+          "description": "Máximo de datos que el origen puede leer en una actualización, cuando el origen lo informa antes de ejecutar (BigQuery, Snowflake). De 1 a 10.240."
+        },
+        "custom_table_max_requests": {
+          "name": "Límite de solicitudes de tabla personalizada",
+          "description": "Máximo de solicitudes que una actualización puede hacer a un origen que se lee página a página (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Auméntelo junto con el límite de filas: Power BI devuelve como máximo 100.000 filas por solicitud y permite unas 120 solicitudes por minuto. De 16 a 10.000."
+        },
         "enable_agent_notes": {
           "name": "Notas del agente",
           "description": "Permite al agente mantener notas de trabajo por informe (un cuaderno) que escribe y lee mientras responde: planes, hallazgos y tareas pendientes. Las notas se muestran en el informe pero no son conocimiento compartido. Cuando está desactivado, las herramientas de notas se ocultan y las notas no se inyectan en el contexto."
@@ -4213,6 +4283,10 @@
         "show_world": {
           "name": "Vista Mundo",
           "description": "Muestra en la página de Agentes un interruptor que abre Mundo: un mapa de los agentes, el conocimiento, las fuentes y el trabajo que conectan tu organización. Cada usuario ve solo lo que tiene permiso para ver."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K de columnas por tabla",
+          "description": "Cuántas columnas de una tabla ancha ve el agente completas en su contexto, ordenadas por uso de columnas, referencias en instrucciones y claves/marcas de tiempo. El resto se resume por prefijo y se puede buscar con describe_tables. 0 = sin límite."
         }
       },
       "permissionMode": {
@@ -4538,7 +4612,7 @@
       "orCreateNew": "— o crear nueva —",
       "authBasic": "Correo + token de API",
       "basicUsernameLabel": "Correo / usuario",
-      "basicUsernamePlaceholder": "tu@empresa.com",
+      "basicUsernamePlaceholder": "tu{'@'}empresa.com",
       "basicPasswordLabel": "Token de API",
       "basicPasswordPlaceholder": "Pega tu token de API",
       "basicHint": "Se envía como autenticación HTTP Basic. Para Bitbucket, usa el correo de tu cuenta de Atlassian y un token de API de Atlassian; un administrador de la organización debe habilitar el acceso por token de API en el servidor MCP de Rovo."
@@ -5289,7 +5363,7 @@
       "urlTitle": "URL del servidor Exchange",
       "urlDescription": "Dirección de tu servidor Exchange, p. ej. https://mail.example.com. La ruta de Exchange Web Services (/EWS/Exchange.asmx) se añade si la omites.",
       "sharedTitle": "Buzones compartidos",
-      "sharedDescription": "Opcional. Direcciones de buzones compartidos o de equipo que se incluirán, separadas por comas, p. ej. support@example.com, sales@example.com. Exchange decide quién puede abrir cada uno: cada persona solo ve los buzones a los que su cuenta ya tiene acceso.",
+      "sharedDescription": "Opcional. Direcciones de buzones compartidos o de equipo que se incluirán, separadas por comas, p. ej. support{'@'}example.com, sales{'@'}example.com. Exchange decide quién puede abrir cada uno: cada persona solo ve los buzones a los que su cuenta ya tiene acceso.",
       "ownTitle": "Incluir el buzón propio de la cuenta",
       "ownDescription": "Desactívalo al iniciar sesión con una cuenta de servicio cuyo buzón propio no es relevante. El primer buzón compartido pasa a ser el predeterminado."
     },
@@ -6586,6 +6660,8 @@
       "colTools": "Herramientas",
       "colDuration": "Duración",
       "colCost": "Coste",
+      "colModel": "Modelo",
+      "pivotModel": "Ver ejecuciones que usaron este modelo",
       "colFeedback": "Feedback",
       "expandRow": "Mostrar llamadas a herramientas",
       "pivotReport": "Mostrar esta conversación",
@@ -7220,7 +7296,22 @@
     "agents": "Agentes",
     "instructions": "Instrucciones",
     "emptyLabel": "Empieza a escribir para buscar",
-    "emptyQueryLabel": "No se encontraron resultados"
+    "emptyQueryLabel": "No se encontraron resultados",
+    "placeholderInReport": "Buscar en este informe, informes, agentes, instrucciones…",
+    "inThisReport": "En este informe",
+    "reportScopeHint": "Escribe report: para buscar solo en este informe",
+    "reportPrefix": "informe:",
+    "tabs": {
+      "all": "Todo",
+      "reports": "Informes",
+      "agents": "Agentes",
+      "instructions": "Instrucciones",
+      "dashboards": "Paneles"
+    },
+    "tabsLabel": "Categorías",
+    "tabsHint": "categorías",
+    "dashboards": "Paneles",
+    "untitledDashboard": "Panel sin título"
   },
   "promptParams": {
     "title": "Rellena los parámetros — {title}",
@@ -7744,7 +7835,10 @@
     "showAllColumns": "Mostrar todas",
     "hideAllColumns": "Ocultar todas",
     "includeColumn": "Incluir {name} en el contexto del agente",
-    "columnHidden": "oculta"
+    "columnHidden": "oculta",
+    "usedHeader": "Usos",
+    "usedTooltip": "Consultas ejecutadas que usaron esta columna (los intentos fallidos pesan menos en el ranking)",
+    "sortedByUsage": "Las más usadas primero"
   },
   "fork": {
     "preparing": "Preparando tu copia…",
@@ -9009,5 +9103,56 @@
       }
     },
     "builtinBadge": "Integrada"
+  },
+  "cachedColumns": {
+    "title": "Columnas",
+    "hint": "Las descripciones y la marca de reagregación provienen del catálogo de origen. Lo que cambie aquí se conserva en cada actualización.",
+    "column": "Columna",
+    "type": "Tipo",
+    "description": "Descripción",
+    "details": "Detalles",
+    "aggregation": "Reagregación",
+    "descriptionPlaceholder": "Sin descripción en el origen. Describa esta columna para el agente.",
+    "additive": "Aditiva",
+    "notAdditive": "No aditiva",
+    "unknown": "Desconocida",
+    "additiveHint": "Los valores se pueden sumar entre filas.",
+    "notAdditiveHint": "Sumar entre filas da un número incorrecto. Se indica al agente que no lo haga.",
+    "unknownHint": "No se pudo determinar a partir de la consulta. Elija una opción para que el agente lo sepa.",
+    "undecided": "No se pudo determinar la reagregación de: {columns}. Indíquela para que el agente sepa si se pueden sumar.",
+    "copiedFrom": "Copiada de {source}",
+    "measureFrom": "Medida {source}",
+    "computedAs": "Calculada: {expression}",
+    "edited": "Editada",
+    "editedHint": "Definida por un administrador. Una actualización no la cambiará.",
+    "reset": "Restablecer al origen",
+    "drift": "La definición cambió",
+    "driftHint": "La definición de origen de esta columna cambió desde que la tabla la describió por última vez.",
+    "driftPrevious": "Antes: {expression}",
+    "markReviewed": "Marcar como revisada",
+    "rlsTitle": "El origen usa seguridad a nivel de fila",
+    "rlsBody": "{tables} está protegida por seguridad a nivel de fila en el origen. Esta copia contiene todas las filas que la conexión puede leer y los roles del origen no se trasladan. Decida quién ve qué filas en la pestaña Seguridad a nivel de fila.",
+    "rlsOpen": "Abrir Seguridad a nivel de fila",
+    "rlsSaveFirst": "Disponible una vez guardada la tabla.",
+    "generatedDescription": "Generada a partir de las columnas y actualizada en cada actualización. Edítela para escribir la suya.",
+    "reasons": {
+      "sum": "suma",
+      "count": "recuento",
+      "numeric_column": "valor numérico",
+      "distinct_count": "recuento de distintos",
+      "average": "promedio",
+      "ratio": "ratio",
+      "min_max": "mínimo / máximo",
+      "time_intelligence": "inteligencia de tiempo",
+      "share_of_total": "parte de un total",
+      "statistic": "estadístico",
+      "offset": "constante sumada tras agregar",
+      "unreadable": "definición no legible",
+      "complex": "demasiado compleja para clasificar",
+      "not_numeric": "no es un número",
+      "grouping_key": "clave de agrupación",
+      "key": "identificador",
+      "set_by_admin": "definida por un administrador"
+    }
   }
 }

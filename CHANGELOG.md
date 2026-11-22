@@ -1,5 +1,30 @@
 # Release Notes
 
+## Version 0.0.633 (November 22, 2026)
+- Added in-report search to ⌘K: find any message in the open report, including unloaded pages, and jump to it (#1863)
+- Added category tabs to ⌘K: All, Reports, Agents, Instructions, Dashboards (#1864)
+- Added per-step input/output tokens and the run's model to the trace modal, and a diagnosis filter on LLM runs (#1869)
+- Added column meanings from the catalog to cached tables, flagging columns that must not be summed (#1868)
+- Added column search to table descriptions, and a cap on wide tables' columns in the agent's context, ranked by usage (#1876)
+- Changed Priority ERP cached tables to load forms in verified pages instead of one capped request (#1867)
+- Fixed an open report's dashboard refreshing more than once per new version (#1866)
+- Fixed SQLite connections hiding tables whose names have spaces, dashes or non-ASCII characters (#1877)
+- Fixed a Git instruction sync failing entirely when a synced file was removed from the repo (#1872)
+- Fixed WhatsApp replies being dropped when an organization has more than one WhatsApp number (#1874)
+- Fixed self-built Docker images including `backend/.env`, uploads and test files (#1877)
+
+## Version 0.0.632 (November 22, 2026)
+- Added "Save as cached table" beside Save Query on a result, opening the custom-table dialog pre-filled with the agent's query, and a progress bar on a table's first load (#1859)
+- Added custom tables on SAP BusinessObjects, and paged DAX custom tables on Analysis Services (#1857)
+- Added per-organization custom-table limits for rows, size, scanned data and requests (#1857) — under Settings → AI → Custom tables
+- Added group managers: admins delegated to manage one group, with an Admin entry that opens on their group (#1849)
+- Changed the Ask / Auto / Allow all chip in the prompt box to show only when the session has connection tools that can write (#1855)
+- Changed Power BI agents to do two-step aggregations in one DAX query instead of downloading detail rows (#1856)
+- Fixed a chart's refinement holding up the agent's next step; it now finishes in the background (#1858)
+- Fixed the first request after a restart taking seconds to reach some pages (#1845)
+- Fixed the Exchange Server (on-prem) connection form showing no fields (#1862)
+- Fixed exported HTML dashboards missing the `X-Content-Type-Options: nosniff` header (#1861)
+
 ## Version 0.0.631 (November 21, 2026)
 - Added inline figures in answers: charts and tables placed in the text, with highlighted categories and a ••• menu to add to a dashboard, save as a query, download or copy (#1844)
 - Added read-only Confluence and Jira Data Center (on-prem) connectors (#1842)

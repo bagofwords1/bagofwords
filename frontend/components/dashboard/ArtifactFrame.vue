@@ -522,7 +522,8 @@
 
       <!-- Iframe (shown when artifact exists and data is ready) -->
       <iframe
-        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !showViewerGate && !iframeError && iframeSrcdoc"
+        v-if="iframeSrcdoc"
+        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !showViewerGate && !iframeError"
         ref="iframeRef"
         data-artifact-frame
         :srcdoc="iframeSrcdoc"
@@ -1647,7 +1648,7 @@ async function loadAllVersions() {
   if (dashboardId !== selectedArtifactItem.value?.artifact_id) return;
   allVersions.value = error.value ? [] : (((data.value as any)?.versions) || []);
 }
-watch(() => [selectedArtifactItem.value?.artifact_id, artifactsList.value.length, liveVersionId.value], loadAllVersions);
+watch([() => selectedArtifactItem.value?.artifact_id, () => artifactsList.value.length, liveVersionId], loadAllVersions);
 const pickerOptions = computed(() => {
   const several = dashboardGroups.value.length > 1;
   const out: any[] = [];
@@ -1693,8 +1694,11 @@ const viewingSrc = computed(() => {
   return viewing.value && dashboardId ? viewingPath(dashboardId, viewing.value) : null;
 });
 const pickerValue = computed(() => (viewing.value ? `${ELSEWHERE}${viewing.value.versionId}` : selectedArtifactId.value));
+// An explicit version selection may already have a newer sibling in history.
+let pickedVersionId: string | null = null;
 function onPick(value: string) {
   if (value === ALL_VERSIONS) { settingsModalRef.value?.open('versions'); return; }
+  pickedVersionId = String(value).replace(/^elsewhere:/, '');
   if (value && String(value).startsWith(ELSEWHERE)) {
     const option = pickerOptions.value.find(o => o.value === value);
     if (option) viewing.value = { versionId: option.versionId, version: option.version, author: option.author, live: option.live };
@@ -1817,31 +1821,47 @@ watch(() => selectedArtifactItem.value?.artifact_id, (id, previous) => {
   if (id && id !== previous && !props.verificationPreview) checkLiveAhead();
 });
 
-// A version saved where this pane hears no stream -- another tab that is not
-// watching the run, another conversation on the same dashboard, the
-// dashboard's own chat, a dropped connection -- never reached the picker:
-// reopening the dashboard link was the only way to see it. While the pane is
-// on screen it re-reads the list every few seconds; the picker grows, and a
-// newer version of the dashboard on screen veils it with a Refresh (never
-// swapped under the reader: they may be reading, or picked this one).
+// A newly completed dashboard version follows the same selection path as a
+// live edit. Docs and slides keep the explicit offer (a doc may be mid-edit).
 const newerOffer = ref<NewerOffer | null>(null);
 const newerDismissed = ref<Set<string>>(new Set());
 async function checkForNewerVersions() {
-  const knownHere = new Set(artifactsList.value.map(a => a.id));
+  const item = selectedArtifactItem.value;
+  const viewed = viewing.value;
+  if (!item) return;
+  const isDashboard = item.mode === 'page';
+  const completed = (a: ArtifactItem) => !a.status || a.status === 'completed';
+  const knownHere = new Set(artifactsList.value.filter(completed).map(a => a.id));
   const knownElsewhere = new Set(allVersions.value.map((v: any) => String(v.id)));
   await fetchArtifactsList(true);
-  if (selectedArtifactItem.value?.artifact_id) await loadAllVersions();
-  const item = selectedArtifactItem.value;
-  if (!item || viewing.value) return;
+  if (item.artifact_id) await loadAllVersions();
+  // The reader or stream may have switched versions while the requests ran.
+  if (selectedArtifactId.value !== item.id || viewing.value !== viewed) return;
+  if (viewed && !isDashboard) return;
   const offer = newerPaneVersion({
-    selected: item,
-    newestHere: dashboardGroups.value.find(g => g.key === dashboardKeyOf(item))?.versions[0],
+    selected: viewed ? { id: viewed.versionId, version: viewed.version } : item,
+    newestHere: dashboardGroups.value.find(g => g.key === dashboardKeyOf(item))?.versions.find(completed),
     knownHere,
     elsewhere: allVersions.value,
     knownElsewhere,
     reportId: String(props.reportId),
+    followLatest: isDashboard && !liveAhead.value && !paramRoute.query.version &&
+      (viewed?.versionId || item.id) !== (pickedVersionId || props.requestedArtifactId),
   });
-  if (offer && !newerDismissed.value.has(offer.id)) newerOffer.value = offer;
+  if (!offer) {
+    if (retryVersionId === item.id ||
+        (selectedArtifact.value?.status === 'pending' && selectedArtifactItem.value?.status === 'completed')) {
+      await loadSelectedVersion(item.id);
+    }
+    return;
+  }
+  if (isDashboard) {
+    if (offer.elsewhere) await openVersionById(offer.id);
+    else {
+      viewing.value = null;
+      selectedArtifactId.value = offer.id;
+    }
+  } else if (!newerDismissed.value.has(offer.id)) newerOffer.value = offer;
 }
 useVisiblePoll(checkForNewerVersions, 15000, () => !props.verificationPreview && artifactsList.value.length > 0);
 async function acceptNewerOffer() {
@@ -2646,15 +2666,13 @@ async function acceptOfferedArtifact() {
 }
 
 async function switchToArtifact(artifactId: string) {
-  // Reset dataReady BEFORE selecting the new artifact so iframeSrcdoc doesn't
-  // render new code (with viz[N] refs) against stale visualization data.
-  dataReady.value = false;
   await fetchArtifactsList(true);
-  selectedArtifactId.value = artifactId;
-  // Force refetch in case same artifact transitioned from pending to completed
-  await fetchSelectedArtifact();
-  // Fetch visualization data for the new artifact before rendering
-  await fetchData(artifactId);
+  if (selectedArtifactId.value !== artifactId) {
+    selectedArtifactId.value = artifactId; // The selection watcher loads it once.
+  } else if (selectedArtifact.value?.id === artifactId && selectedArtifact.value.status === 'pending') {
+    // Completion can update a pending version in place without changing its id.
+    await loadSelectedVersion(artifactId);
+  }
 }
 
 // Handle artifact:created event (refresh list; select the new artifact only
@@ -2810,40 +2828,59 @@ watch(selectedArtifactId, (id) => {
 });
 
 // Fetch the full artifact content when selection changes
-async function fetchSelectedArtifact() {
+async function fetchSelectedArtifact(forSelection = false) {
   if (!selectedArtifactId.value) {
     selectedArtifact.value = null;
     return;
   }
 
   try {
-    const { data } = await useMyFetch(`/api/artifacts/${selectedArtifactId.value}`);
-    if (data.value) {
+    const id = selectedArtifactId.value;
+    const { data } = await useMyFetch(`/api/artifacts/${id}`);
+    if (data.value && selectedArtifactId.value === id) {
+      if (forSelection) {
+        // Withhold the new code until its own query rows are ready.
+        dataReady.value = false;
+        iframeReady.value = false;
+      }
       selectedArtifact.value = data.value;
       console.log('[ArtifactFrame] Loaded artifact:', (data.value as any).title);
       // Broadcast active artifact viz IDs so ToolWidgetPreview can show "Added to Dashboard"
       const vizIds = (data.value as any)?.content?.visualization_ids || [];
       window.dispatchEvent(new CustomEvent('artifact:viz-ids', { detail: { visualization_ids: vizIds } }));
+      return true;
     }
   } catch (e) {
     console.error('[ArtifactFrame] Failed to fetch artifact:', e);
   }
 }
 
-// Watch for artifact selection changes - refetch data filtered by new artifact
-watch(selectedArtifactId, async (newId, oldId) => {
-  // Initial selection is loaded explicitly by onMounted so artifact detail and
-  // query data have one deterministic request each.
-  if (oldId === undefined) return;
-  iframeError.value = null;
-  iframeReady.value = false;
-  viewAsMode.value = 'you';
-  if (isPolishMode.value) exitPolishMode();
-  await fetchSelectedArtifact();
-  // Only refetch data if this is a user-initiated change (not initial load)
-  if (oldId !== undefined) {
-    await fetchData(newId);
+// A stream completion and a poll can discover the same version together.
+let loadingVersionId: string | null = null;
+let retryVersionId: string | null = null;
+async function loadSelectedVersion(id: string) {
+  if (loadingVersionId === id) return;
+  loadingVersionId = id;
+  retryVersionId = null;
+  try {
+    const loaded = await fetchSelectedArtifact(true);
+    if (selectedArtifactId.value !== id) return;
+    if (!loaded) {
+      retryVersionId = id;
+      return;
+    }
+    iframeError.value = null;
+    viewAsMode.value = 'you';
+    if (isPolishMode.value) exitPolishMode();
+    await fetchData(id);
+  } finally {
+    if (loadingVersionId === id) loadingVersionId = null;
   }
+}
+
+watch(selectedArtifactId, (newId, oldId) => {
+  // Mount owns the initial load, the watcher owns subsequent selections.
+  if (oldId !== undefined && newId) return loadSelectedVersion(newId);
 });
 
 onUnmounted(() => {
@@ -2978,6 +3015,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       if (prefetched?.error?.value || !Array.isArray(prefetched?.data?.value)) prefetched = null;
     }
     const { data: queriesRes } = prefetched || await useMyFetch(`/api/queries${queryParams}`);
+    if (artifactId !== selectedArtifactId.value) return;
     const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
 
     // Build visualization data array
@@ -3087,6 +3125,8 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       return Array.isArray(data.value) ? (data.value as any[]) : [];
     });
 
+    if (artifactId !== selectedArtifactId.value) return;
+
     // Initialize applied values: declaration defaults, overridden by any
     // qp_<name> URL state (shareable dashboards). Identity params carry no
     // client value — the server binds them per viewer. An in-place refresh
@@ -3137,7 +3177,9 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
 
     // Resolve embedded files (generated images / uploaded images/PDFs) to data URIs.
     try {
-      filesData.value = await fetchArtifactFiles();
+      const files = await fetchArtifactFiles();
+      if (artifactId !== selectedArtifactId.value) return;
+      filesData.value = files;
       if (filesData.value.length) {
         console.log('[ArtifactFrame] Fetched', filesData.value.length, 'embedded file(s)');
       }
@@ -3160,6 +3202,8 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
     } catch (e) {
       console.error('[ArtifactFrame] Initial param run failed:', e);
     }
+
+    if (artifactId !== selectedArtifactId.value) return;
 
     // Freeze the srcdoc seed: the iframe's initial document embeds THIS
     // snapshot. Later updates (param runs, view-as swaps) flow via
@@ -3193,14 +3237,14 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
     }
 
     // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
-    dataReady.value = true;
+    if (artifactId === selectedArtifactId.value) dataReady.value = true;
 
   } catch (e) {
     console.error('[ArtifactFrame] Failed to fetch data:', e);
   } finally {
-    isLoading.value = false;
-    if (iframeReady.value) {
-      sendDataToIframe();
+    if (artifactId === selectedArtifactId.value) {
+      isLoading.value = false;
+      if (iframeReady.value) sendDataToIframe();
     }
   }
 }
@@ -3520,7 +3564,7 @@ const iframeSrcdoc = computed(() => {
   if (slidesPreviewsMissing.value) return undefined;
 
   // If artifacts exist, wait for the selected artifact to be fully loaded
-  if (artifactsList.value.length > 0 && !selectedArtifact.value?.content?.code) return undefined;
+  if (hasArtifact.value && !selectedArtifact.value?.content?.code) return undefined;
 
   // Priority: props > selected artifact from DB > sample code
   const artifactCode = props.artifactCode

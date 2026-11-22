@@ -1188,6 +1188,11 @@ async def export_public_report_html(
         headers={
             "Content-Disposition": disposition,
             "Cache-Control": "no-store",
+            # Public share-link export: pin the declared text/html type so no
+            # browser sniffs this user-influenced download into another type.
+            # Matches the header on other content routes; inline execution in
+            # the app origin is already prevented by the attachment disposition.
+            "X-Content-Type-Options": "nosniff",
         },
     )
 

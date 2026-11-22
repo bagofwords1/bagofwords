@@ -261,6 +261,10 @@ const pendingLlmValue = ref(false)
 const FEATURE_PARENT: Record<string, string> = {
     enable_artifact_verification: 'allow_llm_see_data',
     enable_demo_data_generation: 'enable_training_mode',
+    custom_table_max_rows: 'enable_custom_queries',
+    custom_table_max_gb: 'enable_custom_queries',
+    custom_table_max_scan_gb: 'enable_custom_queries',
+    custom_table_max_requests: 'enable_custom_queries',
     ml_training_row_limit: 'enable_ml_training',
     sandbox_web_fetch_max_urls: 'enable_sandbox_web_fetch',
     sandbox_browser_allow_mutating_requests: 'enable_sandbox_browser',
@@ -285,7 +289,7 @@ const SECTIONS: { id: string, keys: string[] }[] = [
     { id: 'learning', keys: ['enable_user_memory', 'suggest_instructions', 'enable_llm_judgement', 'auto_suggest_evals', 'enable_agent_dreaming', 'enable_agent_checkins'] },
     { id: 'tools', keys: ['enable_mcp_tools', 'tools_max', 'tool_permission_mode'] },
     { id: 'sub_agents', keys: ['enable_sub_agents', 'sub_agent_posture', 'sub_agent_max_steps', 'sub_agent_max_tokens', 'sub_agent_deadline_minutes', 'sub_agent_concurrency', 'sub_agent_max_per_wave', 'sub_agent_model', 'sub_agent_allow_model_override', 'sub_agent_allow_create_data'] },
-    { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'smart_instructions_on_demand', 'top_k_schema', 'top_k_metadata_resources', 'agent_roster_top_k'] },
+    { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'smart_instructions_on_demand', 'top_k_schema', 'top_k_schema_columns', 'top_k_metadata_resources', 'agent_roster_top_k'] },
     { id: 'workspace', keys: ['allow_public_sharing', 'allow_access_requests', 'allow_report_webhooks', 'allow_forks', 'step_retention_days', 'file_retention_days'] },
 ]
 

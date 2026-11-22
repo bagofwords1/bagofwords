@@ -25,6 +25,7 @@ from PIL import Image
 from io import BytesIO
 from app.ee.audit.service import audit_service
 from app.core.telemetry import telemetry
+from app.data_sources.fast import limits as fast_limits
 
 logger = logging.getLogger(__name__)
 
@@ -399,6 +400,16 @@ class OrganizationSettingsService:
                             )
                         # Normalize so a {'value': N} payload is stored as the bare int.
                         value_update = new_value
+                    # Custom-table limits: whole numbers inside the ranges in
+                    # fast/limits.py. Refused rather than clamped so the admin
+                    # sees that the value they typed is not the one in force.
+                    if key in fast_limits.SETTINGS:
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if not (isinstance(value_update, dict) and 'value' not in value_update):
+                            try:
+                                fast_limits.validate_setting(key, new_value)
+                            except ValueError as e:
+                                raise HTTPException(status_code=400, detail=str(e))
                     # Bool check for the per-platform "announce new conversation
                     # report" toggles (plain-bool settings, edited from the
                     # Channels page integration modals).

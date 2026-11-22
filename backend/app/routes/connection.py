@@ -59,6 +59,9 @@ from app.schemas.custom_query_schema import (
     CustomQueryRlsUpdate,
     CustomQuerySchema,
     RlsPrincipal,
+    CustomQueryCapability,
+    CustomQueryFromResult,
+    CustomQueryProgress,
     CustomQueryTarget,
     CustomTableRunDetail,
     CustomTableRunList,
@@ -1598,11 +1601,16 @@ async def list_custom_queries(
     await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     rows = await custom_query_service.list_custom_queries(db, str(connection.id))
+    # Only tables with a refresh in flight are looked up, so the common case
+    # (nothing running) costs no extra query.
+    busy = [r.id for r in rows if r.last_refresh_status in ("pending", "running")]
+    live = await custom_table_runs.live_progress(db, busy) if busy else {}
     return [
         CustomQuerySchema.from_model(
             r,
             await _active_agent_count(db, r.id),
             next_run_at=custom_query_service.next_run_at(str(r.id)),
+            refresh_progress=live.get(str(r.id)),
         )
         for r in rows
     ]
@@ -1624,6 +1632,8 @@ async def preview_custom_query(
     return await custom_query_service.preview(
         db, connection, payload.definition_sql, current_user, target=payload.target,
         refresh_config=payload.refresh_config.model_dump() if payload.refresh_config else None,
+        schedule=payload.model_dump(
+            include={"refresh_schedule_mode", "refresh_interval_minutes", "refresh_at_time"}),
     )
 
 
@@ -1640,6 +1650,71 @@ async def list_custom_query_targets(
     await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     return await custom_query_service.list_targets(db, connection)
+
+
+@router.get("/{connection_id}/custom-queries/capability", response_model=CustomQueryCapability)
+@requires_resource_permission('connection', 'manage_connection')
+async def custom_query_capability(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Whether this connection can host a custom table right now. For callers
+    deciding whether to offer one (the result card's "save as cached table"):
+    answered from the connection alone, so a connection admin gets an answer
+    without also managing an agent that uses it."""
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    try:
+        await custom_query_service.ensure_enabled(db, organization)
+    except HTTPException:
+        # Switched off for the organization: an answer, not an error, so the
+        # caller simply does not offer the action.
+        return custom_query_service.capability(connection, enabled=False)
+    return custom_query_service.capability(connection, enabled=True)
+
+
+@router.get("/{connection_id}/custom-queries/progress", response_model=CustomQueryProgress)
+@requires_resource_permission('connection', 'manage_connection')
+async def custom_query_progress(
+    connection_id: str,
+    name: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """One custom table's load state, by name. What a saving dialog polls: its
+    cost does not grow with the number of custom tables on the connection."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    return await custom_query_service.progress_of(db, str(connection.id), name)
+
+
+@router.get("/{connection_id}/custom-queries/from-result/{tool_execution_id}",
+            response_model=CustomQueryFromResult)
+@requires_resource_permission('connection', 'manage_connection')
+async def custom_query_from_result(
+    connection_id: str,
+    tool_execution_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """The query behind a result the agent produced, to start a custom table
+    from ("save as cached table"). Nothing is created here."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    definition = await custom_query_service.definition_from_result(
+        db, connection, organization, current_user, tool_execution_id)
+    return CustomQueryFromResult(definition_sql=definition)
+
+
+def _column_edits(payload):
+    """The admin's column edits as plain dicts holding only the fields that
+    were actually sent, or None when the payload does not carry any."""
+    if payload.columns is None:
+        return None
+    return [c.model_dump(exclude_unset=True) for c in payload.columns]
 
 
 @router.post("/{connection_id}/custom-queries", response_model=CustomQuerySchema)
@@ -1667,6 +1742,7 @@ async def create_custom_query(
         target=payload.target,
         refresh_mode=payload.refresh_mode,
         refresh_config=payload.refresh_config.model_dump(exclude_unset=True) if payload.refresh_config else None,
+        columns=_column_edits(payload),
     )
     try:
         await audit_service.log(
@@ -1709,6 +1785,7 @@ async def update_custom_query(
         organization_timezone=await custom_query_service._org_timezone(db, organization),
         refresh_mode=payload.refresh_mode,
         refresh_config=payload.refresh_config.model_dump(exclude_unset=True) if payload.refresh_config else None,
+        columns=_column_edits(payload),
         **({"target": payload.target} if "target" in payload.model_fields_set else {}),
     )
     try:

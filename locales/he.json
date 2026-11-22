@@ -1398,6 +1398,21 @@
     "tokensCount": "{count} טוקנים",
     "llmUsageTooltip": "שימוש ב-LLM בשיחה זו",
     "turnTokensTooltip": "טוקני LLM של המתכנן בסבב זה",
+    "tokensInOut": "קלט {input} / פלט {output}",
+    "tokensIn": "קלט",
+    "tokensOut": "פלט",
+    "tokensCached": "במטמון",
+    "stepTokens": "טוקנים",
+    "stepTokensTooltip": "קריאת המתכנן בצעד זה. הקלט כולל טוקנים מהמטמון. קריאות LLM בתוך הכלי אינן נספרות.",
+    "modelUnknown": "מודל לא ידוע",
+    "modelUnknownTooltip": "לא נרשם שימוש ב-LLM לפי קריאה בהרצה זו",
+    "modelsMore": "+{count}",
+    "modelsHeading": "מודלים בסבב זה",
+    "modelCalls": "קריאה אחת | {count} קריאות",
+    "autoRouted": "אוטומטי",
+    "autoRoutedTooltip": "הניתוב האוטומטי הריץ את הקריאות האלה על {model} במקום {baseline}",
+    "autoRoutedRunTooltip": "הניתוב האוטומטי היה פעיל בהרצה זו",
+    "primaryModel": "ראשי",
     "turnUsageTooltip": "שימוש ב-LLM בסבב זה",
     "setup": "הכנה",
     "setupTooltip": "הזמן מתחילת הריצה ועד תחילת הצעד הראשון (בניית הקשר וכו')",
@@ -1488,7 +1503,30 @@
       "copied": "ה-JSON של המעקב הועתק ללוח",
       "failed": "לא ניתן לייצא את המעקב"
     },
-    "hiddenTurns": "תור מאוחר אחד מוסתר: הוא או תור קודם השתמשו בסוכן שאינך מנהל | {count} תורות מאוחרים מוסתרים: הם או תור קודם השתמשו בסוכן שאינך מנהל"
+    "hiddenTurns": "תור מאוחר אחד מוסתר: הוא או תור קודם השתמשו בסוכן שאינך מנהל | {count} תורות מאוחרים מוסתרים: הם או תור קודם השתמשו בסוכן שאינך מנהל",
+    "contextColumns": {
+      "ofTotal": "{shown} מתוך {total} עמודות",
+      "allColumns": "{total} עמודות",
+      "why": "למה העמודות האלה",
+      "reason": {
+        "usage_ranked": "מדורגות לפי שימוש בעמודות",
+        "structural_only": "עדיין אין שימוש: מפתחות, חותמות זמן ומזהים קודם",
+        "all_columns": "כל העמודות נכנסות במגבלה"
+      },
+      "signal": {
+        "mentioned": "{n} שהוזכרו במשימה",
+        "usage": "{n} לפי שימוש",
+        "instructions": "{n} שמוזכרות בהנחיות",
+        "structural": "{n} מפתחות, חותמות זמן או מזהים",
+        "sample": "{n} כדוגמה מכל קבוצות העמודות",
+        "schema_order": "{n} לפי סדר הקטלוג"
+      },
+      "shown": "עמודות בהקשר",
+      "folded": "מקובצות (ניתן לחפש עם describe_tables)",
+      "otherColumns": "{count} עמודות נוספות",
+      "usedTimes": "שימוש {count}×",
+      "score": "ציון {score}"
+    }
   },
   "reportView": {
     "tabChat": "צ'אט",
@@ -2097,6 +2135,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "ערוך קוד שאילתה",
+      "saveAsCachedTable": "שמור כטבלה במטמון",
+      "saveAsCachedTableTooltip": "שמור את השאילתה הזו במטמון על החיבור, כך שהסוכנים יענו מעותק מקומי",
+      "saveAsCachedTableFailed": "לא ניתן לפתוח את התוצאה הזו לשמירה במטמון",
       "editCode": "ערוך קוד",
       "edit": "ערוך",
       "rows": "{count} שורות",
@@ -2626,6 +2667,19 @@
       "connected": "מחובר",
       "askAgain": "לשאול שוב",
       "readyHint": "החיבור הושלם. הריצו שוב את השאלה כדי להשתמש בו."
+    },
+    "describeTables": {
+      "searching": "מחפש {query}…",
+      "searched": "חיפש {names}",
+      "searchedMore": "חיפש {names} +{count}",
+      "columnsMatching": "עמודות שתואמות ל-{terms}",
+      "column": "עמודה",
+      "type": "סוג",
+      "used": "שימושים",
+      "showingOf": "{shown} העמודות המובילות מתוך {total}, הנפוצות קודם",
+      "matchingOf": "{matched} מתוך {total} עמודות תואמות ל-{terms}",
+      "noMatch": "אין עמודה שתואמת ל-{terms}",
+      "more": "+{count} נוספות"
     }
   },
   "entityCreate": {
@@ -4062,6 +4116,22 @@
           "name": "טבלאות מותאמות (בטא)",
           "description": "מאפשר למנהלי חיבורים להגדיר SQL ש-BOW ממַמֵש לעותק מקומי מוצפן לפי לוח זמנים, כך שהסוכנים עונים מהתוצאה השמורה במקום לשאול את המקור בכל תור. בטא: כבוי כברירת מחדל."
         },
+        "custom_table_max_rows": {
+          "name": "מגבלת שורות לטבלה מותאמת",
+          "description": "מספר השורות המרבי שטבלה מותאמת אחת יכולה להכיל. שאילתה שמוערכת או מתגלה כמחזירה יותר נדחית, והנתונים הקודמים ממשיכים לשמש. 1,000 עד 100,000,000."
+        },
+        "custom_table_max_gb": {
+          "name": "מגבלת גודל לטבלה מותאמת (GB)",
+          "description": "התוצאה המוערכת הגדולה ביותר, והקובץ השמור הגדול ביותר, לטבלה מותאמת אחת. 1 עד 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "מגבלת סריקה במקור לטבלה מותאמת (GB)",
+          "description": "כמות הנתונים המרבית שהמקור רשאי לקרוא ברענון אחד, כשהמקור מדווח עליה לפני ההרצה (BigQuery, Snowflake). 1 עד 10,240."
+        },
+        "custom_table_max_requests": {
+          "name": "מגבלת בקשות לטבלה מותאמת",
+          "description": "מספר הבקשות המרבי שרענון אחד רשאי לשלוח למקור שנקרא עמוד אחר עמוד (Power BI, Analysis Services, SAP BusinessObjects, PostHog). יש להעלות אותה יחד עם מגבלת השורות: Power BI מחזיר לכל היותר 100,000 שורות לבקשה ומאפשר כ-120 בקשות בדקה. 16 עד 10,000."
+        },
         "enable_agent_notes": {
           "name": "פתקי סוכן",
           "description": "מאפשר לסוכן לנהל פתקי עבודה לכל דוח (מעין טיוטה) שהוא כותב וקורא תוך כדי מענה — תוכניות, ממצאים ומשימות. הפתקים מוצגים בדוח אך אינם ידע משותף. כשההגדרה כבויה, כלי הפתקים מוסתרים והפתקים אינם מוזרקים להקשר."
@@ -4213,6 +4283,10 @@
         "show_world": {
           "name": "תצוגת מפת העולם",
           "description": "מציג בעמוד הסוכנים מתג שפותח את מפת העולם: מפה של הסוכנים, הידע, המקורות והעבודה שמחברים את הארגון. כל משתמש רואה רק את מה שיש לו גישה אליו."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K עמודות לטבלה",
+          "description": "כמה עמודות של טבלה רחבה הסוכן רואה במלואן בהקשר שלו, מדורגות לפי שימוש בעמודות, אזכורים בהנחיות ומפתחות/חותמות זמן. השאר מסוכמות לפי קידומת ונשארות זמינות לחיפוש עם describe_tables. 0 = ללא הגבלה."
         }
       },
       "permissionMode": {
@@ -4538,7 +4612,7 @@
       "orCreateNew": "— או צור חדש —",
       "authBasic": "אימייל + אסימון API",
       "basicUsernameLabel": "אימייל / שם משתמש",
-      "basicUsernamePlaceholder": "you@company.com",
+      "basicUsernamePlaceholder": "you{'@'}company.com",
       "basicPasswordLabel": "אסימון API",
       "basicPasswordPlaceholder": "הדביקו את אסימון ה-API",
       "basicHint": "נשלח כאימות HTTP Basic. עבור Bitbucket, השתמשו באימייל של חשבון Atlassian ובאסימון API של Atlassian; מנהל הארגון צריך לאפשר גישה באסימון API בשרת ה-MCP של Rovo."
@@ -5289,7 +5363,7 @@
       "urlTitle": "כתובת שרת Exchange",
       "urlDescription": "כתובת שרת ה-Exchange שלך, לדוגמה https://mail.example.com. הנתיב של Exchange Web Services ‏(/EWS/Exchange.asmx) מתווסף אם משמיטים אותו.",
       "sharedTitle": "תיבות דואר משותפות",
-      "sharedDescription": "אופציונלי. כתובות של תיבות דואר משותפות או צוותיות שייכללו, מופרדות בפסיקים, לדוגמה support@example.com, sales@example.com. ‏Exchange קובע מי רשאי לפתוח כל תיבה: כל אחד רואה רק את התיבות שלחשבון שלו כבר יש גישה אליהן.",
+      "sharedDescription": "אופציונלי. כתובות של תיבות דואר משותפות או צוותיות שייכללו, מופרדות בפסיקים, לדוגמה support{'@'}example.com, sales{'@'}example.com. ‏Exchange קובע מי רשאי לפתוח כל תיבה: כל אחד רואה רק את התיבות שלחשבון שלו כבר יש גישה אליהן.",
       "ownTitle": "לכלול את תיבת הדואר של החשבון עצמו",
       "ownDescription": "יש לכבות בעת התחברות עם חשבון שירות שתיבת הדואר שלו אינה רלוונטית. התיבה המשותפת הראשונה תהפוך לברירת המחדל."
     },
@@ -6606,6 +6680,8 @@
       "colTools": "כלים",
       "colDuration": "משך",
       "colCost": "עלות",
+      "colModel": "מודל",
+      "pivotModel": "הצג הרצות שהשתמשו במודל זה",
       "colFeedback": "משוב",
       "expandRow": "הצגת קריאות כלים",
       "pivotReport": "הצגת השיחה הזו",
@@ -7240,7 +7316,22 @@
     "agents": "סוכנים",
     "instructions": "הנחיות",
     "emptyLabel": "התחל להקליד כדי לחפש",
-    "emptyQueryLabel": "לא נמצאו תוצאות"
+    "emptyQueryLabel": "לא נמצאו תוצאות",
+    "placeholderInReport": "חיפוש בדוח הזה, בדוחות, בסוכנים ובהנחיות…",
+    "inThisReport": "בדוח הזה",
+    "reportScopeHint": "הקלידו report: כדי לחפש רק בדוח הזה",
+    "reportPrefix": "דוח:",
+    "tabs": {
+      "all": "הכל",
+      "reports": "דוחות",
+      "agents": "סוכנים",
+      "instructions": "הנחיות",
+      "dashboards": "דשבורדים"
+    },
+    "tabsLabel": "קטגוריות",
+    "tabsHint": "קטגוריות",
+    "dashboards": "דשבורדים",
+    "untitledDashboard": "דשבורד ללא שם"
   },
   "promptParams": {
     "title": "מלא את הפרמטרים — {title}",
@@ -7764,7 +7855,10 @@
     "showAllColumns": "הצג הכל",
     "hideAllColumns": "הסתר הכל",
     "includeColumn": "כלול את {name} בהקשר הסוכן",
-    "columnHidden": "מוסתרת"
+    "columnHidden": "מוסתרת",
+    "usedHeader": "שימושים",
+    "usedTooltip": "שאילתות שהורצו והשתמשו בעמודה הזו (ניסיונות שנכשלו נספרים פחות בדירוג)",
+    "sortedByUsage": "הנפוצות ביותר קודם"
   },
   "fork": {
     "preparing": "מכין את העותק שלך…",
@@ -9029,5 +9123,56 @@
       }
     },
     "builtinBadge": "מובנה"
+  },
+  "cachedColumns": {
+    "title": "עמודות",
+    "hint": "התיאורים וסימון הצבירה מחדש מגיעים מקטלוג המקור. כל שינוי שתבצעו כאן נשמר בכל רענון.",
+    "column": "עמודה",
+    "type": "סוג",
+    "description": "תיאור",
+    "details": "פרטים",
+    "aggregation": "צבירה מחדש",
+    "descriptionPlaceholder": "אין תיאור במקור. תארו את העמודה הזו עבור הסוכן.",
+    "additive": "ניתנת לסכימה",
+    "notAdditive": "לא ניתנת לסכימה",
+    "unknown": "לא ידוע",
+    "additiveHint": "אפשר לסכום את הערכים בין שורות.",
+    "notAdditiveHint": "סכימה בין שורות נותנת מספר שגוי. הסוכן מקבל הנחיה לא לעשות זאת.",
+    "unknownHint": "לא ניתן היה לקבוע מתוך השאילתה. בחרו אפשרות כדי שהסוכן יידע.",
+    "undecided": "לא ניתן היה לקבוע צבירה מחדש עבור: {columns}. הגדירו אותה כדי שהסוכן יידע אם אפשר לסכום אותן.",
+    "copiedFrom": "הועתקה מ־{source}",
+    "measureFrom": "מדד {source}",
+    "computedAs": "מחושבת: {expression}",
+    "edited": "נערכה",
+    "editedHint": "הוגדרה על ידי מנהל. רענון לא ישנה אותה.",
+    "reset": "איפוס לערך המקור",
+    "drift": "ההגדרה השתנתה",
+    "driftHint": "הגדרת המקור של העמודה הזו השתנתה מאז שהטבלה תיארה אותה לאחרונה.",
+    "driftPrevious": "בעבר: {expression}",
+    "markReviewed": "סימון כנבדקה",
+    "rlsTitle": "המקור משתמש באבטחה ברמת השורה",
+    "rlsBody": "{tables} מוגנת באבטחה ברמת השורה במקור. העותק הזה מכיל כל שורה שהחיבור יכול לקרוא, ותפקידי המקור אינם מועברים. קבעו מי רואה אילו שורות בלשונית אבטחה ברמת השורה.",
+    "rlsOpen": "פתיחת אבטחה ברמת השורה",
+    "rlsSaveFirst": "זמין לאחר שמירת הטבלה.",
+    "generatedDescription": "נוצר מתוך העמודות ומתעדכן בכל רענון. ערכו אותו כדי לכתוב תיאור משלכם.",
+    "reasons": {
+      "sum": "סכום",
+      "count": "ספירה",
+      "numeric_column": "ערך מספרי",
+      "distinct_count": "ספירת ערכים ייחודיים",
+      "average": "ממוצע",
+      "ratio": "יחס",
+      "min_max": "מינימום / מקסימום",
+      "time_intelligence": "חישובי זמן",
+      "share_of_total": "חלק מסך הכול",
+      "statistic": "מדד סטטיסטי",
+      "offset": "קבוע שנוסף לאחר הצבירה",
+      "unreadable": "ההגדרה אינה קריאה",
+      "complex": "מורכבת מדי לסיווג",
+      "not_numeric": "לא מספר",
+      "grouping_key": "מפתח קיבוץ",
+      "key": "מזהה",
+      "set_by_admin": "הוגדרה על ידי מנהל"
+    }
   }
 }

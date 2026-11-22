@@ -1,0 +1,51 @@
+<table name="events_wide_5000" cols="5000" cols_shown="60" score="0.85" usage="3" instructions="1">
+<columns>
+<column name="checkout_abandon_rate" dtype="DOUBLE" usage="3"/>
+<column name="tenant_tier" dtype="VARCHAR" usage="2"/>
+<column name="region_code" dtype="VARCHAR" usage="1"/>
+<column name="event_time" dtype="TIMESTAMP"/>
+<column name="row_id" dtype="BIGINT"/>
+<column name="account_id" dtype="BIGINT"/>
+<column name="host_name" dtype="VARCHAR"/>
+<column name="cpu_user_pct_000" dtype="DOUBLE"/>
+<column name="mem_used_bytes_000" dtype="DOUBLE"/>
+<column name="disk_read_bytes_000" dtype="DOUBLE"/>
+<column name="net_rx_bytes_000" dtype="DOUBLE"/>
+<column name="svc_request_count_000" dtype="DOUBLE"/>
+<column name="app_queue_len_000" dtype="DOUBLE"/>
+<column name="kpi_signups_000" dtype="DOUBLE"/>
+<column name="cpu_system_pct_000" dtype="DOUBLE"/>
+<column name="mem_free_bytes_000" dtype="DOUBLE"/>
+<column name="disk_write_bytes_000" dtype="DOUBLE"/>
+<column name="net_tx_bytes_000" dtype="DOUBLE"/>
+<column name="svc_error_count_000" dtype="DOUBLE"/>
+<column name="app_jobs_done_000" dtype="DOUBLE"/>
+<column name="kpi_logins_000" dtype="DOUBLE"/>
+<column name="cpu_iowait_pct_000" dtype="DOUBLE"/>
+<column name="mem_cached_bytes_000" dtype="DOUBLE"/>
+... [17 lines elided by the probe] ...
+<column name="app_cache_misses_000" dtype="DOUBLE"/>
+<column name="kpi_active_users_000" dtype="DOUBLE"/>
+<column name="cpu_load_1m_000" dtype="DOUBLE"/>
+<column name="mem_heap_bytes_000" dtype="DOUBLE"/>
+<column name="disk_util_pct_000" dtype="DOUBLE"/>
+<column name="net_tx_errors_000" dtype="DOUBLE"/>
+<column name="svc_saturation_000" dtype="DOUBLE"/>
+<column name="app_gc_pause_ms_000" dtype="DOUBLE"/>
+<column name="kpi_conversion_pct_000" dtype="DOUBLE"/>
+<column name="cpu_load_5m_000" dtype="DOUBLE"/>
+<column name="mem_used_bytes_001" dtype="DOUBLE"/>
+<column name="disk_read_bytes_001" dtype="DOUBLE"/>
+<column name="net_drops_000" dtype="DOUBLE"/>
+<column name="svc_request_count_001" dtype="DOUBLE"/>
+<column name="app_queue_len_001" dtype="DOUBLE"/>
+<column name="kpi_signups_001" dtype="DOUBLE"/>
+<column name="cpu_load_15m_000" dtype="DOUBLE"/>
+<column name="mem_free_bytes_001" dtype="DOUBLE"/>
+<column name="disk_write_bytes_001" dtype="DOUBLE"/>
+<column name="net_rx_bytes_001" dtype="DOUBLE"/>
+</columns>
+<more_columns count="4940" shown="60" total="5000">
+cpu_* (880), net_* (770), svc_* (660), app_* (659), disk_* (658), mem_* (658), kpi_* (655). Not listed here, but queryable: find them with describe_tables(query=&quot;events_wide_5000&quot;, columns=[&quot;&lt;name or pattern&gt;&quot;]).
+</more_columns>
+</table>

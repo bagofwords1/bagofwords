@@ -1,0 +1,51 @@
+<table name="public.metrics_wide_001" cols="1600" cols_shown="60" score="0.9" usage="5">
+<columns>
+<column name="net_retransmit_rate" dtype="real" usage="3"/>
+<column name="region_code" dtype="text" usage="2"/>
+<column name="host_name" dtype="text" usage="2"/>
+<column name="event_time" dtype="timestamp without time zone"/>
+<column name="row_id" dtype="bigint"/>
+<column name="account_id" dtype="bigint"/>
+<column name="cpu_user_pct_000" dtype="real"/>
+<column name="mem_used_bytes_000" dtype="real"/>
+<column name="disk_read_bytes_000" dtype="real"/>
+<column name="net_rx_bytes_000" dtype="real"/>
+<column name="svc_request_count_000" dtype="real"/>
+<column name="app_queue_len_000" dtype="real"/>
+<column name="kpi_signups_000" dtype="real"/>
+<column name="tenant_tier" dtype="text"/>
+<column name="cpu_system_pct_000" dtype="real"/>
+<column name="mem_free_bytes_000" dtype="real"/>
+<column name="disk_write_bytes_000" dtype="real"/>
+<column name="net_tx_bytes_000" dtype="real"/>
+<column name="svc_error_count_000" dtype="real"/>
+<column name="app_jobs_done_000" dtype="real"/>
+<column name="kpi_logins_000" dtype="real"/>
+<column name="cpu_iowait_pct_000" dtype="real"/>
+<column name="mem_cached_bytes_000" dtype="real"/>
+... [17 lines elided by the probe] ...
+<column name="app_cache_misses_000" dtype="real"/>
+<column name="kpi_active_users_000" dtype="real"/>
+<column name="cpu_load_1m_000" dtype="real"/>
+<column name="mem_heap_bytes_000" dtype="real"/>
+<column name="disk_util_pct_000" dtype="real"/>
+<column name="net_tx_errors_000" dtype="real"/>
+<column name="svc_saturation_000" dtype="real"/>
+<column name="app_gc_pause_ms_000" dtype="real"/>
+<column name="kpi_conversion_pct_000" dtype="real"/>
+<column name="cpu_load_5m_000" dtype="real"/>
+<column name="mem_used_bytes_001" dtype="real"/>
+<column name="disk_read_bytes_001" dtype="real"/>
+<column name="net_drops_000" dtype="real"/>
+<column name="svc_request_count_001" dtype="real"/>
+<column name="app_queue_len_001" dtype="real"/>
+<column name="kpi_signups_001" dtype="real"/>
+<column name="cpu_load_15m_000" dtype="real"/>
+<column name="mem_free_bytes_001" dtype="real"/>
+<column name="disk_write_bytes_001" dtype="real"/>
+<column name="net_rx_bytes_001" dtype="real"/>
+</columns>
+<more_columns count="1540" shown="60" total="1600">
+cpu_* (280), net_* (237), mem_* (208), disk_* (205), svc_* (204), app_* (203), kpi_* (203). Not listed here, but queryable: find them with describe_tables(query=&quot;public.metrics_wide_001&quot;, columns=[&quot;&lt;name or pattern&gt;&quot;]).
+</more_columns>
+</table>

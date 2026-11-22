@@ -1319,6 +1319,21 @@
     "tokensCount": "{count} Token",
     "llmUsageTooltip": "LLM-Nutzung für diese Konversation",
     "turnTokensTooltip": "Planner-LLM-Token in dieser Runde",
+    "tokensInOut": "Eingabe {input} / Ausgabe {output}",
+    "tokensIn": "Eingabe",
+    "tokensOut": "Ausgabe",
+    "tokensCached": "Im Cache",
+    "stepTokens": "Tokens",
+    "stepTokensTooltip": "Planner-Aufruf dieses Schritts. Die Eingabe enthält zwischengespeicherte Tokens. LLM-Aufrufe innerhalb des Tools werden nicht gezählt.",
+    "modelUnknown": "Unbekanntes Modell",
+    "modelUnknownTooltip": "Für diesen Lauf wurde keine LLM-Nutzung pro Aufruf erfasst",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modelle in diesem Durchgang",
+    "modelCalls": "{count} Aufruf | {count} Aufrufe",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Das automatische Routing hat diese Aufrufe mit {model} statt {baseline} ausgeführt",
+    "autoRoutedRunTooltip": "Automatisches Routing war für diesen Lauf aktiv",
+    "primaryModel": "Primär",
     "turnUsageTooltip": "LLM-Nutzung in dieser Runde",
     "setup": "Vorbereitung",
     "setupTooltip": "Zeit vom Start bis zum ersten Schritt (Kontextaufbau usw.)",
@@ -1409,7 +1424,30 @@
       "copied": "Trace-JSON in die Zwischenablage kopiert",
       "failed": "Trace konnte nicht exportiert werden"
     },
-    "hiddenTurns": "{count} späterer Schritt ausgeblendet: er oder ein früherer nutzte einen Agenten, den Sie nicht verwalten | {count} spätere Schritte ausgeblendet: sie oder ein früherer nutzten einen Agenten, den Sie nicht verwalten"
+    "hiddenTurns": "{count} späterer Schritt ausgeblendet: er oder ein früherer nutzte einen Agenten, den Sie nicht verwalten | {count} spätere Schritte ausgeblendet: sie oder ein früherer nutzten einen Agenten, den Sie nicht verwalten",
+    "contextColumns": {
+      "ofTotal": "{shown} von {total} Spalten",
+      "allColumns": "{total} Spalten",
+      "why": "Warum diese Spalten",
+      "reason": {
+        "usage_ranked": "Nach Spaltennutzung gerankt",
+        "structural_only": "Noch keine Nutzung: Schlüssel, Zeitstempel und IDs zuerst",
+        "all_columns": "Alle Spalten passen ins Budget"
+      },
+      "signal": {
+        "mentioned": "{n} in der Aufgabe genannt",
+        "usage": "{n} nach Nutzung",
+        "instructions": "{n} in Anweisungen referenziert",
+        "structural": "{n} Schlüssel, Zeitstempel oder IDs",
+        "sample": "{n} als Stichprobe aus den Spaltengruppen",
+        "schema_order": "{n} in Katalogreihenfolge"
+      },
+      "shown": "Spalten im Kontext",
+      "folded": "Zusammengefasst (mit describe_tables durchsuchbar)",
+      "otherColumns": "{count} weitere Spalten",
+      "usedTimes": "{count}× verwendet",
+      "score": "Score {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -1884,6 +1922,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Abfragecode bearbeiten",
+      "saveAsCachedTable": "Als zwischengespeicherte Tabelle speichern",
+      "saveAsCachedTableTooltip": "Diese Abfrage auf der Verbindung zwischenspeichern, damit Agenten aus einer lokalen Kopie antworten",
+      "saveAsCachedTableFailed": "Dieses Ergebnis konnte nicht zum Zwischenspeichern geöffnet werden",
       "editCode": "Code bearbeiten",
       "edit": "Bearbeiten",
       "rows": "{count} Zeilen",
@@ -2310,6 +2351,19 @@
       "connected": "Verbunden",
       "askAgain": "Erneut fragen",
       "readyHint": "Verbunden. Stellen Sie Ihre Frage erneut, um ihn zu nutzen."
+    },
+    "describeTables": {
+      "searching": "Suche {query}…",
+      "searched": "Gesucht: {names}",
+      "searchedMore": "Gesucht: {names} +{count}",
+      "columnsMatching": "Spalten passend zu {terms}",
+      "column": "Spalte",
+      "type": "Typ",
+      "used": "Verwendungen",
+      "showingOf": "Top {shown} von {total} Spalten, meistgenutzte zuerst",
+      "matchingOf": "{matched} von {total} Spalten passen zu {terms}",
+      "noMatch": "Keine Spalte passt zu {terms}",
+      "more": "+{count} weitere"
     }
   },
   "entityCreate": {
@@ -3651,6 +3705,22 @@
           "name": "Benutzerdefinierte Tabellen (Beta)",
           "description": "Erlaubt Verbindungsadministratoren, SQL zu definieren, das BOW nach Zeitplan in eine verschlüsselte lokale Kopie materialisiert, sodass Agenten aus dem zwischengespeicherten Ergebnis antworten, statt die Quelle in jeder Runde abzufragen. Beta: standardmäßig aus."
         },
+        "custom_table_max_rows": {
+          "name": "Zeilenlimit für benutzerdefinierte Tabellen",
+          "description": "Höchstzahl an Zeilen, die eine benutzerdefinierte Tabelle enthalten darf. Eine Abfrage, die laut Schätzung oder tatsächlich mehr liefert, wird abgelehnt und die bisherigen Daten werden weiter verwendet. 1.000 bis 100.000.000."
+        },
+        "custom_table_max_gb": {
+          "name": "Größenlimit für benutzerdefinierte Tabellen (GB)",
+          "description": "Größtes geschätztes Ergebnis und größte zwischengespeicherte Datei für eine benutzerdefinierte Tabelle. 1 bis 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Quell-Scanlimit für benutzerdefinierte Tabellen (GB)",
+          "description": "Höchste Datenmenge, die die Quelle für eine Aktualisierung lesen darf, sofern die Quelle sie vor der Ausführung meldet (BigQuery, Snowflake). 1 bis 10.240."
+        },
+        "custom_table_max_requests": {
+          "name": "Anfragelimit für benutzerdefinierte Tabellen",
+          "description": "Höchstzahl an Anfragen, die eine Aktualisierung an eine seitenweise gelesene Quelle senden darf (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Zusammen mit dem Zeilenlimit erhöhen: Power BI liefert höchstens 100.000 Zeilen pro Anfrage und erlaubt etwa 120 Anfragen pro Minute. 16 bis 10.000."
+        },
         "enable_agent_notes": {
           "name": "Agenten-Notizen",
           "description": "Erlaubt dem Agenten, pro Bericht Arbeitsnotizen (einen Notizblock) zu führen, die er beim Antworten schreibt und liest — Pläne, Erkenntnisse und Aufgaben. Notizen werden im Bericht angezeigt, sind aber kein geteiltes Wissen. Ist die Option aus, werden die Notiz-Tools ausgeblendet und Notizen nicht in den Kontext eingefügt."
@@ -3734,6 +3804,10 @@
         "show_world": {
           "name": "Weltansicht",
           "description": "Zeigt auf der Agenten-Seite einen Schalter, der die Welt öffnet: eine Karte der Agenten, des Wissens, der Quellen und der Arbeit, die Ihre Organisation verbinden. Jeder Benutzer sieht nur, worauf er Zugriff hat."
+        },
+        "top_k_schema_columns": {
+          "name": "Top-K-Spalten pro Tabelle",
+          "description": "Wie viele Spalten einer breiten Tabelle der Agent vollständig im Kontext sieht, gerankt nach Spaltennutzung, Verweisen in Anweisungen und Schlüsseln/Zeitstempeln. Der Rest wird nach Präfix zusammengefasst und bleibt mit describe_tables durchsuchbar. 0 = kein Limit."
         }
       },
       "permissionMode": {
@@ -5849,6 +5923,8 @@
       "colTools": "Tools",
       "colDuration": "Dauer",
       "colCost": "Kosten",
+      "colModel": "Modell",
+      "pivotModel": "Läufe anzeigen, die dieses Modell verwendet haben",
       "colFeedback": "Feedback",
       "expandRow": "Tool-Aufrufe anzeigen",
       "pivotReport": "Diese Unterhaltung anzeigen",
@@ -6463,7 +6539,22 @@
     "reports": "Letzte Berichte",
     "suggestInstruction": "Anweisung vorschlagen",
     "suggestInstructionWithQuery": "Anweisung „{query}“ vorschlagen",
-    "suggestionHint": "zur Prüfung gesendet"
+    "suggestionHint": "zur Prüfung gesendet",
+    "placeholderInReport": "Diesen Bericht, Berichte, Agenten, Anweisungen durchsuchen…",
+    "inThisReport": "In diesem Bericht",
+    "reportScopeHint": "Tippe report:, um nur in diesem Bericht zu suchen",
+    "reportPrefix": "bericht:",
+    "tabs": {
+      "all": "Alle",
+      "reports": "Berichte",
+      "agents": "Agenten",
+      "instructions": "Anweisungen",
+      "dashboards": "Dashboards"
+    },
+    "tabsLabel": "Kategorien",
+    "tabsHint": "Kategorien",
+    "dashboards": "Dashboards",
+    "untitledDashboard": "Unbenanntes Dashboard"
   },
   "promptParams": {
     "title": "Parameter ausfüllen — {title}",
@@ -7063,7 +7154,10 @@
     "exitFullscreen": "Vollbild verlassen",
     "searchColumns": "Spalten suchen…",
     "noColumns": "Keine passenden Spalten",
-    "centrality": "Zentralität"
+    "centrality": "Zentralität",
+    "usedHeader": "Verwendungen",
+    "usedTooltip": "Ausgeführte Abfragen, die diese Spalte verwendet haben (fehlgeschlagene Versuche zählen im Ranking weniger)",
+    "sortedByUsage": "Meistgenutzte zuerst"
   },
   "fork": {
     "preparing": "Deine Kopie wird vorbereitet…",
@@ -8072,5 +8166,56 @@
       }
     },
     "builtinBadge": "Integriert"
+  },
+  "cachedColumns": {
+    "title": "Spalten",
+    "hint": "Beschreibungen und das Kennzeichen für die erneute Aggregation stammen aus dem Quellkatalog. Was Sie hier ändern, bleibt bei jeder Aktualisierung erhalten.",
+    "column": "Spalte",
+    "type": "Typ",
+    "description": "Beschreibung",
+    "details": "Details",
+    "aggregation": "Erneute Aggregation",
+    "descriptionPlaceholder": "Keine Beschreibung in der Quelle. Beschreiben Sie diese Spalte für den Agenten.",
+    "additive": "Additiv",
+    "notAdditive": "Nicht additiv",
+    "unknown": "Unbekannt",
+    "additiveHint": "Die Werte können über Zeilen summiert werden.",
+    "notAdditiveHint": "Das Summieren über Zeilen ergibt eine falsche Zahl. Der Agent wird angewiesen, es nicht zu tun.",
+    "unknownHint": "Konnte aus der Abfrage nicht ermittelt werden. Wählen Sie eine Option, damit der Agent Bescheid weiß.",
+    "undecided": "Die erneute Aggregation konnte nicht ermittelt werden für: {columns}. Legen Sie sie fest, damit der Agent weiß, ob diese summiert werden dürfen.",
+    "copiedFrom": "Kopiert aus {source}",
+    "measureFrom": "Kennzahl {source}",
+    "computedAs": "Berechnet: {expression}",
+    "edited": "Bearbeitet",
+    "editedHint": "Von einem Administrator festgelegt. Eine Aktualisierung ändert das nicht.",
+    "reset": "Auf Quelle zurücksetzen",
+    "drift": "Definition geändert",
+    "driftHint": "Die Quelldefinition dieser Spalte hat sich geändert, seit die Tabelle sie zuletzt beschrieben hat.",
+    "driftPrevious": "Zuvor: {expression}",
+    "markReviewed": "Als geprüft markieren",
+    "rlsTitle": "Die Quelle verwendet Sicherheit auf Zeilenebene",
+    "rlsBody": "{tables} ist in der Quelle durch Sicherheit auf Zeilenebene geschützt. Diese Kopie enthält jede Zeile, die die Verbindung lesen kann, und die Rollen der Quelle werden nicht übernommen. Legen Sie auf dem Tab „Sicherheit auf Zeilenebene“ fest, wer welche Zeilen sieht.",
+    "rlsOpen": "Sicherheit auf Zeilenebene öffnen",
+    "rlsSaveFirst": "Verfügbar, sobald die Tabelle gespeichert ist.",
+    "generatedDescription": "Aus den Spalten erzeugt und bei jeder Aktualisierung aktuell gehalten. Bearbeiten Sie sie, um eine eigene zu schreiben.",
+    "reasons": {
+      "sum": "Summe",
+      "count": "Anzahl",
+      "numeric_column": "numerischer Wert",
+      "distinct_count": "Anzahl eindeutiger Werte",
+      "average": "Durchschnitt",
+      "ratio": "Verhältnis",
+      "min_max": "Minimum / Maximum",
+      "time_intelligence": "Zeitintelligenz",
+      "share_of_total": "Anteil an einer Gesamtsumme",
+      "statistic": "Statistik",
+      "offset": "nach der Aggregation addierte Konstante",
+      "unreadable": "Definition nicht lesbar",
+      "complex": "zu komplex für eine Einordnung",
+      "not_numeric": "keine Zahl",
+      "grouping_key": "Gruppierungsschlüssel",
+      "key": "Kennung",
+      "set_by_admin": "von einem Administrator festgelegt"
+    }
   }
 }
