@@ -9,6 +9,8 @@
 - Changed Power BI agents to do two-step aggregations in one DAX query instead of downloading detail rows (#1856)
 - Fixed a chart's refinement holding up the agent's next step; it now finishes in the background (#1858)
 - Fixed the first request after a restart taking seconds to reach some pages (#1845)
+- Fixed the Exchange Server (on-prem) connection form showing no fields (#1862)
+- Fixed exported HTML dashboards missing the `X-Content-Type-Options: nosniff` header (#1861)
 
 ## Version 0.0.631 (November 21, 2026)
 - Added inline figures in answers: charts and tables placed in the text, with highlighted categories and a ••• menu to add to a dashboard, save as a query, download or copy (#1844)
