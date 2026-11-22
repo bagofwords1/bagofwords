@@ -2613,7 +2613,17 @@
     "noManagedGroupsHint": "Du verwaltest keine Gruppen.",
     "toastManagerAdded": "Mitglied ist jetzt Gruppenmanager",
     "toastManagerRemoved": "Managerrolle entfernt",
-    "failedToUpdateManager": "Gruppenmanager konnte nicht aktualisiert werden"
+    "failedToUpdateManager": "Gruppenmanager konnte nicht aktualisiert werden",
+    "models": {
+      "title": "Standardmodelle",
+      "hint": "Womit die Mitglieder dieser Gruppe starten. Es werden nur Modelle angezeigt, die die Gruppe bereits verwenden darf.",
+      "default": "Standardmodell",
+      "small": "Kleines Modell",
+      "orgDefault": "Standard der Organisation",
+      "setByAdmin": "{model} (von einem Administrator festgelegt)",
+      "saved": "Gruppenmodelle aktualisiert",
+      "failed": "Die Modelle der Gruppe konnten nicht aktualisiert werden"
+    }
   },
   "signupPolicy": {
     "title": "Domänenbasierte Registrierung",
@@ -3991,7 +4001,27 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: ungeschwärzt",
-      "piiBadgeTooltip": "Die Datenschutzrichtlinie für die Prompts dieses Anbieters. Ändern unter Einstellungen → Schutz personenbezogener Daten."
+      "piiBadgeTooltip": "Die Datenschutzrichtlinie für die Prompts dieses Anbieters. Ändern unter Einstellungen → Schutz personenbezogener Daten.",
+      "providerManagers": {
+        "title": "Anbieterverwalter",
+        "hint": "Mitglieder, die diesen Anbieter betreuen, ohne LLM-Administratoren zu sein.",
+        "can": "Sie können Zugangsdaten und Verbindungseinstellungen ändern, seine Modelle ein- oder ausschalten und deren Einstellungen und Routing-Hinweise bearbeiten.",
+        "cannot": "Sie können keine Modelle hinzufügen, keine Preise, Standardmodelle oder Modellzugriffe ändern und den Auto-Router nicht einschalten. Ein Modell, das sie einschalten, ist eingeschränkt, bis ein Administrator es freigibt.",
+        "addPlaceholder": "Mitglied hinzufügen…",
+        "add": "Hinzufügen",
+        "remove": "Verwalter entfernen",
+        "loading": "Wird geladen…",
+        "none": "Noch keine Verwalter. Nur LLM-Administratoren verwalten diesen Anbieter.",
+        "added": "Verwalter hinzugefügt",
+        "removed": "Verwalter entfernt",
+        "failed": "Die Verwalter des Anbieters konnten nicht aktualisiert werden",
+        "banner": "Du verwaltest {providers}. Standardmodelle, Modellzugriff, Preise und den Auto-Router legt ein Administrator fest.",
+        "priceAdminOnly": "Nur ein Administrator kann Preise ändern.",
+        "restricted": "Eingeschränkt: Nur Personen, denen ein Administrator Zugriff gibt, können es verwenden."
+      },
+      "autoRouterModal": {
+        "decisionRestricted": "Nur Mitglieder, die {model} verwenden dürfen, erhalten die Vorabentscheidung. Alle anderen starten mit dem kleinen Modell."
+      }
     },
     "licensePage": {
       "title": "Lizenz",
@@ -4723,6 +4753,14 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "postgresqlMulti": {
+      "databasesTitle": "Datenbanken",
+      "databasesDescription": "Durch Kommas getrennte Datenbanknamen, Glob-Muster und !-Ausschlüsse, z. B. tenant_*, !tenant_test. Beim Abgleich wird zwischen Groß- und Kleinschreibung unterschieden. Alle passenden Datenbanken werden zu einem Satz von Tabellen mit einer Spalte tenant_db zusammengeführt.",
+      "discoveryDatabaseTitle": "Datenbank für die Erkennung",
+      "discoveryDatabaseDescription": "Datenbank, über die die Datenbanken des Servers aufgelistet werden. Standard: postgres.",
+      "tableExcludeTitle": "Muster zum Ausschließen von Tabellen",
+      "tableExcludeDescription": "Optionaler regulärer Ausdruck; Tabellen, deren Name passt, werden nicht indexiert, z. B. ^day_\\d{'{'}2{'}'}. Eine Änderung entfernt bei der nächsten Indexierung neu ausgeschlossene Tabellen und ihre Auswahl im Agenten."
+    },
     "qlikCloud": {
       "appFilterDescription": "Optionale, kommagetrennte App-Namen oder IDs in den ausgewählten Bereichen. Leer umfasst alle passenden Apps. Für Namen mit Kommas IDs verwenden."
     },
@@ -4983,7 +5021,14 @@
       "model_id_not_editable": "Nur bei benutzerdefinierten Modellen auf Azure-, AWS-Bedrock- oder benutzerdefinierten (OpenAI-kompatiblen) Anbietern lässt sich die Modell-ID bearbeiten",
       "model_id_duplicate": "Das Modell „{model_id}“ existiert bereits bei diesem Anbieter",
       "model_is_group_default": "Dieses Modell ist das Standardmodell der Gruppen: {groups}. Ändere zuerst deren Standardmodell.",
-      "group_default_invalid": "Das Modell muss aktiviert und ein Chatmodell dieser Organisation sein."
+      "group_default_invalid": "Das Modell muss aktiviert und ein Chatmodell dieser Organisation sein.",
+      "group_default_not_available": "Diese Gruppe darf dieses Modell nicht verwenden. Bitte einen Administrator, der Gruppe zuerst Zugriff zu geben.",
+      "group_default_priority_admin_only": "Nur ein Administrator kann die Priorität einer Gruppe ändern.",
+      "provider_holds_default": "Dieser Anbieter enthält das Standardmodell der Organisation. Bitte einen Administrator, zuerst den Standard zu ändern.",
+      "provider_manager_admin_only": "Nur ein Administrator kann das bei diesem Anbieter tun.",
+      "provider_manager_not_member": "Nur ein Mitglied dieser Organisation kann einen Anbieter verwalten.",
+      "provider_key_required_for_new_destination": "Gib den API-Schlüssel erneut ein, wenn du änderst, wohin sich dieser Anbieter verbindet.",
+      "provider_host_identity_admin_only": "Dieser Anbieter meldet sich mit der Cloud-Identität des Servers an. Nur ein Administrator kann ändern, wohin er sich verbindet, oder auf diese Anmeldung umstellen."
     },
     "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht.",
     "memory.disabled": "Das Benutzergedächtnis ist in dieser Organisation deaktiviert.",

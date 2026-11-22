@@ -434,12 +434,13 @@ def _athena_config_is_multi(config) -> bool:
 
 
 def _validate_connection_config(connection_type: str, config) -> None:
-    if connection_type != "aws_athena" or not isinstance(config, dict):
+    if connection_type not in ("aws_athena", "postgresql_multi") or not isinstance(config, dict):
         return
     from pydantic import ValidationError
-    from app.schemas.data_sources.configs import AWSAthenaConfig
+    from app.schemas.data_sources.configs import AWSAthenaConfig, PostgreSQLMultiConfig
+    config_class = {"aws_athena": AWSAthenaConfig, "postgresql_multi": PostgreSQLMultiConfig}[connection_type]
     try:
-        AWSAthenaConfig(**{k: v for k, v in config.items() if v is not None and v != ""})
+        config_class(**{k: v for k, v in config.items() if v is not None and v != ""})
     except ValidationError as e:
         first = e.errors()[0]
         field = ".".join(str(p) for p in first["loc"]) or "config"
@@ -3076,7 +3077,7 @@ class ConnectionService:
         await acheck_connection_params(connection.type, params)
         from app.data_sources.clients._duckdb_lockdown import bind_organization
         client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
-        if connection.type == "network_dir":
+        if connection.type in ("network_dir", "postgresql_multi"):
             client._bow_connection_id = str(connection.id)
         if connection.type in ("remote_ssh", "remote_smb"):
             client.pool_scope = f"{connection.organization_id}:{connection.id}:{getattr(current_user, 'id', 'system')}"

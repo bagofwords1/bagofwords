@@ -8,6 +8,7 @@ cancellation must never mask the timeout the caller is actually reporting.
 """
 
 import threading
+import time
 
 import pytest
 
@@ -282,3 +283,43 @@ def test_the_kill_side_connection_runs_outside_a_transaction():
         "the KILL side connection no longer forces autocommit; SQL Server will "
         "reject it with 'KILL command cannot be used inside user transactions'"
     )
+
+
+# --------------------------------------------------------------------------
+# DuckDB cursors
+# --------------------------------------------------------------------------
+
+def test_cancel_interrupts_a_running_duckdb_query_from_another_thread():
+    duckdb = pytest.importorskip("duckdb")
+    client = object()
+    cursor = duckdb.connect(":memory:").cursor()
+    inside = threading.Event()
+    outcome = {}
+
+    def worker():
+        outcome["ident"] = threading.get_ident()
+        with qc.track(client, cursor):
+            inside.set()
+            try:
+                # Not count(*): DuckDB can answer that from range()'s
+                # cardinality without running anything to interrupt.
+                cursor.execute("SELECT sum(i * i) FROM range(10000000000) t(i)").fetchall()
+            except Exception as e:
+                outcome["error"] = e
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    assert inside.wait(timeout=10)
+
+    # `inside` is set just before execute(): an interrupt that lands before
+    # the query starts is a no-op, so keep cancelling until the worker is out.
+    result = ""
+    deadline = time.monotonic() + 10
+    while thread.is_alive() and time.monotonic() < deadline:
+        result = qc.cancel_thread(client, thread.ident) or result
+        thread.join(timeout=0.05)
+
+    assert not thread.is_alive()
+    assert result.startswith("cancelled")
+    assert isinstance(outcome.get("error"), duckdb.InterruptException)
+    assert qc.active_count() == 0

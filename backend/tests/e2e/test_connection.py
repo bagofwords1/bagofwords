@@ -619,6 +619,26 @@ def test_athena_config_is_validated_on_every_api_path(
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("bad_config", [
+    {"host": "db.example.com", "databases": "!tenant_test"},
+    {"host": "db.example.com", "databases": "tenant_*", "table_exclude_pattern": "(unclosed"},
+    {"host": "db.example.com", "databases": "tenant_*", "table_exclude_pattern": "x{5000}"},
+])
+def test_postgresql_multi_config_is_validated_on_create(
+    test_client, create_user, login_user, whoami, bad_config,
+):
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    body = {"name": "Multi", "type": "postgresql_multi", "config": bad_config, "credentials": {}}
+
+    response = test_client.post("/api/connections", json=body, headers=headers)
+    assert response.status_code == 400, response.text
+    assert response.json()["error_code"] == "connection.config_invalid", response.text
+
+
+@pytest.mark.e2e
 @pytest.mark.parametrize("spec", ["acme_db", "acme_db, globex_db"])
 @pytest.mark.parametrize("blank", [None, ""])
 def test_athena_config_with_blank_optional_fields_uses_the_defaults(

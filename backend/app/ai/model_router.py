@@ -43,6 +43,30 @@ def get_routing_hint(model: Any) -> Optional[str]:
     return None
 
 
+async def user_may_use_model(db: AsyncSession, organization: Any, user: Any, model: Any) -> bool:
+    """Whether ``user`` may have their requests sent to ``model``.
+
+    ``user_can_use_model`` (fails open when EE access control is off). If the
+    check itself errors, an unrestricted model is still usable (it is open to
+    everyone anyway) and a restricted one is not: never send a user's request to
+    a model we could not confirm they may use. No user (system runs) → True,
+    as before.
+    """
+    if user is None or not getattr(user, "id", None):
+        return True
+    from app.core.permission_resolver import user_can_use_model
+    try:
+        return bool(await user_can_use_model(db, str(user.id), str(organization.id), model))
+    except Exception:
+        restricted = bool(getattr(model, "is_restricted", False))
+        logger.warning(
+            "[routing] access check failed for model %s (restricted=%s); %s",
+            getattr(model, "id", None), restricted, "skipping it" if restricted else "keeping it",
+            exc_info=True,
+        )
+        return not restricted
+
+
 async def resolve_routing_candidates(
     db: AsyncSession,
     organization: Any,
@@ -74,20 +98,13 @@ async def resolve_routing_candidates(
     # Only models with admin guidance are routing targets.
     guided = [m for m in models if get_routing_hint(m) is not None]
 
-    # Access control (EE). Fail-open helper returns True when the feature is off.
-    from app.core.permission_resolver import user_can_use_model
-
+    # Access control (EE): only models this user may use are offered.
     eligible: List[LLMModel] = []
     for m in guided:
         if user is None:
             eligible.append(m)
             continue
-        try:
-            if await user_can_use_model(db, user.id, organization.id, m):
-                eligible.append(m)
-        except Exception:
-            # Never let an access-check error remove a model the planner might
-            # need; the server re-validates on apply anyway.
+        if await user_may_use_model(db, organization, user, m):
             eligible.append(m)
 
     def _rank(m: LLMModel):
@@ -405,6 +422,7 @@ async def decide_starting_model(
     prompt_text: str,
     context_text: Optional[str] = None,
     usage_context: Any = None,
+    user: Any = None,
 ) -> DecisionOutcome:
     """Ask the configured decision model which candidate a run should start
     on. Never raises: any problem returns ``DecisionOutcome(model=None,
@@ -417,6 +435,12 @@ async def decide_starting_model(
     decision_model = await _load_decision_model(db, organization, cfg["decision_model_id"])
     if decision_model is None:
         return DecisionOutcome(reason="decision_model_unavailable")
+    # The decision model reads the user's request, so it is held to the same
+    # access rule as any model they chat with. One org-wide decision model on a
+    # provider a group may not use must not receive that group's requests;
+    # those runs start on the small model as usual.
+    if not await user_may_use_model(db, organization, user, decision_model):
+        return DecisionOutcome(reason="decision_model_not_allowed")
 
     from app.ai.llm import LLM
     from app.ai.llm.decisions import top_choice

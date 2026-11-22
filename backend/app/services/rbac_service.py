@@ -25,6 +25,7 @@ from app.schemas.rbac_schema import (
     GroupCreate, GroupUpdate, GroupSchema, GroupMemberSchema,
     RoleAssignmentCreate, RoleAssignmentSchema,
     ResourceGrantCreate, ResourceGrantUpdate, ResourceGrantSchema, GROUP_RESOURCE_TYPE,
+    LLM_PROVIDER_RESOURCE_TYPE, DEDICATED_GRANT_RESOURCE_TYPES,
 )
 
 logger = logging.getLogger(__name__)
@@ -96,9 +97,12 @@ async def assert_principal_in_org(db: AsyncSession, org_id: str, principal_type:
 
 
 def _refuse_group_grant(grant) -> None:
-    """Group-manager grants change only through promote/demote."""
+    """Group-manager grants change only through promote/demote, and provider
+    manager grants only through the LLM provider's managers routes."""
     if grant.resource_type == GROUP_RESOURCE_TYPE:
         raise HTTPException(status_code=422, detail="Group managers are set on the group itself")
+    if grant.resource_type == LLM_PROVIDER_RESOURCE_TYPE:
+        raise HTTPException(status_code=422, detail="Provider managers are set on the LLM provider itself")
 
 
 class RBACService:
@@ -1055,7 +1059,8 @@ class RBACService:
         else:
             # Group-manager grants surface on the group (manager_user_ids), not
             # here: callers of this listing render resource access.
-            stmt = stmt.where(ResourceGrant.resource_type != GROUP_RESOURCE_TYPE)
+            # Provider-manager grants likewise surface on the provider.
+            stmt = stmt.where(ResourceGrant.resource_type.notin_(DEDICATED_GRANT_RESOURCE_TYPES))
         if resource_id:
             stmt = stmt.where(ResourceGrant.resource_id == resource_id)
         if principal_type:

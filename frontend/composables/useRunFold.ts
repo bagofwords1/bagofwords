@@ -122,6 +122,10 @@ export function useRunFold<M>(opts: {
   return {
     expandedRuns,
     toolGroupHeaderFor,
+    toolGroupExecutions(m: M, block: any) {
+      const ids = new Set(toolGroupFor(m, block)?.blockIds)
+      return opts.blocksFor(m).filter(b => ids.has(String(b.id))).map(b => b.tool_execution)
+    },
     isGroupedTool,
     isToolGroupExpanded,
     toggleToolGroup,

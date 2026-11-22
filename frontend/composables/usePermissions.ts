@@ -55,6 +55,11 @@ const RESOURCE_PERM_IMPLIES: Record<string, Record<string, string[]>> = {
     // Managing all agents on a connection includes being able to create them.
     manage_data_sources: ['create_data_sources'],
   },
+  llm_provider: {
+    // A provider manager manages that provider and its models (not org-wide
+    // LLM settings): the LLM page opens for them, scoped to their providers.
+    manage: ['manage_llm'],
+  },
 }
 
 const isImpliedByGrant = (

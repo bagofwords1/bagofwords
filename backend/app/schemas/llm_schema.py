@@ -19,6 +19,15 @@ class LLMProviderSchema(LLMProviderBase):
     additional_config: Optional[Dict[str, Any]] = None
     models: list[LLMModelSchema] = []
 
+    @validator('models', pre=True)
+    def live_models_only(cls, value):
+        # The provider relationship includes soft-deleted models; a dialog that
+        # echoes them back would trip the provider manager's write check.
+        if isinstance(value, (list, tuple)):
+            return [m for m in value if getattr(m, "deleted_at", None) is None
+                    and not (isinstance(m, dict) and m.get("deleted_at"))]
+        return value
+
     @validator('config', pre=True)
     def parse_config(cls, value):
         if isinstance(value, str):
