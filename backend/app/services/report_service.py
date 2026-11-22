@@ -1961,6 +1961,32 @@ class ReportService:
         organization = await db.get(Organization, str(report.organization_id))
         org_settings = await organization.get_settings(db) if organization else None
 
+        if query_ids is None:
+            query_ids = await self._artifact_query_ids(db, report_id, artifact_id, with_dependencies=True)
+        targets, unrunnable = await self._rerun_target_steps(db, query_ids)
+        if only_identity_scoped:
+            from app.services.report_bursting import identity_scoped_step_ids
+            scoped = await identity_scoped_step_ids(db, [sid for sid, _ in targets])
+            targets = [(sid, code) for sid, code in targets if sid in scoped]
+            # A query with no step renders nothing for anyone — not this
+            # viewer's failure.
+            unrunnable = 0
+
+        # What each step's run reads, stamped before any client is built
+        # (viewer_result_freshness): a change landing while the clients are
+        # built or earlier steps run leaves the later results stale, never
+        # current.
+        from app.services.viewer_result_freshness import stamps_before_clients
+        step_service = self.widget_service.step_service
+
+        async def load(step_id):
+            step, _ = await step_service._load_step_for_rerun(db, step_id, report)
+            return step
+
+        stamps = await stamps_before_clients(
+            db, targets, load, user_id=str(current_user.id), organization_id=str(report.organization_id),
+            executed_as=identity, report_id=str(report.id))
+
         # Build clients once for the whole run under the resolved identity.
         # A source that fails (e.g. the viewer has no stored credentials for
         # a user_required connection) is reported; steps on other sources
@@ -2034,16 +2060,6 @@ class ReportService:
         steps_succeeded = 0
         steps_failed = 0
 
-        if query_ids is None:
-            query_ids = await self._artifact_query_ids(db, report_id, artifact_id, with_dependencies=True)
-        targets, unrunnable = await self._rerun_target_steps(db, query_ids)
-        if only_identity_scoped:
-            from app.services.report_bursting import identity_scoped_step_ids
-            scoped = await identity_scoped_step_ids(db, [sid for sid, _ in targets])
-            targets = [(sid, code) for sid, code in targets if sid in scoped]
-            # A query with no step renders nothing for anyone — not this
-            # viewer's failure.
-            unrunnable = 0
         for step_id, code in targets:
             steps_total += 1
             if not code or not str(code).strip():
@@ -2057,6 +2073,7 @@ class ReportService:
                     executed_as=identity,
                     report=report, db_clients=db_clients,
                     organization=organization, organization_settings=org_settings,
+                    stamp=stamps.get(str(step_id)),
                 )
                 if row.status == 'success':
                     steps_succeeded += 1

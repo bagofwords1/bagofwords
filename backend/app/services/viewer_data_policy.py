@@ -24,13 +24,28 @@ banner on the Step.data column.
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import Session, lazyload
 
 from app.models.connection import Connection
 from app.models.domain_connection import domain_connection
 from app.models.report_data_source_association import report_data_source_association
+
+# Where a session keeps the identities it resolved, per (viewer, org):
+# _default_params_fingerprint fills it, and so does the stamp of what a
+# viewer's run reads (viewer_result_freshness), which imports it from here.
+IDENTITY_MEMO = "_default_params_identity"
+
+
+@event.listens_for(Session, "after_transaction_end")
+def _forget_identities(session, transaction) -> None:
+    """A resolved identity is reused only within the transaction that
+    resolved it: once that ends (a commit, a rollback), the next read or
+    stamp resolves the viewer's groups and attributes again, as they are now.
+    Registered here, where the memo is filled, so no memo outlives its
+    transaction for want of an import."""
+    session.info.pop(IDENTITY_MEMO, None)
 
 
 @dataclass
@@ -112,6 +127,15 @@ async def resolve_step_data(
             # run as themselves (if any) still is. The rule is the step's, so
             # it is asked once: every creator-credential row falls with it.
             row = (await db.execute(newest_first.where(_not_run_as_creator()))).scalars().first()
+        if row is not None and row.status == "success":
+            # A result whose run read what has since changed (a row policy,
+            # an extract, a connection's auth policy, this viewer's
+            # attributes; viewer_result_freshness) is no longer theirs to see.
+            from app.services.viewer_result_freshness import viewer_result_current
+            if not await viewer_result_current(
+                db, row, step, report_id=report.id if report is not None else step_report_id
+            ):
+                row = None
         if row is not None:
             from app.services.access_errors import viewer_error_code
             viewer_result = {
@@ -352,7 +376,7 @@ async def _default_params_fingerprint(db: AsyncSession, step: Any, report: Any, 
             return None
         # One identity resolution per (viewer, org) per session: a dashboard
         # resolves every step through here.
-        memo = db.info.setdefault("_default_params_identity", {})
+        memo = db.info.setdefault(IDENTITY_MEMO, {})
         key = (str(user.id), str(org_id))
         identity = memo.get(key)
         if identity is None:

@@ -32,6 +32,22 @@ ALLOWED: dict[tuple[str, str], str] = {
 }
 
 
+# (reader, conversation) -> why the reader's own stored result, which main
+# served, is no longer theirs after the upgrade. Only its chart's own-result
+# answer may differ, and only one way: the result goes, and the reader gets
+# what a reader without one gets (the snapshot withheld, no rows). Anything
+# else about the conversation is still compared.
+REFUSED_OWN_RESULT: dict[tuple[str, str], str] = {
+    # The PR's freshness rule (viewer_result_freshness._legacy_insensitive):
+    # a result stored before stamps (vrstamp01) is refused where a stamp
+    # would track something -- here the source's connection is not
+    # system_only (user_required). Withheld from them since then, as from
+    # every reader with no result of their own on that source; their next
+    # run stores a stamped result.
+    ("has_results", "user_required"): "unstamped result refused (user_required connection)",
+}
+
+
 def _allowed(reader, key):
     return (reader, key) in ALLOWED or ("*", key) in ALLOWED
 
@@ -113,6 +129,12 @@ def test_every_reader_opens_the_same_dashboards_with_the_same_rows(migrated_corp
                     problems.append(f"{reader}/{key}: chart {title!r} is gone")
                     continue
                 now = test_client.get(f"{base}/queries/{after[title]}/step", headers=as_(c, reader)).json()
+                if (reader, key) in REFUSED_OWN_RESULT and was.get("viewer_result"):
+                    if now.get("viewer_result") or not now.get("snapshot_withheld") \
+                            or ((now.get("data") or {}).get("rows") or []):
+                        problems.append(f"{reader}/{key}: {title!r} should answer as without a result of "
+                                        f"theirs ({REFUSED_OWN_RESULT[(reader, key)]}), got {now!r}")
+                    continue
                 if ((now.get("data") or {}).get("rows") or []) != ((was.get("data") or {}).get("rows") or []):
                     problems.append(f"{reader}/{key}: {title!r} holds different rows")
                 if bool(now.get("snapshot_withheld")) != bool(was.get("snapshot_withheld")):

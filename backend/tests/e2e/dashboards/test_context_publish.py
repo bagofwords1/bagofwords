@@ -22,6 +22,7 @@ import pytest
 from sqlalchemy import text
 
 from tests.e2e.dashboards.dashboard_setup import as_, own, publish, share
+from tests.fixtures.viewer_result_stamp import stamp_now
 from tests.e2e.dashboards.test_dashboard_exports import no_vendor_libs, pdf_pages  # noqa: F401 (fixtures)
 from tests.e2e.dashboards.test_dashboard_publish import BROKEN, _finish, _post, _status, drawn, spawned  # noqa: F401
 
@@ -346,7 +347,8 @@ def test_a_waiting_row_is_not_a_run_of_theirs_for_the_export(  # S16
     assert resp.json()["error_code"] == "dashboard.export_needs_run"
 
     # The control: the same row holding a real run counts.
-    corpus_rows.update("step_user_results", row, data={"rows": [{"מי": "has_results"}], "columns": [{"field": "מי"}]})
+    corpus_rows.update("step_user_results", row, data={"rows": [{"מי": "has_results"}], "columns": [{"field": "מי"}]},
+                       **stamp_now(copy["step"], corpus.cast.id("has_results")))  # what a run stores
     assert test_client.get(f"/api/d/{aid}/export/{fmt}", headers=as_(corpus, "has_results")).status_code == 200
 
 

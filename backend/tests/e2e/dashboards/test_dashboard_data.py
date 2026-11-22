@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy import text
 
 from tests.e2e.dashboards.dashboard_setup import as_, own, publish, share
+from tests.fixtures.viewer_result_stamp import stamp_now
 
 
 def _get(test_client, corpus, path, reader="member"):
@@ -129,7 +130,8 @@ def test_a_personal_connection_withholds_the_owners_rows_from_readers(corpus, co
     corpus_rows.insert("step_user_results", step_id=copy["step"], user_id=corpus.cast.id("member"),
                        organization_id=corpus.cast.org_id, report_id=None, status="success",
                        executed_as="viewer", params_fingerprint="",
-                       data={"rows": [{"שלי": 1}], "columns": [{"field": "שלי"}]})
+                       data={"rows": [{"שלי": 1}], "columns": [{"field": "שלי"}]},
+                       **stamp_now(copy["step"], corpus.cast.id("member")))
     mine = _get(test_client, corpus, path).json()
     assert mine["data"]["rows"] == [{"שלי": 1}] and mine["viewer_result"]["status"] == "success"
     # Their run of the draft's step is not.

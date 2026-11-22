@@ -591,6 +591,11 @@ class UserManager(BaseUserManager[User, str]):
                     # pending by a registration through another org's link).
                     await self._attach_open_memberships(user, session)
                     await session.commit()
+                    # A claimed invite's groups outdate results they stored
+                    # there before; their sign-in waits on it: short budget.
+                    from app.services import viewer_result_freshness
+                    await viewer_result_freshness.purge_claimed_members(
+                        session, budget_seconds=viewer_result_freshness.QUICK_PURGE_BUDGET_SECONDS)
             return user
         except exceptions.UserNotExists:
             # If OAuth account doesn't exist, check if user exists by email
@@ -628,6 +633,9 @@ class UserManager(BaseUserManager[User, str]):
                     session.add(oauth_account)
                     await self._attach_open_memberships(user, session)
                     await session.commit()
+                    from app.services import viewer_result_freshness
+                    await viewer_result_freshness.purge_claimed_members(
+                        session, budget_seconds=viewer_result_freshness.QUICK_PURGE_BUDGET_SECONDS)
                 return user
             except exceptions.UserNotExists:
                 # User doesn't exist at all, create new user with OAuth
@@ -864,19 +872,31 @@ class UserManager(BaseUserManager[User, str]):
                     Membership.deleted_at.is_(None),
                 )
             )).scalars().first()
+            # Read now: a failed audit may roll the session back (expiring them).
+            user_id, membership_id = str(user.id), (str(membership.id) if membership else None)
             try:
                 from app.ee.audit.service import audit_service
                 await audit_service.log(
                     db=session,
                     organization_id=organization_id,
                     action="member.invite_accepted",
-                    user_id=str(user.id),
+                    user_id=user_id,
                     resource_type="membership",
-                    resource_id=str(membership.id) if membership else None,
+                    resource_id=membership_id,
                     details={"email": user.email},
                 )
             except Exception:
-                pass
+                logger.warning(
+                    "invite accept: could not audit member.invite_accepted for user %s in org %s",
+                    user_id, organization_id, exc_info=True,
+                    extra={"organization_id": organization_id, "user_id": user_id,
+                           "membership_id": membership_id},
+                )
+            # The invite's groups feed the row filters compiled for them:
+            # results they stored here before (a re-added member) that this
+            # outdates are purged, once the acceptance is committed and audited.
+            from app.services import viewer_result_freshness
+            await viewer_result_freshness.purge_claimed_members(session)
             return membership
 
     async def on_after_update(
@@ -1323,6 +1343,11 @@ async def auto_provision_user_for_org(
         from app.core.user_lifecycle import reactivate_user_for_membership
         await reactivate_user_for_membership(db, str(existing_user.id), organization_id)
         await db.commit()
+        # A claimed invite's groups outdate results they stored here before;
+        # the chat waits on it: short budget.
+        from app.services import viewer_result_freshness
+        await viewer_result_freshness.purge_claimed_members(
+            db, budget_seconds=viewer_result_freshness.QUICK_PURGE_BUDGET_SECONDS)
         return existing_user
 
     ph = PasswordHelper()

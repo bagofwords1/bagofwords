@@ -73,6 +73,7 @@ async def analyze_code_taint(
     organization_id: Optional[str],
     report_id: Optional[str],
     release_id: Optional[str] = None,
+    release_lookup=None,
     _visited: Optional[Set[str]] = None,
     _depth: int = 0,
 ) -> TaintResult:
@@ -85,7 +86,9 @@ async def analyze_code_taint(
 
     `release_id`: the code is a published dashboard's copy; its load_step
     refs resolve among that release's copies, as LoadablesResolver resolves
-    them there.
+    them there. `release_lookup`: that release's release_step_lookup, when
+    the caller already read it (a reader's run reads it once for all its
+    copies); otherwise read here, once for the whole walk.
     """
     from app.ai.code_execution.loadables import extract_loadable_refs
 
@@ -101,7 +104,9 @@ async def analyze_code_taint(
         from app.models.query import Query
         from app.models.widget import Widget
         if release_id:
-            lookup = await release_step_lookup(db, str(release_id))
+            if release_lookup is None:
+                release_lookup = await release_step_lookup(db, str(release_id))
+            lookup = release_lookup
         else:
             steps = (await db.execute(
                 select(Step)
@@ -136,7 +141,8 @@ async def analyze_code_taint(
                     sub.identity = True
             deeper = await analyze_code_taint(
                 db, s.code or "", organization_id=organization_id,
-                report_id=report_id, release_id=release_id, _visited=visited, _depth=_depth + 1,
+                report_id=report_id, release_id=release_id, release_lookup=release_lookup,
+                _visited=visited, _depth=_depth + 1,
             )
             sub.fold(deeper)
             result.fold(sub)
@@ -208,9 +214,12 @@ async def release_step_lookup(db: AsyncSession, release_id: str):
     return lookup
 
 
-async def step_identity_scope(db: AsyncSession, step) -> Tuple[bool, Optional[datetime]]:
+async def step_identity_scope(db: AsyncSession, step, *,
+                              release_lookup=None) -> Tuple[bool, Optional[datetime]]:
     """(identity_differentiated, latest_upstream_refresh) for a step:
-    its query's own identity params OR anything its code consumes."""
+    its query's own identity params OR anything its code consumes.
+    `release_lookup`: release_step_lookup of the release the step is a copy
+    of, when the caller already read it; unused for a conversation's step."""
     own = False
     org_id = None
     report_id = None
@@ -236,6 +245,7 @@ async def step_identity_scope(db: AsyncSession, step) -> Tuple[bool, Optional[da
         organization_id=str(org_id) if org_id else None,
         report_id=str(report_id) if report_id else None,
         release_id=str(release_id) if release_id else None,
+        release_lookup=release_lookup if release_id else None,
     )
     return own or taint.identity, taint.latest_upstream_refresh
 

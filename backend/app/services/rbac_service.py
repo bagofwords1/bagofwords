@@ -574,7 +574,9 @@ class RBACService:
         await db.refresh(group)
         return GroupSchema.model_validate(group)
 
-    async def delete_group(self, db: AsyncSession, org_id: str, group_id: str) -> None:
+    async def delete_group(self, db: AsyncSession, org_id: str, group_id: str) -> List[str]:
+        """Returns its registered members: their groups changed
+        (viewer_result_freshness.purge_members_results, once audited)."""
         group = await self._get_editable_group(db, org_id, group_id)
         # Dashboard grants go with the group. Their foreign key cascades on
         # Postgres only; SQLite does not enforce it here.
@@ -586,8 +588,13 @@ class RBACService:
             ResourceGrant.resource_type == GROUP_RESOURCE_TYPE,
             ResourceGrant.resource_id == group.id,
         ))
+        members = (await db.execute(
+            select(GroupMembership.user_id).where(GroupMembership.group_id == group.id,
+                                                  GroupMembership.user_id.is_not(None))
+        )).scalars().all()
         await db.delete(group)
         await db.commit()
+        return [str(m) for m in members]
 
     async def list_group_members(self, db: AsyncSession, org_id: str, group_id: str) -> List[GroupMemberSchema]:
         group = await self._get_group(db, org_id, group_id)
@@ -628,7 +635,10 @@ class RBACService:
         self, db: AsyncSession, org_id: str, group_id: str,
         user_id: Optional[str] = None, membership_id: Optional[str] = None,
         actor_id: Optional[str] = None, as_manager: bool = False,
-    ) -> None:
+    ) -> List[str]:
+        """Returns the registered user whose groups changed (none for a
+        pending invite), for viewer_result_freshness.purge_members_results
+        once the change is audited."""
         if as_manager:
             await self._get_manageable_group(db, org_id, group_id)
         else:
@@ -684,12 +694,15 @@ class RBACService:
             db.add(GroupMembership(group_id=group_id, membership_id=membership_id))
 
         await db.commit()
+        return [str(user_id)] if user_id else []
 
     async def remove_group_member(
         self, db: AsyncSession, org_id: str, group_id: str, principal_id: str,
         actor_id: Optional[str] = None, as_manager: bool = False,
-    ) -> None:
+    ) -> List[str]:
         """Remove a group member by either user id or pending membership id.
+        Returns the registered user whose groups changed, as
+        add_group_member.
 
         A group manager may remove members and leave the group themselves, but
         not remove another manager — only an org admin can, so managers can't
@@ -727,6 +740,7 @@ class RBACService:
             # Managing ends with membership; re-joining later starts as a member.
             await self._drop_manager_grant(db, org_id, group_id, removed_user_id)
         await db.commit()
+        return [str(removed_user_id)] if removed_user_id else []
 
     # ── Group managers ───────────────────────────────────────────────────
 

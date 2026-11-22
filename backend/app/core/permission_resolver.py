@@ -334,12 +334,17 @@ async def materialize_pending_rbac(
     Used by both invite-acceptance (``_attach_open_memberships``) and the
     provisioning paths (``claim_pending_invite``). Does NOT commit — the caller
     commits. Never raises: a missing pending-RBAC table (pre-migration) or a
-    transient conflict must not block login/provisioning.
+    transient conflict must not block login/provisioning. When it gives the
+    user a group they did not hold it notes them on ``db``
+    (``viewer_result_freshness.note_claimed_groups``); a caller whose user may
+    have stored results calls ``purge_claimed_members`` after its commit.
     """
     from app.models.role_assignment import RoleAssignment
     from app.models.usage_policy import UsagePolicyAssignment
 
     org_id = membership.organization_id
+    # Read before the savepoint: a rolled-back one may expire what it wrote.
+    membership_id = membership.id
     # Flush the CALLER's own pending writes (invite claim, OAuth link, ...) to the
     # OUTER transaction first. With autoflush on, the first query inside the
     # savepoint below would otherwise pull those writes into the savepoint and
@@ -384,6 +389,7 @@ async def materialize_pending_rbac(
                     GroupMembership.deleted_at.is_(None),
                 )
             )
+            gained_groups = False
             for gm in gm_result.scalars().all():
                 existing = await db.execute(
                     select(GroupMembership).where(
@@ -396,6 +402,7 @@ async def materialize_pending_rbac(
                 else:
                     gm.user_id = user_id
                     gm.membership_id = None
+                    gained_groups = True
 
             # Usage-policy (quota) assignments: membership principal → user principal
             upa_result = await db.execute(
@@ -424,8 +431,21 @@ async def materialize_pending_rbac(
             await db.flush()
     except Exception:
         # Never block the caller if pending-RBAC tables aren't present
-        # (pre-migration) or a conversion hits a transient conflict.
-        pass
+        # (pre-migration) or a conversion hits a transient conflict; but the
+        # invite's roles, groups and quotas were dropped, so say which.
+        logger.warning(
+            "materialize_pending_rbac: could not move invite %s's roles, groups and quotas "
+            "to user %s in org %s",
+            membership_id, user_id, org_id, exc_info=True,
+            extra={"organization_id": str(org_id), "membership_id": str(membership_id),
+                   "user_id": str(user_id)},
+        )
+    else:
+        if gained_groups:
+            # Their groups feed the row filters compiled for them: the
+            # caller purges their stored results here once it commits.
+            from app.services import viewer_result_freshness
+            viewer_result_freshness.note_claimed_groups(db, organization_id=str(org_id), user_id=str(user_id))
 
 
 async def insert_membership_if_absent(db: AsyncSession, membership):

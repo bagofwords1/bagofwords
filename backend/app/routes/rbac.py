@@ -15,6 +15,7 @@ from sqlalchemy import select
 from app.ee.license import require_enterprise
 from app.ee.audit.service import audit_service
 from app.services.rbac_service import rbac_service
+from app.services import viewer_result_freshness
 from app.schemas.rbac_schema import (
     RoleCreate, RoleUpdate, RoleSchema,
     GroupCreate, GroupUpdate, GroupSchema, GroupMemberAdd, GroupMemberSchema,
@@ -205,7 +206,7 @@ async def delete_group(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    await rbac_service.delete_group(db, organization_id, group_id)
+    members = await rbac_service.delete_group(db, organization_id, group_id)
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="group.deleted",
@@ -214,6 +215,10 @@ async def delete_group(
         )
     except Exception:
         pass
+    # Their groups feed the row filters compiled for them: their stored
+    # results the change outdates are purged, last, once it is committed and
+    # audited (viewer_result_freshness).
+    await viewer_result_freshness.purge_members_results(db, organization_id=str(organization_id), user_ids=members)
 
 
 # Group membership routes are open to org-wide `manage_members` holders and to
@@ -249,7 +254,7 @@ async def add_group_member(
     as_manager = await rbac_service.group_admin_mode(
         db, organization_id, current_user.id, group_id, action="group.member_add",
     )
-    await rbac_service.add_group_member(
+    changed = await rbac_service.add_group_member(
         db, organization_id, group_id,
         user_id=data.user_id, membership_id=data.membership_id,
         actor_id=current_user.id, as_manager=as_manager,
@@ -264,6 +269,7 @@ async def add_group_member(
         )
     except Exception:
         pass
+    await viewer_result_freshness.purge_members_results(db, organization_id=str(organization_id), user_ids=changed)
 
 
 @router.delete("/organizations/{organization_id}/groups/{group_id}/members/{principal_id}", status_code=204)
@@ -281,7 +287,7 @@ async def remove_group_member(
     as_manager = await rbac_service.group_admin_mode(
         db, organization_id, current_user.id, group_id, action="group.member_remove",
     )
-    await rbac_service.remove_group_member(
+    changed = await rbac_service.remove_group_member(
         db, organization_id, group_id, principal_id, actor_id=current_user.id, as_manager=as_manager,
     )
     try:
@@ -292,6 +298,7 @@ async def remove_group_member(
         )
     except Exception:
         pass
+    await viewer_result_freshness.purge_members_results(db, organization_id=str(organization_id), user_ids=changed)
 
 
 @router.put("/organizations/{organization_id}/groups/{group_id}/managers/{user_id}", status_code=204)

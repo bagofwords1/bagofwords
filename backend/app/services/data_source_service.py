@@ -3807,18 +3807,22 @@ class DataSourceService:
                 setattr(data_source_db, field, value)
         
         # Delegate connection-relevant field updates to Connection
+        auth_policy_changed_on: Optional[str] = None  # the connection id
         if connection_changed and data_source_db.connections:
             from app.services.connection_service import ConnectionService
             conn_svc = ConnectionService()
             conn = data_source_db.connections[0]
-            
-            await conn_svc.update_connection(
+            previous_auth_policy = conn.auth_policy
+
+            updated_conn = await conn_svc.update_connection(
                 db=db,
                 connection_id=str(conn.id),
                 organization=organization,
                 current_user=current_user,
                 **connection_updates
             )
+            if updated_conn.auth_policy != previous_auth_policy:
+                auth_policy_changed_on = str(conn.id)
         
         try:
             await db.commit()
@@ -3884,6 +3888,13 @@ class DataSourceService:
                 )
             except Exception:
                 pass
+
+            if auth_policy_changed_on:
+                # Viewers' results run under the previous auth policy: purged
+                # last, after this request's audit rows (its own session).
+                from app.services.connection_service import ConnectionService
+                await ConnectionService.purge_results_of_previous_auth_policy(
+                    db, auth_policy_changed_on, organization)
 
             # Return schema with connection info
             return await self.get_data_source(db, str(final_data_source.id), organization, current_user)

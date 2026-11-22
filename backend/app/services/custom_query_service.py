@@ -314,8 +314,8 @@ class _Run:
         self.windows_done = 0
         self.rendered_query: Optional[str] = None
         self.window_from = None
-        # Set once the swap is committed and recorded: nothing that fails
-        # afterwards may rewrite the run as failed.
+        # Set once the swap is committed: nothing that fails or is cancelled
+        # afterwards may rewrite the run (or the table) as failed.
         self.published = False
         # Whether the row was marked "running", and whether a cancellation has
         # already been written back.
@@ -1383,43 +1383,52 @@ class CustomQueryService:
             user_id=str(current_user.id) if current_user is not None else None,
             current_user=current_user,
         )
-        async with artifacts.table_lock(connection.id, cq.id):
-            try:
-                await self._drive(run)
-            except asyncio.CancelledError:
-                # Cancelled between units of work (waiting for the volume,
-                # saving progress): nothing is writing, but the row and the
-                # run still say "running".
-                if run.started_work and not run.cancel_recorded:
-                    await self._drain(self._record_cancel(run))
-                raise
-            except (extractor.ExtractionRefused, extractor.ExtractionAborted,
-                    incremental.IncrementalConfigError, loader.SchemaChanged) as e:
-                await self._record_failure(run, e)
-                raise HTTPException(status_code=400, detail=str(e))
-            except _SourceError as e:
-                await self._record_failure(run, e.__cause__ or e)
-                raise HTTPException(status_code=400, detail=str(e.__cause__ or e))
-            except BaseException as e:
-                # Not the source: a storage failure around the swap. The row's
-                # own state is whatever the failed transaction left, so only
-                # the history is closed here and the error propagates as is.
-                if not run.published:
-                    await runs.finish(run.run_id, status=STATUS_FAILED, error=str(e),
-                                      events=run.take_events())
-                raise
+        relation_id = str(cq.id)
+        try:
+            async with artifacts.table_lock(connection.id, cq.id):
+                try:
+                    await self._drive(run)
+                except asyncio.CancelledError:
+                    # Cancelled between units of work (waiting for the volume,
+                    # saving progress): nothing is writing, but the row and the
+                    # run still say "running". Once published, they do not.
+                    if run.started_work and not run.cancel_recorded and not run.published:
+                        await self._drain(self._record_cancel(run))
+                    raise
+                except (extractor.ExtractionRefused, extractor.ExtractionAborted,
+                        incremental.IncrementalConfigError, loader.SchemaChanged) as e:
+                    await self._record_failure(run, e)
+                    raise HTTPException(status_code=400, detail=str(e))
+                except _SourceError as e:
+                    await self._record_failure(run, e.__cause__ or e)
+                    raise HTTPException(status_code=400, detail=str(e.__cause__ or e))
+                except BaseException as e:
+                    # Not the source: a storage failure around the swap. The row's
+                    # own state is whatever the failed transaction left, so only
+                    # the history is closed here and the error propagates as is.
+                    if not run.published:
+                        await runs.finish(run.run_id, status=STATUS_FAILED, error=str(e),
+                                          events=run.take_events())
+                    raise
+        finally:
+            if run.published:
+                # The new extract outdates viewers' stored results. Purged
+                # last: after the previous file is deleted and the activations
+                # synced (or that failed), with the table's lock released, and
+                # to its end even when the request is cancelled.
+                await self.purge_viewer_results(db, relation_id)
         return cq
 
     @staticmethod
-    async def _drain(coro) -> None:
-        """Run cleanup to completion however many times the request is cancelled."""
-        task = asyncio.create_task(coro)
-        while not task.done():
-            try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError:
-                continue
+    async def _drain(coro) -> bool:
+        """Run cleanup to completion however many times the request is
+        cancelled (run_to_the_end). Returns whether it was cancelled
+        meanwhile."""
+        from app.core.asyncio_shield import run_to_the_end
+
+        task, cancelled = await run_to_the_end(coro)
         task.result()
+        return cancelled
 
     async def _record_cancel(self, run: "_Run") -> None:
         run.cancel_recorded = True
@@ -2047,9 +2056,13 @@ class CustomQueryService:
                 logger.exception("custom_query.failed_swap.cleanup_failed")
             raise
 
+        # The swap is the publication: from here on nothing records this
+        # refresh as failed or cancelled. A request cancelled now still
+        # records the run's success first, then stops.
+        run.published = True
         for text_ in res.notes:
             run.note(text_, "warning")
-        await runs.finish(
+        if await self._drain(runs.finish(
             run.run_id, status=STATUS_SUCCESS, events=run.take_events(), chunks=run.chunk_log(),
             rows_read=res.rows_read, rows_inserted=res.rows_inserted,
             rows_updated=res.rows_updated, rows_deleted=res.rows_deleted,
@@ -2057,8 +2070,8 @@ class CustomQueryService:
             rendered_query=run.rendered_query, schema_fingerprint=res.schema_fingerprint,
             window_from=incremental.encode(run.window_from),
             window_to=(new_state or {}).get("checkpoint"),
-        )
-        run.published = True
+        )):
+            raise asyncio.CancelledError()
 
         # DataSourceTable carries legacy copies of name/columns/no_rows that
         # the schema context reads; leaving them stale would show agents the
@@ -2312,6 +2325,17 @@ class CustomQueryService:
         await db.commit()
         await db.refresh(cq)
         return cq
+
+    @staticmethod
+    async def purge_viewer_results(db: AsyncSession, relation_id: str) -> None:
+        """Viewers' stored results that read this relation's previous extract
+        or row policy (viewer_result_freshness): deleted, each viewer's latest
+        of each step kept (cleared) and refused at read. In a session of its
+        own; called last, once the change is committed, audited and cleaned
+        up after (a refresh, the row policy route)."""
+        from app.services.viewer_result_freshness import purge_quietly, purge_relation_results
+
+        await purge_quietly(db, purge_relation_results, relation_id=str(relation_id))
 
     async def preview_as_user(
         self,

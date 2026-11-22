@@ -20,6 +20,7 @@ import pytest
 from sqlalchemy import text
 
 from tests.e2e.dashboards.dashboard_setup import as_, own, publish, share
+from tests.fixtures.viewer_result_stamp import stamp_now
 
 
 @pytest.fixture
@@ -119,10 +120,12 @@ def _own_run(corpus, corpus_rows, release, reader, label, executed_as="viewer"):
     # A reader's own run of a personal connection needs the provider; its
     # stored result is what the run leaves behind, so it is written directly.
     rows = [{"מי": label}]
-    corpus_rows.insert("step_user_results", step_id=_copy_step(corpus_rows, release),
+    step = _copy_step(corpus_rows, release)
+    corpus_rows.insert("step_user_results", step_id=step,
                        user_id=corpus.cast.id(reader), organization_id=corpus.cast.org_id, report_id=None,
                        status="success", executed_as=executed_as, params_fingerprint="",
-                       data={"rows": rows, "columns": [{"field": "מי"}]})
+                       data={"rows": rows, "columns": [{"field": "מי"}]},
+                       **stamp_now(step, corpus.cast.id(reader), executed_as))
     return rows
 
 

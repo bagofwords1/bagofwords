@@ -702,6 +702,49 @@ async def _withheld_from(db, artifact, release, user, *, baked: bool = False) ->
     return baked and await any_copy_tainted(db, release)
 
 
+async def _outdated_result_ids(db, release, user, *, exclude: list[str]) -> list[str]:
+    """The ids of `user`'s successful results on the release's copies that
+    resolve_release_step no longer serves because what their run read has
+    changed (viewer_result_freshness). Their rows are not read. What a run
+    of each copy reads now is stamped once, however many slices of it they
+    hold (CurrentStamps)."""
+    from sqlalchemy.orm import lazyload, load_only
+
+    from app.models.query import Query
+    from app.models.step import Step
+    from app.models.step_user_result import StepUserResult
+    from app.services.viewer_result_freshness import CurrentStamps
+
+    results = (await db.execute(
+        select(StepUserResult).options(
+            lazyload("*"),
+            load_only(StepUserResult.id, StepUserResult.step_id, StepUserResult.user_id,
+                      StepUserResult.organization_id, StepUserResult.executed_as,
+                      StepUserResult.last_run_at, StepUserResult.source_stamp))
+        .join(Step, Step.id == StepUserResult.step_id).join(Query, Query.id == Step.query_id)
+        .where(Query.artifact_release_id == str(release.id), StepUserResult.user_id == str(user.id),
+               StepUserResult.status == "success")
+    )).scalars().all()
+    # Skipped here, not in SQL: an id list has no bound (a NOT IN of
+    # thousands would pass the drivers' bind-parameter cap).
+    skip = set(exclude)
+    steps: dict = {}
+    stamps = CurrentStamps(db)
+    outdated: list[str] = []
+    for result in results:
+        if str(result.id) in skip:
+            continue
+        key = str(result.step_id)
+        if key not in steps:
+            steps[key] = (await db.execute(
+                select(Step).options(lazyload("*"), load_only(Step.id, Step.code, Step.query_id, Step.updated_at))
+                .where(Step.id == key)
+            )).scalar_one()
+        if not await stamps.current(result, steps[key], release=release):
+            outdated.append(str(result.id))
+    return outdated
+
+
 async def _has_own_run(db, release, user) -> bool:
     """Whether `user` holds a successful run of their own of any query of the
     release -- what a withheld export then holds instead of the snapshot."""
@@ -732,23 +775,34 @@ async def _has_own_run(db, release, user) -> bool:
             refused_steps[step_key] = await release_creator_result_holds_owner_slice(db, row, release, row.code)
         if refused_steps[step_key]:
             refused.append(str(row.id))
-    rows = await db.stream(
-        select(StepUserResult.data).join(Step, Step.id == StepUserResult.step_id)
+    refused += await _outdated_result_ids(db, release, user, exclude=refused)
+    # The ids left, newest first, then their data a bounded IN list at a time
+    # (a NOT IN of every refused id would pass the drivers' bind-parameter cap).
+    skip = set(refused)
+    order = (StepUserResult.last_run_at.desc().nullslast(), StepUserResult.id)
+    candidates = [str(i) for i in (await db.execute(
+        select(StepUserResult.id).join(Step, Step.id == StepUserResult.step_id)
         .join(Query, Query.id == Step.query_id)
         .where(Query.artifact_release_id == str(release.id), StepUserResult.user_id == str(user.id),
-               StepUserResult.status == "success", StepUserResult.id.notin_(refused))
-        .order_by(StepUserResult.last_run_at.desc().nullslast(), StepUserResult.id)
-        .execution_options(yield_per=1)
-    )
-    # A wait for input is not a run of theirs (resolve_release_step): it holds no rows. The marker
-    # is inside the encrypted data, so it is read here, not in SQL.
-    try:
-        async for data in rows.scalars():
-            if not needs_input_names(data):
-                return True
-        return False
-    finally:
-        await rows.close()
+               StepUserResult.status == "success")
+        .order_by(*order)
+    )).scalars().all() if str(i) not in skip]
+    from app.services.viewer_result_freshness import id_chunks
+
+    for chunk in id_chunks(candidates):
+        rows = await db.stream(
+            select(StepUserResult.data).where(StepUserResult.id.in_(chunk), StepUserResult.status == "success")
+            .order_by(*order).execution_options(yield_per=1)
+        )
+        # A wait for input is not a run of theirs (resolve_release_step): it holds no rows. The marker
+        # is inside the encrypted data, so it is read here, not in SQL.
+        try:
+            async for data in rows.scalars():
+                if not needs_input_names(data):
+                    return True
+        finally:
+            await rows.close()
+    return False
 
 
 async def _release_pdf(db, artifact, release, user) -> str | None:

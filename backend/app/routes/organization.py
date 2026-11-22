@@ -57,6 +57,9 @@ async def add_member(
     if membership.custom_attributes:
         from app.services.member_attributes import require_attribute_admin
         await require_attribute_admin(db, current_user.id, organization_id)
+    # The invite's groups a registered user already holds (a removed member
+    # keeps theirs), read before add_member clears the email.
+    held_groups = await _groups_held_by_email(db, membership.email, membership.group_ids)
     result = await organization_service.add_member(db, membership, current_user)
     await audit_service.log(
         db=db,
@@ -74,7 +77,31 @@ async def add_member(
         },
         request=request,
     )
+    if result.user_id and set(map(str, membership.group_ids or [])) - held_groups:
+        # A registered user's groups feed the row filters compiled for them:
+        # when the invite added one, results they stored here before (a
+        # re-added member) that this outdates are purged, once the invite is
+        # committed and audited.
+        from app.services import viewer_result_freshness
+        await viewer_result_freshness.purge_members_results(
+            db, organization_id=str(organization_id), user_ids=[str(result.user_id)])
     return result
+
+
+async def _groups_held_by_email(db: AsyncSession, email: str | None, group_ids) -> set:
+    """Which of `group_ids` the registered user with this email holds."""
+    if not email or not group_ids:
+        return set()
+    from sqlalchemy import func, select
+
+    from app.models.group_membership import GroupMembership
+
+    return {str(g) for g in (await db.execute(
+        select(GroupMembership.group_id)
+        .join(User, User.id == GroupMembership.user_id)
+        .where(func.lower(User.email) == email.strip().lower(),
+               GroupMembership.group_id.in_([str(g) for g in group_ids]))
+    )).scalars().all()}
 
 @router.get("/organizations/{organization_id}/members", response_model=List[MembershipSchema])
 @requires_permission('view_members')

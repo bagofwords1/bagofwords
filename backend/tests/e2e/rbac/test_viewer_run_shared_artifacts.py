@@ -774,16 +774,20 @@ async def _seed_viewer_result(step_id: str, viewer_email: str, executed_as: str 
     from sqlalchemy import select as _select
     from app.models.step_user_result import StepUserResult
     from app.models.user import User as _User
+    from tests.fixtures.viewer_result_stamp import stamp_for
+    async with async_session_maker() as db:
+        viewer_id = (await db.execute(_select(_User.id).where(_User.email == viewer_email))).scalar_one()
+    # The stamp the run would store (what it read, as of now).
+    stamp = await stamp_for(step_id, viewer_id, executed_as)
     async with async_session_maker() as db:
         step = await db.get(Step, step_id)
         query = await db.get(Query, step.query_id)
-        viewer_id = (await db.execute(_select(_User.id).where(_User.email == viewer_email))).scalar_one()
         db.add(StepUserResult(
             step_id=step_id, user_id=viewer_id, organization_id=query.organization_id,
             report_id=query.report_id, status="success", executed_as=executed_as,
             data={"rows": [{"month": month}], "columns": [{"field": "month"}]},
             params_fingerprint=params_fingerprint,
-            last_run_at=last_run_at or datetime.utcnow(),
+            last_run_at=last_run_at or datetime.utcnow(), **stamp,
         ))
         await db.commit()
 
@@ -1776,12 +1780,13 @@ def test_a_stored_owner_credential_result_gives_way_to_the_viewers_own_older_res
     # Seeded directly: a viewer run needs a reachable source, and the API no
     # longer stores an owner-credential result for this report. The viewer's
     # own run predates the query's parameter (no fingerprint); the newer one
-    # ran with its default value.
+    # ran with its default value. Both ran after the step's last change: a
+    # run older than the step is not served at all (viewer_result_freshness).
     now = datetime.utcnow()
-    _run(_seed_viewer_result(sid, viewer["email"], "viewer", month="viewers-own",
-                             last_run_at=now - timedelta(hours=1)))
+    _run(_seed_viewer_result(sid, viewer["email"], "viewer", month="viewers-own", last_run_at=now))
     _run(_seed_viewer_result(sid, viewer["email"], "creator", month="owners-slice",
-                             params_fingerprint=params_fingerprint({"Year": "2024"}), last_run_at=now))
+                             params_fingerprint=params_fingerprint({"Year": "2024"}),
+                             last_run_at=now + timedelta(minutes=1)))
 
     step = _public_step(test_client, report["id"], qid, token=viewer["token"])
     assert {r["month"] for r in (step["data"] or {}).get("rows") or []} == {"viewers-own"}, step["data"]

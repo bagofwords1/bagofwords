@@ -224,6 +224,17 @@ async def sync_user_oidc_groups(
     await _ensure_org_membership(db, organization_id, user_id)
 
     await db.commit()
+    # Their groups feed the row filters compiled for them: their stored
+    # results this outdates are purged now it committed, if the directory
+    # changed them or an invite it claimed gave them groups (none: nothing).
+    # Their sign-in waits on it: the short budget.
+    from app.services import viewer_result_freshness
+    changed = viewer_result_freshness.take_claimed_members(db, organization_id=str(organization_id))
+    if result.memberships_added or result.memberships_removed:
+        changed.add(str(user_id))
+    await viewer_result_freshness.purge_members_results(
+        db, organization_id=str(organization_id), user_ids=changed,
+        budget_seconds=viewer_result_freshness.QUICK_PURGE_BUDGET_SECONDS)
 
     logger.info(
         f"OIDC group sync for user {user_id} in org {organization_id}: "

@@ -13,6 +13,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.backends import default_backend
 
+from tests.fixtures.member_purge_spy import member_purges  # noqa: F401 (fixture)
+
 
 # ── Test key generation (same pattern as test_ldap.py) ──
 
@@ -870,3 +872,73 @@ async def test_oidc_sync_claims_open_invite_instead_of_duplicating(
             )
         )).scalar()
         assert open_invites == 0
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_sync_purges_the_users_results_when_their_groups_change(oidc_setup, member_purges):
+    """The user's groups feed the row filters compiled for them: a login that
+    changes them purges their outdated stored results once the sync has
+    committed; a login that changes nothing does not."""
+    from app.dependencies import async_session_maker
+    from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+
+    from tests.fixtures.member_results import member_results, purged, seed_member_results, untouched
+
+    user_id, org_id = oidc_setup["user_id"], oidc_setup["org_id"]
+
+    async def login(groups):
+        async with async_session_maker() as db:
+            await sync_user_oidc_groups(db=db, user_id=user_id, organization_id=org_id, group_ids=groups)
+
+    step = await seed_member_results(org_id, user_id)
+    await login(["purge-aaa", "purge-bbb"])
+    assert await member_results(step) == purged()
+    assert [c["user_ids"] for c in member_purges] == [[user_id]]
+    assert member_purges[0]["organization_id"] == org_id
+    assert len(member_purges[0]["groups"][user_id]) == 2  # committed
+
+    step = await seed_member_results(org_id, user_id)
+    await login(["purge-aaa", "purge-bbb"])
+    assert len(member_purges) == 1
+    assert await member_results(step) == untouched()
+
+    await login(["purge-aaa"])
+    assert await member_results(step) == purged()
+    assert len(member_purges) == 2 and len(member_purges[1]["groups"][user_id]) == 1
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_a_login_that_changes_the_users_groups_purges_their_outdated_results(oidc_setup):
+    """The real purge, end to end: the user's latest result stays, cleared;
+    the older ones are gone."""
+    from app.dependencies import async_session_maker
+    from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+    from tests.fixtures.member_results import member_results, purged, seed_member_results
+
+    user_id, org_id = oidc_setup["user_id"], oidc_setup["org_id"]
+    step = await seed_member_results(org_id, user_id)
+    async with async_session_maker() as db:
+        await sync_user_oidc_groups(db=db, user_id=user_id, organization_id=org_id, group_ids=["real-aaa"])
+    assert await member_results(step) == purged()
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_a_login_waits_on_its_purge_for_the_short_budget_only(oidc_setup, member_purges):
+    """The user's sign-in waits on the purge: it gets the short budget, not
+    the one a change made by an admin may take."""
+    import app.services.viewer_result_freshness as freshness
+    from app.dependencies import async_session_maker
+    from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+    from tests.fixtures.member_results import member_results, purged, seed_member_results
+
+    step = await seed_member_results(oidc_setup["org_id"], oidc_setup["user_id"])
+    async with async_session_maker() as db:
+        await sync_user_oidc_groups(db=db, user_id=oidc_setup["user_id"], organization_id=oidc_setup["org_id"],
+                                    group_ids=["budget-aaa"])
+    assert await member_results(step) == purged()  # the purge ran, within its budget
+    (call,) = member_purges
+    assert call["budget_seconds"] == freshness.QUICK_PURGE_BUDGET_SECONDS
+    assert call["budget_seconds"] < freshness.PURGE_BUDGET_SECONDS

@@ -287,10 +287,18 @@ async def apply_org_mapping(cfg, user, groups) -> None:
                 await db.commit()
             except Exception as exc:
                 await db.rollback()
+                # The rollback undid any invite claimed here: nothing to purge.
+                from app.services import viewer_result_freshness
+                viewer_result_freshness.discard_claimed_members(db, organization_id=str(org_id))
                 logger.warning(
                     "OIDC org mapping (%s): could not place user %s in org %s: %s",
                     provider_name, user_id, org_id, exc, exc_info=True,
                 )
+        # An invite claimed above outdates, by its groups, results they stored
+        # there before; the sign-in waits on it: short budget.
+        from app.services import viewer_result_freshness
+        await viewer_result_freshness.purge_claimed_members(
+            db, budget_seconds=viewer_result_freshness.QUICK_PURGE_BUDGET_SECONDS)
 
         stale = (
             await db.execute(
