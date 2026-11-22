@@ -27,11 +27,15 @@ The decision is process-wide and never blocks a query. `current()` returns the
 last decision; the first verification, the 60-second re-check after a refusal
 and the five-minute re-hash each run in one thread while the others keep the
 last decision. Before the first verification has finished the decision is
-"unavailable", and engines open as they always have. One log line is written
-per change of state.
+"unavailable". One log line is written per change of state.
 
-The extract writer (`artifacts.connect_encrypted`) uses `directory()` only, to
-load httpfs from the same place with signature checks on.
+Without V (switch off, or the file not trusted), `open_with_signed_httpfs`
+gives serving engines httpfs from the same directory, loaded by name with
+DuckDB's signature check and no unsigned flag; the extract writer
+(`artifacts.connect_encrypted`) always uses it. Neither depends on V's switch,
+the owner rule or the user the process runs as. A directory whose httpfs
+fails that load is tried again only when the file changes or after 60 s.
+With no directory, engines open exactly as they always have.
 """
 
 import hashlib
@@ -232,22 +236,45 @@ def directory() -> Optional[str]:
     return d if d and os.path.isdir(d) else None
 
 
+_layout_failure_logged = False
+
+
 def installed_httpfs(d: Optional[str]) -> Optional[str]:
     """The httpfs file for this DuckDB build inside extension directory `d`, if present."""
+    global _layout_failure_logged
     if not d:
         return None
     try:
         version, platform = _layout()
     except Exception:
+        if not _layout_failure_logged:
+            _layout_failure_logged = True
+            logger.warning("FAST: could not read DuckDB's version and platform", exc_info=True)
         return None
     path = os.path.join(d, version, platform, EXTENSION_NAME)
     return path if os.path.isfile(path) else None
 
 
+# A directory whose httpfs failed the signed load: directory -> (the file's
+# stat then, when to try again). Skipped until the file changes or
+# RETRY_SECONDS pass, so a broken directory costs one attempt a minute.
+_SIGNED_FAILURES: dict[str, tuple[tuple, float]] = {}
+_signed_lock = threading.Lock()
+
+
+def _stat_key(path: str) -> Optional[tuple]:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
 def open_with_signed_httpfs(config: Optional[dict] = None, *, purpose: str):
     """An in-memory engine that loaded httpfs by name from `directory()`,
     with DuckDB's signature check, or None when there is no httpfs there or
-    the load fails (logged at WARNING). The caller then opens as before.
+    the load fails (logged at WARNING once per change). The caller then
+    opens as before.
 
     Used by the extract writer always and by serving engines when the
     verified load is off or unavailable, so neither depends on a download.
@@ -255,23 +282,38 @@ def open_with_signed_httpfs(config: Optional[dict] = None, *, purpose: str):
     d = directory()
     if not d:
         return None
-    if not installed_httpfs(d):
+    path = installed_httpfs(d)
+    if not path:
         if purpose == "writer":
             logger.warning(f"FAST {purpose}: no httpfs for this DuckDB in {d}; opening without it")
+        return None
+    key = _stat_key(path)
+    now = _VERIFIER._clock()
+    with _signed_lock:
+        failed = _SIGNED_FAILURES.get(d)
+    if failed is not None and failed[0] == key and now < failed[1]:
         return None
     con = None
     try:
         con = duckdb.connect(database=":memory:", config={**(config or {}), "extension_directory": d})
         con.execute("LOAD httpfs")
-        return con
     except Exception as e:
         if con is not None:
             con.close()
-        logger.warning(
-            f"FAST {purpose}: broken extension directory {d}: it holds httpfs but the "
-            f"signature-checked load failed ({describe_error(e)}); opening without it"
-        )
+        with _signed_lock:
+            _SIGNED_FAILURES[d] = (key, now + RETRY_SECONDS)
+        if failed is None or failed[0] != key:
+            logger.warning(
+                f"FAST {purpose}: broken extension directory {d}: it holds httpfs but the "
+                f"signature-checked load failed ({describe_error(e)}); opening without it, "
+                f"retried in {int(RETRY_SECONDS)} s or when the file changes"
+            )
         return None
+    if failed is not None:
+        with _signed_lock:
+            _SIGNED_FAILURES.pop(d, None)
+        logger.info(f"FAST {purpose}: httpfs loads from {d} again")
+    return con
 
 
 class _Verifier:
@@ -290,6 +332,10 @@ class _Verifier:
         self._hashed_at: Optional[float] = None
         self._verifications = 0
         self._logged = ("unavailable", "not verified yet")
+        # Bumped by mark_unavailable; a verification that saw it change while
+        # it ran is discarded. `_state` guards the compare-and-publish only.
+        self._generation = 0
+        self._state = threading.Lock()
 
     def current(self) -> Optional[str]:
         # Fields are published before `_path` (see `_verify`); a hash time
@@ -324,48 +370,58 @@ class _Verifier:
     def _verify(self, now: float) -> None:
         self._verifications += 1
         self._checked_at = now
+        generation = self._generation
+        exc_info = None
         try:
             path = self._check()
             reason = getattr(_LAST, "reason", None) or "not trusted"
         except Exception as e:  # a query must never see this
-            path, reason = None, describe_error(e)
-        if path:
-            self._status, self._reason = "trusted", ""
-            self._hashed_at = now
-            self._next_check = None
-            self._path = path  # last: readers see the rest first
-            self._log()
-        else:
-            self._set_unavailable(reason, now)
+            path, reason, exc_info = None, describe_error(e), e
+        with self._state:
+            if self._generation != generation:
+                return  # marked unavailable meanwhile: that decision stands
+            if path:
+                self._status, self._reason = "trusted", ""
+                self._hashed_at = now
+                self._next_check = None
+                self._path = path  # last: readers see the rest first
+                self._log()
+            else:
+                self._set_unavailable(reason, now, exc_info)
 
     def _rehash(self, path: str, now: float) -> None:
+        generation = self._generation
         record = _RECORDS.get(path)
         try:
             ok = record is not None and _sha256(path) == record.sha256
         except OSError:
             ok = False
-        if ok:
-            self._hashed_at = now
-        else:
-            self._set_unavailable("the file's hash changed since it was verified", now)
+        with self._state:
+            if self._generation != generation:
+                return
+            if ok:
+                self._hashed_at = now
+            else:
+                self._set_unavailable("the file's hash changed since it was verified", now)
 
     def mark_unavailable(self, reason: str) -> None:
-        # Waits for a verification in flight, so its result cannot overwrite this.
-        with self._flight:
+        # Never waits for a verification in flight; that one is discarded.
+        with self._state:
+            self._generation += 1
             self._set_unavailable(reason, self._clock())
 
-    def _set_unavailable(self, reason: str, now: float) -> None:
+    def _set_unavailable(self, reason: str, now: float, exc_info=None) -> None:
+        self._path = None  # first: trust is withdrawn before anything else
         self._status, self._reason = "unavailable", reason
         self._next_check = now + RETRY_SECONDS
-        self._path = None
-        self._log()
+        self._log(exc_info)
 
     def note_off(self) -> None:
         if self._logged != ("off", ""):
             self._logged = ("off", "")
             logger.info(f"FAST verified extension load: off ({SWITCH_ENV} is not set)")
 
-    def _log(self) -> None:
+    def _log(self, exc_info=None) -> None:
         key = (self._status, self._reason)
         if key == self._logged:
             return
@@ -375,7 +431,8 @@ class _Verifier:
         else:
             logger.warning(
                 f"FAST verified extension load: unavailable ({self._reason}); "
-                f"engines load httpfs signature-checked, re-checked in {int(RETRY_SECONDS)} s"
+                f"engines load httpfs signature-checked, re-checked in {int(RETRY_SECONDS)} s",
+                exc_info=exc_info,
             )
 
     def state(self) -> dict:

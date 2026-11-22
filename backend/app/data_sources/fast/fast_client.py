@@ -206,7 +206,7 @@ class FastQueryClient(DataSourceClient):
                     )
         # Without V, httpfs still comes from the image's directory when it
         # is there, signature-checked, as the extract writer does.
-        con =extension.open_with_signed_httpfs(extra_config, purpose="serving engine")
+        con = extension.open_with_signed_httpfs(extra_config, purpose="serving engine")
         if con is not None:
             return con
         if extra_config:

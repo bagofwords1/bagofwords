@@ -239,18 +239,59 @@ def test_the_serving_engine_has_vs_config_and_is_locked(lab):
         con.close()
 
 
+def signed_serving_engine(lab: Lab, monkeypatch):
+    """The other serving shape: V off, httpfs loaded by name from the
+    extension directory (BOW_DUCKDB_EXTENSION_DIR) with signature checks and
+    DuckDB's default auto-load and auto-install, the six extra extensions
+    beside it, then the same session build and lock."""
+    monkeypatch.delenv(extension.SWITCH_ENV, raising=False)
+    monkeypatch.setenv(extension.DIRECTORY_ENV, lab.extensions)
+    client = FastQueryClient([])
+    con = client._open_engine()
+    try:
+        client._build_session(con, [FastRelation("txns", lab.extract, lab.key, columns=[])])
+    except Exception:
+        con.close()
+        raise
+    return con
+
+
+def test_the_signed_serving_engine_loads_httpfs_from_the_directory_and_is_locked(lab, monkeypatch):
+    con = signed_serving_engine(lab, monkeypatch)
+    try:
+        got = con.execute(
+            "SELECT current_setting('allow_unsigned_extensions'), "
+            "current_setting('extension_directory'), "
+            "current_setting('lock_configuration'), "
+            "current_setting('enable_external_access')"
+        ).fetchone()
+        assert got == (False, lab.extensions, True, False)
+        assert "fn:tpch_queries" not in catalog(con)
+        assert con.execute('SELECT count(*) FROM "txns"').fetchone()[0] == 1000
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("shape", ["v", "signed"])
 @pytest.mark.parametrize("who", ["root", "cursor"])
 @pytest.mark.parametrize("row", ROWS, ids=[r.name for r in ROWS])
-def test_no_statement_loads_code_on_a_locked_serving_engine(lab, row, who, record_property):
-    con = serving_engine(lab)
+def test_no_statement_loads_code_on_a_locked_serving_engine(
+    lab, row, who, shape, monkeypatch, record_property
+):
+    con = serving_engine(lab) if shape == "v" else signed_serving_engine(lab, monkeypatch)
     try:
         outcome, added = run_row(con, lab.sql(row), who)
     finally:
         con.close()
     record_property("outcome", outcome)
     record_property("names_added", len(added))
-    assert added == [], f"{row.name} ({who}) loaded code: {added[:5]}"
-    assert outcome == row.locked
+    assert added == [], f"{row.name} ({who}, {shape}) loaded code: {added[:5]}"
+    if shape == "v":
+        assert outcome == row.locked
+    else:
+        # Auto-load is on here, so the gates differ from V's; every row but
+        # `LOAD httpfs` again is still refused.
+        assert (outcome == ACCEPTED) == (row.locked == ACCEPTED), outcome
 
 
 def _network_reachable() -> bool:

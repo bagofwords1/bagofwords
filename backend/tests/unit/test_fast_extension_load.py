@@ -39,6 +39,7 @@ BACKEND = Path(__file__).resolve().parents[2]
 def _fresh_verifier(monkeypatch):
     """Each test starts with a process that has not verified anything yet."""
     monkeypatch.setattr(extension, "_VERIFIER", extension._Verifier())
+    monkeypatch.setattr(extension, "_SIGNED_FAILURES", {}, raising=False)
     monkeypatch.delenv(extension.SWITCH_ENV, raising=False)
     monkeypatch.delenv(extension.DIRECTORY_ENV, raising=False)
 
@@ -768,13 +769,57 @@ def test_mark_unavailable_is_not_overwritten_by_a_verification_in_flight(
     verifying = threading.Thread(target=extension.current)
     verifying.start()
     assert entered.wait(10)
+    # The query thread that marks does not wait for the verification.
     marking = threading.Thread(target=extension.mark_unavailable, args=("the explicit load failed (x)",))
     marking.start()
+    marking.join(2)
+    returned_promptly = not marking.is_alive()
+    seen_while_in_flight = extension.state()["status"]
     release.set()
     verifying.join(10)
     marking.join(10)
+    assert returned_promptly
+    assert seen_while_in_flight == "unavailable"
+    # The verification that was in flight is discarded, not published.
     assert extension.state()["status"] == "unavailable"
     assert extension.state()["reason"] == "the explicit load failed (x)"
+    assert extension.state()["path"] is None
+
+
+def test_a_broken_directory_is_tried_once_per_change_or_minute(extract, tmp_path, monkeypatch, caplog):
+    from tests.fixtures.fast_extension import FakeClock
+    clock = FakeClock()
+    monkeypatch.setattr(extension, "_VERIFIER", extension._Verifier(clock=clock))
+    directory = tmp_path / "ext"
+    garbage = _garbage_httpfs_dir(directory)
+    monkeypatch.setenv(extension.DIRECTORY_ENV, str(directory))
+    caplog.set_level(logging.DEBUG)
+    caplog.clear()
+    opened = _OpenCounter(monkeypatch)
+    client = FastQueryClient([_relation(*extract)])
+
+    def query():
+        assert int(client.execute_query("SELECT SUM(amount) AS s FROM sales").iloc[0]["s"]) == 100
+
+    def warnings():
+        return [r for r in caplog.records if r.levelno == logging.WARNING]
+
+    query()
+    query()
+    # One failed signed attempt plus two plain opens; one warning.
+    assert opened.count == 3
+    assert len(warnings()) == 1
+    clock.advance(59)
+    query()
+    assert opened.count == 4
+    clock.advance(1)
+    query()  # retried after 60 s: fails again, no new warning
+    assert opened.count == 6
+    assert len(warnings()) == 1
+    os.utime(garbage, (1, 1))
+    query()  # the file changed: retried at once
+    assert opened.count == 8
+    assert len(warnings()) == 2
 
 
 # With V off or unavailable, a serving engine still loads httpfs from the
