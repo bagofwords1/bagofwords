@@ -113,6 +113,12 @@ logger = logging.getLogger(__name__)
 # fake endpoints only; neither has been run against a live server. They are
 # offered acceleration as queryable connectors (`is_accelerable_type`) and are
 # deliberately in neither set below.
+#
+# Priority ERP (fast/priority_erp_source.py) is the same: a native source
+# (one form paged with $top/$skip, checked against $count where the server
+# answers it), designed from Priority's public REST documentation and tested
+# against a fake endpoint only. Not run against a live server, so in neither
+# set.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
                   "bigquery", "mssql", "oracledb", "posthog", "powerbi",
                   "clickhouse"}
@@ -458,6 +464,32 @@ class CustomQueryService:
                     "security support is planned."
                 ),
             )
+
+    @staticmethod
+    def ensure_definition_allowed(connection: Connection, definition_sql: str) -> None:
+        """A connector's own rules for what a custom table may be defined as,
+        checked before a row is stored.
+
+        Most connectors have none: the query is whatever the source accepts,
+        and a bad one fails its preview. A connector that must refuse
+        something the source itself would run (Priority's unbounded $expand)
+        declares `check_custom_table_definition`, and it is a 400 here rather
+        than a table saved with a failed first load.
+        """
+        kind = (getattr(connection, "type", None) or "").lower()
+        try:
+            from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+            key = next((k for k in REGISTRY if k.lower() == kind), None)
+            check = getattr(resolve_client_class(key), "check_custom_table_definition", None) if key else None
+        except Exception:
+            return
+        if not callable(check):
+            return
+        try:
+            check(definition_sql)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     # -- extraction targets -------------------------------------------------
     #
@@ -918,6 +950,7 @@ class CustomQueryService:
 
         if not (definition_sql or "").strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
+        self.ensure_definition_allowed(connection, definition_sql)
         refresh_config = dict(refresh_config or {})
         # New tables get the row-drop guard unless the admin said otherwise
         # (an explicit null turns it off); ones that predate it keep
@@ -1063,6 +1096,7 @@ class CustomQueryService:
             cq.name = name
             sql_changed = True
         if definition_sql is not None and definition_sql != cq.definition_sql:
+            self.ensure_definition_allowed(connection, definition_sql)
             cq.definition_sql = definition_sql
             sql_changed = True
         if description is not None:

@@ -146,7 +146,7 @@ setting there (`backend/app/data_sources/fast/limits.py`):
 | `custom_table_max_rows` | 5,000,000 | 1,000 to 100,000,000 | rows in one table (estimate, mid-load, increment) |
 | `custom_table_max_gb` | 2 | 1 to 64 | estimated result bytes and the artifact on disk |
 | `custom_table_max_scan_gb` | 100 | 1 to 10,240 | bytes the source reads per refresh (BigQuery, Snowflake); also BigQuery's `maximum_bytes_billed` |
-| `custom_table_max_requests` | 512 | 16 to 10,000 | requests per extraction on paged sources (Power BI, Analysis Services, BusinessObjects, PostHog) |
+| `custom_table_max_requests` | 512 | 16 to 10,000 | requests per extraction on paged sources (Power BI, Analysis Services, BusinessObjects, PostHog, Priority ERP) |
 
 A write outside the range is refused (400) and a stored value is clamped on
 read, so a setting moves a limit and never removes it. The limits are attached
@@ -432,6 +432,33 @@ code from what is assumed.
 The Analysis Services source subclasses the Power BI one: the count / sample /
 window / verify strategy belongs to DAX, and only the transport, the target
 (a catalog instead of a semantic model) and what a response can carry differ.
+
+### Priority ERP source
+
+`fast/priority_erp_source.py`. Designed from Priority's public REST
+documentation and the connector's code, tested against a fake endpoint and
+the repo's mock service. **Not run against a live Priority server**, so
+`priority_erp` is in neither `VERIFIED_TYPES` nor `UNVERIFIED_TYPES`; the
+module docstring marks each behaviour as documented, read off the client, or
+assumed.
+
+| | Priority ERP |
+|---|---|
+| Definition | one form with OData options: `ORDERS?$filter=CUSTNAME eq '1011'&$select=ORDNAME,CURDATE`. Allowed: `$filter`, `$select`, `$orderby`, `$since`, `$top`, `$skip` (the last two bound the whole table) |
+| Refused when saved | `$expand`, a sub-form named as a table, a single record or navigation path, any other option, SQL (`CustomQueryService.ensure_definition_allowed`, a 400 before a row is stored) |
+| Estimate | exact, `FORM/$count` with the definition's filter (one request, no rows). Priority does not document `$count`: when the server does not answer it with a number there is no estimate, and none is invented |
+| Paging | `$top`/`$skip`, 2,000 rows a request: Priority's default `MAXAPILINES`, the most one response holds on a default server whatever `$top` says |
+| Truncation | a short page is never the end (that is what the server's row cap looks like); reading stops only at an empty page. With a count, fewer rows than it fail the refresh. A response longer than asked for fails too |
+| Order | the definition's `$orderby`, with the form's key as tie-breaker where the catalog knows it and the definition returns it |
+| Rate limit | the connector's limiter paces requests; a 429 is waited out (`Retry-After`, else 20 s, at most 60 s) and retried 3 times, then the refresh fails |
+| 3-minute ceiling | each request has the connector's 120 s timeout; a page that times out is retried at half the size, down to 100 rows |
+| Request limit | `custom_table_max_requests`, retries included; a counted result too large for it is refused when saved |
+| Progress / cancel | one batch per page, so progress, cancellation and the time limit are checked between pages |
+| Incremental | window and-ed onto `$filter` on the cursor column, or placed with `{{since}}` / `{{until}}`; Priority's own change feed is `ORDERS?$since={{since}}` |
+
+Known limits: sub-forms (order lines) cannot be cached yet; rows added or
+deleted in a form while it is being read can shift a later page, as under any
+offset paging; without `$count` an early end cannot be told from a real one.
 
 ### Saving a cited result as a custom table
 
