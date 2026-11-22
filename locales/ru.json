@@ -1332,6 +1332,7 @@
     "modelCalls": "Вызовов: {count}",
     "autoRouted": "Авто",
     "autoRoutedTooltip": "Автомаршрутизация выполнила эти вызовы на {model} вместо {baseline}",
+    "autoRoutedRunTooltip": "Для этого запуска была включена автомаршрутизация",
     "primaryModel": "Основная",
     "turnUsageTooltip": "Использование LLM за этот ход",
     "setup": "Подготовка",

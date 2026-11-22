@@ -1332,6 +1332,7 @@
     "modelCalls": "الاستدعاءات: {count}",
     "autoRouted": "تلقائي",
     "autoRoutedTooltip": "شغّل التوجيه التلقائي هذه الاستدعاءات على {model} بدلًا من {baseline}",
+    "autoRoutedRunTooltip": "كان التوجيه التلقائي مفعّلًا في هذا التشغيل",
     "primaryModel": "رئيسي",
     "turnUsageTooltip": "استخدام LLM في هذا الدور",
     "setup": "التحضير",

@@ -74,6 +74,11 @@ def _refresh(test_client, world, query_id):
     "report_id:{current} OR status:error",  # named only under OR
     "NOT report_id:{current}",
     "run_id:{other_run}",
+    # Numeric and boolean terms next to the exclusion.
+    "turn:1",
+    "eval:false",
+    "routed:false",
+    "tokens:(100 OR 200)",
 ])
 def test_queries_that_do_not_name_the_conversation_exclude_it(test_client, world, query):
     q = query.format(current=world["current"], other=world["other"], other_run=world["other_ids"][0])
@@ -86,6 +91,8 @@ def test_queries_that_do_not_name_the_conversation_exclude_it(test_client, world
     ("report_id:{current}", "all"),
     ("report_id:({other} OR {current})", "all+other"),
     ("report_id:{current} status:success", "all"),
+    ("report_id:{current} eval:false routed:false", "all"),
+    ("report_id:{current} turn:>=1", "all"),
     ("run_id:{run}", "one"),
     ("run_id:({run} OR {other_run})", "one+other"),
 ])

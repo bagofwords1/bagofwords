@@ -105,7 +105,7 @@ def _current_report_opt_in(ast, report_id):
     refresh admits exactly what the first execution did."""
     named_runs = []
     for term in top_level_terms(ast):
-        if term["t"] != "term" or term["op"] not in ("eq", "any"):
+        if term["t"] != "term" or term["field"] not in ("report_id", "run_id") or term["op"] not in ("eq", "any"):
             continue
         values = [v["s"] for v in term["values"]]
         if term["field"] == "report_id" and report_id in values:

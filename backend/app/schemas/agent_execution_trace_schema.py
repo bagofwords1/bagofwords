@@ -37,7 +37,8 @@ class RunModelUsageSchema(BaseModel):
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cost_usd: float = 0.0
-    # Auto routing ran these calls on the small model instead of baseline_model_id.
+    # Auto routing ran these calls instead of baseline_model_id (a model id).
+    # False for calls on the baseline itself, e.g. after an escalation.
     routed: bool = False
     baseline_model_id: Optional[str] = None
 
@@ -56,6 +57,8 @@ class AgentExecutionTraceResponse(BaseModel):
     # Every model the run called, largest share first. Empty for runs from
     # before per-call usage attribution: the UI shows the model as unknown.
     models: List[RunModelUsageSchema] = []
+    # Auto routing was on for this run (any of its calls was recorded routed).
+    auto_routed: bool = False
 
 
 class TurnMemoryItemSchema(BaseModel):

@@ -199,6 +199,7 @@ FIELD_CASES = [
     ("NOT llm:gpt-4.1", [1, 5, "o0", "o1"]),
     ("routed:true", [1]),
     ("routed:false", [0, 2, 3, 5, "o0", "o1"]),
+    ("has:routed", [0, 1, 2, 3]),
     ("provider:anthropic", [1]),
     ("provider:(anthropic OR openai)", [0, 1, 2, 3, 5]),
     ("cost:>$0.10", [0, 3]),
