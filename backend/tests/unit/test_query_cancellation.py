@@ -8,6 +8,7 @@ cancellation must never mask the timeout the caller is actually reporting.
 """
 
 import threading
+import time
 
 import pytest
 
@@ -300,7 +301,9 @@ def test_cancel_interrupts_a_running_duckdb_query_from_another_thread():
         with qc.track(client, cursor):
             inside.set()
             try:
-                cursor.execute("SELECT count(*) FROM range(10000000000)").fetchall()
+                # Not count(*): DuckDB can answer that from range()'s
+                # cardinality without running anything to interrupt.
+                cursor.execute("SELECT sum(i * i) FROM range(10000000000) t(i)").fetchall()
             except Exception as e:
                 outcome["error"] = e
 
@@ -308,8 +311,13 @@ def test_cancel_interrupts_a_running_duckdb_query_from_another_thread():
     thread.start()
     assert inside.wait(timeout=10)
 
-    result = qc.cancel_thread(client, thread.ident)
-    thread.join(timeout=10)
+    # `inside` is set just before execute(): an interrupt that lands before
+    # the query starts is a no-op, so keep cancelling until the worker is out.
+    result = ""
+    deadline = time.monotonic() + 10
+    while thread.is_alive() and time.monotonic() < deadline:
+        result = qc.cancel_thread(client, thread.ident) or result
+        thread.join(timeout=0.05)
 
     assert not thread.is_alive()
     assert result.startswith("cancelled")
