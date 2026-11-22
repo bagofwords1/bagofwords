@@ -10,6 +10,7 @@ from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.ee.license import require_enterprise
+from app.errors import AppError
 from app.services.llm_service import LLMService
 from app.schemas.llm_schema import (
     LLMProviderSchema,
@@ -56,13 +57,16 @@ async def test_connection(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    as_manager = False
     if provider.provider_id:
-        await _require_provider_manage(db, current_user, organization, provider.provider_id, "llm_provider.test_connection")
+        as_manager = await _require_provider_manage(db, current_user, organization, provider.provider_id, "llm_provider.test_connection")
     else:
         await _require_llm_admin(db, current_user, organization, "llm_provider.test_connection")
     try:
-        return await llm_service.test_connection(db, organization, current_user, provider)
-    except HTTPException:
+        return await llm_service.test_connection(db, organization, current_user, provider, as_manager=as_manager)
+    except (HTTPException, AppError):
+        # Typed refusals (e.g. a provider manager testing the host's cloud
+        # identity on a new endpoint) must stay errors, not "connection failed".
         raise
     except Exception as e:
         logger.error("LLM test_connection route error: %s", e, exc_info=True)

@@ -5671,7 +5671,8 @@
       "provider_holds_default": "הספק הזה מחזיק את מודל ברירת המחדל של הארגון. בקש/י ממנהל לשנות את ברירת המחדל קודם.",
       "provider_manager_admin_only": "רק מנהל יכול לעשות את זה בספק הזה.",
       "provider_manager_not_member": "רק חבר בארגון הזה יכול לנהל ספק.",
-      "provider_key_required_for_new_destination": "יש להזין שוב את מפתח ה-API כשמשנים לאן הספק הזה מתחבר."
+      "provider_key_required_for_new_destination": "יש להזין שוב את מפתח ה-API כשמשנים לאן הספק הזה מתחבר.",
+      "provider_host_identity_admin_only": "הספק הזה מתחבר עם זהות הענן של השרת עצמו. רק מנהל יכול לשנות לאן הוא מתחבר או להעביר אותו לסוג ההתחברות הזה."
     },
     "data_source.in_use": "הסוכן \"{agent}\" עדיין בשימוש ({reference}), ולכן אי אפשר למחוק אותו. שום דבר לא נמחק.",
     "memory.disabled": "זיכרון המשתמש כבוי בארגון הזה.",

@@ -5019,7 +5019,8 @@
       "provider_holds_default": "Ce fournisseur contient le modèle par défaut de l'organisation. Demandez d'abord à un administrateur de changer le modèle par défaut.",
       "provider_manager_admin_only": "Seul un administrateur peut faire cela sur ce fournisseur.",
       "provider_manager_not_member": "Seul un membre de cette organisation peut gérer un fournisseur.",
-      "provider_key_required_for_new_destination": "Saisissez à nouveau la clé d'API lorsque vous changez la destination de connexion de ce fournisseur."
+      "provider_key_required_for_new_destination": "Saisissez à nouveau la clé d'API lorsque vous changez la destination de connexion de ce fournisseur.",
+      "provider_host_identity_admin_only": "Ce fournisseur se connecte avec l'identité cloud du serveur lui-même. Seul un administrateur peut changer sa destination ou passer à ce mode de connexion."
     },
     "data_source.in_use": "L'agent « {agent} » est encore utilisé ({reference}) ; il ne peut donc pas être supprimé. Rien n'a été supprimé.",
     "memory.disabled": "La mémoire utilisateur est désactivée dans cette organisation.",

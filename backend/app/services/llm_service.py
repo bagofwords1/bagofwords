@@ -29,6 +29,35 @@ logger = get_logger(__name__)
 # not reuse stored secrets. Value is the default when the key is absent.
 _DESTINATION_CONFIG_KEYS = {"base_url": None, "endpoint_url": None, "verify_ssl": True}
 
+# Auth modes that authenticate with the server's own cloud identity (no stored
+# secret): (modes, default mode, settings that decide where/what that identity
+# is used for). A provider manager may not move these or switch into them —
+# that would hand the host's identity to a destination or scope no org admin
+# approved. See LLMService._host_identity_change.
+_HOST_IDENTITY_MODES = {
+    "azure": ({"entra_default"}, "api_key", ("endpoint_url", "verify_ssl")),
+    "bedrock": ({"iam"}, "iam", ("region",)),
+    "vertex": ({"adc"}, "adc", ("project_id", "location")),
+}
+
+
+def _host_identity_change(provider_type: str, before_cfg: dict, after_cfg: dict) -> bool:
+    """True when ``after_cfg`` uses the host's cloud identity on settings an
+    admin didn't save: either it switches into a host-identity mode, or it
+    changes the destination/scope while in one."""
+    spec = _HOST_IDENTITY_MODES.get(provider_type)
+    if spec is None:
+        return False
+    modes, default_mode, scope_keys = spec
+    before_cfg, after_cfg = before_cfg or {}, after_cfg or {}
+    if (after_cfg.get("auth_mode") or default_mode) not in modes:
+        return False
+    if (before_cfg.get("auth_mode") or default_mode) not in modes:
+        return True
+    keys = set(scope_keys) | set(_DESTINATION_CONFIG_KEYS)
+    return any(before_cfg.get(k, _DESTINATION_CONFIG_KEYS.get(k)) != after_cfg.get(k, _DESTINATION_CONFIG_KEYS.get(k))
+               for k in keys)
+
 
 def _check_provider_url(url: str) -> None:
     try:
@@ -274,6 +303,12 @@ class LLMService:
         # test_connection). A provider manager who points the provider somewhere
         # new must enter the key again, or the org's stored secret would be
         # sent to a destination they chose.
+        if as_manager and _host_identity_change(provider.provider_type, before_config, after_config):
+            await db.rollback()
+            raise AppError.forbidden(
+                ErrorCode.LLM_PROVIDER_HOST_IDENTITY_ADMIN_ONLY,
+                "This provider signs in with the server's own cloud identity. Only an admin can change where it connects or switch it to that sign-in.",
+            )
         moved = any(
             before_config.get(k, default) != after_config.get(k, default)
             for k, default in _DESTINATION_CONFIG_KEYS.items()
@@ -3781,7 +3816,9 @@ class LLMService:
         db: AsyncSession,
         organization: Organization,
         current_user: User,
-        provider: LLMProviderTestConnection
+        provider: LLMProviderTestConnection,
+        *,
+        as_manager: bool = False,
     ):
         logger.info("Testing LLM connection: provider_type=%s, name=%s, provider_id=%s, org_id=%s, user_id=%s", provider.provider_type, provider.name, getattr(provider, 'provider_id', None), organization.id, current_user.id)
 
@@ -3822,6 +3859,17 @@ class LLMService:
 
         # Set credentials and merge provider-specific additional_config
         self._set_provider_credentials(provider_obj, provider.credentials or {})
+
+        # Same binding as a save: a provider manager can't test the host's own
+        # cloud identity against a destination or scope an admin didn't save.
+        if as_manager and stored_provider is not None and _host_identity_change(
+            stored_provider.provider_type, dict(stored_provider.additional_config or {}),
+            dict(provider_obj.additional_config or {}),
+        ):
+            raise AppError.forbidden(
+                ErrorCode.LLM_PROVIDER_HOST_IDENTITY_ADMIN_ONLY,
+                "This provider signs in with the server's own cloud identity. Only an admin can change where it connects or switch it to that sign-in.",
+            )
 
         # Never send a stored secret somewhere other than where it was saved
         # for: if the payload moved the destination (endpoint, base URL,

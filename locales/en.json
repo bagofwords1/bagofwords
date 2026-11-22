@@ -5746,7 +5746,8 @@
       "provider_holds_default": "This provider holds the organization's default model. Ask an admin to change the default first.",
       "provider_manager_admin_only": "Only an admin can do that on this provider.",
       "provider_manager_not_member": "Only a member of this organization can manage a provider.",
-      "provider_key_required_for_new_destination": "Enter the API key again when changing where this provider connects."
+      "provider_key_required_for_new_destination": "Enter the API key again when changing where this provider connects.",
+      "provider_host_identity_admin_only": "This provider signs in with the server's own cloud identity. Only an admin can change where it connects or switch it to that sign-in."
     },
     "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
     "memory.disabled": "User memory is turned off for this organization.",

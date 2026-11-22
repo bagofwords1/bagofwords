@@ -216,6 +216,7 @@ class ErrorCode(str, Enum):
     LLM_PROVIDER_MANAGER_ADMIN_ONLY = "llm.provider_manager_admin_only"
     LLM_PROVIDER_MANAGER_NOT_MEMBER = "llm.provider_manager_not_member"
     LLM_PROVIDER_KEY_REQUIRED_FOR_NEW_DESTINATION = "llm.provider_key_required_for_new_destination"
+    LLM_PROVIDER_HOST_IDENTITY_ADMIN_ONLY = "llm.provider_host_identity_admin_only"
 
     # Member attributes
     MEMBER_ATTRIBUTES_INVALID = "member_attributes.invalid"

@@ -5019,7 +5019,8 @@
       "provider_holds_default": "Dieser Anbieter enthält das Standardmodell der Organisation. Bitte einen Administrator, zuerst den Standard zu ändern.",
       "provider_manager_admin_only": "Nur ein Administrator kann das bei diesem Anbieter tun.",
       "provider_manager_not_member": "Nur ein Mitglied dieser Organisation kann einen Anbieter verwalten.",
-      "provider_key_required_for_new_destination": "Gib den API-Schlüssel erneut ein, wenn du änderst, wohin sich dieser Anbieter verbindet."
+      "provider_key_required_for_new_destination": "Gib den API-Schlüssel erneut ein, wenn du änderst, wohin sich dieser Anbieter verbindet.",
+      "provider_host_identity_admin_only": "Dieser Anbieter meldet sich mit der Cloud-Identität des Servers an. Nur ein Administrator kann ändern, wohin er sich verbindet, oder auf diese Anmeldung umstellen."
     },
     "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht.",
     "memory.disabled": "Das Benutzergedächtnis ist in dieser Organisation deaktiviert.",

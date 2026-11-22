@@ -5671,7 +5671,8 @@
       "provider_holds_default": "Este proveedor tiene el modelo predeterminado de la organización. Pide a un administrador que primero cambie el predeterminado.",
       "provider_manager_admin_only": "Solo un administrador puede hacer eso en este proveedor.",
       "provider_manager_not_member": "Solo un miembro de esta organización puede administrar un proveedor.",
-      "provider_key_required_for_new_destination": "Vuelve a introducir la clave de API al cambiar a dónde se conecta este proveedor."
+      "provider_key_required_for_new_destination": "Vuelve a introducir la clave de API al cambiar a dónde se conecta este proveedor.",
+      "provider_host_identity_admin_only": "Este proveedor inicia sesión con la identidad en la nube del propio servidor. Solo un administrador puede cambiar a dónde se conecta o activar ese inicio de sesión."
     },
     "data_source.in_use": "El agente \"{agent}\" todavía está en uso ({reference}), así que no se puede eliminar. No se eliminó nada.",
     "memory.disabled": "La memoria del usuario está desactivada en esta organización.",

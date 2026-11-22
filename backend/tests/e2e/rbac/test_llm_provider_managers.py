@@ -555,3 +555,67 @@ def test_a_stale_dialog_never_reenables_a_deleted_model(cast):
             return m.deleted_at is not None, m.is_enabled
     deleted, enabled = asyncio.run(_row())
     assert deleted and enabled is False
+
+
+# ── review round 3: the host's own cloud identity ──────────────────────────
+
+def _managed_provider(c, ptype, credentials):
+    r = c.call(c.admin, "POST", "llm/providers", json={
+        "name": f"{ptype}-{uuid.uuid4().hex[:6]}", "provider_type": ptype, "credentials": credentials, "models": [],
+    })
+    assert r.status_code == 200, r.text
+    pid = r.json()["id"]
+    assert c.call(c.admin, "PUT", f"llm/providers/{pid}/managers/{c.alice['user_id']}").status_code == 200
+    return pid
+
+
+HOST_IDENTITY = "llm.provider_host_identity_admin_only"
+AZ_OLD, AZ_NEW = "https://approved.openai.azure.com/", "https://elsewhere.openai.azure.com/"
+
+
+@pytest.mark.e2e
+def test_manager_cannot_point_azure_managed_identity_elsewhere(cast):
+    """entra_default authenticates with the host's DefaultAzureCredential token,
+    so a new endpoint would receive the host's token."""
+    c = cast
+    pid = _managed_provider(c, "azure", {"endpoint_url": AZ_OLD, "auth_mode": "entra_default"})
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}",
+               json={"credentials": {"endpoint_url": AZ_NEW, "auth_mode": "entra_default"}})
+    assert r.status_code == 403 and r.json().get("error_code") == HOST_IDENTITY, r.text
+    assert _stored(pid)[2]["endpoint_url"] == AZ_OLD
+    # The connection test is held to the same binding.
+    r = c.call(c.alice, "POST", "llm/test_connection", json={
+        "provider_id": pid, "provider_type": "azure", "name": "x",
+        "credentials": {"endpoint_url": AZ_NEW, "auth_mode": "entra_default"},
+    })
+    assert r.status_code == 403 and r.json().get("error_code") == HOST_IDENTITY, r.text
+    # An org LLM admin approves endpoints, as before.
+    assert c.call(c.admin, "PUT", f"llm/providers/{pid}",
+                  json={"credentials": {"endpoint_url": AZ_NEW, "auth_mode": "entra_default"}}).status_code == 200
+
+
+@pytest.mark.e2e
+def test_manager_cannot_switch_a_provider_into_host_identity(cast):
+    """Otherwise: move the endpoint with your own key, then switch the mode."""
+    c = cast
+    pid = _managed_provider(c, "azure", {"endpoint_url": AZ_OLD, "auth_mode": "api_key", "api_key": "org-key"})
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}",
+               json={"credentials": {"endpoint_url": AZ_NEW, "auth_mode": "api_key", "api_key": "her-key"}})
+    assert r.status_code == 200, r.text  # a key of her own on a new endpoint: fine
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}", json={"credentials": {"endpoint_url": AZ_NEW, "auth_mode": "entra_default"}})
+    assert r.status_code == 403 and r.json().get("error_code") == HOST_IDENTITY, r.text
+    assert (_stored(pid)[2].get("auth_mode") or "api_key") == "api_key"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("ptype,creds,change", [
+    ("bedrock", {"region": "us-east-1", "auth_mode": "iam"}, {"region": "eu-west-1"}),
+    ("vertex", {"project_id": "approved-proj", "location": "us-central1", "auth_mode": "adc"}, {"project_id": "other-proj"}),
+])
+def test_manager_cannot_move_other_host_identity_providers(cast, ptype, creds, change):
+    c = cast
+    pid = _managed_provider(c, ptype, creds)
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}", json={"credentials": {**creds, **change}})
+    assert r.status_code == 403 and r.json().get("error_code") == HOST_IDENTITY, r.text
+    # Saving without moving it (e.g. the dialog's echo) is fine.
+    assert c.call(c.alice, "PUT", f"llm/providers/{pid}", json={"credentials": creds}).status_code == 200
