@@ -73,7 +73,7 @@ def _family_type(family: str, dtypes: set[str]) -> str:
         # builds still read it as exact.
         shapes = [_NUMERIC.match(d) for d in normalized]
         scales = [int((m.group(4) or ",0").strip(", ")) for m in shapes]
-        whole = [int(m.group(3)) - scale for m, scale in zip(shapes, scales)]
+        whole = [int(m.group(3)) - scale for m, scale in zip(shapes, scales, strict=True)]
         return f"numeric({max(whole) + max(scales)},{max(scales)})"
     return family  # text, "timestamp without time zone", ...
 
