@@ -10,6 +10,7 @@ step's summary is written by the existing Step write-through.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from types import SimpleNamespace
 
@@ -18,6 +19,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
+from app.ai import data_preview
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.context.builders.query_context_builder import QueryContextBuilder
 from app.ai.data_preview import clamp_stats, gate_stats_for_privacy
@@ -180,3 +182,29 @@ async def test_single_row_query_has_no_sums(db):
     assert item.column_sums is None
     assert "<column_sums>" not in section.render()
     # Control: the 12-row step of test_queries_section_shows_sums_when_previews_visible.
+
+
+@pytest.mark.asyncio
+async def test_queries_section_survives_a_column_sums_failure(db, monkeypatch, caplog):
+    scenario = await _seed_step(db, _departments_df())
+    monkeypatch.setattr(logging.getLogger("app.ai.data_preview"), "disabled", False)
+    caplog.set_level(logging.INFO, logger="app.ai.data_preview")
+
+    def boom(*args, **kwargs):
+        raise ValueError("budget 2140")
+
+    monkeypatch.setattr(data_preview, "column_sums", boom)
+
+    section = await _section(db, scenario)
+
+    [item] = section.items
+    assert item.row_count == 12
+    assert item.data_preview is not None  # set before the sums call; kept
+    assert item.column_sums is None
+    assert "<column_sums>" not in section.render()
+    records = [r for r in caplog.records if r.name == "app.ai.data_preview"]
+    assert [(r.levelno, r.getMessage()) for r in records] == [
+        (logging.WARNING, f"column sums skipped: step={scenario.step_id} error=ValueError"),
+    ]
+    # Control: test_queries_section_shows_sums_when_previews_visible (same
+    # step, real column_sums) gets the block.

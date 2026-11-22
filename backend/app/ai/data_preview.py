@@ -320,6 +320,8 @@ _LETTER_DIGIT_RE = re.compile(r"(?<=[^\W\d_])(?=\d)|(?<=\d)(?=[^\W\d_])")
 
 # to_json writes at most 10 decimals (its double_precision default).
 _MAX_DECIMALS = 10
+# mean x count is a float: past this it can be off by whole units (2**53 ~ 9e15).
+_MAX_FLOAT_SUM = 1e15
 
 
 def _is_number(value: Any) -> bool:
@@ -327,7 +329,12 @@ def _is_number(value: Any) -> bool:
 
 
 def _finite(value: Any) -> bool:
-    return _is_number(value) and math.isfinite(value)
+    if not _is_number(value):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an int past the float range
+        return False
 
 
 def _tokens(field: str) -> List[str]:
@@ -402,7 +409,10 @@ def _numeric_column(ci: Any) -> Optional[Tuple[float, bool, float, float]]:
     mean, count, lo, hi = ci.get("mean"), ci.get("count"), ci.get("min"), ci.get("max")
     if not all(_finite(v) for v in (mean, count, lo, hi)) or count < 1:
         return None
-    return mean * count, dtype.startswith(("int", "uint")), lo, hi
+    s = mean * count
+    if abs(s) >= _MAX_FLOAT_SUM:
+        return None
+    return s, dtype.startswith(("int", "uint")), lo, hi
 
 
 def _object_column_stats(
@@ -583,20 +593,46 @@ def with_column_sums(
     *data* is a ``format_df_for_widget`` dict or a stored step's ``data``. Hidden
     previews, non-int row counts and results the rule declines come back
     unchanged (the same object). Logs one INFO line, with the step id and two
-    counts only, when a block is added.
+    counts only, when a block is added. Never raises: on an error it logs one
+    WARNING (step id and error type) and returns *preview* unchanged.
     """
-    if not isinstance(preview, dict) or not isinstance(data, dict):
+    try:
+        if not isinstance(preview, dict) or not isinstance(data, dict):
+            return preview
+        if preview.get("data_hidden"):
+            return preview
+        row_count = preview.get("row_count")
+        if not isinstance(row_count, int) or isinstance(row_count, bool):
+            return preview
+        block = column_sums(data.get("info"), data.get("columns"), row_count, data.get("rows"))
+        if block is None:
+            return preview
+        logger.info(
+            "column sums added: step=%s rows=%d columns=%d",
+            step_id, row_count, len(block["sum"]),
+        )
+        return {**preview, "column_sums": block}
+    except Exception as e:
+        _log_sums_skipped(step_id, e)
         return preview
-    if preview.get("data_hidden"):
-        return preview
-    row_count = preview.get("row_count")
-    if not isinstance(row_count, int) or isinstance(row_count, bool):
-        return preview
-    block = column_sums(data.get("info"), data.get("columns"), row_count, data.get("rows"))
-    if block is None:
-        return preview
-    logger.info(
-        "column sums added: step=%s rows=%d columns=%d",
-        step_id, row_count, len(block["sum"]),
-    )
-    return {**preview, "column_sums": block}
+
+
+def guarded_column_sums(
+    info: Optional[Dict[str, Any]],
+    columns: Optional[List[Any]],
+    row_count: int,
+    rows: Optional[List[Any]] = None,
+    *,
+    step_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """``column_sums``, or None with one WARNING (step id and error type only) if it raises."""
+    try:
+        return column_sums(info, columns, row_count, rows)
+    except Exception as e:
+        _log_sums_skipped(step_id, e)
+        return None
+
+
+def _log_sums_skipped(step_id: Optional[str], error: Exception) -> None:
+    # No message, field names or values: they can carry result data.
+    logger.warning("column sums skipped: step=%s error=%s", step_id, type(error).__name__)

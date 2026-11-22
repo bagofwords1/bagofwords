@@ -894,3 +894,54 @@ def test_read_sql_shaped_frame_sums_through_info():
     df = pd.DataFrame.from_records(rows, columns=["department", "actual_eur"], coerce_float=True)
     assert df["actual_eur"].dtype == "float64"
     assert _sums(df) == {"actual_eur": 2266089.37}
+
+
+# ---------------------------------------------------------------------------
+# Precision and failure bounds
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("dtype", ["int64", "float64"])
+def test_numeric_sum_past_float_precision_gets_no_sum(dtype):
+    # mean x count loses whole units once the sum nears 2**53 (~9e15).
+    rng = np.random.default_rng(29)
+    df = pd.DataFrame({
+        "amount": rng.integers(10**12, 10**13, size=1500).astype(dtype),
+        "units": np.arange(1500) % 100 + 1,  # 1..100 fifteen times: 75750
+    })
+    assert df["amount"].sum() > 1e15
+    _assert_k_clean(df, ["units"])
+    # Control: the additive column in the same frame keeps its sum.
+    assert _sums(df) == {"units": 75750}
+
+
+def _huge_object_data():
+    info = {"total_rows": 3, "column_info": {
+        "amount": {"dtype": "object", "non_null_count": 3},
+    }}
+    rows = [{"amount": 10**400}, {"amount": 5}, {"amount": 7}]
+    return {"info": info, "columns": [{"field": "amount"}], "rows": rows}
+
+
+def test_object_cell_past_float_range_declines_without_raising():
+    data = _huge_object_data()
+    assert dp.column_sums(data["info"], data["columns"], 3, data["rows"]) is None
+    preview = {"row_count": 3, "rows": []}
+    assert dp.with_column_sums(preview, data, step_id="s-9") is preview
+
+
+def test_column_sums_failure_returns_preview_and_logs_type_only(monkeypatch, caplog):
+    monkeypatch.setattr(logging.getLogger("app.ai.data_preview"), "disabled", False)
+    caplog.set_level(logging.INFO, logger="app.ai.data_preview")
+
+    def boom(*args, **kwargs):
+        raise ValueError("amount 4242")
+
+    monkeypatch.setattr(dp, "column_sums", boom)
+    formatted = _formatted(_department_table())
+    preview = build_data_preview(formatted)
+
+    assert dp.with_column_sums(preview, formatted, step_id="s-7") is preview
+    records = [r for r in caplog.records if r.name == "app.ai.data_preview"]
+    assert [(r.levelno, r.getMessage()) for r in records] == [
+        (logging.WARNING, "column sums skipped: step=s-7 error=ValueError"),
+    ]
