@@ -276,6 +276,28 @@ previous commit (4/4):
    once, before both the manager check and the writes (for admins too).
    `test_a_stale_dialog_never_reenables_a_deleted_model`.
 
+## Review follow-ups (round 3)
+
+**[P1] The host's own cloud identity wasn't bound to admin-approved
+settings.** Azure `entra_default` needs no stored secret but authenticates with
+the host's `DefaultAzureCredential` token, so a manager's endpoint change would
+send that token to a host no admin approved. The same class covers Bedrock IAM
+and Vertex ADC (their destination is AWS/Google, but region/project decide what
+the host's identity is used for). `_host_identity_change` (llm_service.py) now
+refuses, for provider managers, on both save and connection test
+(`llm.provider_host_identity_admin_only`):
+
+- changing the endpoint/TLS (Azure), region (Bedrock) or project/location
+  (Vertex) of a provider in a host-identity mode;
+- switching a provider *into* a host-identity mode (otherwise: move the
+  endpoint with your own key, then switch).
+
+Admins are unchanged. The test-connection route now re-raises typed errors
+instead of reporting them as a failed connection. Tests (all 4 fail without the
+fix): `test_manager_cannot_point_azure_managed_identity_elsewhere` (save and
+connection test), `test_manager_cannot_switch_a_provider_into_host_identity`,
+`test_manager_cannot_move_other_host_identity_providers[bedrock|vertex]`.
+
 ## What this proves / regression notes
 
 - The rule "only an org admin widens model access" holds on every write path a
