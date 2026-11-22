@@ -1532,7 +1532,8 @@
     "turnNavigator": {
       "label": "Mapa de la conversación",
       "jumpTo": "Ir al mensaje {n} de {total}: {text}",
-      "noResponse": "Aún no hay respuesta"
+      "noResponse": "Aún no hay respuesta",
+      "loading": "Cargando mensajes anteriores…"
     },
     "steerFailed": "No se pudo dirigir la respuesta en curso",
     "instructionUnavailableTitle": "Instrucción no disponible",

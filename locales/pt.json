@@ -1459,6 +1459,12 @@
     "steeringApplied": "Orientação aplicada",
     "steerQueuedFallback": "A execução acabou de terminar — sua mensagem foi colocada na fila",
     "jumpToLatest": "Ir para o mais recente",
+    "turnNavigator": {
+      "label": "Mapa da conversa",
+      "jumpTo": "Ir para a mensagem {n} de {total}: {text}",
+      "noResponse": "Ainda sem resposta",
+      "loading": "Carregando mensagens anteriores…"
+    },
     "steerFailed": "Falha ao orientar a resposta em andamento",
     "instructionUnavailableTitle": "Instrução indisponível",
     "instructionUnavailableBody": "Pode ter sido excluída, ou você pode não ter acesso a ela.",

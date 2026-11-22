@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from app.dependencies import get_db
 from app.services.completion_service import CompletionService
-from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema, CompactContextRequest
+from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema, CompactContextRequest, ReportTurnsResponse
 from app.schemas.sse_schema import SSEEvent, format_sse_event
 from app.streaming.completion_stream import CompletionEventQueue
 from app.streaming.completion_event_bus import websocket_manager
@@ -305,6 +305,7 @@ async def get_completions_v2(
     report_id: str,
     limit: int = 10,
     before: str | None = None,
+    until: str | None = None,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
@@ -313,8 +314,24 @@ async def get_completions_v2(
 
     - limit: last N completions (user+system), default 10
     - before: ISO datetime cursor to fetch items strictly before it
+    - until: completion id; widen the page so it reaches back to and includes
+      that completion (jump-to-message), capped server-side
     """
-    return await completion_service.get_completions_v2(db, report_id, organization, current_user, limit=limit, before=before)
+    return await completion_service.get_completions_v2(db, report_id, organization, current_user, limit=limit, before=before, until=until)
+
+
+@router.get("/api/reports/{report_id}/turns", response_model=ReportTurnsResponse)
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def get_report_turns(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Every user prompt in the report with short prompt/answer previews —
+    the index behind the transcript's conversation map. Same visibility and
+    PII display redaction as GET /completions; no blocks or steps."""
+    return await completion_service.get_report_turns(db, report_id, organization)
 
 @router.post("/api/completions/{completion_id}/sigkill")
 @requires_permission('create_reports')

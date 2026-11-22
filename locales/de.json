@@ -1459,6 +1459,12 @@
     "steeringApplied": "Steuerung angewendet",
     "steerQueuedFallback": "Der Lauf ist gerade beendet — deine Nachricht wurde stattdessen in die Warteschlange gestellt",
     "jumpToLatest": "Zum Neuesten springen",
+    "turnNavigator": {
+      "label": "Gesprächsübersicht",
+      "jumpTo": "Zu Nachricht {n} von {total} springen: {text}",
+      "noResponse": "Noch keine Antwort",
+      "loading": "Frühere Nachrichten werden geladen…"
+    },
     "steerFailed": "Steuern des laufenden Agentenlaufs fehlgeschlagen",
     "instructionUnavailableTitle": "Anweisung nicht verfügbar",
     "instructionUnavailableBody": "Sie wurde möglicherweise gelöscht, oder Sie haben keinen Zugriff darauf.",

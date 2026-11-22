@@ -1459,6 +1459,12 @@
     "steeringApplied": "تم تطبيق التوجيه",
     "steerQueuedFallback": "انتهى التشغيل للتو — تمت إضافة رسالتك إلى قائمة الانتظار بدلاً من ذلك",
     "jumpToLatest": "الانتقال إلى الأحدث",
+    "turnNavigator": {
+      "label": "خريطة المحادثة",
+      "jumpTo": "الانتقال إلى الرسالة {n} من {total}: {text}",
+      "noResponse": "لا يوجد رد بعد",
+      "loading": "جارٍ تحميل الرسائل السابقة…"
+    },
     "steerFailed": "تعذّر توجيه الإكمال الجاري",
     "instructionUnavailableTitle": "التعليمة غير متاحة",
     "instructionUnavailableBody": "ربما تم حذفها، أو ليس لديك صلاحية الوصول إليها.",

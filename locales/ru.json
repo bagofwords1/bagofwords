@@ -1459,6 +1459,12 @@
     "steeringApplied": "Корректировка применена",
     "steerQueuedFallback": "Выполнение только что завершилось — ваше сообщение добавлено в очередь",
     "jumpToLatest": "К последнему",
+    "turnNavigator": {
+      "label": "Карта диалога",
+      "jumpTo": "Перейти к сообщению {n} из {total}: {text}",
+      "noResponse": "Ответа пока нет",
+      "loading": "Загрузка предыдущих сообщений…"
+    },
     "steerFailed": "Не удалось скорректировать текущее выполнение",
     "instructionUnavailableTitle": "Инструкция недоступна",
     "instructionUnavailableBody": "Возможно, она была удалена, или у вас нет к ней доступа.",

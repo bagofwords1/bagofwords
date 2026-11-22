@@ -1558,7 +1558,8 @@
     "turnNavigator": {
       "label": "Conversation map",
       "jumpTo": "Jump to message {n} of {total}: {text}",
-      "noResponse": "No response yet"
+      "noResponse": "No response yet",
+      "loading": "Loading earlier messages…"
     },
     "steerFailed": "Failed to steer the running completion",
     "instructionUnavailableTitle": "Instruction unavailable",

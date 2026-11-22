@@ -27,8 +27,9 @@
 				:ref="el => setTickRef(i, el)"
 				type="button"
 				class="turn-nav-tick no-press"
-				:class="{ active: i === activeIndex, hovered: i === hoverIndex }"
+				:class="{ active: i === activeIndex, hovered: i === hoverIndex, loading: turn.id === loadingId }"
 				:data-turn-id="turn.id"
+				:aria-busy="turn.id === loadingId ? 'true' : undefined"
 				:aria-label="$t('reportView.turnNavigator.jumpTo', { n: i + 1, total: turns.length, text: oneLine(turn.prompt, 80) })"
 				:aria-current="i === activeIndex ? 'location' : undefined"
 				@mouseenter="show(i)"
@@ -57,6 +58,7 @@
 			<p class="text-sm font-medium text-ink truncate" dir="auto">{{ oneLine(turns[hoverIndex].prompt, 200) }}</p>
 			<p v-if="turns[hoverIndex].answer" class="mt-1 text-xs leading-5 text-ink-muted turn-nav-answer" dir="auto">{{ plainText(turns[hoverIndex].answer) }}</p>
 			<p v-else class="mt-1 text-xs text-ink-subtle italic">{{ $t('reportView.turnNavigator.noResponse') }}</p>
+			<p v-if="turns[hoverIndex].id === loadingId" class="mt-1 text-xs text-ink-subtle" data-testid="turn-navigator-loading">{{ $t('reportView.turnNavigator.loading') }}</p>
 		</div>
 	</div>
 </template>
@@ -74,6 +76,8 @@ const props = defineProps<{
 	turns: NavTurn[]
 	container: HTMLElement | null
 	content: HTMLElement | null
+	// Turn whose older pages are being loaded after a click (not rendered yet).
+	loadingId?: string | null
 }>()
 const emit = defineEmits<{ (e: 'jump', id: string): void }>()
 
@@ -103,13 +107,17 @@ function updateActive() {
 	const cTop = c.getBoundingClientRect().top
 	// A turn is "current" once its prompt has passed the top third of the view.
 	const line = cTop + c.clientHeight / 3
-	let idx = 0
+	// Turns from pages not loaded yet have no element and can't be current;
+	// the first rendered turn is the floor (not index 0, which may be unloaded).
+	let idx = -1
 	for (let i = 0; i < props.turns.length; i++) {
 		const el = c.querySelector(`[data-message-id="${CSS.escape(props.turns[i].id)}"]`) as HTMLElement | null
 		if (!el) continue
-		if (el.getBoundingClientRect().top <= line) idx = i
-		else break
+		const passed = el.getBoundingClientRect().top <= line
+		if (passed || idx < 0) idx = i
+		if (!passed) break
 	}
+	if (idx < 0) idx = 0
 	// At the very bottom the last turn is current even if it is short.
 	if (c.scrollHeight - c.scrollTop - c.clientHeight < 4) idx = props.turns.length - 1
 	if (idx !== activeIndex.value) {
@@ -267,6 +275,11 @@ defineExpose({ activeIndex: computed(() => activeIndex.value) })
 }
 .turn-nav-tick.hovered .turn-nav-line { width: 18px; background: rgb(107 114 128); }
 .turn-nav-tick.active .turn-nav-line { width: 24px; background: rgb(17 24 39); }
+/* Loading older pages for this turn after a click. */
+.turn-nav-tick.loading { cursor: progress; }
+.turn-nav-tick.loading .turn-nav-line { width: 18px; background: rgb(59 130 246); animation: turn-nav-pulse 900ms ease-in-out infinite; }
+@keyframes turn-nav-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .turn-nav-tick.loading .turn-nav-line { animation: none; } }
 .compact .turn-nav-line { width: 6px; }
 .compact .turn-nav-tick.hovered .turn-nav-line { width: 9px; }
 .compact .turn-nav-tick.active .turn-nav-line { width: 12px; }
