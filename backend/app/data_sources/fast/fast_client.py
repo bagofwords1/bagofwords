@@ -120,50 +120,8 @@ class FastQueryClient(DataSourceClient):
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
         con = None
         try:
-            con = duckdb.connect(database=":memory:")
-            attached = 0
-            for i, rel in enumerate(self.relations):
-                if not rel.artifact_path:
-                    logger.warning(
-                        "fast.connect.no_artifact", extra={"relation": rel.name}
-                    )
-                    continue
-                alias = f"bow_a{i}"
-                safe_name = rel.name.replace('"', '""')
-                try:
-                    # Extracts are write-once (a refresh writes a new file).
-                    from app.services import storage
-                    storage.ensure_local(rel.artifact_path, fresh=False)
-                    con.execute(
-                        f"ATTACH '{rel.artifact_path}' AS {alias} "
-                        f"(ENCRYPTION_KEY '{rel.artifact_key}', READ_ONLY)"
-                    )
-                    self._register_relation(con, rel, alias, safe_name, i)
-                    attached += 1
-                except Exception as e:
-                    # A single broken artifact must not take down the whole
-                    # session — the other relations still serve.
-                    logger.error(
-                        "fast.connect.attach_failed",
-                        extra={"relation": rel.name, "error": str(e)},
-                    )
-                    if rel.is_row_filtered:
-                        # Except when the failure was on a row-filtered
-                        # relation: registration may have stopped after the
-                        # ATTACH and before the DETACH, leaving the unfiltered
-                        # artifact nameable. Serving the rest of the session
-                        # would mean serving that.
-                        raise RuntimeError(
-                            f"Refusing to serve accelerated data: row-filtered "
-                            f"relation '{rel.name}' could not be registered "
-                            f"safely ({e})"
-                        )
-
-            # Lock the session down AFTER attaching, BEFORE any agent SQL runs.
-            # enable_external_access=false blocks ATTACH of other files,
-            # read_parquet/read_csv of arbitrary paths, and COPY ... TO.
-            # lock_configuration=true stops generated SQL re-enabling either.
-            lock_query_session(con)
+            con = self._open_engine()
+            attached = self._build_session(con, self.relations)
 
             logger.info(
                 "fast.connect.ready",
@@ -173,6 +131,78 @@ class FastQueryClient(DataSourceClient):
         finally:
             if con is not None:
                 con.close()
+
+    def _open_engine(
+        self,
+        extra_config: Optional[dict] = None,
+        *,
+        trusted_extension: Optional[str] = None,
+    ) -> duckdb.DuckDBPyConnection:
+        """Open a fresh in-memory engine for one serving session.
+
+        With no `extra_config` the engine opens with DuckDB's defaults, as
+        `connect()` always has; a given dict is passed as the connect config.
+        `trusted_extension` is accepted for the verified-extension load and is
+        not used yet.
+        """
+        if extra_config:
+            return duckdb.connect(database=":memory:", config=dict(extra_config))
+        return duckdb.connect(database=":memory:")
+
+    def _build_session(self, con, relations: List["FastRelation"]) -> int:
+        """Attach and register `relations` on `con`, then lock the session.
+
+        Returns the number of relations attached and registered. A relation
+        with no artifact is skipped and not counted; a failed attach of an
+        unfiltered relation is logged, skipped and not counted; a failed
+        attach of a row-filtered relation raises. The lock runs last, so no
+        agent SQL can reach an unlocked engine.
+        """
+        attached = 0
+        for i, rel in enumerate(relations):
+            if not rel.artifact_path:
+                logger.warning(
+                    "fast.connect.no_artifact", extra={"relation": rel.name}
+                )
+                continue
+            alias = f"bow_a{i}"
+            safe_name = rel.name.replace('"', '""')
+            try:
+                # Extracts are write-once (a refresh writes a new file).
+                from app.services import storage
+                storage.ensure_local(rel.artifact_path, fresh=False)
+                con.execute(
+                    f"ATTACH '{rel.artifact_path}' AS {alias} "
+                    f"(ENCRYPTION_KEY '{rel.artifact_key}', READ_ONLY)"
+                )
+                self._register_relation(con, rel, alias, safe_name, i)
+                attached += 1
+            except Exception as e:
+                # A single broken artifact must not take down the whole
+                # session; the other relations still serve.
+                logger.error(
+                    "fast.connect.attach_failed",
+                    extra={"relation": rel.name, "error": str(e)},
+                )
+                if rel.is_row_filtered:
+                    # Except when the failure was on a row-filtered
+                    # relation: registration may have stopped after the
+                    # ATTACH and before the DETACH, leaving the unfiltered
+                    # artifact nameable. Serving the rest of the session
+                    # would mean serving that.
+                    raise RuntimeError(
+                        f"Refusing to serve accelerated data: row-filtered "
+                        f"relation '{rel.name}' could not be registered "
+                        f"safely ({e})"
+                    )
+
+        # Lock the session down AFTER attaching, BEFORE any agent SQL runs.
+        # enable_external_access=false blocks ATTACH of other files,
+        # read_parquet/read_csv of arbitrary paths, and COPY ... TO.
+        # lock_configuration=true stops generated SQL re-enabling either.
+        lock_query_session(con)
+
+        return attached
 
     def _register_relation(self, con, rel: "FastRelation", alias: str,
                            safe_name: str, index: int) -> None:
