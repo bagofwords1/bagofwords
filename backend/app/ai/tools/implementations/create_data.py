@@ -35,6 +35,7 @@ from app.ai.tools.schemas import (
     ToolProgressEvent,
     ToolStdoutEvent,
     ToolEndEvent,
+    ToolErrorEvent,
 )
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
