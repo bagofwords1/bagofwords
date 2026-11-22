@@ -6490,7 +6490,11 @@
     "reports": "Letzte Berichte",
     "suggestInstruction": "Anweisung vorschlagen",
     "suggestInstructionWithQuery": "Anweisung „{query}“ vorschlagen",
-    "suggestionHint": "zur Prüfung gesendet"
+    "suggestionHint": "zur Prüfung gesendet",
+    "placeholderInReport": "Diesen Bericht, Berichte, Agenten, Anweisungen durchsuchen…",
+    "inThisReport": "In diesem Bericht",
+    "reportScopeHint": "Tippe report:, um nur in diesem Bericht zu suchen",
+    "reportPrefix": "bericht:"
   },
   "promptParams": {
     "title": "Parameter ausfüllen — {title}",

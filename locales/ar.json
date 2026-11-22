@@ -6490,7 +6490,11 @@
     "reports": "التقارير الأخيرة",
     "suggestInstruction": "اقتراح تعليمة",
     "suggestInstructionWithQuery": "اقتراح التعليمة «{query}»",
-    "suggestionHint": "أُرسل للمراجعة"
+    "suggestionHint": "أُرسل للمراجعة",
+    "placeholderInReport": "ابحث في هذا التقرير والتقارير والوكلاء والتعليمات…",
+    "inThisReport": "في هذا التقرير",
+    "reportScopeHint": "اكتب report: للبحث في هذا التقرير فقط",
+    "reportPrefix": "تقرير:"
   },
   "promptParams": {
     "title": "املأ المعلمات — {title}",

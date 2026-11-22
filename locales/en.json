@@ -530,7 +530,11 @@
     "instructions": "Instructions",
     "emptyLabel": "Start typing to search",
     "emptyQueryLabel": "No results found",
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "placeholderInReport": "Search this report, reports, agents, instructions…",
+    "inThisReport": "In this report",
+    "reportScopeHint": "Type report: to search only this report",
+    "reportPrefix": "report:"
   },
   "smoke": {
     "hello": "Hello",

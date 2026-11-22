@@ -6490,7 +6490,11 @@
     "reports": "Report recenti",
     "suggestInstruction": "Suggerisci istruzione",
     "suggestInstructionWithQuery": "Suggerisci l'istruzione “{query}”",
-    "suggestionHint": "inviata per revisione"
+    "suggestionHint": "inviata per revisione",
+    "placeholderInReport": "Cerca in questo report, report, agenti, istruzioni…",
+    "inThisReport": "In questo report",
+    "reportScopeHint": "Digita report: per cercare solo in questo report",
+    "reportPrefix": "report:"
   },
   "promptParams": {
     "title": "Compila i parametri — {title}",

@@ -6,7 +6,7 @@
     <UCommandPalette
       ref="paletteRef"
       :groups="groups"
-      :placeholder="t('commandPalette.placeholder')"
+      :placeholder="reportContext ? t('commandPalette.placeholderInReport') : t('commandPalette.placeholder')"
       :empty-state="{ icon: 'i-heroicons-magnifying-glass', label: t('commandPalette.emptyLabel'), queryLabel: t('commandPalette.emptyQueryLabel') }"
       icon="i-heroicons-magnifying-glass"
       :loading="loading"
@@ -22,6 +22,17 @@
       @update:model-value="onSelect"
       @close="close"
     >
+      <!-- In-report hits: the snippet, with the matched term emphasized -->
+      <template #inReport-command="{ command }">
+        <span v-if="command.parts" class="truncate" dir="auto">
+          <template v-for="(part, i) in command.parts" :key="i">
+            <mark v-if="part.hit" class="bg-transparent font-semibold text-ink">{{ part.text }}</mark>
+            <template v-else>{{ part.text }}</template>
+          </template>
+        </span>
+        <span v-else class="truncate text-ink-muted">{{ command.label }}</span>
+        <span v-if="command.suffix" class="flex-shrink-0 text-ink-muted">{{ command.suffix }}</span>
+      </template>
       <!-- Agents use the real data-source logo for their type -->
       <template #agents-icon="{ command }">
         <DataSourceIcon :icon-token="command.dsIconToken" class="h-4 w-4 flex-shrink-0" />
@@ -62,10 +73,11 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import PromptParametersModal from '~/components/prompt/PromptParametersModal.vue'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { usePromptFill } from '~/composables/usePromptFill'
+import { parseReportScope, snippetParts } from '~/utils/commandPaletteScope'
 
 const { t } = useI18n()
 const router = useRouter()
-const { isOpen, close } = useCommandPalette()
+const { isOpen, close, reportContext } = useCommandPalette()
 
 // Global ⌘K / Ctrl+K. usingInput:true so it also fires while a text field is focused.
 defineShortcuts({
@@ -123,13 +135,43 @@ async function fetchAgents() {
   } catch { agentItemsRaw.value = [] }
 }
 
+// --- "In this report" (only while a report page has registered itself) ---
+// `report:` limits the search to this report; the English prefix always works,
+// a locale may add an alias (commandPalette.reportPrefix).
+const scopePrefixes = computed(() => Array.from(new Set(['report:', t('commandPalette.reportPrefix')])))
+const scope = computed(() => reportContext.value
+  ? parseReportScope(queryStr.value, scopePrefixes.value)
+  : { scoped: false, term: queryStr.value.trim() })
+
+const inReportHits = ref<any[]>([])
+let inReportSeq = 0
+async function fetchInReport(term: string) {
+  const ctx = reportContext.value
+  const seq = ++inReportSeq
+  if (!ctx || !term) { inReportHits.value = []; return }
+  try {
+    const res: any = await useMyFetch(
+      `/reports/${ctx.id}/completions/search?limit=8&q=${encodeURIComponent(term)}`,
+      { method: 'GET' },
+    )
+    // Drop a slow answer to an older query (or another report).
+    if (seq !== inReportSeq || reportContext.value?.id !== ctx.id) return
+    inReportHits.value = Array.isArray(res?.data?.value) ? res.data.value : []
+  } catch { if (seq === inReportSeq) inReportHits.value = [] }
+}
+
 // Debounced server-side search for reports + instructions; agents filter client-side.
+// Scoped to this report (`report:`), only the in-report search runs.
 let debounceT: any = null
-watch(queryStr, (q) => {
+watch(queryStr, () => {
   clearTimeout(debounceT)
   loading.value = true
   debounceT = setTimeout(async () => {
-    await Promise.all([fetchReports(q), fetchInstructions(q), fetchPrompts(q)])
+    const { scoped, term } = scope.value
+    const q = queryStr.value
+    await Promise.all(scoped
+      ? [fetchInReport(term)]
+      : [fetchReports(q), fetchInstructions(q), fetchPrompts(q), fetchInReport(term)])
     loading.value = false
   }, 200)
 })
@@ -140,6 +182,7 @@ watch(isOpen, async (open) => {
   await nextTick()
   paletteRef.value?.updateQuery?.('')
   queryStr.value = ''
+  inReportHits.value = []
   loading.value = true
   await Promise.all([fetchReports(''), fetchInstructions(''), fetchPrompts(''), fetchAgents()])
   loading.value = false
@@ -155,8 +198,30 @@ function truncate(s?: string, n = 60): string {
 const canCreateInstructions = computed(() => useCanAny('manage_instructions', 'data_source'))
 
 // --- groups (all static: we search server-side ourselves) ---
+const inReportGroup = computed(() => {
+  const { term } = scope.value
+  const commands: any[] = inReportHits.value.map((h: any) => ({
+    id: `in-report-${h.completion_id}`,
+    label: h.snippet,
+    parts: snippetParts(h.snippet || '', term),
+    icon: h.role === 'user' ? 'i-heroicons-user-circle' : 'i-heroicons-sparkles',
+    suffix: relTime(h.created_at),
+    jumpTo: h.completion_id,
+  }))
+  if (!term) {
+    // Nothing typed yet: teach the scope prefix.
+    commands.push({
+      id: 'in-report-hint',
+      label: t('commandPalette.reportScopeHint'),
+      icon: 'i-heroicons-magnifying-glass',
+      disabled: true,
+    })
+  }
+  return { key: 'inReport', label: t('commandPalette.inThisReport'), static: true, commands }
+})
+
 const actionsGroup = computed(() => {
-  const q = queryStr.value.trim()
+  const q = scope.value.term
   const commands: any[] = [
     {
       id: 'action-new-report',
@@ -238,7 +303,12 @@ const instructionsGroup = computed(() => ({
 }))
 
 const groups = computed(() => {
-  const g: any[] = [actionsGroup.value]
+  if (reportContext.value && scope.value.scoped) {
+    return inReportGroup.value.commands.length ? [inReportGroup.value] : []
+  }
+  const g: any[] = []
+  if (reportContext.value && inReportGroup.value.commands.length) g.push(inReportGroup.value)
+  g.push(actionsGroup.value)
   if (reportsGroup.value.commands.length) g.push(reportsGroup.value)
   if (promptsGroup.value.commands.length) g.push(promptsGroup.value)
   if (agentsGroup.value.commands.length) g.push(agentsGroup.value)
@@ -249,6 +319,12 @@ const groups = computed(() => {
 // --- selection handling ---
 function onSelect(option: any) {
   if (!option) return
+  if (option.jumpTo) {
+    const ctx = reportContext.value
+    close()
+    if (ctx) nextTick(() => ctx.jumpTo(option.jumpTo))
+    return
+  }
   if (option.click) { close(); option.click(); return }
   if (option.prompt) { selectPrompt(option.prompt); return }
   if (option.instruction) { openInstruction(option.instruction); return }

@@ -6490,7 +6490,11 @@
     "reports": "Senaste rapporterna",
     "suggestInstruction": "Föreslå instruktion",
     "suggestInstructionWithQuery": "Föreslå instruktionen ”{query}”",
-    "suggestionHint": "skickad för granskning"
+    "suggestionHint": "skickad för granskning",
+    "placeholderInReport": "Sök i den här rapporten, rapporter, agenter, instruktioner…",
+    "inThisReport": "I den här rapporten",
+    "reportScopeHint": "Skriv report: för att bara söka i den här rapporten",
+    "reportPrefix": "rapport:"
   },
   "promptParams": {
     "title": "Fyll i parametrar — {title}",

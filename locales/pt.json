@@ -6490,7 +6490,11 @@
     "reports": "Relatórios recentes",
     "suggestInstruction": "Sugerir instrução",
     "suggestInstructionWithQuery": "Sugerir a instrução “{query}”",
-    "suggestionHint": "enviada para revisão"
+    "suggestionHint": "enviada para revisão",
+    "placeholderInReport": "Buscar neste relatório, relatórios, agentes, instruções…",
+    "inThisReport": "Neste relatório",
+    "reportScopeHint": "Digite report: para buscar só neste relatório",
+    "reportPrefix": "relatório:"
   },
   "promptParams": {
     "title": "Preencha os parâmetros — {title}",
