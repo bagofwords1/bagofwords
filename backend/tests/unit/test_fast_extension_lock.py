@@ -27,7 +27,6 @@ import os
 import shutil
 import socket
 from dataclasses import dataclass
-from pathlib import Path
 
 import duckdb
 import pytest
