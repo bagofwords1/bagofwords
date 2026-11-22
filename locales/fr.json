@@ -1423,7 +1423,30 @@
       "copied": "JSON de la trace copié dans le presse-papiers",
       "failed": "Impossible d'exporter la trace"
     },
-    "hiddenTurns": "{count} tour suivant masqué : lui ou un tour précédent a utilisé un agent que vous ne gérez pas | {count} tours suivants masqués : eux ou un tour précédent ont utilisé un agent que vous ne gérez pas"
+    "hiddenTurns": "{count} tour suivant masqué : lui ou un tour précédent a utilisé un agent que vous ne gérez pas | {count} tours suivants masqués : eux ou un tour précédent ont utilisé un agent que vous ne gérez pas",
+    "contextColumns": {
+      "ofTotal": "{shown} colonnes sur {total}",
+      "allColumns": "{total} colonnes",
+      "why": "Pourquoi ces colonnes",
+      "reason": {
+        "usage_ranked": "Classées par utilisation des colonnes",
+        "structural_only": "Pas encore d'utilisation : clés, horodatages et identifiants d'abord",
+        "all_columns": "Toutes les colonnes tiennent dans la limite"
+      },
+      "signal": {
+        "mentioned": "{n} citées dans la tâche",
+        "usage": "{n} par utilisation",
+        "instructions": "{n} citées par des instructions",
+        "structural": "{n} clés, horodatages ou identifiants",
+        "sample": "{n} échantillonnées dans chaque groupe de colonnes",
+        "schema_order": "{n} dans l'ordre du catalogue"
+      },
+      "shown": "Colonnes dans le contexte",
+      "folded": "Regroupées (recherchables avec describe_tables)",
+      "otherColumns": "{count} autres colonnes",
+      "usedTimes": "utilisée {count}×",
+      "score": "score {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -2327,6 +2350,19 @@
       "connected": "Connecté",
       "askAgain": "Redemander",
       "readyHint": "Connecté. Relancez votre question pour l’utiliser."
+    },
+    "describeTables": {
+      "searching": "Recherche de {query}…",
+      "searched": "Recherché {names}",
+      "searchedMore": "Recherché {names} +{count}",
+      "columnsMatching": "colonnes correspondant à {terms}",
+      "column": "Colonne",
+      "type": "Type",
+      "used": "Utilisations",
+      "showingOf": "Les {shown} premières colonnes sur {total}, les plus utilisées d'abord",
+      "matchingOf": "{matched} colonnes sur {total} correspondent à {terms}",
+      "noMatch": "Aucune colonne ne correspond à {terms}",
+      "more": "+{count} de plus"
     }
   },
   "entityCreate": {
@@ -3767,6 +3803,10 @@
         "show_world": {
           "name": "Vue Monde",
           "description": "Affiche sur la page Agents un interrupteur qui ouvre Monde : une carte des agents, des connaissances, des sources et du travail qui relient votre organisation. Chaque utilisateur ne voit que ce à quoi il a accès."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K colonnes par table",
+          "description": "Nombre de colonnes d'une table large que l'agent voit en entier dans son contexte, classées par utilisation, références dans les instructions et clés/horodatages. Les autres sont résumées par préfixe et restent recherchables avec describe_tables. 0 = sans limite."
         }
       },
       "permissionMode": {
@@ -7105,7 +7145,10 @@
     "exitFullscreen": "Quitter le plein écran",
     "searchColumns": "Rechercher des colonnes…",
     "noColumns": "Aucune colonne correspondante",
-    "centrality": "Centralité"
+    "centrality": "Centralité",
+    "usedHeader": "Utilisations",
+    "usedTooltip": "Requêtes exécutées ayant utilisé cette colonne (les échecs comptent moins dans le classement)",
+    "sortedByUsage": "Les plus utilisées d'abord"
   },
   "fork": {
     "preparing": "Préparation de votre copie…",

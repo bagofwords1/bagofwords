@@ -1,0 +1,33 @@
+{
+  "steps": [
+    {
+      "column_stats_rows": 100002,
+      "agents": {
+        "Wide Postgres": {
+          "build_ms": 633.4,
+          "render_ms": 19.5,
+          "prep_ms": 616.7,
+          "sql_statements_per_build": 20,
+          "write_ms": 47.1,
+          "columns_written_per_step": 5
+        },
+        "Wide DuckDB": {
+          "build_ms": 108.1,
+          "render_ms": 8.2,
+          "prep_ms": 122.4,
+          "sql_statements_per_build": 17,
+          "write_ms": 29.3,
+          "columns_written_per_step": 4
+        },
+        "Wide Elastic": {
+          "build_ms": 116.7,
+          "render_ms": 7.6,
+          "prep_ms": 139.9,
+          "sql_statements_per_build": 17,
+          "write_ms": 29.9,
+          "columns_written_per_step": 3
+        }
+      }
+    }
+  ]
+}

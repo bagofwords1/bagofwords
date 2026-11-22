@@ -32,21 +32,24 @@
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1">
                 <!-- Columns -->
+                <div v-if="columnsNote(item)" class="text-chat-3 text-ink-muted mb-1" :data-testid="`describe-cols-note-${item.name}`">{{ columnsNote(item) }}</div>
                 <div v-if="(item.columns || []).length" class="text-gray-500 dark:text-gray-400 mb-1">
                   <table class="min-w-0 text-chat-2">
                     <thead class="text-ink-muted">
                       <tr>
-                        <th class="text-start pe-4 font-normal">Column</th>
-                        <th class="text-start font-normal">Type</th>
+                        <th class="text-start pe-4 font-normal">{{ t('tools.describeTables.column') }}</th>
+                        <th class="text-start pe-4 font-normal">{{ t('tools.describeTables.type') }}</th>
+                        <th v-if="hasColumnUsage(item)" class="text-end font-normal">{{ t('tools.describeTables.used') }}</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="(col, cidx) in columnsHead(item)" :key="cidx">
-                        <td class="pe-4 text-gray-600 dark:text-gray-400">{{ col.name }}</td>
-                        <td class="text-ink-muted">{{ col.dtype || 'any' }}</td>
+                      <tr v-for="(col, cidx) in columnsHead(item)" :key="cidx" :data-testid="`describe-col-${item.name}-${col.name}`">
+                        <td class="pe-4 text-gray-600 dark:text-gray-400" dir="ltr">{{ col.name }}</td>
+                        <td class="pe-4 text-ink-muted">{{ col.dtype || 'any' }}</td>
+                        <td v-if="hasColumnUsage(item)" class="text-end nums text-ink-muted">{{ col.usage_count ? formatInt(col.usage_count) : '—' }}</td>
                       </tr>
                       <tr v-if="columnsTruncated(item)">
-                        <td colspan="2" class="text-ink-muted">…</td>
+                        <td :colspan="hasColumnUsage(item) ? 3 : 2" class="text-ink-muted">{{ t('tools.describeTables.more', { count: (item.columns || []).length - COLUMNS_HEAD }) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -123,6 +126,7 @@ interface Props {
 
 const props = defineProps<Props>()
 const emit = defineEmits<{ (e: 'openInstruction', id: string): void }>()
+const { t } = useI18n()
 
 const status = computed<string>(() => props.toolExecution?.status || '')
 
@@ -138,7 +142,22 @@ const queryLabel = computed<string>(() => {
   // Fallback to summary parsing if present
   const sum = props.toolExecution?.result_summary || ''
   const m = sum.match(/^Searching\s+(.+?)…?$/)
-  return m ? m[1] : 'tables'
+  if (m) return m[1]
+  return columnTerms.value ? '' : 'tables'
+})
+
+// describe_tables `columns` (column search), echoed by the result or taken
+// from the call's arguments while it runs.
+const columnTerms = computed<string>(() => {
+  const rj = props.toolExecution?.result_json || {}
+  let c: any = rj.search_columns
+  if (c == null) c = (props.toolExecution as any)?.arguments_json?.columns
+  if (Array.isArray(c)) return c.filter(Boolean).join(', ')
+  return typeof c === 'string' ? c : ''
+})
+const searchLabel = computed<string>(() => {
+  const cols = columnTerms.value ? t('tools.describeTables.columnsMatching', { terms: columnTerms.value }) : ''
+  return [queryLabel.value, cols].filter(Boolean).join(' · ')
 })
 
 // Extract top tables from backend (lightweight preview)
@@ -181,10 +200,13 @@ const headerExtraCount = computed<number>(() => Math.max(0, dedupedTables.value.
 // Built as one string: in a multi-line template Vue's whitespace condensing
 // dropped the spaces after the commas ("orders,events").
 const headerLabel = computed<string>(() => {
-  if (status.value === 'running') return `Searching ${queryLabel.value}…`
-  if (!headerTables.value.length) return `Searched ${queryLabel.value}`
-  const names = headerTables.value.map((item: any) => item.full_name || item.name || 'table').join(', ')
-  return `Searched ${names}${headerExtraCount.value > 0 ? ` +${headerExtraCount.value}` : ''}`
+  if (status.value === 'running') return t('tools.describeTables.searching', { query: searchLabel.value })
+  if (!headerTables.value.length) return t('tools.describeTables.searched', { names: searchLabel.value })
+  let names = headerTables.value.map((item: any) => item.full_name || item.name || 'table').join(', ')
+  if (columnTerms.value) names += ` · ${t('tools.describeTables.columnsMatching', { terms: columnTerms.value })}`
+  return headerExtraCount.value > 0
+    ? t('tools.describeTables.searchedMore', { names, count: headerExtraCount.value })
+    : t('tools.describeTables.searched', { names })
 })
 
 const expandedItems = ref<Set<number>>(new Set())
@@ -208,22 +230,50 @@ function inferIconTypeFromItem(item: any): string {
   }
 }
 
-function columnsHead(item: any, max = 8): any[] {
+const COLUMNS_HEAD = 12
+
+// Most used first (usage_count from ColumnStats); unused columns keep the
+// order the agent saw them in.
+function sortedColumns(item: any): any[] {
+  const cols = Array.isArray(item?.columns) ? item.columns : []
+  return cols
+    .map((c: any, i: number) => ({ c, i }))
+    .sort((a: any, b: any) => (Number(b.c?.usage_count || 0) - Number(a.c?.usage_count || 0)) || (a.i - b.i))
+    .map((x: any) => x.c)
+}
+
+function columnsHead(item: any, max = COLUMNS_HEAD): any[] {
   try {
-    const cols = Array.isArray(item?.columns) ? item.columns : []
-    return cols.slice(0, max)
+    return sortedColumns(item).slice(0, max)
   } catch {
     return []
   }
 }
 
-function columnsTruncated(item: any, max = 8): boolean {
+function columnsTruncated(item: any, max = COLUMNS_HEAD): boolean {
   try {
     const cols = Array.isArray(item?.columns) ? item.columns : []
     return cols.length > max
   } catch {
     return false
   }
+}
+
+function hasColumnUsage(item: any): boolean {
+  return (item?.columns || []).some((c: any) => Number(c?.usage_count || 0) > 0)
+}
+
+// "Top 60 of 5,000 columns" for a wide table, "12 of 5,000 columns match
+// retry" for a column search.
+function columnsNote(item: any): string {
+  const total = Number(item?.columns_total || 0)
+  const shown = (item?.columns || []).length
+  if (item?.columns_matched != null) {
+    if (!Number(item.columns_matched)) return t('tools.describeTables.noMatch', { terms: columnTerms.value })
+    return t('tools.describeTables.matchingOf', { matched: formatInt(item.columns_matched), total: formatInt(total), terms: columnTerms.value })
+  }
+  if (total > shown && shown > 0) return t('tools.describeTables.showingOf', { shown: formatInt(shown), total: formatInt(total) })
+  return ''
 }
 
 function formatInt(n: number): string {
