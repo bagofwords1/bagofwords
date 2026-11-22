@@ -115,6 +115,8 @@ async def test_a_refresh_describes_every_column_from_the_catalog(sandbox):  # no
     assert revenue["metadata"]["additive"] is True
     assert (buyers["metadata"]["additive"], buyers["metadata"]["additive_reason"]) == (False, "distinct_count")
     assert (average["metadata"]["additive"], average["metadata"]["additive_reason"]) == (False, "ratio")
+    # SUM(amount) is the `revenue` column, COUNT(*) is not a column: no recipe is invented.
+    assert "recompute" not in average["metadata"]
     # The stored types are the load's own, untouched.
     assert all(c.get("dtype") for c in cols.values())
 
@@ -309,6 +311,8 @@ def test_a_changed_measure_expression_is_drift_on_what_uses_it():
     assert "Orders" not in moved and "Buyers" not in moved
     cols = _by_name(second.columns)
     assert "SUM(Sales[Amount])" in cols["Total Sales"]["metadata"]["drift"]["previous_expression"]
+    # The query's own ratio reads the measure; its text did not change, so no "previously" is claimed.
+    assert "previous_expression" not in cols["Refund Share"]["metadata"]["drift"]
     assert "SUMX" in cols["Total Sales"]["description"]          # the description follows
     third = _powerbi(_powerbi_catalog(total_sales="SUMX(Sales, Sales[Amount] * 1.17)"), previous=second.columns)
     assert third.drift == [] and "drift" in _by_name(third.columns)["Total Sales"]["metadata"]
@@ -370,11 +374,25 @@ def test_the_agent_is_told_on_the_column_not_to_sum_what_does_not_add_up(how):
     xml = _rendered(_powerbi(_powerbi_catalog()).columns, how)
     for name in ("Buyers", "Average Order", "Sales YTD", "Refund Share"):
         tag = _column_tag(xml, name)
-        assert 'aggregation="not additive' in tag and "SUM" in tag, tag
+        assert 'aggregation="NOT ADDITIVE' in tag and "SUM" in tag, tag
     assert "distinct count" in _column_tag(xml, "Buyers")
     assert 'aggregation="additivity unknown' in _column_tag(xml, "Protected")
     for name in ("Total Sales", "Orders", "Net Sales", "Year"):
         assert "aggregation=" not in _column_tag(xml, name)
+
+
+@pytest.mark.parametrize("how", ["full", "combined"])
+def test_a_ratio_of_two_columns_tells_the_agent_how_to_recompute_it(how):
+    """[Average Order] is DIVIDE([Total Sales], [Orders]) and both are columns
+    of the table, so the right roll-up is stated; [Refund Share] divides by a
+    measure that is not a column, so nothing is suggested."""
+    columns = _powerbi(_powerbi_catalog()).columns
+    assert _by_name(columns)["Average Order"]["metadata"]["recompute"] == 'SUM("Total Sales") / SUM(Orders)'
+    assert "recompute" not in _by_name(columns)["Refund Share"]["metadata"]
+    assert 'SUM(&quot;Total Sales&quot;) / SUM(Orders)' in _column_tag(_rendered(columns, how), "Average Order")
+    # Once an admin calls a part not additive, it is no longer offered as one.
+    overridden = _powerbi(_powerbi_catalog(), overrides={"Orders": {"additive": False}}).columns
+    assert "recompute" not in _by_name(overridden)["Average Order"]["metadata"]
 
 
 @pytest.mark.parametrize("how", ["full", "combined"])
@@ -385,7 +403,7 @@ def test_an_admins_verdict_is_what_the_agent_reads(how):
     }).columns
     xml = _rendered(columns, how)
     assert "aggregation=" not in _column_tag(xml, "Protected")
-    assert 'aggregation="not additive' in _column_tag(xml, "Total Sales")
+    assert 'aggregation="NOT ADDITIVE' in _column_tag(xml, "Total Sales")
     assert 'description="Customers with at least one order"' in _column_tag(xml, "Buyers")
 
 

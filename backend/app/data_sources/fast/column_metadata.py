@@ -23,6 +23,7 @@ Shape of a stored column:
         "source": {"kind": "derived", "expression": "COUNT(DISTINCT o.customer_id)",
                    "reads": [{"table": "public.orders", "column": "customer_id"}]},
         "additive": false, "additive_reason": "distinct_count",
+        "recompute": "SUM(revenue) / SUM(orders)",   # ratios only, when both parts are columns
         "fingerprint": "5f1c…",
         "edited": ["description"],              # only when an admin edited
         "inherited": {"description": "…"},      # what the edit replaced
@@ -46,7 +47,8 @@ EXPRESSION_LIMIT = 2000
 
 # Keys this module owns inside a column's `metadata`. Everything else there
 # was copied from the source column.
-OWN_KEYS = ("source", "additive", "additive_reason", "fingerprint", "edited", "inherited", "drift")
+OWN_KEYS = ("source", "additive", "additive_reason", "fingerprint", "edited", "inherited", "drift",
+            "recompute")
 EDITABLE = ("description", "additive")
 SET_BY_ADMIN = "set_by_admin"
 
@@ -192,6 +194,7 @@ def enrich(columns: list, found: Optional[lineage_mod.Lineage], tables: list, *,
         return lambda name: index.get(str(name).lower()) or None
 
     out = Enriched(columns=[], sources=list(found.tables), aggregated=found.aggregated)
+    traced: dict = {}       # output name -> its lineage, for the ratio pass below
 
     for col in columns or []:
         if not isinstance(col, dict) or not col.get("name"):
@@ -268,8 +271,11 @@ def enrich(columns: list, found: Optional[lineage_mod.Lineage], tables: list, *,
                 and prior_meta.get("fingerprint") and meta.get("fingerprint") \
                 and prior_meta["fingerprint"] != meta["fingerprint"]:
             meta["drift"] = {"detected_at": stamp, "previous_fingerprint": prior_meta["fingerprint"]}
-            was = _expression_of(prior) or (prior_meta.get("source") or {}).get("expression")
-            if was:
+            # What it used to be, when the expression itself is what moved (a
+            # measure rewritten at the source). When only a column it reads
+            # changed, the text is the same and repeating it would mislead.
+            was = _expression_of(prior)
+            if was and was != _expression_of({"metadata": meta}):
                 meta["drift"]["previous_expression"] = _clip(was, DESCRIPTION_LIMIT)
             out.drift.append({
                 "column": name, "source": meta["source"],
@@ -300,13 +306,107 @@ def enrich(columns: list, found: Optional[lineage_mod.Lineage], tables: list, *,
             if ref.table not in out.sources:
                 out.sources.append(ref.table)
 
+        traced[name] = lin
         entry = {"name": name, "dtype": dtype}
         if description:
             entry["description"] = description
         entry["metadata"] = meta
         out.columns.append(entry)
     out.rls_sources = [name for name in out.sources if _has_rls(by_name.get(name))]
+    _add_recomputations(out.columns, traced, found)
     return out
+
+
+def _quoted(name: str) -> str:
+    return name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) else '"' + name.replace('"', '""') + '"'
+
+
+def _add_recomputations(columns: list, traced: dict, found: lineage_mod.Lineage) -> None:
+    """For a ratio whose numerator and denominator are themselves additive
+    columns of this table, record how to get it right at a coarser grain:
+    `SUM(numerator) / SUM(denominator)`, in the SQL the cached copy is
+    queried with. Only when both parts are found exactly; never approximated.
+    """
+    additive = {
+        c["name"] for c in columns
+        if c["metadata"].get("additive") is True and "edited" not in c["metadata"]
+    }
+
+    def part_of(matches) -> Optional[str]:
+        hits = [name for name in additive if traced.get(name) is not None and matches(traced[name])]
+        return hits[0] if len(hits) == 1 else None
+
+    for col in columns:
+        meta, lin = col["metadata"], traced.get(col["name"])
+        if lin is None or meta.get("additive") is not False or meta.get("additive_reason") != additivity.RATIO:
+            continue
+        if "edited" in meta and "additive" in meta["edited"]:
+            continue
+        numerator = denominator = None
+        if found.family == lineage_mod.FAMILY_DAX:
+            parts = _dax_divide(_expression_text(lin, columns, col))
+            if parts:
+                numerator, denominator = (part_of(_dax_matcher(p)) for p in parts)
+        elif lin.node is not None:
+            parts = _sql_divide(lin.node)
+            if parts:
+                numerator, denominator = (part_of(_sql_matcher(p, found.dialect)) for p in parts)
+        if numerator and denominator and numerator != denominator:
+            meta["recompute"] = f"SUM({_quoted(numerator)}) / SUM({_quoted(denominator)})"
+
+
+def _expression_text(lin, columns, col) -> str:
+    if lin.kind == lineage_mod.KIND_DERIVED:
+        return lin.expression or ""
+    return str(col["metadata"].get("expression") or "")
+
+
+def _sql_divide(node):
+    from sqlglot import exp
+
+    def strip(n):
+        while True:
+            if isinstance(n, (exp.Paren, exp.Cast, exp.TryCast)):
+                n = n.this
+            elif isinstance(n, exp.Nullif) and isinstance(n.expression, exp.Literal):
+                n = n.this
+            else:
+                return n
+
+    node = strip(node)
+    if not isinstance(node, exp.Div):
+        return None
+    return strip(node.this), strip(node.expression)
+
+
+def _sql_matcher(part, dialect):
+    text = part.sql(dialect=dialect).lower()
+
+    def matches(lin) -> bool:
+        if lin.kind == lineage_mod.KIND_DERIVED and lin.node is not None:
+            return lin.node.sql(dialect=dialect).lower() == text
+        return False
+    return matches
+
+
+def _dax_divide(expression: str):
+    tokens = lineage_mod.dax_tokens(expression)
+    if len(tokens) < 6 or tokens[0][1].lower() != "divide" or tokens[1][1] != "(":
+        return None
+    args = lineage_mod._dax_args(tokens, 1)
+    if len(args) < 2:
+        return None
+    return args[0], args[1]
+
+
+def _dax_matcher(arg_tokens):
+    # A bare `[Measure]` reference: matches the column that is that measure.
+    name = arg_tokens[0][1][1:-1].replace("]]", "]").strip().lower() \
+        if len(arg_tokens) == 1 and arg_tokens[0][0] == "bracket" else None
+
+    def matches(lin) -> bool:
+        return bool(name) and lin.kind == lineage_mod.KIND_MEASURE and lin.source.column.lower() == name
+    return matches
 
 
 def _model_of(table: Optional[dict]) -> str:
@@ -362,13 +462,20 @@ def agent_note(metadata, dtype=None) -> Optional[str]:
         if reason in _SILENT:
             return None
         words = _REASON_WORDS.get(reason)
-        return ("not additive" + (f" ({words})" if words else "")
-                + ": do not SUM or AVG this column across rows; a total over several rows "
-                  "must be recomputed from additive columns or asked of the source")
+        head = "NOT ADDITIVE" + (f" ({words})" if words else "")
+        recompute = metadata.get("recompute")
+        if recompute:
+            return (f"{head}: read it only row by row. Never SUM or AVG it. Over several rows "
+                    f"compute {recompute} instead")
+        return (f"{head}: each row's value stands alone. SUM or AVG over several rows is wrong, "
+                "also when a 'total' is asked for. For a coarser grain do not derive it from this "
+                "column: query the source tables if you have them, otherwise say this table "
+                "cannot answer it")
     if value == additivity.UNKNOWN:
         source = metadata.get("source") if isinstance(metadata.get("source"), dict) else {}
         if source.get("kind") in (lineage_mod.KIND_DERIVED, lineage_mod.KIND_MEASURE):
-            return "additivity unknown: check how this column is computed before summing it across rows"
+            return ("additivity unknown: it is not established that this column may be summed; "
+                    "check how it is computed before aggregating it over several rows")
     return None
 
 

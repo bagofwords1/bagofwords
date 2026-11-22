@@ -472,6 +472,76 @@ the admin previews and saves.
 
 Run report: `docs/feedback-loops/save-as-cached-table.md`.
 
+### Column metadata: what a cached table's columns mean
+
+A custom table's columns carry what the connection's catalog already knows
+about where they came from. It is built on publish and on every refresh from
+rows indexing stored; no source is asked anything, so it works for any
+connector whose catalog has descriptions or metadata (Postgres column
+comments, Power BI measures, Priority titles).
+
+- **Lineage** (`fast/lineage.py`, pure). Per output column: the indexed
+  column it copies, or "derived" with its expression. SQL is read with
+  sqlglot (plain and aliased columns, joins, CTEs and subqueries, `*`); DAX
+  matches `Table[Column]` and `[Measure]` against the indexed model, resolved
+  like the extraction target (pinned, else the one model that fits);
+  Priority's OData and a BusinessObjects query map their fields one to one.
+  A UNION, an unqualified column two joined tables share, a table name two
+  schemas share, a relation whose columns are unknown: no lineage. A missing
+  description is better than a wrong one.
+- **What is stored**, on each entry of `ConnectionTable.columns`:
+  `description` (the source's, or the expression of a derived column followed
+  by what the columns it reads mean) and, in `metadata`, the source column's
+  own metadata plus `source`, `additive`, `additive_reason`, `fingerprint`
+  and, where they apply, `recompute`, `edited`, `inherited`, `drift`. The
+  shape is documented at the top of `fast/column_metadata.py`.
+- **Additivity** (`fast/additivity.py`). `true` for SUM, COUNT and plain
+  arithmetic over them, and for a plain numeric column; `false` for
+  COUNT(DISTINCT) / DISTINCTCOUNT, averages, ratios, MIN / MAX, time
+  intelligence, share-of-total; `"unknown"` when the expression is unreadable
+  or more than the classifier understands. A grouping key, an identifier
+  (a primary or foreign key in the catalog) and a non-numeric column are
+  `false` with a reason that produces no note. A measure that references
+  other measures is followed through the model.
+- **What the agent reads.** A note on the column,
+  `aggregation="NOT ADDITIVE (distinct count): …"`, rendered by
+  `tables_schema_section._aggregation_attr` in both render paths, only for a
+  numeric column that must not be summed or a computed one nobody could
+  classify. A ratio whose numerator and denominator are additive columns of
+  the same table also says how to roll it up (`SUM(revenue) / SUM(orders)`).
+  It is a note on the data, not a prompt rule. The wording was settled
+  against a live model: a first version that only said "do not SUM" was
+  ignored when the user asked for a "total"
+  (`docs/feedback-loops/cached-table-column-metadata.md`).
+- **Description.** `column_metadata.describe_table` states the grain, the
+  measures with their additivity, the sources and the schedule, by plain
+  code. It is kept in `metadata_json["generated_description"]` and refreshed
+  with the columns; agents read it only when the admin's own `description` is
+  empty. The dialog shows it in the description field and saves an untouched
+  one as empty, so it does not freeze.
+- **Admin edits.** Description and additivity are editable per column in the
+  dialog. The edits are the admin's settings, kept apart from what is derived
+  (`metadata_json["column_overrides"]`), applied on every pass and marked
+  `edited`, with what the source says kept under `inherited`. A create or
+  update request carries the complete set in `columns`; a column left out
+  follows its source again. Editing never reloads data
+  (`CustomQueryService.redescribe`).
+- **Drift.** The fingerprint covers the source's expression (its type when it
+  has none; for a derived column, its expression and what it reads), not its
+  description: a reworded comment follows silently. Same source, different
+  fingerprint on a refresh: the column gets `drift`, the run gets a warning
+  event, and the flag stays until an admin marks it reviewed.
+- **Row-level security.** When a source table carries the indexer's
+  `rowLevelSecurity` marker, the preview and the saved table report it
+  (`rls_sources`) and the dialog points at the Row-level security tab.
+  Source roles are **not** translated or imported (their definitions are
+  usually unreadable), and **no data samples are stored** (they would sit
+  outside the copy's row policy). Both were considered and rejected.
+- **Existing tables** are described by their next refresh; nothing is
+  migrated.
+
+Run report: `docs/feedback-loops/cached-table-column-metadata.md`.
+
 ## Phases
 
 1. **This doc** — custom tables, materialization, schedule, delete, count,
