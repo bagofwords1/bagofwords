@@ -268,7 +268,7 @@ def seed_agent_executions():
     feedback={"direction", "message"},
     tools=[{"name", "action", "status", "duration_ms", "attempt", "error", "step_id"}],
     usage=[{"model", "provider", "prompt_tokens", "completion_tokens", "cache_read_tokens",
-    "cache_creation_tokens", "cost", "scope", "routed", "baseline_model"}],
+    "cache_creation_tokens", "cost", "scope", "routed", "baseline_model" (a model id)}],
     decisions=[{"token_usage": {...}, "total_duration_ms", "tool"}]: planner decisions, each
     with a completion block (and a tool execution when "tool" names one), the way the
     trace modal reads them.
@@ -433,7 +433,9 @@ def seed_agent_executions():
                             input_cost_usd=u.get("cost", 0.0),
                             output_cost_usd=0.0,
                             routed=bool(u.get("routed", False)),
-                            baseline_model_id=u.get("baseline_model"),
+                            # The router stores the baseline as an LLMModel id.
+                            baseline_model_id=(_model(session, u["baseline_model"], provider_type)
+                                               if u.get("baseline_model") else None),
                             created_at=created_at + timedelta(milliseconds=1),
                         ))
 

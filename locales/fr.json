@@ -1332,6 +1332,7 @@
     "modelCalls": "{count} appel | {count} appels",
     "autoRouted": "Auto",
     "autoRoutedTooltip": "Le routage automatique a exécuté ces appels avec {model} au lieu de {baseline}",
+    "autoRoutedRunTooltip": "Le routage automatique était actif pour cette exécution",
     "primaryModel": "Principal",
     "turnUsageTooltip": "Utilisation du LLM pour ce tour",
     "setup": "Préparation",

@@ -56,6 +56,25 @@ RUNS = {
         usage=[_usage("claude-haiku-4-5", "anthropic", 700, 60, 2_000, routed=True,
                       baseline_model="claude-sonnet-4-5", cost=0.004)],
     ),
+    # Auto routing started on the small model, then escalated back to the
+    # baseline: the router stamps routed=True on the baseline's calls too.
+    "escalated": dict(
+        decisions=[{"tool": "create_data", "token_usage": _tu(500, 40, cache_read=1_000)},
+                   {"token_usage": _tu(600, 90, cache_read=1_500)}],
+        usage=[_usage("claude-haiku-4-5", "anthropic", 500, 40, 1_000, routed=True,
+                      baseline_model="claude-sonnet-4-5", cost=0.002),
+               _usage("claude-sonnet-4-5", "anthropic", 600, 90, 1_500, routed=True,
+                      baseline_model="claude-sonnet-4-5", cost=0.01)],
+    ),
+    # The planner moved from an Anthropic model to an OpenAI one mid-run: the
+    # two report cache differently and a decision can't be tied to its call.
+    "mixed_planner": dict(
+        decisions=[{"tool": "create_data", "token_usage": _tu(400, 30, cache_read=3_000)},
+                   {"token_usage": _tu(5_000, 80, cache_read=4_096)}],
+        usage=[_usage("claude-haiku-4-5", "anthropic", 400, 30, 3_000, routed=True,
+                      baseline_model="gpt-4.1", cost=0.002),
+               _usage("gpt-4.1", "openai", 5_000, 80, 4_096, cost=0.01)],
+    ),
     # Before per-call usage attribution: decisions exist, usage records do not.
     "legacy": dict(decisions=[{"token_usage": _tu(800, 70)}], usage=[]),
 }
@@ -65,6 +84,7 @@ STEP_INPUT = {
     "anthropic": [1_200 + 6_000 + 800, 300 + 7_500, 50 + 7_900 + 120],
     "openai": [9_000, 9_400],
     "routed": [700 + 2_000],
+    "escalated": [500 + 1_000, 600 + 1_500],
 }
 
 
@@ -89,7 +109,8 @@ def world(bootstrap_admin, invite_user_to_org, sqlite_data_source, grant_resourc
             user_id=admin["user_id"], prompt=f"{name} run", created_at=NOW - timedelta(hours=i + 1),
             status="success", duration_ms=5_000, **run)])[0]
     rollup_agent_executions()
-    return {"org_id": org_id, "admin": admin, "manager_b": manager_b, "member": member, "ids": ids}
+    return {"org_id": org_id, "admin": admin, "manager_b": manager_b, "member": member, "ids": ids,
+            "report_a": r_a["id"]}
 
 
 def _trace(test_client, world, actor, name):
@@ -124,9 +145,13 @@ def test_step_input_tokens_include_cache_for_every_provider(test_client, world, 
         assert s["input_tokens"] >= (s.get("cache_read_tokens") or 0)
 
 
-def test_step_input_tokens_are_not_guessed_without_a_known_provider(test_client, world):
-    steps = _step_usage(_ok(_trace(test_client, world, "admin", "legacy")))
-    assert steps and all("input_tokens" not in s for s in steps)
+@pytest.mark.parametrize("name", ["legacy", "mixed_planner"])
+def test_step_input_tokens_are_not_guessed(test_client, world, name):
+    """No usage records, or planner calls on providers that count cache
+    differently: the step's input is left unset rather than guessed."""
+    steps = _step_usage(_ok(_trace(test_client, world, "admin", name)))
+    assert len(steps) == len(RUNS[name]["decisions"])
+    assert all("input_tokens" not in s for s in steps)
 
 
 @pytest.mark.parametrize("name", list(RUNS))
@@ -141,10 +166,14 @@ def test_models_break_the_run_down_by_model(test_client, world, name):
     assert sum(m["cost_usd"] for m in models) == pytest.approx(sum(u["cost"] for u in usage))
     shares = [m["input_tokens"] + m["output_tokens"] for m in models]
     assert shares == sorted(shares, reverse=True)
+    # A model is routed only where it ran instead of the baseline, never on
+    # the baseline's own calls; the baseline is named by its model id.
     for m in models:
-        rows = [u for u in usage if u["model"] == m["model_id"]]
-        assert m["routed"] == any(u.get("routed") for u in rows)
-        assert m["baseline_model_id"] == next((u["baseline_model"] for u in rows if u.get("baseline_model")), None)
+        substituted = [u for u in usage if u["model"] == m["model_id"]
+                       and u.get("routed") and u.get("baseline_model") not in (None, u["model"])]
+        assert m["routed"] == bool(substituted)
+        assert m["baseline_model_id"] == (substituted[0]["baseline_model"] if substituted else None)
+    assert body["auto_routed"] == any(u.get("routed") for u in usage)
 
 
 def test_model_input_tokens_match_the_bow_runs_convention(test_client, world):
@@ -165,6 +194,22 @@ def test_model_input_tokens_match_the_bow_runs_convention(test_client, world):
 def test_primary_model_is_the_rolled_up_planner_model(test_client, world, name, model, provider):
     ae = _ok(_trace(test_client, world, "admin", name))["agent_execution"]
     assert (ae["primary_model_id"], ae["primary_provider"]) == (model, provider)
+
+
+def test_primary_model_before_rollup_is_the_planner_model(test_client, world, seed_agent_executions):
+    """A run not rolled up yet names the planner's model, not a larger
+    codegen call's, and its steps are still normalized."""
+    run_id = seed_agent_executions(world["org_id"], world["report_a"], [dict(
+        user_id=world["admin"]["user_id"], prompt="running", created_at=NOW, status="in_progress",
+        decisions=[{"tool": "create_data", "token_usage": _tu(200, 20, cache_read=900)}],
+        usage=[_usage("claude-haiku-4-5", "anthropic", 200, 20, 900),
+               _usage("gpt-4.1", "openai", 9_000, 900, scope="create_data.code_gen")])])[0]
+    body = _ok(test_client.get(f"/api/console/agent_executions/{run_id}",
+                               headers=_headers(world["admin"]["token"], world["org_id"])))
+    ae = body["agent_execution"]
+    assert (ae["primary_model_id"], ae["primary_provider"]) == ("claude-haiku-4-5", "anthropic")
+    assert body["models"][0]["model_id"] == "gpt-4.1"  # the largest share, but not the planner
+    assert [s["input_tokens"] for s in _step_usage(body)] == [200 + 900]
 
 
 def test_legacy_run_reports_no_models(test_client, world):

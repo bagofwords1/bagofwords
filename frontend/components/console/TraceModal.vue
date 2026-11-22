@@ -247,8 +247,8 @@
                             <UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5" />
                             <span class="font-mono" dir="ltr">{{ primaryModelId || $t('traceModal.modelUnknown') }}</span>
                             <span v-if="runModels.length > 1" class="text-ink-muted">{{ $t('traceModal.modelsMore', { count: runModels.length - 1 }) }}</span>
-                            <span v-if="routedModel" class="px-1.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 text-2xs font-medium"
-                                  :title="$t('traceModal.autoRoutedTooltip', { model: routedModel.model_id, baseline: routedModel.baseline_model_id || '—' })"
+                            <span v-if="traceData.auto_routed" class="px-1.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 text-2xs font-medium"
+                                  :title="routedModel ? $t('traceModal.autoRoutedTooltip', { model: routedModel.model_id, baseline: routedModel.baseline_model_id || '—' }) : $t('traceModal.autoRoutedRunTooltip')"
                                   data-testid="turn-model-routed">{{ $t('traceModal.autoRouted') }}</span>
                             <UIcon v-if="runModels.length" :name="showRunModels ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3 h-3" />
                         </button>
@@ -838,6 +838,7 @@ interface AgentExecutionTraceResponse {
     agent_execution: any
     completion_blocks: CompletionBlockV2[]
     models?: RunModelUsage[]
+    auto_routed?: boolean
     head_prompt_snippet?: string
     head_context_snapshot?: any
     latest_feedback?: CompletionFeedbackUI | null
@@ -1038,11 +1039,11 @@ const selectedTurnSplit = computed(() => {
     return known ? { input, output, full: false } : null
 })
 
-// The run's main (planner) model; the largest model's record stands in
-// until the run is rolled up. No usage records → unknown, never a guess.
+// The run's main (planner) model, resolved on the server (rollup, else the
+// planner's usage record). No usage records → unknown, never a guess.
 const runModels = computed(() => traceData.value?.models || [])
-const primaryModelId = computed<string | null>(() =>
-    traceData.value?.agent_execution?.primary_model_id || runModels.value[0]?.model_id || null)
+const primaryModelId = computed<string | null>(() => traceData.value?.agent_execution?.primary_model_id || null)
+// A model that ran instead of the baseline (not the baseline after escalation).
 const routedModel = computed(() => runModels.value.find(m => m.routed) || null)
 const showRunModels = ref(false)
 

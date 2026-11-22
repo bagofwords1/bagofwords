@@ -318,7 +318,11 @@ def _run_term(node: dict, ctx: CompileContext):
         return exists(q.correlate(AE))
 
     if field == "routed":
-        routed = exists(select(LUR.id).where(LUR.agent_execution_id == AE.id, LUR.routed.is_(True)).correlate(AE))
+        # has:routed = the run has usage records, so whether it was routed is known.
+        q = select(LUR.id).where(LUR.agent_execution_id == AE.id)
+        if op == "has":
+            return exists(q.correlate(AE))
+        routed = exists(q.where(LUR.routed.is_(True)).correlate(AE))
         return routed if bool(values[0]["b"]) else not_(routed)
 
     col, kind = _RUN_COLUMNS[field]

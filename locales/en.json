@@ -1437,6 +1437,7 @@
     "modelCalls": "{count} call | {count} calls",
     "autoRouted": "Auto",
     "autoRoutedTooltip": "Auto routing ran these calls on {model} instead of {baseline}",
+    "autoRoutedRunTooltip": "Auto routing was on for this run",
     "primaryModel": "Primary",
     "turnUsageTooltip": "LLM usage for this turn",
     "setup": "Setup",

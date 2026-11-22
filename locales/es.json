@@ -1411,6 +1411,7 @@
     "modelCalls": "{count} llamada | {count} llamadas",
     "autoRouted": "Auto",
     "autoRoutedTooltip": "El enrutamiento automático ejecutó estas llamadas con {model} en lugar de {baseline}",
+    "autoRoutedRunTooltip": "El enrutamiento automático estaba activo en esta ejecución",
     "primaryModel": "Principal",
     "turnUsageTooltip": "Uso de LLM en este turno",
     "setup": "Preparación",

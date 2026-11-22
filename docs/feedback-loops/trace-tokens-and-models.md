@@ -148,6 +148,18 @@ After the fix, the Loop A selection plus the neighbouring suites (BOW source,
 token split, diagnosis scope, console scope, agent lists, MCP training, memory,
 contract/grammar units): **373 passed** on `--db=sqlite`.
 
+## Review fixes (PR review)
+
+Each fix has a regression case that fails on the previous commit (13 failed, 28 passed with the fixes stashed):
+
+- The BOW current-report check reads string values only for `report_id` / `run_id`. Before, `turn:1`, `eval:false`, `routed:false` or `tokens:(100 OR 200)` next to the exclusion raised `KeyError('s')`. Refresh is covered for each.
+- `has:routed` means "the run has usage records" and no longer raises `IndexError`.
+- Routed per model counts only calls that ran instead of the baseline: the router stamps every call of an Auto-routed run, escalated baseline calls included. The baseline is resolved from its `LLMModel` id to a model id. The run-level `auto_routed` flag drives the Auto badge.
+- Step input is left unset when the run's planner calls follow different cache conventions (Auto routing across providers), because a decision can't be tied to its call.
+- Before rollup, the trace's primary model comes from the usage records by the rollup's rule (planner calls first), not the largest model.
+
+After the fixes, the same suites as above: **384 passed** on `--db=sqlite`.
+
 ## What this proves / regression notes
 
 - Per-step numbers equal the DB's `plan_decisions.metrics_json` with one

@@ -1332,6 +1332,7 @@
     "modelCalls": "{count} anrop | {count} anrop",
     "autoRouted": "Auto",
     "autoRoutedTooltip": "Automatisk routning körde de här anropen på {model} i stället för {baseline}",
+    "autoRoutedRunTooltip": "Automatisk routning var på för den här körningen",
     "primaryModel": "Primär",
     "turnUsageTooltip": "LLM-användning för denna tur",
     "setup": "Förberedelse",
