@@ -255,8 +255,15 @@ def test_savings_nets_escalation_overhead_negative_when_actual_exceeds_baseline(
 
 # ── explicit user pick disables routing entirely ───────────────────────────
 
-def _routing_self(*, prompt=None, report_model_id=None, routing_on=True):
-    """Light stand-in carrying only what _setup_model_routing reads."""
+_UNSET = object()
+
+
+def _routing_self(*, prompt=None, report_model_id=None, routing_on=True, routing_meta=_UNSET):
+    """Light stand-in carrying only what _setup_model_routing reads.
+
+    ``routing_meta`` defaults to what CompletionService hands the agent: the
+    per-user on/off already resolved as ``routing_enabled``.
+    """
     from app.ai.agent_v2 import AgentV2
 
     tool = types.SimpleNamespace(name="route_model", schema=None)
@@ -272,6 +279,7 @@ def _routing_self(*, prompt=None, report_model_id=None, routing_on=True):
         report=types.SimpleNamespace(model_id=report_model_id),
         head_completion=types.SimpleNamespace(prompt=prompt, user=None),
         _routing_controller=None,
+        _routing_meta={"routing_enabled": routing_on} if routing_meta is _UNSET else routing_meta,
     )
     fake_self._user_picked_model = lambda: AgentV2._user_picked_model(fake_self)
     return fake_self
@@ -324,3 +332,40 @@ async def test_no_pick_keeps_route_model_tool_wired(monkeypatch):
 
     assert "route_model" in names
     assert fake_self._routing_controller is not None
+
+
+# ── per-user on/off handed in by CompletionService (group or org) ──────────
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled,org_on", [(False, True), (True, False)])
+async def test_agent_follows_resolved_routing_flag_over_org_setting(enabled, org_on, monkeypatch):
+    """A group Off must hide route_model even with the org on, and a group On
+    must wire it even with the org off: the agent obeys the flag the
+    completion path resolved, so the starting model and the tool agree."""
+    fake_self = _routing_self(
+        prompt={"content": "hi"}, routing_on=org_on, routing_meta={"routing_enabled": enabled},
+    )
+    small = _model("gpt-small", "GPT Small", small=True, hint="simple lookups", db_id="s1")
+
+    names = await _run_setup(fake_self, monkeypatch, [small])
+
+    assert ("route_model" in names) is enabled
+    assert (fake_self._routing_controller is not None) is enabled
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("licensed,org_on,expected", [
+    (True, True, True), (True, False, False), (False, True, False),
+])
+async def test_agent_without_flag_resolves_org_setting_and_license(licensed, org_on, expected, monkeypatch):
+    """Callers that pass no flag (e.g. test runs) get the same answer the
+    completion path would: no user → the org setting, and never without the
+    model_routing license."""
+    from app.ee import license as ee_license
+    monkeypatch.setattr(ee_license, "has_feature", lambda feature: licensed)
+    fake_self = _routing_self(prompt={"content": "hi"}, routing_on=org_on, routing_meta=None)
+    small = _model("gpt-small", "GPT Small", small=True, hint="simple lookups", db_id="s1")
+
+    names = await _run_setup(fake_self, monkeypatch, [small])
+
+    assert ("route_model" in names) is expected

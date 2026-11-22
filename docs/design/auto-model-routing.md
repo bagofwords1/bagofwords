@@ -1,7 +1,8 @@
 # Auto model routing
 
 Route each request to the cheapest model that can handle it, without the user
-ever having to think about models. Off by default; enabled per organization.
+ever having to think about models. Off by default; enabled per organization,
+with an optional per-group override (see Per-group on/off).
 
 **Enterprise-only.** Auto routing is gated by the `model_routing` license
 feature (`app/ee/license.py`, enterprise tier). Community / unlicensed installs
@@ -128,6 +129,37 @@ it is a standalone, risk-free saving that ships first.
   enum descriptions verbatim. Hidden/collapsed when the toggle is off.
   Non-routable models (disabled / access-restricted) show a muted state so
   admins don't write hints the router can never use.
+
+## Per-group on/off
+
+The org toggle is the default; a group can override it.
+`Group.model_routing` (nullable boolean, migration `grprout01`) is set in the
+**Auto router** column of the Group defaults table on the LLM settings page
+(`PUT /llm/group-defaults/{id}`, `model_routing: true | false | null`):
+
+- `null` (Inherit) — follow the org `model_routing` setting.
+- `true` (On) — route this group's members even when the org is off.
+- `false` (Off) — never route them, even when the org is on.
+
+A member in several groups gets the value of the highest-priority group that
+has one (lower `default_llm_priority` wins, ties by name then id — the same
+order as the group default models); groups on Inherit are skipped.
+`model_router.resolve_routing_enabled` is the one resolver; it returns off
+without the `model_routing` license. `CompletionService._resolve_completion_models`
+calls it once and hands the answer to the agent as
+`routing_meta["routing_enabled"]`, so the starting model and the `route_model`
+tool always agree; callers that pass no flag (test runs) resolve it in
+`AgentV2._setup_model_routing` the same way. Setting a group to On needs the
+license (402 otherwise); Off / Inherit are always allowed. The console shows
+routing savings when the org or any group has the router on.
+
+Everything else is already per group and needs no routing-specific setting:
+the starting model is the group's small default, escalation candidates are
+the models the member may `use` (grants to the group / role), and the
+fallback chain is filtered by the same access. Candidate access checks fail
+the same way as the fallback chain: if the check errors, an unrestricted
+model is kept and a restricted one is dropped. Routing hints, the decision
+method and the fallback order stay org-wide.
 
 ## User surface (PromptBoxV2)
 

@@ -506,8 +506,9 @@ class CompletionService:
 
         Precedence: prompt.model_id > report.model_id > user default > org
         default. The Auto model router only engages when the user picked nothing
-        (no per-message and no report-pinned model), the org's ``model_routing``
-        setting is on, a small model exists and differs from the baseline
+        (no per-message and no report-pinned model), routing is on for the user
+        (their group's ``model_routing``, else the org setting — see
+        ``resolve_routing_enabled``), a small model exists and differs from the baseline
         default, and at least one guided candidate exists to escalate to. In that
         case the run STARTS on the small model and routing_meta carries the
         baseline (default) model id so usage records can be credited with
@@ -528,32 +529,34 @@ class CompletionService:
             return None, small_model, {}
 
         report_pinned = bool(getattr(report, "model_id", None))
-        can_route = (
-            not report_pinned
-            and small_model is not None
-            and str(small_model.id) != str(baseline.id)
-        )
-        # Auto model routing is an Enterprise feature. Without the license it is
-        # a hard no-op regardless of the org setting, so community installs (or a
-        # lapsed license) always run the resolved default — never a routed model.
-        from app.ee.license import has_feature
-        if can_route and has_feature("model_routing"):
-            try:
-                settings = await organization.get_settings(db)
-                routing_on = bool(getattr(settings.get_config("model_routing"), "value", False))
-            except Exception:
-                routing_on = False
-            if routing_on:
-                try:
-                    from app.ai.model_router import resolve_routing_candidates
-                    candidates = await resolve_routing_candidates(db, organization, current_user)
-                except Exception:
-                    candidates = []
-                if candidates:
-                    # Start small; baseline is the model that would otherwise run.
-                    return small_model, small_model, {"routed": True, "baseline_model_id": str(baseline.id)}
+        if report_pinned:
+            return baseline, (small_model or baseline), {}
 
-        return baseline, (small_model or baseline), {}
+        # On/off for THIS user: their highest-priority group with a value, else
+        # the org setting; always off without the Enterprise license. Resolved
+        # once here and handed to the agent via routing_meta["routing_enabled"]
+        # so the starting model and the route_model tool agree.
+        from app.ai.model_router import resolve_routing_enabled, resolve_routing_candidates
+        try:
+            routing_on = (await resolve_routing_enabled(db, organization, current_user))["enabled"]
+        except Exception:
+            routing_on = False
+
+        can_route = small_model is not None and str(small_model.id) != str(baseline.id)
+        if routing_on and can_route:
+            try:
+                candidates = await resolve_routing_candidates(db, organization, current_user)
+            except Exception:
+                candidates = []
+            if candidates:
+                # Start small; baseline is the model that would otherwise run.
+                return small_model, small_model, {
+                    "routed": True,
+                    "baseline_model_id": str(baseline.id),
+                    "routing_enabled": True,
+                }
+
+        return baseline, (small_model or baseline), {"routing_enabled": routing_on}
 
     # Short-TTL cache for /completions/estimate. Frontend calls this on every
     # keystroke; without caching, each call does a full prime_static + refresh_warm

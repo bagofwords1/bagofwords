@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, ForeignKey, UniqueConstraint, Integer
+from sqlalchemy import Column, String, Text, ForeignKey, UniqueConstraint, Integer, Boolean
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
@@ -22,6 +22,11 @@ class Group(BaseSchema):
     # Which group's default wins for a user in several groups: lower wins,
     # ties broken by group name.
     default_llm_priority = Column(Integer, nullable=False, default=100, server_default="100")
+    # Auto model router on/off for the group's members (EE model_routing).
+    # NULL = follow the org ``model_routing`` setting. For a member in several
+    # groups the highest-priority group with a non-NULL value wins (same order
+    # as the default models above).
+    model_routing = Column(Boolean, nullable=True)
 
     organization = relationship("Organization", back_populates="groups")
     memberships = relationship("GroupMembership", back_populates="group", cascade="all, delete-orphan")

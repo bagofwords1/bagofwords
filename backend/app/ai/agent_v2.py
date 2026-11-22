@@ -4580,7 +4580,8 @@ class AgentV2:
     async def _setup_model_routing(self) -> None:
         """Resolve routing candidates and wire the route_model tool for this run.
 
-        When the org's Auto router is on and guided candidate models exist, the
+        When the Auto router is on for this user (their group's value, else the
+        org setting — model_router.resolve_routing_enabled) and guided candidate models exist, the
         route_model descriptor's schema is replaced with a per-request enum of
         those models (with the admin's hints), and a RoutingController is bound
         so the tool can escalate. Otherwise route_model is removed from the
@@ -4594,6 +4595,7 @@ class AgentV2:
             RoutingController,
             build_route_model_schema,
             resolve_routing_candidates,
+            resolve_routing_enabled,
         )
 
         catalog = self.planner.tool_catalog or []
@@ -4606,11 +4608,22 @@ class AgentV2:
                 getattr(self.model, "name", None),
             )
         else:
-            try:
-                cfg = self.organization_settings.get_config("model_routing") if self.organization_settings else None
-                routing_on = bool(getattr(cfg, "value", False))
-            except Exception:
-                routing_on = False
+            # On/off for this user (group value, else org; off without the
+            # license). CompletionService resolves it once and passes it in
+            # routing_meta so the starting model and this tool agree; callers
+            # that don't (e.g. test runs) resolve it here the same way.
+            meta = getattr(self, "_routing_meta", None) or {}
+            if "routing_enabled" in meta:
+                routing_on = bool(meta["routing_enabled"])
+            else:
+                try:
+                    routing_on = (await resolve_routing_enabled(
+                        self.db, self.organization,
+                        getattr(self.head_completion, "user", None),
+                        self.organization_settings,
+                    ))["enabled"]
+                except Exception:
+                    routing_on = False
 
         candidates = []
         if routing_on and self.db and self.organization:

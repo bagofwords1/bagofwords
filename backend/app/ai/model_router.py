@@ -43,6 +43,84 @@ def get_routing_hint(model: Any) -> Optional[str]:
     return None
 
 
+def _org_routing_on(organization_settings: Any) -> bool:
+    try:
+        cfg = organization_settings.get_config("model_routing") if organization_settings else None
+        return bool(getattr(cfg, "value", False))
+    except Exception:
+        return False
+
+
+async def resolve_routing_enabled(
+    db: AsyncSession,
+    organization: Any,
+    user: Any,
+    organization_settings: Any = None,
+) -> Dict[str, Any]:
+    """Whether the Auto router is on for this user (ignoring any explicit pick).
+
+    Order: no ``model_routing`` license → off. Otherwise the user's groups with
+    a non-NULL ``Group.model_routing``, in ``default_llm_priority`` order (lower
+    wins, ties by name then id — same as the group default models); the first
+    one decides. No group value → the org ``model_routing`` setting.
+
+    Returns ``{"enabled", "source", "group_id", "group_name"}`` where source is
+    "unlicensed", "group" or "org". Never raises: a group lookup error falls
+    back to the org setting.
+    """
+    from app.ee.license import has_feature
+
+    def _out(enabled, source, group=None):
+        return {
+            "enabled": bool(enabled),
+            "source": source,
+            "group_id": str(group.id) if group is not None else None,
+            "group_name": group.name if group is not None else None,
+        }
+
+    if not has_feature("model_routing"):
+        return _out(False, "unlicensed")
+
+    if organization_settings is None:
+        try:
+            organization_settings = await organization.get_settings(db)
+        except Exception:
+            organization_settings = None
+
+    if user is not None and getattr(user, "id", None):
+        try:
+            from app.models.group import Group
+            from app.models.group_membership import GroupMembership
+            group = (await db.execute(
+                select(Group)
+                .join(GroupMembership, GroupMembership.group_id == Group.id)
+                .where(
+                    GroupMembership.user_id == str(user.id),
+                    Group.organization_id == str(organization.id),
+                    Group.model_routing.isnot(None),
+                )
+                .order_by(Group.default_llm_priority.asc(), Group.name.asc(), Group.id.asc())
+                .limit(1)
+            )).scalars().first()
+            if group is not None:
+                return _out(group.model_routing, "group", group)
+        except Exception:
+            logger.warning("[routing] group routing lookup failed; using the org setting", exc_info=True)
+
+    return _out(_org_routing_on(organization_settings), "org")
+
+
+async def any_group_routing_on(db: AsyncSession, organization: Any) -> bool:
+    """True when at least one group in the org turns the router on."""
+    from app.models.group import Group
+    row = (await db.execute(
+        select(Group.id)
+        .where(Group.organization_id == str(organization.id), Group.model_routing == True)  # noqa: E712
+        .limit(1)
+    )).first()
+    return row is not None
+
+
 async def resolve_routing_candidates(
     db: AsyncSession,
     organization: Any,
@@ -86,9 +164,17 @@ async def resolve_routing_candidates(
             if await user_can_use_model(db, user.id, organization.id, m):
                 eligible.append(m)
         except Exception:
-            # Never let an access-check error remove a model the planner might
-            # need; the server re-validates on apply anyway.
-            eligible.append(m)
+            # Same posture as the fallback chain (filter_chain_by_access): an
+            # unrestricted model is usable by everyone, so keeping it can't
+            # widen access; a restricted one is dropped rather than risk
+            # offering a model the admin locked down.
+            if not getattr(m, "is_restricted", False):
+                eligible.append(m)
+            else:
+                logger.warning(
+                    "[routing] access check failed for restricted model %s; dropping it from candidates",
+                    getattr(m, "id", None), exc_info=True,
+                )
 
     def _rank(m: LLMModel):
         # small default first, then default, then cheapest input cost.

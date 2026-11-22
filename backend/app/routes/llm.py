@@ -530,6 +530,9 @@ class GroupLLMDefaultsUpdate(BaseModel):
     default_llm_model_id: Optional[str] = None
     small_default_llm_model_id: Optional[str] = None
     default_llm_priority: Optional[int] = None
+    # Auto model router for the group: true / false, or null = follow the org
+    # setting. Turning it on needs the model_routing license (402 otherwise).
+    model_routing: Optional[bool] = None
 
 
 @router.get("/llm/group-defaults")
@@ -554,9 +557,11 @@ async def set_group_llm_defaults(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Set a group's default models. Only the fields sent are changed; send a
-    model id as null to clear it (the group then inherits the org default).
-    A group's default is usable by its members even when restricted."""
+    """Set a group's default models and Auto-router switch. Only the fields
+    sent are changed; send a model id as null to clear it (the group then
+    inherits the org default), and model_routing as null to follow the org
+    Auto-router setting. A group's default is usable by its members even when
+    restricted."""
     return await llm_service.set_group_defaults(
         db, organization, current_user, group_id, payload.model_dump(exclude_unset=True)
     )

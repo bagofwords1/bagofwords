@@ -840,6 +840,8 @@ class LLMService:
             "default_llm_model_id": group.default_llm_model_id,
             "small_default_llm_model_id": group.small_default_llm_model_id,
             "default_llm_priority": group.default_llm_priority if group.default_llm_priority is not None else 100,
+            # None = follow the org Auto-router setting.
+            "model_routing": group.model_routing,
             "default_model": _m(group.default_llm_model_id),
             "small_default_model": _m(group.small_default_llm_model_id),
         }
@@ -869,7 +871,7 @@ class LLMService:
         group_id: str,
         fields: dict,
     ):
-        """Set a group's default / small default model and priority.
+        """Set a group's default / small default model, priority and Auto-router switch.
 
         ``fields`` holds only the keys the caller sent; a None model id clears
         it (the group then inherits the org default). Setting a model makes it
@@ -898,6 +900,19 @@ class LLMService:
                 setattr(group, key, None)
         if "default_llm_priority" in fields and fields["default_llm_priority"] is not None:
             group.default_llm_priority = int(fields["default_llm_priority"])
+        if "model_routing" in fields:
+            value = fields["model_routing"]
+            # Turning the router ON for a group needs the license (same rule as
+            # the org setting); Off / Inherit stay allowed so a lapsed license
+            # can't strand a group with routing forced on.
+            if value is True:
+                from app.ee.license import has_feature
+                if not has_feature("model_routing"):
+                    raise HTTPException(
+                        status_code=402,
+                        detail="The Auto model router requires an enterprise license.",
+                    )
+            group.model_routing = None if value is None else bool(value)
 
         db.add(group)
         await db.commit()

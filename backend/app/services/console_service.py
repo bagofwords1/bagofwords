@@ -1031,6 +1031,11 @@ class ConsoleService:
         try:
             settings = await organization.get_settings(db)
             enabled = bool(getattr(settings.get_config("model_routing"), "value", False))
+            if not enabled:
+                # The router can be on for some groups while off for the org;
+                # their savings must still show.
+                from app.ai.model_router import any_group_routing_on
+                enabled = await any_group_routing_on(db, organization)
         except Exception:
             enabled = False
 
