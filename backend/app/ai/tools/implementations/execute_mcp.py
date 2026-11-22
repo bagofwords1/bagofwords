@@ -1822,8 +1822,15 @@ Do not use when:
                 model_id = None
         if model_id and organization is not None:
             try:
-                from app.ai.model_router import _load_decision_model
+                from app.ai.model_router import _load_decision_model, user_may_use_model
                 decision_model = await _load_decision_model(db, organization, model_id)
+                # The judge reads the user's task and the tool arguments, so a
+                # decision model the user may not use doesn't judge their calls;
+                # the small model (one they can use) decides instead.
+                user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
+                if decision_model is not None and not await user_may_use_model(db, organization, user, decision_model):
+                    logger.info("execute_mcp: user may not use the decision model; judging with the small model")
+                    decision_model = None
             except Exception as e:
                 logger.warning(f"execute_mcp: loading the decision model failed: {e!r}")
                 decision_model = None

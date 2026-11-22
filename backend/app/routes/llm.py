@@ -31,7 +31,7 @@ router = APIRouter(tags=["llm"])
 llm_service = LLMService()
 
 @router.get("/llm/available_providers", response_model=list[dict])
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def get_available_providers(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -40,7 +40,7 @@ async def get_available_providers(
     return await llm_service.get_available_providers(db, organization, current_user)
 
 @router.get("/llm/available_models", response_model=list[dict])
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def get_available_models(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -49,13 +49,17 @@ async def get_available_models(
     return await llm_service.get_available_models(db, organization, current_user)
 
 @router.post("/llm/test_connection", response_model=dict)
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def test_connection(
     provider: LLMProviderTestConnection,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    if provider.provider_id:
+        await _require_provider_manage(db, current_user, organization, provider.provider_id, "llm_provider.test_connection")
+    else:
+        await _require_llm_admin(db, current_user, organization, "llm_provider.test_connection")
     try:
         return await llm_service.test_connection(db, organization, current_user, provider)
     except HTTPException:
@@ -64,15 +68,127 @@ async def test_connection(
         logger.error("LLM test_connection route error: %s", e, exc_info=True)
         return {"success": False, "message": str(e)}
 
-@router.get("/llm/providers", response_model=List[LLMProviderSchema])
+# ── Who may manage what ─────────────────────────────────────────────────
+#
+# Org-wide ``manage_llm`` covers everything. A provider manager (a member an
+# LLM admin named on one provider, see LLMService.add_provider_manager) may
+# manage that provider and its models only. Routes that a provider manager may
+# use declare ``@requires_permission('manage_llm', resource_scoped=True)`` — a
+# provider grant implies ``manage_llm`` on that provider, which gets them past
+# the door — and then name the specific provider with one of these checks.
+
+async def _llm_provider_scope(db: AsyncSession, user: User, organization: Organization):
+    """(is_llm_admin, ids of the live providers the user manages)."""
+    from app.core.permission_resolver import resolve_permissions
+    resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+    if resolved.has_org_permission("manage_llm"):
+        return True, set()
+    return False, await llm_service.managed_provider_ids(db, organization, user)
+
+
+async def _deny_llm(db, user, organization, action: str, resource_type: str = None, resource_id: str = None):
+    try:
+        await audit_service.log(
+            db=db, organization_id=str(organization.id), action=f"{action}.denied",
+            user_id=str(user.id), resource_type=resource_type, resource_id=resource_id,
+            details={"reason": "not_llm_admin_or_provider_manager"},
+        )
+    except Exception:
+        pass
+    raise HTTPException(status_code=403, detail="You need to manage LLM settings or this provider.")
+
+
+async def _require_llm_admin(db, user, organization, action: str) -> None:
+    is_admin, _ = await _llm_provider_scope(db, user, organization)
+    if not is_admin:
+        await _deny_llm(db, user, organization, action)
+
+
+async def _require_provider_manage(db, user, organization, provider_id: str, action: str) -> bool:
+    """Authorize an action on one provider; True when the caller acts as its
+    manager rather than as an org LLM admin."""
+    is_admin, managed = await _llm_provider_scope(db, user, organization)
+    if is_admin:
+        return False
+    if str(provider_id) in managed:
+        return True
+    await _deny_llm(db, user, organization, action, "llm_provider", str(provider_id))
+
+
+async def _require_model_manage(db, user, organization, model_id: str, action: str) -> bool:
+    """Authorize an action on one model by way of its provider."""
+    from sqlalchemy import select
+    from app.models.llm_model import LLMModel
+    is_admin, managed = await _llm_provider_scope(db, user, organization)
+    if is_admin:
+        return False
+    provider_id = (await db.execute(
+        select(LLMModel.provider_id).where(
+            LLMModel.id == str(model_id), LLMModel.organization_id == str(organization.id),
+            LLMModel.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if provider_id is not None and str(provider_id) in managed:
+        return True
+    await _deny_llm(db, user, organization, action, "llm_model", str(model_id))
+
+
+@router.get("/llm/providers/{provider_id}/managers")
+@require_enterprise(feature="llm_access_control")
 @requires_permission('manage_llm')
+async def list_provider_managers(
+    provider_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Members who manage this provider (its credentials, models and their
+    settings, routing hints)."""
+    return await llm_service.list_provider_managers(db, organization, provider_id)
+
+
+@router.put("/llm/providers/{provider_id}/managers/{user_id}")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def add_provider_manager(
+    provider_id: str,
+    user_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Let an org member manage this provider. Org LLM admins only."""
+    return await llm_service.add_provider_manager(db, organization, current_user, provider_id, user_id)
+
+
+@router.delete("/llm/providers/{provider_id}/managers/{user_id}")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def remove_provider_manager(
+    provider_id: str,
+    user_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Stop a member from managing this provider. Org LLM admins only."""
+    return await llm_service.remove_provider_manager(db, organization, current_user, provider_id, user_id)
+
+
+@router.get("/llm/providers", response_model=List[LLMProviderSchema])
+@requires_permission('manage_llm', resource_scoped=True)
 async def get_providers(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Get all LLM providers for the organization"""
-    return await llm_service.get_providers(db, organization, current_user)
+    """Get all LLM providers for the organization (a provider manager: the
+    providers they manage)."""
+    is_admin, managed = await _llm_provider_scope(db, current_user, organization)
+    providers = await llm_service.get_providers(db, organization, current_user)
+    if is_admin:
+        return providers
+    return [p for p in providers if str(p.id) in managed]
 
 @router.post("/llm/providers", response_model=LLMProviderSchema)
 @requires_permission('manage_llm')
@@ -87,7 +203,7 @@ async def create_provider(
 
 
 @router.put("/llm/providers/{provider_id}", response_model=LLMProviderSchema)
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def update_provider(
     provider_id: str,
     provider: LLMProviderUpdate,
@@ -96,7 +212,8 @@ async def update_provider(
     organization: Organization = Depends(get_current_organization)
 ):
     """Update provider settings"""
-    return await llm_service.update_provider(db, organization, current_user, provider_id, provider)
+    as_manager = await _require_provider_manage(db, current_user, organization, provider_id, "llm_provider.updated")
+    return await llm_service.update_provider(db, organization, current_user, provider_id, provider, as_manager=as_manager)
 
 @router.delete("/llm/providers/{provider_id}")
 @requires_permission('manage_llm')
@@ -113,6 +230,7 @@ async def delete_provider(
 async def get_models(
     is_enabled: bool = None,
     kind: str = "chat",
+    manage: bool = False,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -122,18 +240,30 @@ async def get_models(
     Every member needs the model list (model picker, chat), but the nested
     provider's ``additional_config`` (custom header values, endpoints) and
     ``credentials`` are admin-only: they are returned only to callers holding
-    ``manage_llm``, the permission that gates the rest of the LLM admin API.
+    ``manage_llm``, the permission that gates the rest of the LLM admin API,
+    and to a provider's managers for that provider.
+
+    ``manage=true`` is the settings-table listing: every model (restricted
+    ones included) for an LLM admin, the managed providers' models for a
+    provider manager, 403 for anyone else.
     """
-    from app.core.permission_resolver import resolve_permissions
     if kind not in ("chat", "decision", "all"):
         raise HTTPException(status_code=400, detail="kind must be 'chat', 'decision' or 'all'")
-    models = await llm_service.get_models(db, organization, current_user, is_enabled, kind=kind)
+    is_admin, managed = await _llm_provider_scope(db, current_user, organization)
+    scope = None
+    if manage:
+        # The settings table: every model for an LLM admin, the managed
+        # providers' models for a provider manager, nothing for anyone else.
+        if not is_admin and not managed:
+            await _deny_llm(db, current_user, organization, "llm_model.list_manage")
+        scope = "all" if is_admin else managed
+    models = await llm_service.get_models(db, organization, current_user, is_enabled, kind=kind, manage_scope=scope)
     out = [LLMModelSchemaWithProvider.model_validate(m) for m in models]
-    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-    if not resolved.has_org_permission("manage_llm"):
+    if not is_admin:
         for m in out:
-            m.provider.additional_config = None
-            m.provider.credentials = None
+            if str(m.provider.id) not in managed:
+                m.provider.additional_config = None
+                m.provider.credentials = None
     return out
 
 @router.post("/llm/models", response_model=LLMModelSchema)
@@ -164,7 +294,7 @@ async def create_model(
 # RecursionError. Nothing called this endpoint until the rename UI landed, so
 # the crash sat undiscovered — POST above always had the schema.
 @router.patch("/llm/models/{model_id}", response_model=LLMModelSchema)
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def update_model(
     model_id: str,
     model: LLMModelUpdate,
@@ -174,6 +304,7 @@ async def update_model(
     organization: Organization = Depends(get_current_organization)
 ):
     """Update model settings"""
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.updated")
     updated = await llm_service.update_model(db, organization, current_user, model_id, model)
     try:
         await audit_service.log(
@@ -208,7 +339,7 @@ async def delete_model(
     return result
 
 @router.post("/llm/providers/{provider_id}/toggle")
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def toggle_provider(
     provider_id: str,
     enabled: bool,
@@ -217,10 +348,11 @@ async def toggle_provider(
     organization: Organization = Depends(get_current_organization)
 ):
     """Enable/disable a provider"""
-    return await llm_service.toggle_provider(db, organization, current_user, provider_id, enabled)
+    as_manager = await _require_provider_manage(db, current_user, organization, provider_id, "llm_provider.toggled")
+    return await llm_service.toggle_provider(db, organization, current_user, provider_id, enabled, as_manager=as_manager)
 
 @router.post("/llm/models/{model_id}/toggle")
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def toggle_model(
     model_id: str,
     enabled: bool,
@@ -229,10 +361,11 @@ async def toggle_model(
     organization: Organization = Depends(get_current_organization)
 ):
     """Enable/disable a model"""
-    return await llm_service.toggle_model(db, organization, current_user, model_id, enabled)
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.toggled")
+    return await llm_service.toggle_model(db, organization, current_user, model_id, enabled, as_manager=as_manager)
 
 @router.post("/llm/models/{model_id}/toggle_vision")
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def toggle_model_vision(
     model_id: str,
     enabled: bool,
@@ -241,10 +374,11 @@ async def toggle_model_vision(
     organization: Organization = Depends(get_current_organization)
 ):
     """Manually enable/disable image (vision) support for a model."""
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.vision")
     return await llm_service.toggle_vision(db, organization, current_user, model_id, enabled)
 
 @router.post("/llm/models/{model_id}/toggle_image_generation")
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def toggle_model_image_generation(
     model_id: str,
     enabled: bool,
@@ -253,10 +387,11 @@ async def toggle_model_image_generation(
     organization: Organization = Depends(get_current_organization)
 ):
     """Manually mark/unmark a model as an image-generation model."""
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.image_generation")
     return await llm_service.toggle_image_generation(db, organization, current_user, model_id, enabled)
 
 @router.post("/llm/models/{model_id}/set_temperature")
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def set_model_temperature(
     model_id: str,
     temperature: float | None = None,
@@ -265,10 +400,11 @@ async def set_model_temperature(
     organization: Organization = Depends(get_current_organization)
 ):
     """Set a model's explicit sampling temperature (0-2). Omit to reset — no temperature is sent and the endpoint's default applies."""
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.temperature")
     return await llm_service.set_temperature(db, organization, current_user, model_id, temperature)
 
 @router.post("/llm/models/{model_id}/set_context_window")
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def set_model_context_window(
     model_id: str,
     tokens: int | None = None,
@@ -277,6 +413,7 @@ async def set_model_context_window(
     organization: Organization = Depends(get_current_organization)
 ):
     """Manually size a model's context window (tokens). Omit tokens to reset to the catalog default."""
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.context_window")
     return await llm_service.set_context_window(db, organization, current_user, model_id, tokens)
 
 @router.post("/llm/models/{model_id}/set_default")
@@ -320,7 +457,7 @@ async def set_model_pricing(
 
 
 @router.post("/llm/models/{model_id}/reasoning")
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def set_model_reasoning(
     model_id: str,
     body: ModelReasoningUpdate,
@@ -330,11 +467,12 @@ async def set_model_reasoning(
 ):
     """Set a model's reasoning settings: mode (auto / behaves like / generic /
     custom / off), its default level, and raw request fields per level."""
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.reasoning")
     return await llm_service.set_reasoning(db, organization, current_user, model_id, body)
 
 
 @router.post("/llm/models/{model_id}/test_reasoning")
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def test_model_reasoning(
     model_id: str,
     body: ModelReasoningTest,
@@ -344,6 +482,7 @@ async def test_model_reasoning(
 ):
     """Send one tool-calling request at the given level with the model's saved
     reasoning settings, and report what it ran as and what came back."""
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.test_reasoning")
     return await llm_service.test_reasoning(db, organization, current_user, model_id, body.effort)
 
 
@@ -353,7 +492,7 @@ class RoutingHintUpdate(BaseModel):
 
 @router.post("/llm/models/{model_id}/routing_hint")
 @require_enterprise(feature="model_routing")
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def set_model_routing_hint(
     model_id: str,
     body: RoutingHintUpdate,
@@ -363,6 +502,7 @@ async def set_model_routing_hint(
 ):
     """Set/clear a model's Auto-router guidance (stored on config.routing_hint).
     A non-empty hint makes the model a routing target; empty clears it."""
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.routing_hint")
     return await llm_service.set_routing_hint(db, organization, current_user, model_id, body.hint)
 
 
@@ -382,7 +522,7 @@ class DecisionSettingsUpdate(BaseModel):
 
 
 @router.put("/llm/models/{model_id}/decision", response_model=LLMModelSchema)
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def set_model_decision_settings(
     model_id: str,
     body: DecisionSettingsUpdate,
@@ -392,12 +532,13 @@ async def set_model_decision_settings(
 ):
     """Set a decision model's wire settings (format, path, wire model id,
     question limits, timeout, keep_alive, prompt caching)."""
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.decision")
     update = body.model_dump(exclude_unset=True)
     return await llm_service.update_decision_settings(db, organization, current_user, model_id, update)
 
 
 @router.post("/llm/models/{model_id}/test_decision")
-@requires_permission('manage_llm')
+@requires_permission('manage_llm', resource_scoped=True)
 async def test_model_decision(
     model_id: str,
     current_user: User = Depends(current_user),
@@ -405,6 +546,7 @@ async def test_model_decision(
     organization: Organization = Depends(get_current_organization)
 ):
     """Ask the decision model one yes/no question; returns its probability and latency."""
+    as_manager = await _require_model_manage(db, current_user, organization, model_id, "llm_model.test_decision")
     return await llm_service.test_decision(db, organization, current_user, model_id)
 
 
@@ -532,21 +674,73 @@ class GroupLLMDefaultsUpdate(BaseModel):
     default_llm_priority: Optional[int] = None
 
 
+async def _group_llm_scope(db: AsyncSession, user: User, organization: Organization):
+    """(is_llm_admin, ids of the groups the user manages).
+
+    An org LLM admin (``manage_llm``) acts on every group. A group manager
+    (see docs/feedback-loops/group-manager.md) acts on the groups they manage
+    only, and only on those groups' default / small default model.
+    """
+    from app.core.permission_resolver import resolve_permissions, GROUP_MANAGER_PERMISSION
+    resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+    managed = {
+        rid for (rtype, rid), perms in resolved.resource_permissions.items()
+        if rtype == "group" and GROUP_MANAGER_PERMISSION in perms
+    }
+    return resolved.has_org_permission("manage_llm"), managed
+
+
+async def _deny_group_llm(db, user, organization, action: str, group_id: Optional[str] = None):
+    try:
+        await audit_service.log(
+            db=db, organization_id=str(organization.id), action=f"{action}.denied",
+            user_id=str(user.id), resource_type="group", resource_id=group_id,
+            details={"reason": "not_llm_admin_or_group_manager"},
+        )
+    except Exception:
+        pass
+    raise HTTPException(status_code=403, detail="You need to manage LLM settings or this group.")
+
+
 @router.get("/llm/group-defaults")
 @require_enterprise(feature="llm_access_control")
-@requires_permission('manage_llm')
+@requires_permission('view_members')
 async def list_group_llm_defaults(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Every group with its default / small default model and priority."""
-    return await llm_service.list_group_defaults(db, organization, current_user)
+    """Groups with their default / small default model and priority: every
+    group for an LLM admin, the groups they manage for a group manager."""
+    is_admin, managed = await _group_llm_scope(db, current_user, organization)
+    if is_admin:
+        return await llm_service.list_group_defaults(db, organization, current_user)
+    if managed:
+        return await llm_service.list_group_defaults(db, organization, current_user, group_ids=managed)
+    await _deny_group_llm(db, current_user, organization, "group.llm_defaults_list")
+
+
+@router.get("/llm/group-defaults/{group_id}/choices")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('view_members')
+async def list_group_llm_default_choices(
+    group_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Models that may be picked as this group's default. For a group manager
+    these are only the models the group can already use (open to everyone, or
+    granted to the group or one of its roles)."""
+    is_admin, managed = await _group_llm_scope(db, current_user, organization)
+    if not is_admin and str(group_id) not in managed:
+        await _deny_group_llm(db, current_user, organization, "group.llm_defaults_choices", group_id)
+    return await llm_service.group_default_choices(db, organization, group_id, as_manager=not is_admin)
 
 
 @router.put("/llm/group-defaults/{group_id}")
 @require_enterprise(feature="llm_access_control")
-@requires_permission('manage_llm')
+@requires_permission('view_members')
 async def set_group_llm_defaults(
     group_id: str,
     payload: GroupLLMDefaultsUpdate,
@@ -556,9 +750,17 @@ async def set_group_llm_defaults(
 ):
     """Set a group's default models. Only the fields sent are changed; send a
     model id as null to clear it (the group then inherits the org default).
-    A group's default is usable by its members even when restricted."""
+    A group's default is usable by its members even when restricted.
+
+    LLM admins may change any group and its priority. A manager of the group
+    may change its default / small default only, to models the group can
+    already use."""
+    is_admin, managed = await _group_llm_scope(db, current_user, organization)
+    if not is_admin and str(group_id) not in managed:
+        await _deny_group_llm(db, current_user, organization, "group.llm_defaults_changed", group_id)
     return await llm_service.set_group_defaults(
-        db, organization, current_user, group_id, payload.model_dump(exclude_unset=True)
+        db, organization, current_user, group_id, payload.model_dump(exclude_unset=True),
+        as_manager=not is_admin,
     )
 
 

@@ -4683,6 +4683,7 @@ class AgentV2:
             self.db, self.organization, self.organization_settings,
             candidates=candidates, small_model=self.model, prompt_text=prompt_text,
             usage_context=self.usage_limit_context,
+            user=getattr(self.head_completion, "user", None),
         )
         if outcome.model is None:
             logger.info("[routing] upfront decision kept small model (%s)", outcome.reason)

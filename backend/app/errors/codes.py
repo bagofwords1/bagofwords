@@ -210,6 +210,11 @@ class ErrorCode(str, Enum):
     LLM_MODEL_ID_DUPLICATE = "llm.model_id_duplicate"
     LLM_MODEL_IS_GROUP_DEFAULT = "llm.model_is_group_default"
     LLM_GROUP_DEFAULT_INVALID = "llm.group_default_invalid"
+    LLM_GROUP_DEFAULT_NOT_AVAILABLE = "llm.group_default_not_available"
+    LLM_GROUP_DEFAULT_PRIORITY_ADMIN_ONLY = "llm.group_default_priority_admin_only"
+    LLM_PROVIDER_HOLDS_DEFAULT = "llm.provider_holds_default"
+    LLM_PROVIDER_MANAGER_ADMIN_ONLY = "llm.provider_manager_admin_only"
+    LLM_PROVIDER_MANAGER_NOT_MEMBER = "llm.provider_manager_not_member"
 
     # Member attributes
     MEMBER_ATTRIBUTES_INVALID = "member_attributes.invalid"
