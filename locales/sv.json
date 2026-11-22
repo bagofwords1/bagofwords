@@ -8200,6 +8200,7 @@
       "time_intelligence": "tidsintelligens",
       "share_of_total": "andel av en total",
       "statistic": "statistik",
+      "offset": "konstant adderad efter aggregering",
       "unreadable": "definitionen kan inte läsas",
       "complex": "för komplex för att klassificera",
       "not_numeric": "inte ett tal",

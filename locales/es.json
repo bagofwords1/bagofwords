@@ -9137,6 +9137,7 @@
       "time_intelligence": "inteligencia de tiempo",
       "share_of_total": "parte de un total",
       "statistic": "estadístico",
+      "offset": "constante sumada tras agregar",
       "unreadable": "definición no legible",
       "complex": "demasiado compleja para clasificar",
       "not_numeric": "no es un número",

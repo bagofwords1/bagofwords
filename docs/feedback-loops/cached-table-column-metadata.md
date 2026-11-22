@@ -34,7 +34,7 @@ cd backend && TESTING=true ENVIRONMENT=production uv run pytest \
 cd frontend && node --test tests/unit/columnMetadata.mjs
 ```
 
-Observed: `174 passed` on SQLite. The DB-backed file plus
+Observed: `205 passed` on SQLite (174 before the review fixes). The DB-backed file plus
 `test_fast_artifact_lifecycle.py` also pass with `--db=postgres` against a
 local Postgres 16 (`51 passed`). The frontend test passes.
 
@@ -530,6 +530,27 @@ and the chat with and without the metadata.
 - **The dialog sent `description: null` for an empty description**, which
   the update route reads as "keep". It now sends a string, so a description
   can be cleared.
+
+## After review
+
+Five findings from code review were reproduced, fixed and pinned by tests
+that fail without the fix (each checked by undoing it):
+
+- **A cast lost the distinct-count warning.** `CAST(users AS BIGINT)` over a
+  CTE's `COUNT(DISTINCT ...)` was classified as a plain numeric column. A
+  reference to another query's computed output is now replaced by that
+  computation before classifying; one that cannot be read is `unknown`. A
+  grouping key that comes through a CTE stays a key.
+- **The ratio hint dropped a multiplier.** `DIVIDE([a], [b]) * 100` got
+  `SUM(a) / SUM(b)`. The hint is now given only when the whole expression is
+  the one division.
+- **An offset after aggregation was additive.** `SUM(cents) + 1` is now
+  `false` with the reason `offset`; `cents + 1` per row stays additive.
+- **A unit conversion inside SUM was a "ratio".** `SUM(cents / 100.0)` is now
+  additive: the classifier follows the expression's structure instead of
+  scanning it for a division anywhere.
+- **MIN / MAX told the agent to refuse.** A direct `MIN` or `MAX` now carries
+  `recompute: MIN(col)` / `MAX(col)`.
 
 ## What this proves / regression notes
 

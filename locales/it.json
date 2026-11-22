@@ -8200,6 +8200,7 @@
       "time_intelligence": "intelligenza temporale",
       "share_of_total": "quota di un totale",
       "statistic": "statistica",
+      "offset": "costante aggiunta dopo l’aggregazione",
       "unreadable": "definizione non leggibile",
       "complex": "troppo complessa da classificare",
       "not_numeric": "non è un numero",

@@ -261,8 +261,12 @@ class _Relation:
     """One FROM-clause entry of a SELECT: a catalog table, or a subquery /
     CTE whose own outputs have been traced."""
 
-    def __init__(self, table: Optional[dict] = None, outputs: Optional[dict] = None, known: bool = True):
+    def __init__(self, table: Optional[dict] = None, outputs: Optional[dict] = None, known: bool = True,
+                 base: bool = False):
         self.table, self.outputs, self.known = table, outputs, known
+        # A real table of the source (indexed or not), as opposed to a
+        # subquery, a CTE or a table function: its columns are stored values.
+        self.base = base
 
     def has(self, column: str) -> Optional[bool]:
         """True / False when it can be told, None when the relation's columns
@@ -297,7 +301,7 @@ def _select_outputs(select, catalog: Catalog, ctes: dict, dialect, used: list, d
                 table = catalog.table(parts)
                 if table is not None:
                     used.append(table["name"])
-                relations[alias] = _Relation(table=table, known=table is not None)
+                relations[alias] = _Relation(table=table, known=table is not None, base=True)
             order.append(alias)
         elif isinstance(node, exp.Subquery):
             alias = (node.alias or "").lower()
@@ -327,24 +331,58 @@ def _select_outputs(select, catalog: Catalog, ctes: dict, dialect, used: list, d
     if any(isinstance(lat, exp.Lateral) for lat in select.args.get("laterals") or []):
         return [], False
 
-    def resolve(col) -> Optional[ColumnLineage]:
-        """The lineage of one column reference, or None."""
+    def relation_of(col):
+        """The FROM-clause entry a column reference reads, or None when that
+        cannot be told."""
         name = col.name
         if not name or isinstance(col.this, exp.Star):
             return None
         qualifier = (col.table or "").lower()
         if qualifier:
-            rel = relations.get(qualifier)
-            if rel is None:
-                return None
-        else:
-            owners = [relations[a] for a in order if relations[a].has(name) is True]
-            unknown = [relations[a] for a in order if relations[a].has(name) is None]
-            # An unqualified name could belong to a relation we cannot see
-            # into; with one in the FROM clause it is not ours to assign.
-            if len(owners) != 1 or unknown:
-                return None
-            rel = owners[0]
+            return relations.get(qualifier)
+        owners = [relations[a] for a in order if relations[a].has(name) is True]
+        unknown = [relations[a] for a in order if relations[a].has(name) is None]
+        # An unqualified name could belong to a relation we cannot see
+        # into; with one in the FROM clause it is not ours to assign.
+        if len(owners) != 1 or unknown:
+            return None
+        return owners[0]
+
+    def stored_value(col) -> bool:
+        """Whether a column reference is certainly a row-level value of a
+        source table, not something another query computed."""
+        rel = relation_of(col)
+        if rel is not None:
+            return rel.base
+        return bool(order) and all(relations[a].base for a in order)
+
+    def computation(inner):
+        """`inner` with every reference to another query's output replaced by
+        what that query computes, so the additivity of `CAST(users AS BIGINT)`
+        is decided by what `users` is. An output whose computation is not
+        known becomes a marker the classifier reads as unknown."""
+        from app.data_sources.fast.additivity import UNRESOLVED_INPUT
+
+        def swap(n):
+            if not isinstance(n, exp.Column) or isinstance(n.this, exp.Star):
+                return n
+            if stored_value(n):
+                return n
+            ref = resolve(n)
+            if ref is not None and ref.kind == KIND_COLUMN:
+                return n
+            if ref is not None and ref.node is not None:
+                return exp.Paren(this=ref.node.copy())
+            return exp.Anonymous(this=UNRESOLVED_INPUT)
+
+        return inner.copy().transform(swap)
+
+    def resolve(col) -> Optional[ColumnLineage]:
+        """The lineage of one column reference, or None."""
+        name = col.name
+        rel = relation_of(col)
+        if rel is None:
+            return None
         if rel.table is not None:
             hit = Catalog.column(rel.table, name)
             if hit is None:
@@ -354,8 +392,10 @@ def _select_outputs(select, catalog: Catalog, ctes: dict, dialect, used: list, d
             inner = rel.outputs.get(name.lower())
             if inner is None:
                 return None
+            # What the inner query grouped by is still a key out here: a year
+            # that came through a CTE is no more a measure than it was inside.
             return ColumnLineage(inner.kind, inner.source, inner.expression, list(inner.reads),
-                                 grouping=False, node=inner.node)
+                                 grouping=inner.grouping, node=inner.node)
         return None
 
     group_keys = set()
@@ -405,8 +445,8 @@ def _select_outputs(select, catalog: Catalog, ctes: dict, dialect, used: list, d
         if isinstance(inner, exp.Column):
             lin = resolve(inner)
             if lin is not None:
-                lin.grouping = grouping or (lin.kind == KIND_COLUMN and bool(group_keys)
-                                            and inner.name.lower() in group_keys)
+                lin.grouping = lin.grouping or grouping or (
+                    lin.kind == KIND_COLUMN and bool(group_keys) and inner.name.lower() in group_keys)
             outputs.append((name or inner.name, lin))
             continue
 
@@ -417,7 +457,7 @@ def _select_outputs(select, catalog: Catalog, ctes: dict, dialect, used: list, d
                 reads.append(ref.source)
         outputs.append((name, ColumnLineage(
             KIND_DERIVED, expression=inner.sql(dialect=dialect), reads=reads,
-            grouping=grouping, node=inner,
+            grouping=grouping, node=computation(inner),
         )))
     return outputs, complete
 

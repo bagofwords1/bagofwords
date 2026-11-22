@@ -33,6 +33,7 @@ MIN_MAX = "min_max"
 TIME = "time_intelligence"
 TOTAL = "share_of_total"
 STATISTIC = "statistic"
+OFFSET = "offset"
 UNREADABLE = "unreadable"
 COMPLEX = "complex"
 NOT_NUMERIC = "not_numeric"
@@ -71,84 +72,126 @@ def of_plain_column(dtype) -> Additivity:
 # SQL
 # --------------------------------------------------------------------------
 
+# What `lineage` puts in place of a column whose own computation could not be
+# read (an output of a subquery we cannot see into). Never additive by default.
+UNRESOLVED_INPUT = "__unresolved_input__"
+
+
 def of_sql(node) -> Additivity:
-    """Classify a parsed sqlglot expression."""
+    """Classify a parsed sqlglot expression: may the values it produces, one
+    per row of the table, be added up across rows?
+
+    The walk follows the expression's own structure, because where something
+    happens decides the answer. `SUM(cents / 100.0)` divides each source row
+    and then sums, so its results add up; `SUM(cents) / 100.0` only rescales a
+    sum; `SUM(a) / SUM(b)` is a ratio and does not. `SUM(cents) + 1` adds the
+    constant once per group, so twelve monthly rows carry twelve of them.
+
+    A column reference here means a stored, row-level value. `lineage`
+    replaces a reference to another query's computed output with that
+    computation before calling this, so `CAST(users AS BIGINT)` over a CTE's
+    `COUNT(DISTINCT ...)` is still a distinct count.
+    """
     from sqlglot import exp
 
     if node is None:
         return _unknown(UNREADABLE)
 
-    statistics = tuple(
-        t for t in (
-            getattr(exp, n, None) for n in (
-                "Stddev", "StddevPop", "StddevSamp", "Variance", "VariancePop",
-                "Quantile", "ApproxQuantile", "PercentileCont", "PercentileDisc",
-                "Corr", "CovarPop", "CovarSamp", "Mode",
-            )
-        ) if t is not None
-    )
-    passthrough = tuple(
-        t for t in (getattr(exp, n, None) for n in ("Paren", "Cast", "TryCast", "Round", "Neg", "Abs"))
-        if t is not None
-    )
+    def kinds(*names):
+        return tuple(t for t in (getattr(exp, n, None) for n in names) if t is not None)
 
-    # What rules a whole expression out, wherever it appears in it.
-    for found in node.walk():
-        found = found[0] if isinstance(found, tuple) else found
-        if isinstance(found, exp.Window):
-            return _unknown(COMPLEX)
-        if isinstance(found, exp.Count) and (found.args.get("distinct") or isinstance(found.this, exp.Distinct)):
-            return _no(DISTINCT)
-        if isinstance(found, (exp.ApproxDistinct, getattr(exp, "Hll", exp.ApproxDistinct))):
-            return _no(DISTINCT)
-        if isinstance(found, (exp.Avg, getattr(exp, "Median", exp.Avg))):
-            return _no(AVERAGE)
-        if statistics and isinstance(found, statistics):
-            return _no(STATISTIC)
-        if isinstance(found, (exp.Div, getattr(exp, "IntDiv", exp.Div), exp.Mod)):
-            return _no(RATIO)
-        if isinstance(found, (exp.Min, exp.Max)):
-            return _no(MIN_MAX)
-        if isinstance(found, exp.Anonymous) and str(found.name).lower() in (
-                "safe_divide", "div0", "div0null", "divide"):
-            return _no(RATIO)
-        if isinstance(found, exp.Anonymous) and str(found.name).lower() in (
-                "uniq", "uniqexact", "approx_count_distinct", "count_distinct", "ndv"):
-            return _no(DISTINCT)
+    statistics = kinds("Stddev", "StddevPop", "StddevSamp", "Variance", "VariancePop", "Quantile",
+                       "ApproxQuantile", "PercentileCont", "PercentileDisc", "Corr", "CovarPop",
+                       "CovarSamp", "Mode")
+    # Type changes and sign: the value is the same number.
+    transparent = kinds("Paren", "Cast", "TryCast", "Neg", "Round")
+    distinct_counts = kinds("ApproxDistinct", "Hll")
+    averages = kinds("Avg", "Median")
+    counts = kinds("Count", "CountIf")
+    safe_divisions = kinds("SafeDivide")
 
-    def walk(n) -> Optional[str]:
-        """The reason an expression is additive, or None when it cannot be told."""
-        while isinstance(n, passthrough):
+    def constant(n) -> bool:
+        while isinstance(n, kinds("Paren", "Neg", "Cast", "TryCast")):
             n = n.this
-        if isinstance(n, exp.Sum):
-            return SUM
-        if isinstance(n, (exp.Count, getattr(exp, "CountIf", exp.Count))):
-            return COUNT
-        if isinstance(n, (exp.Add, exp.Sub)):
-            left, right = walk(n.this), walk(n.expression)
-            return (left if left == right else SUM) if left and right else None
-        if isinstance(n, exp.Mul):
-            sides = [n.this, n.expression]
-            constants = [s for s in sides if isinstance(s, exp.Literal) and not s.is_string]
-            if len(constants) == 1:
-                return walk(next(s for s in sides if s is not constants[0]))
-            # Two row-level values multiplied (price * quantity) add up.
-            if not n.find(exp.AggFunc):
-                return NUMERIC
-            return None
-        if isinstance(n, exp.Coalesce):
-            rest = n.expressions
-            if all(isinstance(r, exp.Literal) and not r.is_string for r in rest):
-                return walk(n.this)
-            return None
-        if isinstance(n, exp.Column):
-            return NUMERIC
-        if isinstance(n, exp.Literal) and not n.is_string:
-            return NUMERIC
-        return None
+        return isinstance(n, exp.Literal) and not n.is_string
 
-    reason = walk(node)
-    return _yes(reason) if reason else _unknown(COMPLEX)
+    def aggregates(n) -> bool:
+        return isinstance(n, exp.AggFunc) or n.find(exp.AggFunc) is not None
+
+    def walk(n) -> Additivity:
+        while isinstance(n, transparent):
+            n = n.this
+        if isinstance(n, exp.Window):
+            return _unknown(COMPLEX)
+        if isinstance(n, exp.Sum):
+            # Whatever is summed is computed per source row first.
+            return _no(DISTINCT) if isinstance(n.this, exp.Distinct) else _yes(SUM)
+        if isinstance(n, counts):
+            if n.args.get("distinct") or isinstance(n.this, exp.Distinct):
+                return _no(DISTINCT)
+            return _yes(COUNT)
+        if distinct_counts and isinstance(n, distinct_counts):
+            return _no(DISTINCT)
+        if averages and isinstance(n, averages):
+            return _no(AVERAGE)
+        if isinstance(n, (exp.Min, exp.Max)):
+            return _no(MIN_MAX)
+        if statistics and isinstance(n, statistics):
+            return _no(STATISTIC)
+        if isinstance(n, exp.Anonymous):
+            name = str(n.name).lower()
+            if name in ("safe_divide", "div0", "div0null", "divide"):
+                return _no(RATIO)
+            if name in ("uniq", "uniqexact", "approx_count_distinct", "count_distinct", "ndv"):
+                return _no(DISTINCT)
+            return _unknown(UNREADABLE if name == UNRESOLVED_INPUT else COMPLEX)
+        if safe_divisions and isinstance(n, safe_divisions):
+            return _no(RATIO)
+        if isinstance(n, (exp.Add, exp.Sub)):
+            left, right = n.this, n.expression
+            for value, other in ((left, right), (right, left)):
+                if constant(other):
+                    inner = walk(value)
+                    # A constant added to an aggregate is added once per group:
+                    # rolling the groups up would add it once per row.
+                    if inner.additive is True and aggregates(value):
+                        return _no(OFFSET)
+                    return inner
+            a, b = walk(left), walk(right)
+            for verdict in (a, b):
+                if verdict.additive is False:
+                    return verdict
+            if a.additive is True and b.additive is True:
+                return _yes(a.reason if a.reason == b.reason else SUM)
+            return _unknown(COMPLEX)
+        if isinstance(n, exp.Mul):
+            left, right = n.this, n.expression
+            if constant(left) or constant(right):
+                return walk(right if constant(left) else left)       # rescaling
+            if not aggregates(n):
+                a, b = walk(left), walk(right)
+                for verdict in (a, b):
+                    if verdict.additive is not True:
+                        return verdict
+                return _yes(NUMERIC)        # price * quantity, per row
+            return _unknown(COMPLEX)
+        if isinstance(n, exp.Div):
+            if constant(n.expression):
+                return walk(n.this)         # a unit conversion
+            return _no(RATIO)
+        if isinstance(n, kinds("IntDiv", "Mod")):
+            return _no(RATIO)
+        if isinstance(n, exp.Coalesce):
+            if all(constant(r) for r in n.expressions):
+                return walk(n.this)
+            return _unknown(COMPLEX)
+        if isinstance(n, exp.Column):
+            return _yes(NUMERIC)
+        if constant(n):
+            return _yes(NUMERIC)
+        return _unknown(COMPLEX)
+
+    return walk(node)
 
 
 # --------------------------------------------------------------------------

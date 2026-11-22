@@ -529,13 +529,23 @@ comments, Power BI measures, Priority titles).
   or more than the classifier understands. A grouping key, an identifier
   (a primary or foreign key in the catalog) and a non-numeric column are
   `false` with a reason that produces no note. A measure that references
-  other measures is followed through the model.
+  other measures is followed through the model. The SQL walk follows the
+  expression's structure, because where something happens decides the answer:
+  `SUM(cents / 100.0)` and `SUM(cents) / 100.0` add up (a unit conversion),
+  `SUM(a) / SUM(b)` does not (a ratio), and `SUM(cents) + 1` does not either
+  (the constant is added once per group, so twelve monthly rows carry twelve).
+  A reference to another query's computed output (a CTE, a subquery) is
+  replaced by that computation before classifying, so `CAST(users AS BIGINT)`
+  over a monthly `COUNT(DISTINCT ...)` is still a distinct count; when that
+  computation cannot be read, the answer is `"unknown"`.
 - **What the agent reads.** A note on the column,
   `aggregation="NOT ADDITIVE (distinct count): …"`, rendered by
   `tables_schema_section._aggregation_attr` in both render paths, only for a
   numeric column that must not be summed or a computed one nobody could
-  classify. A ratio whose numerator and denominator are additive columns of
-  the same table also says how to roll it up (`SUM(revenue) / SUM(orders)`).
+  classify. Where the right roll-up is known exactly the note gives it: a
+  ratio whose whole expression is one division of two additive columns of the
+  same table (`SUM(revenue) / SUM(orders)`; not `DIVIDE(a, b) * 100`, where
+  that would be off by the factor), and a direct MIN or MAX (`MIN(lowest)`).
   It is a note on the data, not a prompt rule. The wording was settled
   against a live model: a first version that only said "do not SUM" was
   ignored when the user asked for a "total"

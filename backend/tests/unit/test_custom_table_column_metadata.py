@@ -350,6 +350,104 @@ def test_schedule_wording(mode, minutes, at, expected):
     assert column_metadata.schedule_text(mode, minutes, at) == expected
 
 
+# -- what a computed input is, wherever it was computed ---------------------------
+
+EVENTS = [{"name": "events", "pks": [], "fks": [], "columns": [
+    {"name": "user_id", "dtype": "integer"}, {"name": "month", "dtype": "date"},
+    {"name": "cents", "dtype": "integer"}, {"name": "year", "dtype": "integer"}]}]
+
+
+def _sql_table(sql, output, dtypes=None):
+    found = lineage.trace(sql, EVENTS, "postgresql", output)
+    stored = [{"name": n, "dtype": (dtypes or {}).get(n, "int64")} for n in output]
+    return _by_name(column_metadata.enrich(stored, found, EVENTS).columns)
+
+
+MONTHLY_USERS = "WITH m AS (SELECT month, COUNT(DISTINCT user_id) AS users FROM events GROUP BY month) "
+
+
+@pytest.mark.parametrize("outer", [
+    "CAST(users AS BIGINT)", "users", "users * 1", "COALESCE(users, 0)", "ROUND(users)", "(users)",
+])
+def test_a_distinct_count_stays_one_through_a_cte_and_a_cast(outer):
+    """The outer query only renames or retypes it; a yearly sum would still
+    count a returning user once per month."""
+    cols = _sql_table(MONTHLY_USERS + f"SELECT month, {outer} AS users FROM m", ["month", "users"])
+    meta = cols["users"]["metadata"]
+    assert (meta["additive"], meta["additive_reason"]) == (False, "distinct_count")
+    assert column_metadata.agent_note(meta, "int64").startswith("NOT ADDITIVE")
+
+
+def test_the_same_holds_through_a_subquery_and_for_other_non_additive_inputs():
+    cols = _sql_table(
+        "SELECT month, CAST(mean AS BIGINT) AS mean, CAST(total AS BIGINT) AS total FROM "
+        "(SELECT month, AVG(cents) AS mean, SUM(cents) AS total FROM events GROUP BY month) t",
+        ["month", "mean", "total"])
+    assert cols["mean"]["metadata"]["additive_reason"] == "average"
+    assert cols["total"]["metadata"]["additive"] is True          # a retyped sum is still a sum
+
+
+def test_an_input_whose_computation_cannot_be_read_is_unknown_not_additive():
+    cols = _sql_table(
+        "SELECT month, CAST(users AS BIGINT) AS users FROM "
+        "(SELECT month, 1 AS users FROM events UNION ALL SELECT month, 2 FROM events) t",
+        ["month", "users"])
+    assert cols["users"]["metadata"]["additive"] == "unknown"
+
+
+def test_a_grouping_key_that_came_through_a_cte_is_still_a_key():
+    cols = _sql_table(
+        "WITH y AS (SELECT year, SUM(cents) AS total FROM events GROUP BY year) SELECT year, total FROM y",
+        ["year", "total"])
+    assert cols["year"]["metadata"]["additive_reason"] == "grouping_key"
+    assert cols["total"]["metadata"]["additive"] is True
+
+
+def test_an_offset_after_aggregation_is_flagged_and_a_unit_conversion_inside_sum_is_not():
+    cols = _sql_table(
+        "SELECT month, SUM(cents) + 1 AS padded, SUM(cents / 100.0) AS dollars FROM events GROUP BY month",
+        ["month", "padded", "dollars"], {"dollars": "double"})
+    assert (cols["padded"]["metadata"]["additive"], cols["padded"]["metadata"]["additive_reason"]) == (False, "offset")
+    assert column_metadata.agent_note(cols["padded"]["metadata"], "int64").startswith("NOT ADDITIVE")
+    assert cols["dollars"]["metadata"]["additive"] is True
+    assert column_metadata.agent_note(cols["dollars"]["metadata"], "double") is None
+
+
+def test_a_direct_min_or_max_rolls_up_with_the_same_function():
+    cols = _sql_table(
+        "SELECT month, MIN(cents) AS lowest, CAST(MAX(cents) AS BIGINT) AS \"highest paid\", "
+        "MAX(cents) - MIN(cents) AS spread FROM events GROUP BY month",
+        ["month", "lowest", "highest paid", "spread"])
+    assert cols["lowest"]["metadata"]["recompute"] == "MIN(lowest)"
+    assert cols["highest paid"]["metadata"]["recompute"] == 'MAX("highest paid")'
+    assert "recompute" not in cols["spread"]["metadata"]            # not a plain extremum
+    note = column_metadata.agent_note(cols["lowest"]["metadata"], "int64")
+    assert "MIN(lowest)" in note and "cannot answer" not in note
+
+
+def test_a_power_bi_ratio_times_a_factor_gets_no_recomputation():
+    """DIVIDE([Total Sales], [Orders]) * 100 is a percentage: SUM / SUM would be a hundredth of it."""
+    catalog = _powerbi_catalog()
+    catalog[0]["columns"] += [
+        _measure("Sales Per Order Pct", "DIVIDE([Total Sales], [Orders]) * 100"),
+        _measure("Sales Per Order Or Zero", "DIVIDE([Total Sales], [Orders], 0)"),
+        _measure("Largest Sale", "MAX(Sales[Amount])"),
+        _measure("Largest Sale Plus", "MAX(Sales[Amount]) + 1"),
+    ]
+    names = ["Year", "Total Sales", "Orders", "Sales Per Order Pct", "Sales Per Order Or Zero", "Largest Sale",
+             "Largest Sale Plus", "Inline Pct"]
+    dax = ("EVALUATE SUMMARIZECOLUMNS('Date'[Year], " + ", ".join(f'"{n}", [{n}]' for n in names[1:7])
+           + ', "Inline Pct", 100 * DIVIDE([Total Sales], [Orders]))')
+    found = lineage.trace(dax, catalog, "powerbi", names)
+    cols = _by_name(column_metadata.enrich([{"name": n, "dtype": "double"} for n in names], found, catalog).columns)
+    for name in ("Sales Per Order Pct", "Inline Pct"):
+        assert cols[name]["metadata"]["additive_reason"] == "ratio"
+        assert "recompute" not in cols[name]["metadata"], name
+    assert cols["Sales Per Order Or Zero"]["metadata"]["recompute"] == 'SUM("Total Sales") / SUM(Orders)'
+    assert cols["Largest Sale"]["metadata"]["recompute"] == 'MAX("Largest Sale")'
+    assert "recompute" not in cols["Largest Sale Plus"]["metadata"]
+
+
 # -- what the agent reads -------------------------------------------------------
 
 def _rendered(columns, how):

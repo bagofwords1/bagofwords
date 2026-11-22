@@ -9157,6 +9157,7 @@
       "time_intelligence": "חישובי זמן",
       "share_of_total": "חלק מסך הכול",
       "statistic": "מדד סטטיסטי",
+      "offset": "קבוע שנוסף לאחר הצבירה",
       "unreadable": "ההגדרה אינה קריאה",
       "complex": "מורכבת מדי לסיווג",
       "not_numeric": "לא מספר",

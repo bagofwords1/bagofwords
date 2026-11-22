@@ -60,6 +60,7 @@ _REASON_WORDS = {
     additivity.TIME: "time intelligence",
     additivity.TOTAL: "share of a total",
     additivity.STATISTIC: "statistic",
+    additivity.OFFSET: "constant added after aggregation",
 }
 # Not additive, but nobody would think to sum them: no note for the agent.
 _SILENT = {additivity.NOT_NUMERIC, additivity.GROUPING, additivity.KEY}
@@ -338,9 +339,19 @@ def _add_recomputations(columns: list, traced: dict, found: lineage_mod.Lineage)
 
     for col in columns:
         meta, lin = col["metadata"], traced.get(col["name"])
-        if lin is None or meta.get("additive") is not False or meta.get("additive_reason") != additivity.RATIO:
+        if lin is None or meta.get("additive") is not False:
             continue
         if "edited" in meta and "additive" in meta["edited"]:
+            continue
+        if meta.get("additive_reason") == additivity.MIN_MAX:
+            # The smallest of the monthly minimums is the yearly minimum: a
+            # direct MIN or MAX rolls up with the same function.
+            extremum = _dax_extremum(_expression_text(lin, columns, col)) \
+                if found.family == lineage_mod.FAMILY_DAX else _sql_extremum(lin.node)
+            if extremum:
+                meta["recompute"] = f"{extremum}({_quoted(col['name'])})"
+            continue
+        if meta.get("additive_reason") != additivity.RATIO:
             continue
         numerator = denominator = None
         if found.family == lineage_mod.FAMILY_DAX:
@@ -389,9 +400,35 @@ def _sql_matcher(part, dialect):
     return matches
 
 
+def _sql_extremum(node) -> Optional[str]:
+    """"MIN" / "MAX" when the expression is exactly that aggregate (through
+    casts), else None."""
+    from sqlglot import exp
+
+    while isinstance(node, (exp.Paren, exp.Cast, exp.TryCast)):
+        node = node.this
+    if isinstance(node, exp.Min):
+        return "MIN"
+    if isinstance(node, exp.Max):
+        return "MAX"
+    return None
+
+
+def _dax_extremum(expression: str) -> Optional[str]:
+    tokens = lineage_mod.dax_tokens(expression)
+    if len(tokens) < 4 or tokens[1][1] != "(" or additivity._closes(tokens, 1) != len(tokens) - 1:
+        return None
+    name = tokens[0][1].lower()
+    return "MIN" if name == "min" else "MAX" if name == "max" else None
+
+
 def _dax_divide(expression: str):
     tokens = lineage_mod.dax_tokens(expression)
     if len(tokens) < 6 or tokens[0][1].lower() != "divide" or tokens[1][1] != "(":
+        return None
+    # The whole expression must be the one DIVIDE call. `DIVIDE(a, b) * 100`
+    # is a percentage: SUM(a) / SUM(b) would be off by the factor.
+    if additivity._closes(tokens, 1) != len(tokens) - 1:
         return None
     args = lineage_mod._dax_args(tokens, 1)
     if len(args) < 2:
