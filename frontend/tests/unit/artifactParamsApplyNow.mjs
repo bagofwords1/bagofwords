@@ -264,6 +264,66 @@ await check('text pending before the latest pick still rides with the trailing c
   assert.deepEqual(sets()[1].msg.changes, { search: 'ab', region: 'South' });
 });
 
+const timeline = (sets) => sets().map((p) => [p.at, p.msg.changes, p.msg.targets]);
+
+await check('R1: a change staged after an explicit apply in the same handler stays staged', async () => {
+  const { store, sets, advance } = await boot();
+  store.setParam('region', 'North');
+  store.apply(['q1']);
+  store.setParam('owner', 'b', { apply: false });
+  await advance(1000);
+  assert.deepEqual(timeline(sets), [[0, { region: 'North' }, ['q1']]], 'only the applied commit');
+  assert.deepEqual({ ...store.getPending() }, { owner: 'b' }, 'owner waits for Apply');
+});
+
+await check('R1b: a pick does not send changes staged with apply:false', async () => {
+  const { store, sets, advance } = await boot();
+  store.setParam('owner', 'b', { apply: false });
+  store.setParam('region', 'North');
+  await advance(100);
+  store.setParam('region', 'South');            // trailing commit at 250
+  await advance(1000);
+  assert.deepEqual(timeline(sets), [[0, { region: 'North' }, null], [250, { region: 'South' }, null]]);
+  assert.deepEqual({ ...store.getPending() }, { owner: 'b' }, 'owner waits for Apply');
+  store.apply(['q1']);
+  assert.deepEqual(sets()[2].msg.changes, { owner: 'b' }, 'and goes out with apply()');
+});
+
+await check('base parity: the typing debounce still sends changes staged with apply:false', async () => {
+  // On main every automatic commit sent everything pending; the debounce path keeps that.
+  const { store, sets, advance } = await boot();
+  store.setParam('owner', 'b', { apply: false });
+  store.setParam('search', 'x');
+  await advance(1000);
+  assert.deepEqual(timeline(sets), [[250, { owner: 'b', search: 'x' }, null]]);
+});
+
+await check('R2: a mixed setParams during the cooldown stays one batch on the text debounce', async () => {
+  const { store, sets, advance } = await boot();
+  store.setParam('region', 'North');
+  await advance(100);
+  store.setParam('region', 'South');
+  await advance(100);
+  store.setParams({ region: 'East', search: 'abc' });
+  await advance(1000);
+  assert.deepEqual(timeline(sets), [[0, { region: 'North' }, null], [450, { region: 'East', search: 'abc' }, null]]);
+});
+
+await check('R3: after a targeted apply, the same value without targets runs everywhere', async () => {
+  const { store, sets, advance } = await boot();
+  store.setParam('region', 'North', { apply: false });
+  store.apply(['q1']);
+  await advance(1000);
+  store.setParam('region', 'North');
+  await advance(1000);
+  assert.equal(sets().length, 2, `the untargeted change is posted: ${JSON.stringify(timeline(sets))}`);
+  assert.deepEqual(sets()[1].msg.changes, { region: 'North' });
+  assert.equal(sets()[1].msg.targets, null);
+  store.setParam('region', 'North');
+  await advance(1000);
+  assert.equal(sets().length, 2, 'once untargeted, the same value again is skipped');
+});
+
 await check('mixed setParams (declared list + free text) waits 250 ms', async () => {
   const { store, sets, advance } = await boot();
   store.setParams({ region: 'North', search: 'abc' });
