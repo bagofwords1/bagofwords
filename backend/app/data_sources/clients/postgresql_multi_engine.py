@@ -53,6 +53,10 @@ class TenantEngine:
         return bool(self._aliases)
 
     @property
+    def attached_tenants(self) -> frozenset[str]:
+        return frozenset(self._aliases)
+
+    @property
     def degraded(self) -> bool:
         return bool(self.failed_tenants or self.missing_views or self.left_out)
 
@@ -111,16 +115,35 @@ class TenantEngine:
         self.left_out.append({"view": name, "tenant": tenant, "reason": reason})
 
     def _create_view(self, cur: duckdb.DuckDBPyConnection, name: str, members: tuple[str, ...]) -> None:
+        """Create one unified view over the tenants indexing found the table in.
+
+        The index is trusted first: the view is created over every attached
+        member in one statement, with no per-tenant check. Probing each tenant
+        beforehand cost a round trip per tenant for every view, on every
+        engine build, to catch what is rare (a table dropped or a grant revoked
+        since the last index). Only when creating the view fails is each
+        tenant probed, to leave out the ones that can no longer serve it."""
         self._forget(name)
         self._reading.pop(name, None)
         schema, table = _split_view_name(name)
-        readable = []
+        attached = []
         for tenant in members:
             if tenant in self._failed:
                 continue
             if tenant not in self._aliases:
                 self._leave_out(name, tenant, "not attached")
                 continue
+            attached.append(tenant)
+        if not attached:
+            self._drop(cur, name)
+            return
+        try:
+            self._write_view(cur, name, schema, table, attached)
+            return
+        except duckdb.Error as exc:
+            logger.info("View %s needs a per-tenant check: %s", name, failure_category(exc))
+        readable = []
+        for tenant in attached:
             try:
                 cur.execute(f"DESCRIBE {_table_ref(self._aliases[tenant], schema, table)}")
             except duckdb.Error as exc:
@@ -130,19 +153,22 @@ class TenantEngine:
         if not readable:
             self._drop(cur, name)
             return
-        union = " UNION ALL BY NAME ".join(
-            f"SELECT {_sql_literal(t)} AS {TENANT_COLUMN}, * FROM {_table_ref(self._aliases[t], schema, table)}"
-            for t in readable
-        )
         try:
-            cur.execute(f"CREATE SCHEMA IF NOT EXISTS memory.{_ident(schema)}")
-            replace = "OR REPLACE " if name in self._created else ""
-            cur.execute(f"CREATE {replace}VIEW memory.{_ident(schema)}.{_ident(table)} AS {union}")
-            self._created.add(name)
-            self._reading[name] = tuple(readable)
+            self._write_view(cur, name, schema, table, readable)
         except duckdb.Error as exc:
             logger.warning("Could not create view %s: %s", name, failure_category(exc))
             self._drop(cur, name)
+
+    def _write_view(self, cur, name: str, schema: str, table: str, tenants: list[str]) -> None:
+        union = " UNION ALL BY NAME ".join(
+            f"SELECT {_sql_literal(t)} AS {TENANT_COLUMN}, * FROM {_table_ref(self._aliases[t], schema, table)}"
+            for t in tenants
+        )
+        cur.execute(f"CREATE SCHEMA IF NOT EXISTS memory.{_ident(schema)}")
+        replace = "OR REPLACE " if name in self._created else ""
+        cur.execute(f"CREATE {replace}VIEW memory.{_ident(schema)}.{_ident(table)} AS {union}")
+        self._created.add(name)
+        self._reading[name] = tuple(tenants)
 
     def _drop(self, cur: duckdb.DuckDBPyConnection, name: str) -> None:
         self.missing_views.append(name)
@@ -397,10 +423,15 @@ def _cached_or_built(conn, views, ttl_seconds, all_tenants, key, seen_builds) ->
         engine = cached[0]
         was_degraded = engine.degraded
         engine.ensure_views(views)
-        if engine.degraded and not was_degraded:
-            with _cache_lock:
-                if key in _cache:
+        with _cache_lock:
+            if key in _cache and _cache[key][0] is engine:
+                if engine.degraded and not was_degraded:
                     _cache[key] = (engine, min(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
+                elif not engine.degraded:
+                    # Kept while in use: a healthy engine expires `ttl_seconds`
+                    # after its last query, not after it was built, so a busy
+                    # connection does not pay for a rebuild every ten minutes.
+                    _cache[key] = (engine, max(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
         return engine
     try:
         engine = build_default_engine(conn, views, tenants=all_tenants)

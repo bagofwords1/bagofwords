@@ -466,9 +466,13 @@ def test_get_engine_rebuilds_after_invalidate_and_ttl(multi_tenant_server, monke
     second = get_engine(conn, views, ttl_seconds=60)
     assert second is not first
 
+    # A healthy engine expires `ttl_seconds` after its last use, not after it
+    # was built: one in use is kept, one left idle is rebuilt.
     clock[0] += 59
     assert get_engine(conn, views, ttl_seconds=60) is second
-    clock[0] += 2
+    clock[0] += 59
+    assert get_engine(conn, views, ttl_seconds=60) is second
+    clock[0] += 61
     third = get_engine(conn, views, ttl_seconds=60)
     assert third is not second
     assert third.cursor().execute("SELECT count(*) FROM public.users").fetchone()[0] == len(

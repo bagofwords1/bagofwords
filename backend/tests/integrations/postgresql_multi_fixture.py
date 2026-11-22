@@ -17,6 +17,8 @@ ids overlap between tenants, as separate id spaces do in production.
 
 from __future__ import annotations
 
+import os
+
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -68,6 +70,13 @@ GRANTLESS_TENANT = "tenant_no_grants"
 UNREADABLE_TENANTS = [LOCKED_TENANT, GRANTLESS_TENANT]
 
 
+# An existing, throwaway Postgres to use instead of a container, for machines
+# without Docker: "host:port:admin_user[:admin_password]". The suite creates and
+# drops its own tenant databases and role on it, so never point it at a server
+# that holds anything you want to keep.
+EXTERNAL_SERVER_ENV = "BOW_TEST_MULTI_PG"
+
+
 def _docker_available() -> bool:
     try:
         import docker
@@ -78,7 +87,18 @@ def _docker_available() -> bool:
         return False
 
 
-requires_docker = pytest.mark.skipif(not _docker_available(), reason="Docker daemon not reachable")
+def _external_server() -> tuple[str, int, str, str] | None:
+    spec = os.environ.get(EXTERNAL_SERVER_ENV, "").strip()
+    if not spec:
+        return None
+    host, port, user, *rest = spec.split(":", 3)
+    return host, int(port), user, rest[0] if rest else ""
+
+
+requires_docker = pytest.mark.skipif(
+    not (_external_server() or _docker_available()),
+    reason=f"Docker daemon not reachable and {EXTERNAL_SERVER_ENV} not set",
+)
 
 
 def _quote_ident(name: str) -> str:
@@ -146,8 +166,40 @@ def _seed_tenant(
         conn.close()
 
 
+def _prepare(server: MultiTenantServer, admin_db: str, *, reset: bool) -> None:
+    admin = server.connect(admin_db)
+    admin.autocommit = True
+    try:
+        with admin.cursor() as cur:
+            if reset:
+                # Every database the suite may have left behind, not only the
+                # tenant_* ones: some tests create others (mixed case, quotes).
+                cur.execute("SELECT datname FROM pg_database WHERE datname NOT IN ('postgres', 'template0', 'template1')")
+                for (name,) in cur.fetchall():
+                    cur.execute(f"DROP DATABASE IF EXISTS {_quote_ident(name)} WITH (FORCE)")
+                cur.execute(f"DROP ROLE IF EXISTS {READER_USER}")
+            escaped = READER_PASSWORD.replace("'", "''")
+            cur.execute(f"CREATE ROLE {READER_USER} LOGIN PASSWORD '{escaped}'")
+            for name in [*TENANT_ROWS, GRANTLESS_TENANT]:
+                cur.execute(f"CREATE DATABASE {_quote_ident(name)}")
+            cur.execute(f"REVOKE CONNECT ON DATABASE {_quote_ident(LOCKED_TENANT)} FROM PUBLIC")
+    finally:
+        admin.close()
+    for name, rows in TENANT_ROWS.items():
+        _seed_tenant(server, name, rows)
+    _seed_tenant(server, GRANTLESS_TENANT, TENANT_ROWS["tenant_a"], grant=False)
+
+
 @contextmanager
 def running_multi_tenant_server() -> Iterator[MultiTenantServer]:
+    external = _external_server()
+    if external:
+        host, port, user, password = external
+        server = MultiTenantServer(host=host, port=port, admin_user=user, admin_password=password)
+        _prepare(server, "postgres", reset=True)
+        yield server
+        return
+
     from testcontainers.postgres import PostgresContainer
 
     with PostgresContainer("postgres:15") as container:
@@ -157,18 +209,5 @@ def running_multi_tenant_server() -> Iterator[MultiTenantServer]:
             admin_user=container.username,
             admin_password=container.password,
         )
-        admin = server.connect(container.dbname)
-        admin.autocommit = True
-        try:
-            with admin.cursor() as cur:
-                escaped = READER_PASSWORD.replace("'", "''")
-                cur.execute(f"CREATE ROLE {READER_USER} LOGIN PASSWORD '{escaped}'")
-                for name in [*TENANT_ROWS, GRANTLESS_TENANT]:
-                    cur.execute(f"CREATE DATABASE {_quote_ident(name)}")
-                cur.execute(f"REVOKE CONNECT ON DATABASE {_quote_ident(LOCKED_TENANT)} FROM PUBLIC")
-        finally:
-            admin.close()
-        for name, rows in TENANT_ROWS.items():
-            _seed_tenant(server, name, rows)
-        _seed_tenant(server, GRANTLESS_TENANT, TENANT_ROWS["tenant_a"], grant=False)
+        _prepare(server, container.dbname, reset=False)
         yield server
