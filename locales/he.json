@@ -4538,7 +4538,7 @@
       "orCreateNew": "— או צור חדש —",
       "authBasic": "אימייל + אסימון API",
       "basicUsernameLabel": "אימייל / שם משתמש",
-      "basicUsernamePlaceholder": "you@company.com",
+      "basicUsernamePlaceholder": "you{'@'}company.com",
       "basicPasswordLabel": "אסימון API",
       "basicPasswordPlaceholder": "הדביקו את אסימון ה-API",
       "basicHint": "נשלח כאימות HTTP Basic. עבור Bitbucket, השתמשו באימייל של חשבון Atlassian ובאסימון API של Atlassian; מנהל הארגון צריך לאפשר גישה באסימון API בשרת ה-MCP של Rovo."
@@ -5289,7 +5289,7 @@
       "urlTitle": "כתובת שרת Exchange",
       "urlDescription": "כתובת שרת ה-Exchange שלך, לדוגמה https://mail.example.com. הנתיב של Exchange Web Services ‏(/EWS/Exchange.asmx) מתווסף אם משמיטים אותו.",
       "sharedTitle": "תיבות דואר משותפות",
-      "sharedDescription": "אופציונלי. כתובות של תיבות דואר משותפות או צוותיות שייכללו, מופרדות בפסיקים, לדוגמה support@example.com, sales@example.com. ‏Exchange קובע מי רשאי לפתוח כל תיבה: כל אחד רואה רק את התיבות שלחשבון שלו כבר יש גישה אליהן.",
+      "sharedDescription": "אופציונלי. כתובות של תיבות דואר משותפות או צוותיות שייכללו, מופרדות בפסיקים, לדוגמה support{'@'}example.com, sales{'@'}example.com. ‏Exchange קובע מי רשאי לפתוח כל תיבה: כל אחד רואה רק את התיבות שלחשבון שלו כבר יש גישה אליהן.",
       "ownTitle": "לכלול את תיבת הדואר של החשבון עצמו",
       "ownDescription": "יש לכבות בעת התחברות עם חשבון שירות שתיבת הדואר שלו אינה רלוונטית. התיבה המשותפת הראשונה תהפוך לברירת המחדל."
     },
