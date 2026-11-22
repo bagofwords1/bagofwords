@@ -15,6 +15,7 @@ import json
 import logging
 import math
 import re
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -791,3 +792,105 @@ def test_added_block_is_logged_with_step_and_counts_only(monkeypatch, caplog):
     one_row = _formatted(pd.DataFrame({"revenue": [100]}))
     dp.with_column_sums(build_data_preview(one_row), one_row, step_id="s-3")
     assert [r for r in caplog.records if r.name == "app.ai.data_preview"] == []
+
+
+# ---------------------------------------------------------------------------
+# P1b: Decimal (object-dtype) columns, summed exactly from complete rows
+# ---------------------------------------------------------------------------
+
+def _decimals(*texts):
+    return [Decimal(t) for t in texts]
+
+
+# 12 Decimal amounts whose exact sum is 2266089.37.
+DECIMAL_AMOUNTS = _decimals(
+    "182345.67", "95321.45", "210987.33", "150432.98", "77654.32", "168943.55",
+    "132876.11", "199231.87", "88765.43", "143210.66", "176543.22", "639776.78",
+)
+CLEAN_DECIMALS = _decimals("100.10", "250.25", "400.40", "610.61")
+
+
+def _decimal_frame(columns):
+    """A frame built from raw rows, as the Redshift/Databricks/ClickHouse clients do."""
+    names = list(columns)
+    rows = list(zip(*columns.values()))
+    return pd.DataFrame(rows, columns=names)
+
+
+def test_decimal_column_gets_exact_sum_from_complete_rows():
+    df = _decimal_frame({
+        "department": [f"Department {i}" for i in range(12)],
+        "actual_eur": DECIMAL_AMOUNTS,
+    })
+    assert df["actual_eur"].dtype == object
+    _assert_k_clean(df, ["actual_eur"])
+    formatted = _formatted(df)
+    out = dp.with_column_sums(build_data_preview(formatted), formatted)
+    assert out["column_sums"] == {
+        "note": "sum = sum of all 12 rows",
+        "sum": {"actual_eur": float(sum(DECIMAL_AMOUNTS))},
+    }
+    assert out["column_sums"]["sum"]["actual_eur"] == 2266089.37
+    stored = json.loads(json.dumps(formatted))
+    again = dp.with_column_sums(build_data_preview(stored), stored)
+    assert again["column_sums"] == out["column_sums"]
+
+
+@pytest.mark.parametrize("bad_cells", [
+    ["abc", Decimal("2.50"), Decimal("3.75"), Decimal("4.10")],
+    ["1.10", Decimal("2.50"), Decimal("3.75"), Decimal("4.10")],
+    [True, Decimal("2.50"), False, Decimal("4.10")],
+    [Decimal("1e15"), Decimal("2.50"), Decimal("3.75"), Decimal("4.10")],
+])
+def test_object_column_with_a_non_number_gets_no_sum(bad_cells):
+    df = _decimal_frame({"other_amount": bad_cells, "amount": CLEAN_DECIMALS})
+    assert df["other_amount"].dtype == object
+    assert df["amount"].dtype == object
+    _assert_k_clean(df, ["amount"])
+    # Control: the clean Decimal column in the same frame gets its sum.
+    assert _sums(df) == {"amount": 1361.36}
+
+
+def test_decimal_column_follows_the_guards_and_total_row_checks():
+    amount = _decimals("1200.50", "830.25", "1475.00", "990.75",
+                       "1610.10", "720.40", "1335.65", "1050.35")
+    cost = _decimals("410.20", "380.05", "515.75", "295.40",
+                     "602.10", "330.90", "455.55", "388.15")
+    guarded = _decimal_frame({
+        "dept_id": _decimals(*[str(101 + i) for i in range(8)]),
+        "x": _decimals(*[str(2019 + i) for i in range(8)]),
+        "amount": amount,
+    })
+    _assert_k_clean(guarded, ["amount"])
+    # Control: the Decimal amount column is summed; the id and year-like ones are not.
+    assert _sums(guarded) == {"amount": 9213}
+
+    details = _decimal_frame({"item": [f"i{i}" for i in range(8)], "amount": amount, "cost": cost})
+    total = pd.DataFrame([{"item": None, "amount": sum(amount), "cost": sum(cost)}])
+    with_total = pd.concat([details, total], ignore_index=True)
+    assert with_total["amount"].dtype == object
+    assert _block(with_total) is None
+    # Control: the same frame without the total row.
+    _assert_k_clean(details, ["amount", "cost"])
+    assert _sums(details) == {"amount": 9213, "cost": 3378.1}
+
+
+def test_decimal_column_past_the_stored_cap_gets_no_sum():
+    rng = np.random.default_rng(13)
+    cents = rng.integers(0, 500_000, size=1920)
+    df = _decimal_frame({
+        "amount": [Decimal(int(c)) / 100 for c in cents],
+        "weight": rng.random(1920) * 100,
+    })
+    assert df["amount"].dtype == object
+    _assert_k_clean(df, ["weight"])
+    sums = _sums(df)
+    # Control: the float column is still summed over all 1,920 rows.
+    assert sums == {"weight": round(math.fsum(float(w) for w in df["weight"]), 2)}
+
+
+def test_read_sql_shaped_frame_sums_through_info():
+    rows = [(f"Department {i}", amount) for i, amount in enumerate(DECIMAL_AMOUNTS)]
+    df = pd.DataFrame.from_records(rows, columns=["department", "actual_eur"], coerce_float=True)
+    assert df["actual_eur"].dtype == "float64"
+    assert _sums(df) == {"actual_eur": 2266089.37}

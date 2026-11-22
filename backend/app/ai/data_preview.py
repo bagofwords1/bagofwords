@@ -13,6 +13,7 @@ import json
 import logging
 import math
 import re
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -364,7 +365,8 @@ def _has_hint(field: str, tokens: List[str]) -> bool:
 
 def _round_sum(s: Any, integral: bool) -> Any:
     if integral:
-        return int(round(s))
+        # A whole Decimal sum is exact; a float one (mean x count) needs rounding.
+        return int(s) if isinstance(s, Decimal) else int(round(s))
     if abs(s) >= 1e11:
         return int(round(s))
     if abs(s) >= 1:
@@ -401,6 +403,31 @@ def _numeric_column(ci: Any) -> Optional[Tuple[float, bool, float, float]]:
     if not all(_finite(v) for v in (mean, count, lo, hi)) or count < 1:
         return None
     return mean * count, dtype.startswith(("int", "uint")), lo, hi
+
+
+def _object_column_stats(
+    rows: List[Any], field: str, non_null_count: Any
+) -> Optional[Tuple[Decimal, bool, float, float]]:
+    """(exact sum, integral, min, max) of an object column whose cells are numbers.
+
+    Object columns are Decimal results from clients that build the frame from
+    raw rows; the stored rows hold them as JSON numbers. Only called with the
+    complete rows. Numeric strings are never parsed.
+    """
+    if not _is_number(non_null_count):
+        return None
+    values: List[Decimal] = []
+    for row in rows:
+        cell = row.get(field)
+        if cell is None:
+            continue
+        if not _finite(cell) or abs(cell) >= 1e15:
+            return None
+        values.append(Decimal(cell) if isinstance(cell, int) else Decimal(repr(cell)))
+    if not values or len(values) != non_null_count:
+        return None
+    integral = all(v == v.to_integral_value() for v in values)
+    return sum(values, Decimal(0)), integral, float(min(values)), float(max(values))
 
 
 def _has_total_label(scan: List[Any]) -> bool:
@@ -508,9 +535,22 @@ def column_sums(
         return None
     column_info = {str(k): v for k, v in raw_column_info.items()}
 
+    scan = rows[:SUMS_ROW_SCAN_LIMIT] if isinstance(rows, list) else []
+    complete = (
+        isinstance(rows, list)
+        and len(rows) == row_count
+        and row_count <= SUMS_ROW_SCAN_LIMIT
+        and all(isinstance(r, dict) for r in scan)
+    )
+
     eligible: List[Tuple[str, Any, bool, Any, Any]] = []
     for field in _fields(columns, column_info):
-        stats = _numeric_column(column_info.get(field))
+        ci = column_info.get(field)
+        stats = _numeric_column(ci)
+        is_object = isinstance(ci, dict) and str(ci.get("dtype", "")).lower() == "object"
+        if stats is None and is_object and complete:
+            # Decimal cells: an exact sum, only from the complete rows.
+            stats = _object_column_stats(scan, field, ci.get("non_null_count"))
         if stats is None:
             continue
         s, integral, lo, hi = stats
@@ -523,13 +563,6 @@ def column_sums(
     if not eligible:
         return None
 
-    scan = rows[:SUMS_ROW_SCAN_LIMIT] if isinstance(rows, list) else []
-    complete = (
-        isinstance(rows, list)
-        and len(rows) == row_count
-        and row_count <= SUMS_ROW_SCAN_LIMIT
-        and all(isinstance(r, dict) for r in scan)
-    )
     if _has_total_label(scan):
         return None
     if _total_row_suspected(eligible, row_count, scan, complete):
