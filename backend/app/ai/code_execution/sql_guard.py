@@ -532,6 +532,10 @@ _NONPARSING_PERCENT_COMMENTS = frozenset({"sybase"})
 # Backtick-quoted names: perhaps Pinot and SQL Anywhere. To the others a
 # backtick is code.
 _NONPARSING_BACKTICKS = frozenset({"pinot", "sybase"})
+# A quoted name that holds a dot is read (`nonparsing_normalized`) where the
+# catalog stores `schema.table` names, whose table part may hold dots: Db2
+# and IBM i, SQL Anywhere, HANA.
+_NONPARSING_DOTTED_NAMES = frozenset({"db2", "sybase", "hana"})
 # Dollar-quoted strings ($$...$$), refused outside strings: Vertica.
 _NONPARSING_DOLLAR_QUOTES = frozenset({"vertica"})
 # A dollar-quote tag, and a run of name characters a tag may stand in.
@@ -569,7 +573,8 @@ def _nonparsing_readings(sql: str, engine: Optional[str], keep_comments: bool = 
                 name = "with " + " and ".join(parts) if parts else "with standard quoting"
                 out.append((name, _generic_reading(sql, False, backslash, brackets=engine in _NONPARSING_BRACKETS,
                                                    backticks=backticks, percent_comments=percent,
-                                                   keep_comments=keep_comments, normalize=normalize)))
+                                                   keep_comments=keep_comments, normalize=normalize,
+                                                   dotted_names=engine in _NONPARSING_DOTTED_NAMES)))
     return out
 
 
@@ -1436,7 +1441,7 @@ def _reading_starts(hash_comments: bool, brackets: bool, backticks: bool, percen
 
 def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: Optional[bool] = None, *,
                      backticks: bool = True, percent_comments: bool = False, keep_comments: bool = False,
-                     normalize: bool = False) -> str:
+                     normalize: bool = False, dotted_names: bool = False) -> str:
     """`sql` with each literal, quoted name and comment replaced by a space:
     quotes doubled to escape them, `` `...` `` names unless `backticks` is
     off, plus `#` (or `%`) line comments and backslash escapes when asked
@@ -1448,9 +1453,10 @@ def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: O
     pass.
 
     With `normalize`, a comment becomes a space, a string `''` and a quoted
-    name `"name"` with its text as read (`_normalized_name`); anything left
-    open, a comment opened inside a block comment and a name `_normalized_name`
-    refuses raise ReadOnlyViolation."""
+    name `"name"` with its text as read (`_normalized_name`, which reads a
+    dot in it with `dotted_names`); anything left open, a comment opened
+    inside a block comment and a name `_normalized_name` refuses raise
+    ReadOnlyViolation."""
     if brackets is None:
         brackets = not (hash_comments or backslash)
     starts = _reading_starts(hash_comments, brackets, backticks, percent_comments)
@@ -1486,7 +1492,8 @@ def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: O
             if mark in ("--", "#", "%", "/*"):
                 out.append(" ")
             else:
-                out.append("''" if mark == "'" else _normalized_name(sql[start + 1:end - 1], mark))
+                out.append("''" if mark == "'" else _normalized_name(sql[start + 1:end - 1], mark,
+                                                                            dotted_names))
         else:
             out.append(sql[start:end] if keep_comments and mark in ("--", "#", "%", "/*") else " ")
         i = end
@@ -1495,15 +1502,17 @@ def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: O
 
 # What a quoted name may hold in a normalized reading (`_generic_reading`).
 _NORMALIZED_NAME = re.compile(r"[A-Za-z0-9_ -]+")
+_NORMALIZED_DOTTED_NAME = re.compile(r"[A-Za-z0-9_ .-]+")
 
 
-def _normalized_name(text: str, mark: str) -> str:
+def _normalized_name(text: str, mark: str, dotted: bool = False) -> str:
     """A quoted name's text between its quotes, written `"text"`: a doubled
     closing quote read as one. A name holding anything but ASCII letters,
-    digits, spaces, `_` and `-` (so no quote, dot or backslash) is refused."""
+    digits, spaces, `_` and `-` (so no quote, dot or backslash) is refused;
+    with `dotted`, a dot is read too."""
     if mark != "[":
         text = text.replace(mark * 2, mark)
-    if not _NORMALIZED_NAME.fullmatch(text):
+    if not (_NORMALIZED_DOTTED_NAME if dotted else _NORMALIZED_NAME).fullmatch(text):
         raise ReadOnlyViolation(
             "A quoted name holds a character other than an ASCII letter, a digit, a space, '_' or '-', which "
             "the table checks for this source do not read. Use the name without it."

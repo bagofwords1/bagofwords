@@ -21,7 +21,12 @@ import pandas as pd
 import pytest
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, TableAccessError, UnsafeSQLError
-from app.ai.code_execution.table_scope import TABLE_SCOPE_ATTR, TableScope
+from app.ai.code_execution.table_scope import (
+    TABLE_SCOPE_ATTR,
+    TableScope,
+    TableScopeViolation,
+    enforce_table_scope,
+)
 
 # Per client: how its catalog stores the two tables, the schema a qualified
 # reference names, the client attributes the connection sets, one idiom of
@@ -441,4 +446,380 @@ def test_names_that_differ_only_in_case_with_different_states_refuse_every_query
         active=[spec["active"]], inactive=[spec["active"].swapcase(), spec["inactive"]]))
     with pytest.raises(TableAccessError, match="cannot be checked for this connection type"):
         _run(client, "SELECT COUNT(*) AS n FROM events")
+    assert sent == []
+
+
+# A word the engine may read as a table's alias where the parse reads the
+# start of a clause: what follows it is still checked as a source.
+def _after_a_clause_word(engine):
+    return [
+        f"SELECT * FROM events limit, {CATALOG_TABLES[engine]}",
+        "SELECT * FROM events limit, ledger",
+        "SELECT * FROM (SELECT * FROM events limit, ledger) t",
+        "SELECT * FROM events AS limit, ledger",
+        "SELECT * FROM events AS limit(a), ledger",
+        "SELECT * FROM events limit(a), ledger",
+        "SELECT * FROM events offset, ledger",
+        "SELECT * FROM events fetch, ledger",
+        "SELECT * FROM events limit JOIN ledger ON 1 = 1",
+        "SELECT * FROM events limit JOIN events b ON 1 = 1, ledger",
+        "SELECT * FROM events e JOIN events f ON e.limit = f.id, ledger",
+        "SELECT * FROM events limit ledger",
+    ]
+
+
+@pytest.mark.parametrize("engine, sql", [(e, s) for e in ENGINES for s in _after_a_clause_word(e)])
+def test_a_source_after_a_clause_word_is_refused_before_dispatch(engine, sql):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError):
+        _run(client, sql)
+    assert sent == []
+
+
+@pytest.mark.parametrize("engine, sql", [(e, s) for e in ENGINES for s in (
+    "SELECT COUNT(*) AS n FROM events LIMIT 10",
+    "SELECT COUNT(*) AS n FROM events LIMIT 10 OFFSET 5",
+    "SELECT COUNT(*) AS n FROM events ORDER BY 1 FETCH FIRST 5 ROWS ONLY",
+)])
+def test_a_row_limit_that_is_a_number_runs(engine, sql):
+    client, sent = _client(engine)
+    df, _, _ = _run(client, sql)
+    assert df["n"].iloc[0] == 3
+    assert sent == [sql]
+
+
+# After a table in FROM, with any keyword of the parser where an alias may
+# stand, a name that follows as a source is never left unchecked. A query
+# may run only with the bare name right after the keyword, where it is no
+# source to any engine: the alias itself, a condition, a sampling method or
+# a window's name to one that reads the keyword, and a second alias (an
+# error) to one that reads the keyword as the alias.
+_NOT_A_SOURCE_AFTER = frozenset({"as", "where", "having", "qualify", "tablesample", "window"})
+_AFTER_A_KEYWORD = ("{k}, ledger", "{k} JOIN ledger ON 1 = 1", "{k} NATURAL JOIN ledger", "{k} CROSS APPLY ledger",
+                    "{k} (a), ledger", "AS {k}, ledger", "AS {k}(a), ledger", "{k} ledger")
+
+
+def _parser_keywords():
+    from sqlglot import Dialect
+
+    words = set()
+    for dialect in (None, "postgres", "tsql"):
+        tokenizer = Dialect.get_or_raise(dialect).tokenizer_class
+        words |= {k.lower() for k in tokenizer.KEYWORDS if k.replace("_", "a").isalnum() and k[0].isalpha()}
+    return sorted(words)
+
+
+@pytest.mark.parametrize("engine", list(ENGINES))
+def test_no_keyword_in_alias_position_leaves_a_source_unchecked(engine):
+    client, _ = _client(engine)
+    keywords = _parser_keywords()
+    assert len(keywords) > 250 and {"limit", "offset", "fetch", "window", "qualify"} <= set(keywords)
+    ran = []
+    for keyword in keywords:
+        for form in _AFTER_A_KEYWORD:
+            try:
+                enforce_table_scope(client, "SELECT * FROM events " + form.format(k=keyword))
+            except TableScopeViolation:
+                continue
+            ran.append((keyword, form))
+    assert [(k, f) for k, f in ran if f != "{k} ledger" or k not in _NOT_A_SOURCE_AFTER] == []
+
+
+# A catalog that stores `schema.table`: a table's name may hold dots. The
+# stored name is read at its first dot only, and a query names such a table
+# with the name quoted.
+DOTTED = ["db2", "ibmi", "sybase", "hana"]
+
+
+def _dotted_client(engine):
+    client, sent = _client(engine)
+    setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(
+        active=["APP.EVENTS", "APP.sap.T1"], inactive=["APP.SECRET", "APP.hr.PAY"]))
+    return client, sent
+
+
+@pytest.mark.parametrize("engine", DOTTED)
+@pytest.mark.parametrize("sql", [
+    "SELECT COUNT(*) AS n FROM otherdb.app.events",
+    "SELECT COUNT(*) AS n FROM sap.t1",
+    "SELECT COUNT(*) AS n FROM app.sap.t1",
+    "SELECT COUNT(*) AS n FROM t1",
+    "SELECT COUNT(*) AS n FROM \"sap\".\"T1\"",
+    "SELECT COUNT(*) AS n FROM app.\"hr.PAY\"",
+    "SELECT COUNT(*) AS n FROM \"hr.PAY\"",
+    "SELECT COUNT(*) AS n FROM hr.pay",
+    "SELECT COUNT(*) AS n FROM other.\"sap.T1\"",
+    "SELECT COUNT(*) AS n FROM \"app.events\"",
+])
+def test_a_name_that_differs_from_the_stored_schema_and_table_is_refused(engine, sql):
+    client, sent = _dotted_client(engine)
+    with pytest.raises(TableAccessError):
+        _run(client, sql)
+    assert sent == []
+
+
+@pytest.mark.parametrize("engine", DOTTED)
+@pytest.mark.parametrize("sql", [
+    "SELECT COUNT(*) AS n FROM app.\"sap.T1\"",
+    "SELECT COUNT(*) AS n FROM \"sap.T1\"",
+    "SELECT COUNT(*) AS n FROM app.events e JOIN app.\"sap.T1\" t ON e.id = t.id",
+])
+def test_a_table_whose_name_holds_a_dot_is_read_by_its_quoted_name(engine, sql):
+    client, sent = _dotted_client(engine)
+    df, _, _ = _run(client, sql)
+    assert df["n"].iloc[0] == 3
+    assert sent == [sql]
+
+
+@pytest.mark.parametrize("engine", ["vertica", "pinot"])
+def test_a_quoted_name_holding_a_dot_stays_refused_where_the_catalog_stores_bare_names(engine):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError):
+        _run(client, "SELECT COUNT(*) AS n FROM \"default.events\"")
+    assert sent == []
+
+
+# A word before a parenthesis is a function unless the parenthesis opens
+# syntax after it; being a keyword gives a call no pass.
+@pytest.mark.parametrize("engine", list(ENGINES))
+@pytest.mark.parametrize("word", ["offset", "minus", "group", "like", "any", "some", "all", "exists", "top",
+                                  "limit", "union", "having", "apply", "lateral", "filter"])
+def test_a_keyword_called_as_a_function_is_refused_naming_it(engine, word):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError, match=rf"{word.upper()}\(\) is not allowed"):
+        _run(client, f"SELECT {word}(id) AS n FROM events")
+    assert sent == []
+
+
+@pytest.mark.parametrize("engine, sql", [(e, s) for e in ENGINES for s in (
+    "SELECT COUNT(*) AS n FROM events WHERE id IN (SELECT id FROM events)",
+    "SELECT COUNT(*) AS n FROM events WHERE id IN (1, 2, 3)",
+    "SELECT COUNT(*) AS n FROM events WHERE id = ANY (SELECT id FROM events)",
+    "SELECT COUNT(*) AS n FROM events WHERE id > ALL (SELECT id FROM events)",
+    "SELECT COUNT(*) AS n FROM events e WHERE EXISTS (SELECT 1 FROM events f WHERE f.id = e.id)",
+    "SELECT SUM(id) OVER (PARTITION BY note ORDER BY created) AS n FROM events",
+    "SELECT COUNT(*) AS n FROM events WHERE (id > 1 AND (note = 'a' OR NOT (id = 2)))",
+)])
+def test_a_parenthesis_that_opens_syntax_still_runs(engine, sql):
+    client, sent = _client(engine)
+    df, _, _ = _run(client, sql)
+    assert df["n"].iloc[0] == 3
+    assert sent == [sql]
+
+
+@pytest.mark.parametrize("engine", list(ENGINES))
+@pytest.mark.parametrize("sql", [
+    "SELECT COUNT(*) AS n FROM events WHERE id = ANY (SELECT id FROM secret)",
+    "SELECT COUNT(*) AS n FROM events e WHERE EXISTS (SELECT 1 FROM ledger f WHERE f.id = e.id)",
+])
+def test_a_subquery_after_a_keyword_is_still_checked(engine, sql):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError, match="not enabled"):
+        _run(client, sql)
+    assert sent == []
+
+
+# More plain functions, per engine: each reads only its arguments there.
+_DB2_CALLS = ["year", "month", "day", "hour", "minute", "second", "quarter", "week", "dayofweek", "date", "days",
+              "now", "to_char", "to_date", "to_timestamp", "to_number", "int", "integer", "double", "ifnull",
+              "nvl", "decode", "value", "listagg", "median", "percentile_cont", "cume_dist", "percent_rank",
+              "sign", "exp", "ln", "log", "trunc", "rand", "instr", "locate", "initcap", "repeat", "lcase",
+              "ucase", "digits", "regexp_like", "regexp_replace"]
+MORE_CALLS = {
+    "db2": _DB2_CALLS,
+    "ibmi": _DB2_CALLS,
+    "vertica": ["year", "month", "day", "hour", "minute", "second", "quarter", "week", "dayofweek",
+                "date", "now", "getdate", "to_char", "to_date", "to_timestamp", "to_number", "ifnull", "nvl",
+                "isnull", "zeroifnull", "decode", "listagg", "median", "percentile_cont", "cume_dist",
+                "percent_rank", "sign", "exp", "ln", "log", "trunc", "instr", "initcap", "repeat", "regexp_like",
+                "regexp_replace"],
+    "sybase": ["year", "month", "day", "hour", "minute", "second", "quarter", "datepart", "date", "days",
+               "dateformat", "now", "getdate", "to_char", "ifnull", "isnull", "list", "median", "percentile_cont",
+               "cume_dist", "percent_rank", "sign", "exp", "log", "rand", "locate", "charindex", "reverse",
+               "repeat", "lcase", "ucase"],
+    "hana": ["year", "month", "hour", "minute", "second", "quarter", "week", "now", "to_date", "to_timestamp",
+             "to_varchar", "to_decimal", "ifnull", "string_agg", "median", "percentile_cont", "cume_dist",
+             "percent_rank", "sign", "exp", "ln", "log", "rand", "locate", "initcap", "lcase", "ucase"],
+    "pinot": ["year", "month", "day", "hour", "minute", "second", "quarter", "week", "dayofweek", "now", "ago",
+              "datetimeconvert", "todatetime", "jsonextractscalar", "text_match", "distinctcount",
+              "distinctcounthll", "percentile", "percentiletdigest", "sign", "exp", "ln", "reverse",
+              "regexp_like", "regexp_replace"],
+}
+_CALL_FORMS = {
+    "now": "SELECT NOW() AS n FROM events",
+    "getdate": "SELECT GETDATE() AS n FROM events",
+    "rand": "SELECT RAND() AS n FROM events",
+    "listagg": "SELECT LISTAGG(note, '-') WITHIN GROUP (ORDER BY id) AS n FROM events",
+    "percentile_cont": "SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY id) AS n FROM events",
+    "cume_dist": "SELECT CUME_DIST() OVER (ORDER BY id) AS n FROM events",
+    "percent_rank": "SELECT PERCENT_RANK() OVER (ORDER BY id) AS n FROM events",
+    "ago": "SELECT COUNT(*) AS n FROM events WHERE created > ago('PT1H')",
+    "text_match": "SELECT COUNT(*) AS n FROM events WHERE TEXT_MATCH(note, 'a')",
+    "jsonextractscalar": "SELECT JSONEXTRACTSCALAR(note, 'a', 'STRING') AS n FROM events",
+    "datetimeconvert": "SELECT DATETIMECONVERT(created, 'a', 'b', 'c') AS n FROM events",
+    "charindex": "SELECT CHARINDEX('a', note) AS n FROM events",
+    "datepart": "SELECT DATEPART(day, created) AS n FROM events",
+    "decode": "SELECT DECODE(note, 'a', 1, 0) AS n FROM events",
+    "instr": "SELECT INSTR(note, 'a') AS n FROM events",
+    "locate": "SELECT LOCATE('a', note) AS n FROM events",
+    "regexp_like": "SELECT COUNT(*) AS n FROM events WHERE REGEXP_LIKE(note, 'a')",
+    "regexp_replace": "SELECT REGEXP_REPLACE(note, 'a', 'b') AS n FROM events",
+    "repeat": "SELECT REPEAT(note, 2) AS n FROM events",
+    "to_char": "SELECT TO_CHAR(created, 'YYYY') AS n FROM events",
+}
+
+
+@pytest.mark.parametrize("engine, name", [(e, name) for e, names in MORE_CALLS.items() for name in names])
+def test_each_more_plain_function_runs_while_a_table_is_disabled(engine, name):
+    client, sent = _client(engine)
+    sql = _CALL_FORMS.get(name, f"SELECT {name.upper()}(note) AS n FROM events")
+    df, _, _ = _run(client, sql)
+    assert df["n"].iloc[0] == 3
+    assert sent == [sql]
+
+
+@pytest.mark.parametrize("engine, name", [
+    ("hana", "decode"), ("hana", "day"), ("hana", "to_char"), ("pinot", "nvl"), ("pinot", "to_date"),
+    ("pinot", "rollup"), ("pinot", "cube"), ("sybase", "nvl"), ("sybase", "to_date"), ("sybase", "week"),
+    ("vertica", "days"), ("vertica", "int"), ("vertica", "date_part"), ("vertica", "rand"),
+    ("db2", "datepart"), ("ibmi", "getdate"),
+    *[(e, name) for e in ENGINES for name in ("len", "approx_count_distinct", "sets")],
+])
+def test_a_function_an_engine_is_not_known_to_have_stays_refused(engine, name):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError, match=name.upper()):
+        _run(client, f"SELECT {name}(id) AS n FROM events")
+    assert sent == []
+
+
+# More syntax that names no table.
+GROUPING = [
+    "SELECT COUNT(*) AS n FROM events GROUP BY ROLLUP(note, id)",
+    "SELECT COUNT(*) AS n FROM events GROUP BY CUBE(note, id)",
+    "SELECT COUNT(*) AS n FROM events GROUP BY GROUPING SETS ((note), (id), ())",
+]
+COLUMN_LISTS = [
+    "WITH x(a) AS (SELECT id FROM events) SELECT COUNT(*) AS n FROM x",
+    "WITH x(a, b) AS (SELECT id, note FROM events), y(c) AS (SELECT a FROM x) SELECT COUNT(*) AS n FROM y",
+    "SELECT COUNT(*) AS n FROM (SELECT id FROM events) AS t(a)",
+    "SELECT CAST(id AS NUMBER(10, 2)) AS n FROM events",
+    "SELECT CAST(id AS DECFLOAT(16)) AS n FROM events",
+]
+PARENTHESES = [
+    "SELECT COUNT(*) AS n FROM ((SELECT id FROM events)) t",
+    "SELECT COUNT(*) AS n FROM (events a JOIN events b ON a.id = b.id)",
+    "SELECT COUNT(*) AS n FROM (events a JOIN events b ON a.id = b.id) JOIN events c ON c.id = a.id",
+    "SELECT COUNT(*) AS n FROM (events)",
+]
+DB2_SYNTAX = [
+    "SELECT COUNT(*) AS n FROM events WITH UR",
+    "SELECT COUNT(*) AS n FROM events FOR READ ONLY",
+    "SELECT COUNT(*) AS n FROM events FOR FETCH ONLY",
+    "SELECT COUNT(*) AS n FROM events FETCH FIRST 5 ROWS ONLY FOR READ ONLY WITH UR",
+    "SELECT CURRENT DATE AS n FROM events",
+    "SELECT COUNT(*) AS n FROM events WHERE created > CURRENT TIMESTAMP - 7 DAYS",
+    "SELECT COUNT(*) AS n FROM events WHERE created > CURRENT DATE - 1 MONTH + 2 HOURS",
+    "WITH r(k) AS (SELECT id FROM events UNION ALL SELECT k + 1 FROM r WHERE k < 5) SELECT COUNT(*) AS n FROM r",
+    "SELECT COUNT(*) AS n FROM events WHERE note IS DISTINCT FROM 'a'",
+    "SELECT COUNT(*) AS n FROM events WHERE note IS NOT DISTINCT FROM created",
+]
+MORE_SYNTAX = (
+    [(e, s) for e in ENGINES if e != "pinot" for s in GROUPING]
+    + [(e, s) for e in ENGINES for s in COLUMN_LISTS + PARENTHESES]
+    + [(e, s) for e in ("db2", "ibmi") for s in DB2_SYNTAX]
+    + [("pinot", s) for s in DB2_SYNTAX[-2:]]
+)
+
+
+@pytest.mark.parametrize("engine, sql", MORE_SYNTAX)
+def test_more_syntax_that_names_no_table_runs_while_a_table_is_disabled(engine, sql):
+    client, sent = _client(engine)
+    df, _, _ = _run(client, sql)
+    assert df["n"].iloc[0] == 3
+    assert sent == [sql]
+
+
+@pytest.mark.parametrize("engine, sql", [
+    *[(e, s) for e in ENGINES for s in (
+        "WITH x(a) AS (SELECT id FROM secret) SELECT COUNT(*) AS n FROM x",
+        "WITH x(a) AS (SELECT id FROM ledger) SELECT COUNT(*) AS n FROM x",
+        "SELECT COUNT(*) AS n FROM (SELECT id FROM ledger) AS t(a)",
+        "SELECT COUNT(*) AS n FROM ((SELECT id FROM ledger)) t",
+        "SELECT COUNT(*) AS n FROM (events a JOIN ledger b ON a.id = b.id)",
+        "SELECT COUNT(*) AS n FROM (events a JOIN events b ON a.id = b.id), ledger",
+        "SELECT COUNT(*) AS n FROM (ledger)",
+        "SELECT COUNT(*) AS n FROM (events a, ledger b)",
+        "SELECT COUNT(*) AS n FROM (fn_rows(1))",
+        "SELECT my_udf(a) AS n FROM events",
+        "SELECT 1 AS n, my_udf(a) AS (b) FROM events",
+        "SELECT id AS my_udf(a) FROM ledger",
+    )],
+    *[(e, s) for e in ("db2", "ibmi") for s in (
+        "SELECT COUNT(*) AS n FROM ledger WITH UR",
+        "SELECT COUNT(*) AS n FROM events FOR READ ONLY, ledger",
+        "SELECT COUNT(*) AS n FROM events WITH UR, ledger",
+        "SELECT COUNT(*) AS n FROM events WHERE created > CURRENT DATE - 7 DAYS, ledger",
+        "WITH r(k) AS (SELECT id FROM r UNION ALL SELECT id FROM events) SELECT COUNT(*) AS n FROM r",
+        "WITH r(k) AS (SELECT id FROM events UNION ALL SELECT id FROM ledger) SELECT COUNT(*) AS n FROM r",
+        "SELECT is DISTINCT FROM ledger",
+        "SELECT 1 AS n, note IS DISTINCT FROM ledger l JOIN events ON 1 = 1",
+        "SELECT 1 AS n, 1 IS DISTINCT FROM ledger",
+        "SELECT ALL is DISTINCT FROM ledger",
+        "SELECT note, is NOT DISTINCT FROM ledger",
+    )],
+    *[(e, "SELECT COUNT(*) AS n FROM events WHERE note IS DISTINCT FROM 'a'") for e in ("vertica", "sybase", "hana")],
+    ("hana", "WITH r(k) AS (SELECT id FROM events UNION ALL SELECT k + 1 FROM r WHERE k < 5) SELECT COUNT(*) AS n "
+             "FROM r"),
+    ("hana", "SELECT COUNT(*) AS n FROM events WITH UR"),
+])
+def test_more_syntax_gives_no_table_a_pass(engine, sql):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError):
+        _run(client, sql)
+    assert sent == []
+
+
+# One-row tables of the engine: only by their exact names.
+@pytest.mark.parametrize("engine, sql", [
+    ("hana", "SELECT 3 AS n FROM DUMMY"),
+    ("hana", "SELECT COUNT(*) AS n FROM events, dummy"),
+    ("db2", "SELECT 3 AS n FROM SYSIBM.SYSDUMMY1"),
+    ("ibmi", "SELECT CURRENT DATE AS n FROM sysibm.sysdummy1"),
+])
+def test_the_one_row_table_of_the_engine_is_a_source(engine, sql):
+    client, sent = _client(engine)
+    df, _, _ = _run(client, sql)
+    assert df["n"].iloc[0] == 3
+    assert sent == [sql]
+
+
+@pytest.mark.parametrize("engine, sql", [
+    ("hana", "SELECT 3 AS n FROM app.dummy"),
+    ("hana", "SELECT 3 AS n FROM sys.dummy"),
+    ("hana", "SELECT 3 AS n FROM other.sys.dummy"),
+    ("hana", "SELECT 3 AS n FROM sysibm.sysdummy1"),
+    ("db2", "SELECT 3 AS n FROM sysdummy1"),
+    ("db2", "SELECT 3 AS n FROM app.sysdummy1"),
+    ("db2", "SELECT 3 AS n FROM other.sysibm.sysdummy1"),
+    ("db2", "SELECT 3 AS n FROM sysibm.systables"),
+    ("db2", "SELECT 3 AS n FROM dummy"),
+    *[(e, "SELECT 3 AS n FROM dummy") for e in ("vertica", "sybase", "pinot")],
+    *[(e, "SELECT 3 AS n FROM sysibm.sysdummy1") for e in ("vertica", "sybase", "pinot")],
+])
+def test_only_the_exact_name_of_the_one_row_table_is_a_source(engine, sql):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError):
+        _run(client, sql)
+    assert sent == []
+
+
+@pytest.mark.parametrize("engine, table, sql", [
+    ("hana", "APP.DUMMY", "SELECT 3 AS n FROM dummy"),
+    ("db2", "SYSIBM.SYSDUMMY1", "SELECT 3 AS n FROM sysibm.sysdummy1"),
+])
+def test_a_one_row_table_name_the_selection_disables_stays_refused(engine, table, sql):
+    client, sent = _client(engine)
+    setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(active=["APP.EVENTS"], inactive=[table]))
+    with pytest.raises(TableAccessError):
+        _run(client, sql)
     assert sent == []

@@ -199,6 +199,9 @@ _SAFE_TABLE_FUNCTIONS = frozenset({
     "jsonb_to_recordset", "json_populate_recordset", "jsonb_populate_recordset",
     "json_table", "openjson", "string_split", "generate_array",
     "generate_date_array", "generate_timestamp_array",
+    # Spark, Databricks and Hive generators (LATERAL VIEW, LATERAL)
+    "inline_outer", "json_tuple", "parse_url_tuple", "stack", "variant_explode",
+    "variant_explode_outer",
 })
 
 # Functions that read a table named in a string, run SQL held in a string, or
@@ -923,7 +926,8 @@ def _check_statements(statements: list, dialect: str, scope: TableScope,
 
         # APPLY and LATERAL: over a subquery its tables are table references,
         # checked above; over a name or a call they are not. A call passes
-        # as it would in FROM (a typed built-in or a row-producing function).
+        # as it would in FROM (a typed built-in or a row-producing function),
+        # and so does T-SQL's nodes() method of an xml column.
         for lateral in stmt.find_all(exp.Lateral):
             target = lateral.this
             if isinstance(target, (exp.Subquery, exp.Query)):
@@ -931,12 +935,71 @@ def _check_statements(statements: list, dialect: str, scope: TableScope,
             if isinstance(target, exp.Func) and (not isinstance(target, exp.Anonymous)
                                                  or _func_name(target).lower() in _SAFE_TABLE_FUNCTIONS):
                 continue
+            if dialect in _XML_NODES_DIALECTS and _is_xml_nodes_call(lateral):
+                continue
             raise TableScopeViolation(
                 f"'{lateral.sql(dialect=dialect)[:80]}' is not allowed as a query source, because "
                 "the table it reads cannot be checked. Apply a subquery over the enabled tables instead."
             )
 
+        _check_row_limits(stmt)
+
     _refuse_denied(denied)
+
+
+# Dialects with the nodes() method of an xml column (`_is_xml_nodes_call`).
+_XML_NODES_DIALECTS = frozenset({"tsql", "fabric"})
+
+
+def _is_xml_nodes_call(lateral) -> bool:
+    """Whether an APPLY's target is the nodes() method of an xml column,
+    written `source.column.nodes('path')`: `source` is the alias (or, with
+    no alias, the name) of a source of the same SELECT, and the one argument
+    is a string. It makes rows from that column's value. Anything else
+    before `.nodes(...)` may name a schema, and the call a function in it."""
+    from sqlglot import exp
+
+    target = lateral.this
+    if not isinstance(target, exp.Dot):
+        return False
+    receiver, call = target.this, target.expression
+    if not (isinstance(call, exp.Anonymous) and str(call.name).lower() == "nodes" and len(call.expressions) == 1
+            and isinstance(call.expressions[0], exp.Literal) and call.expressions[0].is_string):
+        return False
+    if not (isinstance(receiver, exp.Dot) and isinstance(receiver.this, exp.Identifier)
+            and isinstance(receiver.expression, exp.Identifier)):
+        return False
+    select = lateral.find_ancestor(exp.Select)
+    if select is None:
+        return False
+    first = select.args.get("from") or select.args.get("from_")
+    sources = [first.this] if first is not None else []
+    sources += [join.this for join in select.args.get("joins") or ()]
+    names = {str(s.alias_or_name).lower() for s in sources
+             if s is not lateral and isinstance(s, (exp.Table, exp.Subquery, exp.Lateral))}
+    return str(receiver.this.name).lower() in names - {""}
+
+
+def _check_row_limits(statement) -> None:
+    """Refuse a LIMIT, OFFSET, FETCH or TOP whose count is anything but a
+    number or a bound parameter. An engine in which the clause word is no
+    keyword reads it as the alias of the table before it, and a name after
+    it as one more source, which no table reference here stands for."""
+    from sqlglot import exp
+
+    for node in statement.find_all(exp.Limit, exp.Offset, exp.Fetch):
+        for key in ("expression", "offset", "count"):
+            count = node.args.get(key)
+            if count is None:
+                continue
+            plain = (isinstance(count, exp.Literal) and not count.is_string) or (
+                isinstance(count, (exp.Placeholder, exp.Parameter))
+                and count.find(exp.Column, exp.Identifier, exp.Query, exp.Func) is None)
+            if not plain:
+                raise TableScopeViolation(
+                    f"{_UNVERIFIED} A row limit (LIMIT, OFFSET, FETCH, TOP) must be a plain number here: "
+                    f"'{count.sql(dialect='')[:60]}' is not. Write the number of rows."
+                )
 
 
 def table_refs(sql: str, dialect: str) -> list[Name]:
@@ -1039,31 +1102,95 @@ _NONPARSING_CALLS = frozenset({
     # window functions
     "row_number", "rank", "dense_rank", "lag", "lead", "first_value", "last_value", "ntile",
 })
-# Each engine's date-add and date-diff functions (IBM i is "db2").
+# More functions of each engine that read only their arguments there (IBM i
+# is "db2", so its entry holds what both Db2 and IBM i have): date-add and
+# date-diff, date parts, the current time, conversions, null handling,
+# aggregates and window functions, math and strings. A name is listed only
+# for an engine documented to have it as such a function.
 _NONPARSING_ENGINE_CALLS = {
-    "db2": frozenset({"add_days", "add_months", "add_years", "days_between", "months_between", "timestampdiff"}),
-    "vertica": frozenset({"datediff", "timestampadd", "timestampdiff", "add_months", "months_between"}),
-    "sybase": frozenset({"dateadd", "datediff"}),
-    "hana": frozenset({"add_days", "add_months", "add_years", "add_seconds", "days_between", "seconds_between",
-                       "months_between", "years_between"}),
-    "pinot": frozenset({"timestampadd", "timestampdiff"}),
+    "db2": frozenset({
+        "add_days", "add_months", "add_years", "days_between", "months_between", "timestampdiff",
+        "year", "month", "day", "hour", "minute", "second", "quarter", "week", "dayofweek", "date", "days", "now",
+        "to_char", "to_date", "to_timestamp", "to_number", "int", "integer", "double",
+        "ifnull", "nvl", "decode", "value",
+        "listagg", "median", "percentile_cont", "cume_dist", "percent_rank",
+        "sign", "exp", "ln", "log", "trunc", "rand",
+        "instr", "locate", "initcap", "repeat", "lcase", "ucase", "digits", "regexp_like", "regexp_replace",
+    }),
+    "vertica": frozenset({
+        "datediff", "timestampadd", "timestampdiff", "add_months", "months_between",
+        "year", "month", "day", "hour", "minute", "second", "quarter", "week", "dayofweek", "date",
+        "now", "getdate",
+        "to_char", "to_date", "to_timestamp", "to_number",
+        "ifnull", "nvl", "isnull", "zeroifnull", "decode",
+        "listagg", "median", "percentile_cont", "cume_dist", "percent_rank",
+        "sign", "exp", "ln", "log", "trunc",
+        "instr", "initcap", "repeat", "regexp_like", "regexp_replace",
+    }),
+    "sybase": frozenset({
+        "dateadd", "datediff",
+        "year", "month", "day", "hour", "minute", "second", "quarter", "datepart", "date", "days", "dateformat",
+        "now", "getdate",
+        "to_char",
+        "ifnull", "isnull",
+        "list", "median", "percentile_cont", "cume_dist", "percent_rank",
+        "sign", "exp", "log", "rand",
+        "locate", "charindex", "reverse", "repeat", "lcase", "ucase",
+    }),
+    "hana": frozenset({
+        "add_days", "add_months", "add_years", "add_seconds", "days_between", "seconds_between",
+        "months_between", "years_between",
+        "year", "month", "hour", "minute", "second", "quarter", "week", "now",
+        "to_date", "to_timestamp", "to_varchar", "to_decimal",
+        "ifnull",
+        "string_agg", "median", "percentile_cont", "cume_dist", "percent_rank",
+        "sign", "exp", "ln", "log", "rand",
+        "locate", "initcap", "lcase", "ucase",
+    }),
+    "pinot": frozenset({
+        "timestampadd", "timestampdiff",
+        "year", "month", "day", "hour", "minute", "second", "quarter", "week", "dayofweek", "now", "ago",
+        "datetimeconvert", "todatetime", "jsonextractscalar", "text_match",
+        "distinctcount", "distinctcounthll", "percentile", "percentiletdigest",
+        "sign", "exp", "ln",
+        "reverse", "regexp_like", "regexp_replace",
+    }),
 }
 # Type names written with a length or a precision (CAST(x AS DECIMAL(10, 2))).
 _NONPARSING_TYPE_NAMES = frozenset({
     "decimal", "dec", "numeric", "char", "character", "varchar", "nchar", "nvarchar", "binary", "varbinary",
-    "float", "time", "timestamp",
+    "float", "time", "timestamp", "number", "decfloat",
 })
-# Keywords a `(` may follow without making a call.
+# Keywords after which a `(` opens syntax, never a call.
 _NONPARSING_KEYWORDS_BEFORE_PAREN = frozenset({
-    "select", "from", "join", "on", "using", "where", "and", "or", "not", "in", "exists", "any", "all", "some",
-    "as", "over", "by", "when", "then", "else", "case", "distinct", "values", "having", "union", "intersect",
-    "except", "minus", "with", "like", "between", "is", "filter", "group", "limit", "top", "offset", "lateral",
-    "apply",
+    "select", "from", "join", "on", "using", "where", "and", "or", "not", "in", "as", "over", "when", "then",
+    "else", "values",
+})
+# Keywords after which a `(` may only open a subquery; before anything else
+# the word is read as a function's name. APPLY and LATERAL take a row list
+# (VALUES) as well, as a FROM clause does.
+_NONPARSING_KEYWORDS_BEFORE_SUBQUERY = frozenset({"exists", "any", "some", "all", "apply", "lateral"})
+# Engines with GROUP BY ROLLUP(...), CUBE(...) and GROUPING SETS (...).
+_NONPARSING_GROUPING_ENGINES = frozenset({"db2", "vertica", "sybase", "hana"})
+# Engines with `a IS [NOT] DISTINCT FROM b`, whose FROM opens no FROM clause.
+_NONPARSING_IS_DISTINCT_FROM = frozenset({"db2", "pinot"})
+# Words an expression may follow: before IS they are no left operand.
+_WORDS_BEFORE_AN_EXPRESSION = frozenset({
+    "select", "all", "distinct", "and", "or", "not", "when", "then", "else", "where", "on", "having", "by",
+    "case", "in", "like", "between", "as", "is", "from", "join", "using", "values", "limit", "offset", "top",
+    "first", "stream", "return", "set",
 })
 # Words after which a FROM clause has ended, at the depth it stands.
 _FROM_CLAUSE_ENDS = frozenset({
     "where", "group", "having", "order", "limit", "fetch", "offset", "union", "except", "intersect", "minus",
     "window", "qualify", "for", "select", "values",
+})
+# An engine's one-row table, a source under this exact name only.
+_NONPARSING_ONE_ROW_TABLES = {"hana": ("dummy",), "db2": ("sysibm", "sysdummy1")}
+# The words of a Db2 labeled duration (`CURRENT DATE - 7 DAYS`).
+_DB2_DURATION_UNITS = frozenset({
+    "year", "years", "month", "months", "day", "days", "hour", "hours", "minute", "minutes", "second", "seconds",
+    "microsecond", "microseconds",
 })
 
 
@@ -1094,15 +1221,69 @@ def _canonical_call(name: str, engine: str) -> str:
     return name.replace("_", "") if engine == "pinot" else name
 
 
-def _nonparsing_call_allowed(word: str, engine: str) -> bool:
-    """Whether an unquoted `word` before `(` is a keyword, a type name, or
-    a function of `_NONPARSING_CALLS` / `_NONPARSING_ENGINE_CALLS`, each
-    compared as `engine` resolves functions (`_canonical_call`)."""
-    lowered = word.lower()
-    if lowered in _NONPARSING_KEYWORDS_BEFORE_PAREN:
+def _nonparsing_call_allowed(tokens: list[tuple[str, str]], i: int, engine: str, with_header: bool) -> bool:
+    """Whether the unquoted word `tokens[i]`, which a `(` follows, may stand
+    there:
+
+      * a keyword after which the `(` opens syntax
+        (`_NONPARSING_KEYWORDS_BEFORE_PAREN`), or opens a subquery
+        (`_NONPARSING_KEYWORDS_BEFORE_SUBQUERY`, read from the token after
+        the `(`); WITHIN GROUP (ORDER BY ...); GROUPING SETS, ROLLUP and
+        CUBE where the engine has them;
+      * a name given a column list, `(a, b)` and nothing else: after AS, or
+        a WITH entry's name (`with_header`: the token stands among the
+        entries of a WITH) before its AS;
+      * a type name, or a function of `_NONPARSING_CALLS` /
+        `_NONPARSING_ENGINE_CALLS`, each compared as `engine` resolves
+        functions (`_canonical_call`)."""
+    word = tokens[i][1].lower()
+    before = tokens[i - 1][1].lower() if i else None
+    inside = tokens[i + 2][1].lower() if i + 2 < len(tokens) else None
+    if word in _NONPARSING_KEYWORDS_BEFORE_PAREN:
+        return True
+    if word in _NONPARSING_KEYWORDS_BEFORE_SUBQUERY:
+        return inside in ("select", "with") or (inside == "values" and word in ("apply", "lateral"))
+    if word == "group":
+        return before == "within" and inside == "order"
+    if engine in _NONPARSING_GROUPING_ENGINES and (word in ("rollup", "cube") or (word == "sets"
+                                                                                 and before == "grouping")):
+        return True
+    after_list = _after_name_list(tokens, i + 1)
+    if after_list is not None and (before == "as" or (with_header and after_list == "as")):
         return True
     allowed = _NONPARSING_CALLS | _NONPARSING_ENGINE_CALLS[engine] | _NONPARSING_TYPE_NAMES
     return _canonical_call(word, engine) in {_canonical_call(a, engine) for a in allowed}
+
+
+def _after_name_list(tokens: list[tuple[str, str]], i: int) -> str | None:
+    """With `tokens[i]` the `(` of a plain list of names (`(a, b)`: unquoted
+    or quoted names and commas, nothing nested), the token after its `)`,
+    lowered ("" at the end of the text); otherwise None."""
+    j, n = i + 1, len(tokens)
+    while j + 1 < n and tokens[j][0] in ("word", "quoted") and tokens[j + 1][1] == ",":
+        j += 2
+    if not (j + 1 < n and tokens[j][0] in ("word", "quoted") and tokens[j + 1][1] == ")"):
+        return None
+    return tokens[j + 2][1].lower() if j + 2 < n else ""
+
+
+def _is_distinct_from(tokens: list[tuple[str, str]], i: int, engine: str) -> bool:
+    """Whether the FROM at `tokens[i]` is the end of `a IS [NOT] DISTINCT
+    FROM b` on an engine with that comparison: IS stands right after a left
+    operand (a name, a number, a string or a `)`), so it cannot start a
+    select item. The caller reads it so only after the FROM clause of the
+    same SELECT."""
+    if engine not in _NONPARSING_IS_DISTINCT_FROM or i < 3 or tokens[i - 1][1].lower() != "distinct":
+        return False
+    j = i - 2
+    if tokens[j][1].lower() == "not":
+        j -= 1
+    if j < 1 or tokens[j][1].lower() != "is":
+        return False
+    kind, value = tokens[j - 1]
+    if kind == "word":
+        return value.lower() not in _WORDS_BEFORE_AN_EXPRESSION
+    return kind in ("quoted", "number", "string") or value == ")"
 
 
 def _nonparsing_tokens(text: str) -> list[tuple[str, str]]:
@@ -1136,21 +1317,25 @@ def _nonparsing_tokens(text: str) -> list[tuple[str, str]]:
     return tokens
 
 
-def _nonparsing_cross_check(tokens: list[tuple[str, str]], statements: list | None, scope: TableScope,
+def _nonparsing_cross_check(tokens: list[tuple[str, str]], statements: list | None, scopes: tuple,
                             engine: str) -> None:
     """A check of the normalized tokens that does not use sqlglot:
 
-      * each name after FROM, JOIN or APPLY (LATERAL before it read as part
-        of the clause), or after a comma in a FROM clause (the FROM of a
-        SELECT at the same depth, in any subquery, WITH body or UNION
-        branch), is a table or WITH entry the parse (`statements`) found; a
-        call, a `/` (IBM i system naming) or anything but a name or a
-        subquery there is refused;
+      * each name after FROM, or after a comma in a FROM clause (the FROM of
+        a SELECT at the same depth, in any subquery, WITH body or UNION
+        branch), and each name after JOIN or APPLY wherever it stands
+        (LATERAL before a name read as part of the clause), is a table or
+        WITH entry the parse (`statements`) found; parentheses there hold a
+        subquery, or FROM items checked the same way; a call, a `/` (IBM i
+        system naming) or anything else there is refused;
+      * a word that ends a FROM clause (`_FROM_CLAUSE_ENDS`) is not directly
+        followed by a comma, nor LIMIT or OFFSET by a name: an engine that
+        reads the word as the table's alias reads a source after it;
       * no name, quoted or not, equals the last part of a disabled table's
-        name, compared case-insensitively;
-      * no word of `_NONPARSING_DENIED_WORDS`; every call is of a function
-        `_nonparsing_call_allowed` accepts, written unquoted and without
-        its schema.
+        name (in any of `scopes`), compared case-insensitively;
+      * no word of `_NONPARSING_DENIED_WORDS`; every word before a `(` is
+        one `_nonparsing_call_allowed` accepts, written unquoted and
+        without a schema.
 
     With `statements` None (text that did not parse), everything but the
     comparison with the parse, to name a reason for the refusal."""
@@ -1165,7 +1350,7 @@ def _nonparsing_cross_check(tokens: list[tuple[str, str]], statements: list | No
             ident = _cte_ident(cte)
             if ident is not None:
                 reported.add((str(ident.name).lower(),))
-    disabled = frozenset(ref[-1].casefold() for s in (scope, scope.exact) if s is not None for ref in s.inactive)
+    disabled = frozenset(ref[-1].casefold() for s in scopes if s is not None for ref in s.inactive)
     denied_words = _NONPARSING_DENIED_WORDS[engine]
 
     def name_of(token):
@@ -1179,7 +1364,9 @@ def _nonparsing_cross_check(tokens: list[tuple[str, str]], statements: list | No
                 "type a query may not use that name anywhere outside a string (as a column or an alias too). "
                 "Query the agent's enabled tables without it.")
 
-    frames = [[False, False]]  # per depth: a SELECT seen, inside its FROM clause
+    # Per depth: a SELECT seen, inside its FROM clause, among a WITH's
+    # entries, the SELECT's FROM clause seen.
+    frames = [[False, False, False, False]]
     expect_item = False
     i, n = 0, len(tokens)
     while i < n:
@@ -1196,7 +1383,7 @@ def _nonparsing_cross_check(tokens: list[tuple[str, str]], statements: list | No
                 raise _nonparsing_refusal(
                     f"The function {name.upper()}() is written as a quoted name, which is not allowed on this "
                     "connection type. Call a plain SQL function by its unquoted name.")
-            if not _nonparsing_call_allowed(value, engine):
+            if not _nonparsing_call_allowed(tokens, i, engine, frames[-1][2]):
                 raise _nonparsing_refusal(
                     f"The function {value.upper()}() is not allowed in agent queries on this connection type "
                     "while a table is disabled. Only plain SQL functions are: aggregates (COUNT, SUM, AVG, MIN, "
@@ -1211,8 +1398,17 @@ def _nonparsing_cross_check(tokens: list[tuple[str, str]], statements: list | No
         if expect_item:
             expect_item = False
             if value == "(":
-                if nxt is None or nxt.lower() not in ("select", "with", "values"):
-                    raise _nonparsing_refusal("In a FROM clause, parentheses may only hold a subquery.")
+                if nxt is not None and nxt.lower() in ("select", "with", "values"):
+                    pass  # a subquery: its own FROM clauses are read below
+                elif nxt == "(" or (i + 1 < n and name_of(tokens[i + 1]) is not None):
+                    # Parentheses around a join, or around more parentheses:
+                    # what they hold are FROM items, each checked as one.
+                    frames.append([True, True, False, True])
+                    expect_item = True
+                    i += 1
+                    continue
+                else:
+                    raise _nonparsing_refusal("In a FROM clause, parentheses may only hold a subquery or a join.")
             elif name is not None:
                 parts, j = [name], i + 1
                 while j + 1 < n and tokens[j][1] == "." and name_of(tokens[j + 1]) is not None:
@@ -1236,20 +1432,37 @@ def _nonparsing_cross_check(tokens: list[tuple[str, str]], statements: list | No
             else:
                 raise _nonparsing_refusal(f"'{value}' is not allowed where a FROM clause names a table.")
         if value == "(":
-            frames.append([False, False])
+            frames.append([False, False, False, False])
         elif value == ")":
             frames.pop()
             if not frames:
                 raise _nonparsing_refusal("Its parentheses do not match.")
         elif kind == "word":
             word, frame = value.lower(), frames[-1]
+            before = tokens[i - 1][1] if i else None
             if word == "select":
-                frame[0], frame[1] = True, False
+                frame[0], frame[1], frame[2], frame[3] = True, False, False, False
+            elif word == "with" and not frame[0] and before in (None, "("):
+                frame[2] = True
             elif word == "from" and frame[0]:
+                # A SELECT has one FROM clause: only after it may a FROM be
+                # the end of IS DISTINCT FROM.
+                if not (frame[3] and _is_distinct_from(tokens, i, engine)):
+                    frame[1] = expect_item = frame[3] = True
+            elif word in ("join", "apply"):
+                # Wherever it stands: after a word the engine may read as an
+                # alias, the FROM clause goes on.
                 frame[1] = expect_item = True
-            elif word in ("join", "apply") and frame[1]:
-                expect_item = True
-            elif word in _FROM_CLAUSE_ENDS:
+            elif word in _FROM_CLAUSE_ENDS and (before is None or before.lower() not in (".", "as")):
+                # (After a dot or AS the word is a name, and the clause goes on.)
+                if frame[1] and (nxt == "," or (word in ("limit", "offset") and i + 1 < n
+                                                 and name_of(tokens[i + 1]) is not None)):
+                    # To an engine in which the word is no keyword it is the
+                    # alias of the table before it, and what follows it one
+                    # more source.
+                    raise _nonparsing_refusal(
+                        f"'{value} {nxt}' cannot be read after a table in a FROM clause on this connection type. "
+                        "Write the row limit as a number, and give the table another alias.")
                 frame[1] = False
         elif value == "," and frames[-1][1]:
             expect_item = True
@@ -1271,6 +1484,54 @@ def _nonparsing_schema(client, engine: str) -> str | None:
     return None
 
 
+def _schema_and_table(scope: TableScope) -> TableScope:
+    """`scope` with each stored name read as `schema.table`: split at its
+    first dot only, since the table part may hold dots. A reference then
+    matches a table by its whole table part, never by a part of it."""
+    def two_parts(names):
+        return frozenset(name if len(name) <= 2 else (name[0], ".".join(name[1:])) for name in names)
+
+    return TableScope(active=two_parts(scope.active), inactive=two_parts(scope.inactive) - two_parts(scope.active))
+
+
+def _db2_parse_text(text: str) -> str:
+    """Normalized Db2 text with the Db2 forms the generic parser does not
+    read written as it reads them; only the parse gets this text, the token
+    check and the engine get the query as written. None of the forms names
+    a table:
+
+      * a trailing isolation clause (WITH UR / CS / RS / RR) and FOR READ
+        ONLY / FOR FETCH ONLY are left out;
+      * CURRENT DATE / TIME / TIMESTAMP are written with an underscore;
+      * the unit of a labeled duration after `+` or `-` (`- 7 DAYS`) is
+        left out;
+      * a leading WITH is read as WITH RECURSIVE: Db2 reads an entry's own
+        name, in the later branches of its UNION, as the entry."""
+    found = [m for m in _NONPARSING_TOKEN.finditer(text) if m.lastgroup != "space"]
+    words = [m.group().lower() for m in found]
+    edits: list[tuple[int, int, str]] = []
+    end = len(found)
+    if end and words[end - 1] == ";":
+        end -= 1
+    if end >= 2 and words[end - 2] == "with" and words[end - 1] in ("ur", "cs", "rs", "rr"):
+        end -= 2
+    if end >= 3 and words[end - 3] == "for" and words[end - 2] in ("read", "fetch") and words[end - 1] == "only":
+        end -= 3
+    if end < len(found):
+        edits.append((found[end].start(), len(text), ""))
+    for k in range(end - 1):
+        if words[k] == "current" and words[k + 1] in ("date", "time", "timestamp"):
+            edits.append((found[k].start(), found[k + 1].end(), "CURRENT_" + words[k + 1].upper()))
+        elif (found[k].lastgroup == "number" and words[k + 1] in _DB2_DURATION_UNITS
+              and k and words[k - 1] in ("+", "-")):
+            edits.append((found[k + 1].start(), found[k + 1].end(), ""))
+    if end >= 2 and words[0] == "with" and words[1] != "recursive":
+        edits.append((found[0].end(), found[0].end(), " RECURSIVE"))
+    for start, stop, new in sorted(edits, reverse=True):
+        text = text[:start] + new + text[stop:]
+    return text
+
+
 def check_nonparsing_table_scope(sql: str, engine: str, scope: TableScope, schema: str | None = None) -> None:
     """Raise TableScopeViolation unless every table `sql` reads is active, for
     an engine sqlglot has no dialect for (`engine`, as in `client_profiles`).
@@ -1278,15 +1539,19 @@ def check_nonparsing_table_scope(sql: str, engine: str, scope: TableScope, schem
       1. Every reading the engine may take of `sql` gives one normalized
          text (`nonparsing_normalized`), which holds only plain tokens
          (`_nonparsing_tokens`).
-      2. That text, parsed with the engine's pinned dialect
-         (`_NONPARSING_PARSE_DIALECTS`), passes the checks every parsed
-         dialect gets (`_check_statements`); names are compared lowered.
+      2. That text (for Db2, `_db2_parse_text` of it), parsed with the
+         engine's pinned dialect (`_NONPARSING_PARSE_DIALECTS`), passes the
+         checks every parsed dialect gets (`_check_statements`); names are
+         compared lowered.
       3. With `schema` (a catalog that stores bare names), a qualified table
          name must be `schema.table`; on Vertica with a schema other than
          `public`, a table name must be qualified. Without it (a catalog
-         that stores qualified names), a name may not have more parts than
-         the catalog's names.
-      4. The token check `_nonparsing_cross_check` agrees."""
+         that stores `schema.table`, `_schema_and_table`), a name may not
+         have more parts than the catalog's names, and matches a table by
+         its whole table part.
+      4. The engine's one-row table (`_NONPARSING_ONE_ROW_TABLES`) is a
+         source under its exact name, unless the selection disables it.
+      5. The token check `_nonparsing_cross_check` agrees."""
     from sqlglot import exp
 
     if engine not in _NONPARSING_PARSE_DIALECTS:
@@ -1302,25 +1567,34 @@ def check_nonparsing_table_scope(sql: str, engine: str, scope: TableScope, schem
             check_engine_reading(text, dialect)
         except ReadOnlyViolation as e:
             raise _nonparsing_refusal(str(e)) from e
+    # Compared lowered: Vertica reads quoted names case-insensitively too.
+    stored = TableScope(active=scope.active, inactive=scope.inactive, default_database=scope.default_database)
+    if schema is None:
+        stored = _schema_and_table(stored)
+    scopes = (scope, scope.exact, stored)
     try:
-        statements = _parsed(text, dialect)
+        statements = _parsed(_db2_parse_text(text) if engine == "db2" else text, dialect)
     except TableScopeViolation:
-        _nonparsing_cross_check(tokens, None, scope, engine)  # a more specific reason, if it finds one
+        _nonparsing_cross_check(tokens, None, scopes, engine)  # a more specific reason, if it finds one
         raise
+    refs = list(dict.fromkeys(
+        tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)
+        for stmt in statements for t in stmt.find_all(exp.Table) if isinstance(t.this, exp.Identifier)))
+    width = max((len(ref) for ref in stored.active | stored.inactive), default=0)
+    one_row = _NONPARSING_ONE_ROW_TABLES.get(engine)
+    if one_row is not None and one_row not in stored.inactive:
+        # The one-row table under its exact name; any other name that ends
+        # like it is a table of the catalog or refused.
+        _refuse_denied([_display(ref) for ref in refs
+                        if ref != one_row and ref[-1] == one_row[-1] and not is_allowed(ref, stored)])
+        refs = [ref for ref in refs if ref != one_row]
+        stored = TableScope(active=stored.active | {one_row}, inactive=stored.inactive)
     if schema is not None:
-        outside = [_display(ref) for stmt in statements for t in stmt.find_all(exp.Table)
-                   if isinstance(t.this, exp.Identifier) and (t.catalog or t.db)
-                   and (ref := tuple(p.lower() for p in (t.catalog, t.db, t.name) if p))
-                   and (len(ref) != 2 or ref[0] != schema)]
-        _refuse_denied(list(dict.fromkeys(outside)))
+        _refuse_denied([_display(ref) for ref in refs if len(ref) > 1 and (len(ref) != 2 or ref[0] != schema)])
     else:
-        # A name with more parts than the catalog's may be the same table in
-        # another database.
-        width = max((len(ref) for ref in scope.active | scope.inactive), default=0)
-        longer = [_display(ref) for stmt in statements for t in stmt.find_all(exp.Table)
-                  if isinstance(t.this, exp.Identifier)
-                  and len(ref := tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)) > width]
-        _refuse_denied(list(dict.fromkeys(longer)))
+        # A name with more parts than the catalog's (`schema.table` at most)
+        # may be the same table in another database.
+        _refuse_denied([_display(ref) for ref in refs if len(ref) > width])
     if engine == "vertica" and schema not in (None, "", "public"):
         # Vertica reads a bare name through its search path, not the
         # connection's schema.
@@ -1329,11 +1603,10 @@ def check_nonparsing_table_scope(sql: str, engine: str, scope: TableScope, schem
             raise TableScopeViolation(
                 f"{bare[0].upper()} is not qualified with its schema, so this source may read it from another "
                 f"schema. Write {schema.upper()}.{bare[0].upper()}.")
-    # Compared lowered: Vertica reads quoted names case-insensitively too.
-    _check_statements(statements, dialect, TableScope(active=scope.active, inactive=scope.inactive,
-                                                      default_database=scope.default_database),
-                      None, [])
-    _nonparsing_cross_check(tokens, statements, scope, engine)
+    for stmt in statements:
+        _check_names_of_disabled_tables(stmt, scope)  # with the stored names split at every dot too
+    _check_statements(statements, dialect, stored, None, [])
+    _nonparsing_cross_check(tokens, statements, scopes, engine)
 
 
 def enforce_table_scope(client, query) -> None:

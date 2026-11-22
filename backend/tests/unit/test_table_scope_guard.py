@@ -18,6 +18,7 @@ import sqlite3
 import pytest
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, TableAccessError
+from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
 from app.ai.code_execution.table_scope import (
     TABLE_SCOPE_ATTR,
     TableScope,
@@ -192,6 +193,129 @@ def test_lateral_over_a_name_or_an_unknown_call_is_refused(dialect, sql):
     ("snowflake", "SELECT f.value FROM events e, LATERAL FLATTEN(input => e.items) f"),
 ])
 def test_lateral_over_a_subquery_or_a_row_producing_function_still_runs(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# Row-producing functions of Spark, Databricks and Hive, and T-SQL's nodes()
+# method of an xml column: each reads only its arguments.
+@pytest.mark.parametrize("dialect, sql", [
+    *[(d, s) for d in ("spark", "databricks", "hive") for s in (
+        "SELECT id, a, b FROM events LATERAL VIEW json_tuple(payload, 'a', 'b') t AS a, b",
+        "SELECT id, k, v FROM events LATERAL VIEW stack(2, 'a', a, 'b', b) t AS k, v",
+        "SELECT id, h FROM events LATERAL VIEW parse_url_tuple(url, 'HOST') t AS h",
+        "SELECT id, p, tag FROM events LATERAL VIEW posexplode(tags) t AS p, tag",
+        "SELECT id, a FROM events LATERAL VIEW inline(items) t AS a",
+        "SELECT id, a FROM events LATERAL VIEW inline_outer(items) t AS a",
+        "SELECT id, tag FROM events LATERAL VIEW explode_outer(tags) t AS tag",
+        "SELECT id, tag FROM events LATERAL VIEW OUTER explode(tags) t AS tag",
+    )],
+    ("databricks", "SELECT e.id, v.value FROM events e, LATERAL variant_explode(e.payload) v"),
+    ("databricks", "SELECT e.id, v.value FROM events e, LATERAL variant_explode_outer(e.payload) v"),
+    *[(d, s) for d in ("tsql", "fabric") for s in (
+        "SELECT e.id, n.x.value('.', 'int') AS v FROM events e CROSS APPLY e.doc.nodes('/a/b') AS n(x)",
+        "SELECT e.id FROM events e OUTER APPLY e.doc.nodes('/a/b') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY e.doc.nodes('/a') AS n(x) CROSS APPLY n.x.nodes('/b') AS m(y)",
+        "SELECT events.id FROM events CROSS APPLY events.doc.nodes('/a/b') AS n(x)",
+    )],
+])
+def test_a_function_that_makes_rows_from_a_column_still_runs(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    *[(d, s) for d in ("tsql", "fabric") for s in (
+        "SELECT e.id FROM events e CROSS APPLY dbo.fn_rows(1)",
+        "SELECT e.id FROM events e CROSS APPLY secret",
+        "SELECT e.id FROM events e CROSS APPLY secret.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY dbo.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY dbo.secret.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY otherdb.dbo.secret.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY doc.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY e.doc.query('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY e.doc.nodes(e.id) AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY e.doc.nodes('/a', 1) AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY f.doc.nodes('/a') AS n(x)",
+        "SELECT e.id FROM events e CROSS APPLY events.doc.nodes('/a') AS n(x)",
+    )],
+    ("oracle", "SELECT e.id FROM events e CROSS APPLY e.doc.nodes('/a') n"),
+    *[(d, s) for d in ("spark", "databricks", "hive") for s in (
+        "SELECT id, tag FROM events LATERAL VIEW my_udtf(tags) t AS tag",
+        "SELECT id, tag FROM events LATERAL VIEW secret t AS tag",
+    )],
+    ("databricks", "SELECT e.id FROM events e, LATERAL read_files('/x') v"),
+])
+def test_apply_or_lateral_over_another_call_stays_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# A row limit is a number or a bound parameter. A name there is one more
+# source to an engine that reads the clause word as the table's alias.
+LIMIT_DIALECTS = ["tsql", "fabric", "oracle", "teradata", "trino", "presto", "athena", "snowflake", "spark",
+                  "databricks", "postgres", "mysql", "bigquery", "clickhouse", "redshift", "sqlite", "druid"]
+
+
+@pytest.mark.parametrize("dialect", LIMIT_DIALECTS)
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM events limit, secret",
+    "SELECT * FROM events limit, ledger",
+    "SELECT * FROM (SELECT * FROM events limit, ledger) t",
+    "SELECT * FROM events e limit, sys.objects",
+    "SELECT * FROM events LIMIT 5, ledger",
+    "SELECT * FROM events OFFSET ledger",
+    "SELECT * FROM events FETCH FIRST ledger ROWS ONLY",
+])
+def test_a_row_limit_that_is_a_name_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", sorted({d for d in CLIENT_DIALECTS.values() if d} | {"fabric", "presto"}))
+def test_no_keyword_in_alias_position_leaves_a_source_unchecked(dialect):
+    # After a table in FROM, with any keyword of the dialect where an alias
+    # may stand, a name that follows as a source is checked as a table.
+    # ClickHouse's ARRAY JOIN takes an array column, not a table.
+    from sqlglot import Dialect
+
+    keywords = sorted({k.lower() for k in Dialect.get_or_raise(dialect).tokenizer_class.KEYWORDS
+                       if k.replace("_", "a").isalnum() and k[0].isalpha()})
+    assert len(keywords) > 250 and {"limit", "offset", "fetch"} <= set(keywords)
+    ran = []
+    for keyword in keywords:
+        for form in ("FROM events {k}, ledger", "FROM events {k} JOIN ledger ON 1 = 1",
+                     "FROM events {k} CROSS JOIN ledger", "FROM (SELECT * FROM events {k}, ledger) t",
+                     "FROM events AS {k}, ledger"):
+            try:
+                check_table_scope("SELECT * " + form.format(k=keyword), dialect, APPLY_SCOPE)
+            except TableScopeViolation:
+                continue
+            ran.append((keyword, form))
+    assert ran == ([("array", "FROM events {k} JOIN ledger ON 1 = 1")] if dialect == "clickhouse" else [])
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
+def test_a_top_that_is_a_name_is_refused(dialect):
+    with pytest.raises(TableScopeViolation, match="row limit"):
+        check_table_scope("SELECT TOP (ledger) * FROM events", dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    *[(d, s) for d in LIMIT_DIALECTS for s in (
+        "SELECT * FROM events LIMIT 10",
+        "SELECT * FROM events LIMIT 10 OFFSET 5",
+        "SELECT * FROM events ORDER BY id OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY",
+        "SELECT * FROM events FETCH FIRST 5 ROWS ONLY",
+    )],
+    ("tsql", "SELECT TOP 5 * FROM events"),
+    ("tsql", "SELECT TOP (5) PERCENT * FROM events"),
+    ("tsql", "SELECT TOP (@n) * FROM events"),
+    ("mysql", "SELECT * FROM events LIMIT 5, 10"),
+    ("postgres", "SELECT * FROM events LIMIT $1 OFFSET $2"),
+    ("bigquery", "SELECT * FROM events LIMIT @n"),
+    ("clickhouse", "SELECT * FROM events LIMIT 2 BY id"),
+    ("oracle", "SELECT * FROM events FETCH FIRST 5 PERCENT ROWS WITH TIES"),
+])
+def test_a_row_limit_that_is_a_number_or_a_parameter_still_runs(dialect, sql):
     check_table_scope(sql, dialect, APPLY_SCOPE)
 
 
