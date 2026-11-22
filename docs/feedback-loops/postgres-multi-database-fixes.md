@@ -147,6 +147,14 @@ all still applied to this branch; all are addressed here.
 | Same SQL parsed three times by sqlglot | parsed once; the shared checks take the parsed statements (`parse_for_refs`, `table_refs_of`, `refuse_unchecked_reads_of`) | existing guard suites |
 | Build bookkeeping never pruned | keys with no engine, build or caller are pruned on expiry and on invalidate | `test_bookkeeping_of_unused_keys_is_pruned_when_engines_expire` |
 
+Second review round:
+
+| Finding | Change | Test (fails before, passes after) |
+|---|---|---|
+| **Blocker**: one tenant serving `DOUBLE` where the index has `BIGINT` passed the build-time check and rounded the other tenants' integers (`9007199254740993` → `…992.0`) | the check keeps exact numbers (integer, decimal) apart from approximate ones (float); Postgres bare `numeric`, which DuckDB serves as `DOUBLE` and indexing cannot tell from `numeric(p,s)`, fits either | `test_a_tenant_that_starts_serving_double_does_not_round_the_others`, `test_runtime_type_check_keeps_exact_and_approximate_numbers_apart` |
+| The fallback after a missing table skipped the type check | the check runs after the fallback write too | `test_the_fallback_after_a_missing_table_still_checks_types` |
+| `TIME WITH TIME ZONE` lost its offset through Arrow (on #1808 it was refused as unsupported) | results with that type are built from DuckDB's Python values, which keep the offset and exact decimals | `test_time_with_time_zone_keeps_its_offset` |
+
 Measured on the same 30 tenants x 40 tables (local server):
 
 | | Before these changes | After |
@@ -162,7 +170,7 @@ The parallel gain grows with network latency; locally each round trip is ~0.3 ms
 
 | Suite | Result |
 |---|---|
-| PR integration tests against real Postgres (`test_postgresql_multi_engine.py`, `test_postgresql_multi_client.py`) | 95 passed; 98 after review; 102 after the #1808 notes |
+| PR integration tests against real Postgres (`test_postgresql_multi_engine.py`, `test_postgresql_multi_client.py`) | 95 passed; 98 after review; 102 after the #1808 notes; 105 after the second review |
 | New integration test (hidden table via quoting form, two shapes) on #1808's code | both fail ("did not raise") |
 | PR unit tests + shared guard tests | pass (`test_table_scope_guard.py` 374) |
 | `test_postgresql_multi_reading.py` (new, DuckDB-side check) | pass |

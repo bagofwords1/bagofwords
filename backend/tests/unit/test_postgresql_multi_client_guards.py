@@ -415,3 +415,19 @@ def test_coarse_type_tells_numbers_from_text_and_skips_arrays():
 
     assert coarse_type("numeric") != coarse_type("VARCHAR")
     assert coarse_type("integer[]") is None and coarse_type("my_enum") is None
+
+
+@pytest.mark.parametrize(("expected", "served", "fits"), [
+    ("bigint", "DOUBLE", False),            # rounds other tenants' integers past 2^53
+    ("numeric(12,2)", "DOUBLE", False),
+    ("integer", "BIGINT", True),
+    ("bigint", "DECIMAL(20,2)", True),      # exact numbers merge without loss
+    ("numeric", "DOUBLE", True),            # bare numeric is served as DOUBLE anyway
+    ("numeric", "DECIMAL(12,2)", True),
+    ("double precision", "FLOAT", True),
+    ("numeric", "VARCHAR", False),
+])
+def test_runtime_type_check_keeps_exact_and_approximate_numbers_apart(expected, served, fits):
+    from app.data_sources.clients.postgresql_multi_engine import coarse_type, type_still_fits
+
+    assert type_still_fits(coarse_type(expected), coarse_type(served)) is fits

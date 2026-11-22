@@ -101,6 +101,7 @@ _PERMISSION_DENIED = re.compile(
     re.DOTALL,
 )
 REVOKED_REASON = "SELECT no longer granted"
+_KEEPS_OFFSET = re.compile(r"\bTIME WITH TIME ZONE", re.IGNORECASE)
 
 _EXACT_TYPES_SQL = """
     SELECT c.table_schema, c.table_name, c.column_name, format_type(a.atttypid, NULL)
@@ -411,7 +412,14 @@ class PostgresqlMultiClient(DataSourceClient):
         cursor = engine.cursor()
         try:
             with track(self, cursor):
-                return _exact_frame(cursor, cursor.execute(sql).to_arrow_table())
+                result = cursor.execute(sql)
+                if any(_KEEPS_OFFSET.search(str(column[1])) for column in result.description or ()):
+                    # Arrow has no time-with-offset type: exporting through it
+                    # drops the offset. DuckDB's own Python values keep it
+                    # (and keep decimals exact).
+                    names = [column[0] for column in result.description]
+                    return pd.DataFrame(result.fetchall(), columns=names)
+                return _exact_frame(cursor, result.to_arrow_table())
         finally:
             cursor.close()
 

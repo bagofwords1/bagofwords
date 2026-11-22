@@ -990,3 +990,50 @@ def test_test_connection_names_every_unreadable_tenant_after_probing_in_parallel
     assert result["success"], result
     for tenant in UNREADABLE_TENANTS:
         assert tenant in result["message"]
+
+
+def test_a_tenant_that_starts_serving_double_does_not_round_the_others(multi_tenant_server):
+    big = 9007199254740993  # 2^53 + 1: not representable as a double
+    for name in ("approx_1", "approx_2", "approx_3"):
+        _create_tenant(multi_tenant_server, name, ["CREATE TABLE public.counters (n bigint)",
+                                                   f"INSERT INTO public.counters VALUES ({big})"])
+    client = _client(multi_tenant_server, databases="approx_*", connection_id="conn-approx")
+    client.get_schemas()
+    _alter_tenant(multi_tenant_server, "approx_3", "ALTER TABLE public.counters ALTER COLUMN n TYPE double precision")
+
+    df = client.execute_query("SELECT tenant_db, n FROM public.counters ORDER BY tenant_db")
+
+    assert list(df["tenant_db"]) == ["approx_1", "approx_2"]
+    assert [int(v) for v in df["n"]] == [big, big]
+    assert any("approx_3" in line and "public.counters" in line for line in client.description.splitlines())
+
+
+def test_the_fallback_after_a_missing_table_still_checks_types(multi_tenant_server):
+    for name in ("fallback_1", "fallback_2", "fallback_3"):
+        _create_tenant(multi_tenant_server, name, ["CREATE TABLE public.meters (n bigint)",
+                                                   "INSERT INTO public.meters VALUES (7)"])
+    client = _client(multi_tenant_server, databases="fallback_*", connection_id="conn-fallback")
+    client.get_schemas()
+    _alter_tenant(multi_tenant_server, "fallback_2", "DROP TABLE public.meters")
+    _alter_tenant(multi_tenant_server, "fallback_3", "ALTER TABLE public.meters ALTER COLUMN n TYPE varchar")
+
+    df = client.execute_query("SELECT tenant_db, n FROM public.meters")
+
+    assert list(df["tenant_db"]) == ["fallback_1"]
+    assert list(df["n"]) == [7]
+    description = client.description
+    assert "fallback_2" in description and "fallback_3" in description
+
+
+def test_time_with_time_zone_keeps_its_offset(multi_tenant_server):
+    client = _client(multi_tenant_server, databases="public", connection_id="conn-timetz")
+    client.get_schemas()
+
+    df = client.execute_query(
+        "SELECT TIMETZ '11:00:00+02' AS east, TIMETZ '11:00:00-04' AS west, 1.25::DECIMAL(5,2) AS d "
+        "FROM public.orders LIMIT 1"
+    )
+
+    assert df["east"].iloc[0].utcoffset().total_seconds() == 2 * 3600
+    assert df["west"].iloc[0].utcoffset().total_seconds() == -4 * 3600
+    assert df["d"].iloc[0] == Decimal("1.25")

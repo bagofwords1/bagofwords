@@ -208,6 +208,8 @@ class TenantEngine:
         except duckdb.Error as exc:
             logger.warning("Could not create view %s: %s", name, failure_category(exc))
             self._drop(cur, name)
+            return
+        self._leave_out_drifted(cur, name, schema, table, readable)
 
     def _leave_out_drifted(self, cur, name: str, schema: str, table: str, tenants: list[str]) -> None:
         """Re-apply indexing's type rule at build time: a tenant whose column
@@ -225,7 +227,7 @@ class TenantEngine:
         except duckdb.Error as exc:
             logger.warning("Could not read the column types of view %s: %s", name, failure_category(exc))
             return
-        drifted = [col for col, fam in expected.items() if served.get(col) and served[col] != fam]
+        drifted = [col for col, fam in expected.items() if not type_still_fits(fam, served.get(col))]
         if not drifted:
             return
         keep, changed = [], {}
@@ -237,7 +239,7 @@ class TenantEngine:
                 continue
             types = {row[0]: row[1] for row in rows}
             bad = [f"{col} is now {types[col]}" for col in drifted
-                   if col in types and coarse_type(types[col]) and coarse_type(types[col]) != expected[col]]
+                   if col in types and not type_still_fits(expected[col], coarse_type(types[col]))]
             if bad:
                 changed[tenant] = "column type changed since indexing: " + ", ".join(bad)
             else:
@@ -347,22 +349,37 @@ def _split_view_name(name: str) -> tuple[str, str]:
     return schema, table
 
 
-_NUMBER_TYPES = re.compile(
-    r"^(tinyint|smallint|integer|int|int2|int4|int8|bigint|hugeint|utinyint|usmallint|uinteger|ubigint|uhugeint|"
-    r"real|float|float4|float8|double|double precision|numeric|decimal)\b"
+_INTEGER_TYPES = re.compile(
+    r"^(tinyint|smallint|integer|int|int2|int4|int8|bigint|hugeint|utinyint|usmallint|uinteger|ubigint|uhugeint)$"
 )
+_FLOAT_TYPES = re.compile(r"^(real|float|float4|float8|double|double precision)$")
+_DECIMAL_TYPES = re.compile(r"^(numeric|decimal)(\s*\(.*\))?$")
 _TEXT_TYPES = re.compile(r"^(text|varchar|character varying|character|char|bpchar|string)\b")
+# Exact numbers merge with each other without loss; an approximate one in
+# the same union turns every tenant's value into a double.
+_EXACT_NUMBERS = frozenset({"integer", "decimal"})
 
 
 def coarse_type(dtype: str | None) -> str | None:
-    """A type's broad family, comparable between a Postgres type name (as the
-    index records it) and a DuckDB one (as a view serves it). None when the
-    type is not one this check understands; such columns are not checked."""
+    """A type's family, comparable between a Postgres type name (as the index
+    records it) and a DuckDB one (as a view serves it). None when the type is
+    not one this check understands; such columns are not checked.
+
+    Numbers stay split into exact (integer, decimal) and approximate (float):
+    one tenant serving DOUBLE where the index has BIGINT would round every
+    other tenant's integers past 2^53. Postgres `numeric` without a precision
+    is "numeric": indexing cannot tell it from numeric(p,s) (information_schema
+    names both "numeric"), and DuckDB serves the bare form as DOUBLE."""
     t = " ".join((dtype or "").lower().split())
     if not t or "[" in t:
         return None  # arrays and other nested types are left to the index's own rule
-    if _NUMBER_TYPES.match(t):
-        return "number"
+    if _INTEGER_TYPES.match(t):
+        return "integer"
+    if _FLOAT_TYPES.match(t):
+        return "float"
+    match = _DECIMAL_TYPES.match(t)
+    if match:
+        return "decimal" if match.group(2) else "numeric"
     if _TEXT_TYPES.match(t):
         return "text"
     if t.startswith("timestamp"):
@@ -372,6 +389,18 @@ def coarse_type(dtype: str | None) -> str | None:
     if t.startswith("time"):
         return "time"
     return None
+
+
+def type_still_fits(expected: str, served: str | None) -> bool:
+    """Whether a column the index recorded as family `expected` can be served
+    as `served` without changing other tenants' values."""
+    if served is None or served == expected:
+        return True
+    if expected == "numeric":
+        return served in ("integer", "decimal", "float", "numeric")
+    if served == "numeric":
+        return expected in ("integer", "decimal", "float")
+    return expected in _EXACT_NUMBERS and served in _EXACT_NUMBERS
 
 
 class ExtensionUnavailable(duckdb.IOException):
