@@ -388,10 +388,16 @@ _INHERITS_EXEMPTION: dict[tuple[str, str], tuple[str, frozenset[str], str]] = {
         "GraphDriveClient",
         frozenset({"__init__", "_addr", "_collect", "_folder_path_by_id", "_messages_base", "_msg_to_item",
                    "capabilities", "get_schemas", "list_files", "list_mail_folders", "list_messages", "read_file",
-                   "read_raw_bytes", "resolve_mail_folder", "search_files", "search_messages", "test_connection"}),
-        "__init__ presets the mode (graph_mail_client.py:72), "
-        "read_file reads one message by GET (graph_mail_client.py:344), "
-        "get_schemas returns no tables (graph_mail_client.py:373)"),
+                   "read_raw_bytes", "resolve_mail_folder", "search_files", "search_messages", "test_connection",
+                   # Write actions (ConnectorActionsMixin): connection tools run through call_tool.
+                   "_mid", "acall_tool", "action_by_name", "action_create_draft", "action_flag_email",
+                   "action_move_email", "action_send_email", "action_tools", "actions", "call_tool",
+                   "granted_scopes"}),
+        "__init__ presets the mode (graph_mail_client.py:214), "
+        "read_file reads one message by GET (graph_mail_client.py:486), "
+        "get_schemas returns no tables (graph_mail_client.py:515); the write actions "
+        "(graph_mail_client.py:578, graph_mail_client.py:631) are connection tools run through "
+        "call_tool, never through execute_query"),
     (f"{_C}.graph_teams_client", "GraphTeamsClient"): (
         "GraphDriveClient",
         frozenset({"__init__", "_annotate_chat", "_annotate_thread", "_channel_base", "_channel_threads", "_chat_row",
@@ -400,11 +406,17 @@ _INHERITS_EXEMPTION: dict[tuple[str, str], tuple[str, frozenset[str], str]] = {
                    "_read_recent", "_row", "_search_page", "_search_walk", "_sender", "_text", "_whoami",
                    "capabilities", "description", "get_schemas", "list_conversations", "list_files",
                    "list_messages", "read_file", "read_raw_bytes", "resolve_conversation", "search_files",
-                   "search_messages", "test_connection"}),
-        "__init__ presets the mode and empty caches (graph_teams_client.py:147), "
+                   "search_messages", "test_connection",
+                   # Write actions (ConnectorActionsMixin): connection tools run through call_tool.
+                   "_post_allowed", "acall_tool", "action_by_name", "action_post_message",
+                   "action_send_chat_message", "action_tools", "actions", "call_tool", "granted_scopes"}),
+        "__init__ presets the mode, the channels a post may target and empty caches "
+        "(graph_teams_client.py:209), "
         "read_file reads one thread or chat window by GET "
-        "(graph_teams_client.py:798, graph_teams_client.py:714), get_schemas "
-        "returns no tables (graph_teams_client.py:824)"),
+        "(graph_teams_client.py:863, graph_teams_client.py:779), get_schemas "
+        "returns no tables (graph_teams_client.py:889); the write actions "
+        "(graph_teams_client.py:937, graph_teams_client.py:961) are connection tools run through "
+        "call_tool, never through execute_query"),
     (f"{_C}.mcp_client", "McpClient"): (
         "ToolProviderClient",
         frozenset({"_MAX_RESOURCES", "__init__", "_acall_tool", "_alist_tools", "_atest_connection", "_block_part",
@@ -413,7 +425,7 @@ _INHERITS_EXEMPTION: dict[tuple[str, str], tuple[str, frozenset[str], str]] = {
                    "_parse_text", "_unwrap_exception", "acall_tool", "alist_resource_templates", "alist_resources",
                    "alist_tools", "aread_resource", "atest_connection", "call_tool", "list_tools",
                    "test_connection"}),
-        f"{_NO_EXECUTE_QUERY} (mcp_client.py:254); __init__ stores the connection settings (mcp_client.py:261)"),
+        f"{_NO_EXECUTE_QUERY} (mcp_client.py:259); __init__ stores the connection settings (mcp_client.py:266)"),
     (f"{_C}.custom_api_client", "CustomApiClient"): (
         "ToolProviderClient",
         frozenset({"_BEARER_AUTH_TYPES", "_BODYLESS_METHODS", "_DEFAULT_TIMEOUT_S", "_MAGIC", "_MAX_TIMEOUT_S",
@@ -588,7 +600,8 @@ def test_every_exemption_names_its_category_and_a_file_line_of_the_clients_own_c
 
 
 # What the cited lines of the DuckDB exemptions (and of the chat and mail
-# search connectors) hold, in the order cited.
+# search, XMLA, BusinessObjects and Atlassian Data Center connectors) hold,
+# in the order cited.
 _CITED_CALLS = {
     "SlackMessagesClient": ("def execute_query(", 'self._client().get(f"{SLACK_API}/{method}"'),
     "ExchangeOnpremClient": ("ews.get_item(", "ews.find_items(", "def execute_query("),
@@ -599,6 +612,10 @@ _CITED_CALLS = {
     "FastQueryClient": ("lock_query_session(con)", "assert_no_blocked_introspection(sql)", "extract_statements(sql)",
                         "assert_no_blocked_calls(sql)"),
     "NetworkDirClient": ("def read_file(", "reads_as_statements(query)", "query_tables(self, query)"),
+    "AnalysisServicesClient": ("check_xmla_statement(query)",),
+    "BusinessObjectsClient": ("result_objects = _split_objects(select or query)",),
+    "ConfluenceDcClient": ("def execute_query(",),
+    "JiraDcClient": ('self._get("search"', "def execute_query("),
 }
 
 
