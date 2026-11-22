@@ -400,6 +400,75 @@ async def test_the_impersonated_account_is_shown_to_admins_and_can_be_changed_or
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
+@pytest.mark.parametrize("via", ["connection_save", "connection_test", "agent_save"])
+async def test_removing_the_impersonated_account_needs_an_org_admin(
+    test_client, bootstrap_admin, invite_user_to_org, grant_resource, keyless, google, via,
+):
+    """A null removes the account the server acts as, so queries run as the
+    server's own identity: that is a change of who the server is, like setting
+    another account, and a connection manager who is not an org admin may not
+    make it on any path that sends credentials."""
+    from tests.fixtures.connection_tool import _skip_network
+
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+    ah = _headers(admin["token"], org_id)
+    keyless(True)
+    created = test_client.post("/api/connections", headers=ah, json={
+        "name": f"bq-{uuid.uuid4().hex[:8]}", "type": "bigquery",
+        "config": {**CONFIG, "auth_type": "adc"},
+        "credentials": {"use_application_default_credentials": True, "target_service_account": TARGET},
+    })
+    assert created.status_code == 200, created.text
+    connection_id = created.json()["id"]
+
+    manager = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    granted = grant_resource(resource_type="connection", resource_id=connection_id, principal_type="user",
+                             principal_id=manager["user_id"], permissions=["manage_connection"],
+                             user_token=admin["token"], org_id=org_id)
+    assert granted.status_code == 200, granted.text
+    agent_id = None
+    if via == "agent_save":
+        with _skip_network():
+            agent = test_client.post("/api/data_sources", headers=ah, json={
+                "name": f"agent-{uuid.uuid4().hex[:6]}", "connection_ids": [connection_id],
+                "generate_summary": False, "generate_conversation_starters": False, "generate_ai_rules": False,
+            })
+        assert agent.status_code == 200, agent.text
+        agent_id = agent.json()["id"]
+        granted = grant_resource(resource_type="data_source", resource_id=agent_id, principal_type="user",
+                                 principal_id=manager["user_id"], permissions=["manage"],
+                                 user_token=admin["token"], org_id=org_id)
+        assert granted.status_code == 200, granted.text
+
+    removal = {"target_service_account": None}
+
+    def _send(headers):
+        _FakeBigQuery.identities = []
+        if via == "connection_save":
+            return test_client.put(f"/api/connections/{connection_id}", headers=headers, json={"credentials": removal})
+        if via == "connection_test":
+            return test_client.post(f"/api/connections/{connection_id}/test", headers=headers, json={"credentials": removal})
+        return test_client.put(f"/api/data_sources/{agent_id}", headers=headers, json={"credentials": removal})
+
+    refused = _send(_headers(manager["token"], org_id))
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["error_code"] == "connection.admin_required", refused.text
+    assert _FakeBigQuery.identities == []
+    assert (await _stored(connection_id))[1].get("target_service_account") == TARGET
+
+    allowed = _send(ah)
+    assert allowed.status_code == 200, allowed.text
+    if via == "connection_test":
+        assert allowed.json()["success"] is True, allowed.json()
+        assert _FakeBigQuery.identities and all(_is_ambient(i, google) for i in _FakeBigQuery.identities)
+        assert (await _stored(connection_id))[1].get("target_service_account") == TARGET
+    else:
+        assert "target_service_account" not in (await _stored(connection_id))[1]
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
 async def test_a_saved_key_is_never_returned_and_a_null_does_not_erase_other_connectors_fields(
     test_client, bootstrap_admin, keyless, google, get_connection, create_connection, update_connection,
 ):

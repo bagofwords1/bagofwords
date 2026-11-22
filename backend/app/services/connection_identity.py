@@ -44,7 +44,10 @@ def management_requires_user_auth(connection: Connection, config_overrides: dict
     config = json.loads(config) if isinstance(config, str) else dict(config or {})
     config.update({k: v for k, v in (config_overrides or {}).items() if v not in (None, "")})
     entry = REGISTRY.get(connection.type)
-    auth_type = config.get('auth_type') or (entry.credentials_auth.default if entry else None)
+    configured_auth = config.get('auth_type')
+    auth_type = (configured_auth if isinstance(configured_auth, str) and configured_auth else None) or (
+        entry.credentials_auth.default if entry else None
+    )
     if auth_type in PER_USER_OAUTH_AUTH_TYPES:
         return True
     if entry:

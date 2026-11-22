@@ -79,16 +79,10 @@ class DuckDBClient(DataSourceClient):
             pass
 
         # AWS
+        # Keys go through a secret, not a setting: settings can be read back
+        # with current_setting(), while duckdb_secrets() redacts secret values.
         if self.access_key and self.secret_key:
-            if lockdown.unrestricted():
-                con.execute(f"SET s3_access_key_id={self._sql_literal(self.access_key)};")
-                con.execute(f"SET s3_secret_access_key={self._sql_literal(self.secret_key)};")
-                if self.region:
-                    con.execute(f"SET s3_region={self._sql_literal(self.region)};")
-                if self.session_token:
-                    con.execute(f"SET s3_session_token={self._sql_literal(self.session_token)};")
-            else:
-                self._create_object_store_secrets(con)
+            self._create_object_store_secrets(con)
 
         # GCP
         if self.service_account_json:
@@ -98,13 +92,10 @@ class DuckDBClient(DataSourceClient):
         # Azure
         if self.connection_string:
             # DuckDB supports Azure via connection string (SAS/account key)
-            if lockdown.unrestricted():
-                con.execute(f"SET azure_storage_connection_string={self._sql_literal(self.connection_string)};")
-            else:
-                con.execute(
-                    "CREATE OR REPLACE SECRET bow_azure (TYPE azure, "
-                    f"CONNECTION_STRING {self._sql_literal(self.connection_string)})"
-                )
+            con.execute(
+                "CREATE OR REPLACE TEMPORARY SECRET bow_azure (TYPE azure, "
+                f"CONNECTION_STRING {self._sql_literal(self.connection_string)})"
+            )
 
     def _create_object_store_secrets(self, con: duckdb.DuckDBPyConnection) -> None:
         """The access key as session secrets instead of settings.
@@ -125,8 +116,8 @@ class DuckDBClient(DataSourceClient):
         if self.session_token:
             fields.append(f"SESSION_TOKEN {self._sql_literal(self.session_token)}")
         s3_fields = fields + [f"REGION {self._sql_literal(region)}"]
-        con.execute(f"CREATE OR REPLACE SECRET bow_s3 (TYPE s3, {', '.join(s3_fields)})")
-        con.execute(f"CREATE OR REPLACE SECRET bow_gcs (TYPE gcs, {', '.join(fields)})")
+        con.execute(f"CREATE OR REPLACE TEMPORARY SECRET bow_s3 (TYPE s3, {', '.join(s3_fields)})")
+        con.execute(f"CREATE OR REPLACE TEMPORARY SECRET bow_gcs (TYPE gcs, {', '.join(fields)})")
 
     def _normalize_uri(self, pattern: str) -> str:
         """Trust user-supplied URIs.

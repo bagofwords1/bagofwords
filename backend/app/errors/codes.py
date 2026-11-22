@@ -67,6 +67,10 @@ class ErrorCode(str, Enum):
     CONVERSATION_LIMIT = "conversation.limit"
     CONVERSATION_NO_AGENTS = "conversation.no_agents"
 
+    # Connections
+    CONNECTION_CREDENTIALS_REQUIRED = "connection.credentials_required"
+    CONNECTION_ADMIN_REQUIRED = "connection.admin_required"
+
     # Agent bundle import (the zip produced by "Export agent")
     AGENT_IMPORT_INVALID_BUNDLE = "agent_import.invalid_bundle"
     AGENT_IMPORT_NAME_TAKEN = "agent_import.name_taken"
