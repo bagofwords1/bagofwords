@@ -1348,7 +1348,7 @@ import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
 import TurnNavigator, { type NavTurn } from '~/components/report/TurnNavigator.vue'
-import { mergeNavTurns } from '~/utils/turnIndex'
+import { mergeNavTurns, createMessageJumper } from '~/utils/turnIndex'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ContinuedFromCard from '~/components/dashboard/conversation/ContinuedFromCard.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
@@ -2216,33 +2216,24 @@ function waitForPageLoadIdle(): Promise<void> {
 // request asks the server for a page reaching back to the target (`until`),
 // so even turn 1 of a long report is normally one round trip. The final
 // scroll runs after the last prepend: loadPreviousCompletions restores the
-// scroll anchor after prepending, which would otherwise override it.
+// scroll anchor after prepending, which would otherwise override it. The
+// latest click wins while a load is in flight (see createMessageJumper).
 const jumpingTurnId = ref<string | null>(null)
+const jumpToLoadedOrOlder = createMessageJumper({
+	isLoaded: id => messages.value.some(m => String(m.id) === id),
+	hasMore: () => hasMore.value,
+	count: () => messages.value.length,
+	cursor: () => cursorBefore.value,
+	waitFirstPage: waitForFirstPage,
+	waitIdle: waitForPageLoadIdle,
+	loadOlder: until => loadPreviousCompletions({ until }),
+	scrollTo: id => { scrollMessageToTop(id) },
+	setPending: id => { jumpingTurnId.value = id },
+	beforeScroll: () => nextTick(),
+})
 async function jumpToMessage(messageId: string) {
-	const id = String(messageId)
 	readerJumped = true
-	const isLoaded = () => messages.value.some(m => String(m.id) === id)
-	if (!isLoaded() && hasMore.value) {
-		if (jumpingTurnId.value) return
-		jumpingTurnId.value = id
-		try {
-			await waitForFirstPage()
-			for (let attempt = 0; attempt < 50 && !isLoaded() && hasMore.value; attempt++) {
-				await waitForPageLoadIdle()
-				if (isLoaded() || !hasMore.value) break
-				const prevCount = messages.value.length
-				const prevCursor = cursorBefore.value
-				await loadPreviousCompletions({ until: id })
-				// No new rows and no cursor move: the server isn't advancing
-				// (or the request failed) — stop instead of spinning.
-				if (messages.value.length === prevCount && cursorBefore.value === prevCursor) break
-			}
-		} finally {
-			jumpingTurnId.value = null
-		}
-		await nextTick()
-	}
-	scrollMessageToTop(id)
+	await jumpToLoadedOrOlder(String(messageId))
 }
 
 const copiedMessageId = ref<string | null>(null)

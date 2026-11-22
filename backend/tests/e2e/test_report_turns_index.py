@@ -168,6 +168,30 @@ def test_turn_previews_apply_display_pii_masking(test_client, owner, _pii_licens
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("lead", [596, 1200])
+def test_answer_preview_masks_a_match_far_into_a_long_block(test_client, owner, _pii_license, lead):
+    """A value deep inside a long answer block — after leading whitespace that
+    the preview strips — must still be masked: redaction has to see the whole
+    field before anything is cut, wherever a cut would fall."""
+    import app.ai.llm.pii.loader as loader
+
+    put = test_client.put("/api/organization/settings", headers=owner["H"], json={"config": {"pii_protection": {
+        "enabled": True,
+        "mode": "replace",
+        "custom_rules": [{"id": "emp", "name": "Employee ID", "patterns": [r"EMP-\d{4}"],
+                          "replacement": "[EMP]", "enabled": True}],
+    }}})
+    assert put.status_code == 200, put.text
+    loader.invalidate()
+
+    _seed(owner["report_id"], 1, answer_fmt="\n" * lead + "EMP-1234 is on leave", extras=False)
+    turns = test_client.get(f"/api/reports/{owner['report_id']}/turns", headers=owner["H"]).json()["turns"]
+    assert len(turns) == 1
+    assert "EMP-" not in turns[0]["answer_preview"]
+    assert "[EMP]" in turns[0]["answer_preview"]
+
+
+@pytest.mark.e2e
 def test_turns_not_readable_from_another_organization(test_client, owner, create_organization, monkeypatch):
     from app.settings.config import settings
     monkeypatch.setattr(settings.bow_config.features, "allow_multiple_organizations", True)

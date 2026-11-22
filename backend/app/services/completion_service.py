@@ -262,8 +262,6 @@ logger = logging.getLogger(__name__)
 UNTIL_PAGE_CAP = 500
 # Turn index previews (GET /reports/{id}/turns): chars kept per prompt/answer.
 TURN_PREVIEW_CHARS = 200
-# Chars read from the DB per block before joining/truncating the answer.
-_TURN_BLOCK_READ_CHARS = 600
 
 
 def _timeline_visibility_filters():
@@ -1386,13 +1384,15 @@ class CompletionService:
                 # Same text the page's responseText() reads: block content, else
                 # the decision's final answer / assistant message; skipping
                 # error blocks, clarify cards and knowledge-harness decisions.
-                # Substrings only — a preview never needs the full answer.
+                # Whole fields, not SQL substrings: display redaction must see a
+                # complete value before anything is cut, or a PII match split at
+                # the cut would slip past it into the preview.
                 blocks = (await db.execute(
                     select(
                         CompletionBlock.completion_id,
-                        func.substr(CompletionBlock.content, 1, _TURN_BLOCK_READ_CHARS),
-                        func.substr(PlanDecision.final_answer, 1, _TURN_BLOCK_READ_CHARS),
-                        func.substr(PlanDecision.assistant, 1, _TURN_BLOCK_READ_CHARS),
+                        CompletionBlock.content,
+                        PlanDecision.final_answer,
+                        PlanDecision.assistant,
                     )
                     .select_from(CompletionBlock)
                     .outerjoin(PlanDecision, CompletionBlock.plan_decision_id == PlanDecision.id)
@@ -1422,7 +1422,8 @@ class CompletionService:
                     out.append(ReportTurnSchema(
                         completion_id=t["completion_id"],
                         created_at=t["created_at"],
-                        # Redact before truncating so a cut never splits a match.
+                        # Redact the full text, then truncate, so a cut never
+                        # splits a match (and stripping can't surface one).
                         prompt_preview=_preview(redact_text_display(t["prompt"])),
                         answer_preview=_preview(redact_text_display(answer)),
                     ))

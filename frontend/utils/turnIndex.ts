@@ -38,3 +38,68 @@ export function mergeNavTurns<T extends TurnEntry>(index: T[], loaded: T[]): T[]
 	})
 	return out
 }
+
+// Jump-to-message with "the latest click wins".
+//
+// A jump to a turn that isn't loaded pages older history until it is, then
+// scrolls to it. Clicks that arrive while that load is in flight must not be
+// lost or overridden:
+// - a click on another unloaded turn retargets the running load (the next
+//   page request reaches back to the new target, and only it is scrolled to);
+// - a click on an already-loaded turn scrolls there at once and cancels the
+//   pending scroll, so the in-flight request can't pull the reader back.
+export interface MessageJumperDeps {
+	isLoaded(id: string): boolean
+	hasMore(): boolean
+	// Progress probes: a round that changes neither stops the loop.
+	count(): number
+	cursor(): unknown
+	waitFirstPage(): Promise<void>
+	waitIdle(): Promise<void>
+	loadOlder(until: string): Promise<void>
+	scrollTo(id: string): void
+	// The turn shown as loading (null when nothing is pending).
+	setPending(id: string | null): void
+	// Lets the DOM render before the final scroll (nextTick in the page).
+	beforeScroll?(): Promise<void>
+	maxRounds?: number
+}
+
+export function createMessageJumper(d: MessageJumperDeps) {
+	let target: string | null = null // latest requested turn not yet scrolled to
+	let running = false
+	return async function jump(id: string): Promise<void> {
+		if (d.isLoaded(id) || !d.hasMore()) {
+			target = null
+			d.setPending(null)
+			d.scrollTo(id)
+			return
+		}
+		target = id
+		d.setPending(id)
+		if (running) return // the running load picks up the new target
+		running = true
+		try {
+			await d.waitFirstPage()
+			for (let round = 0; round < (d.maxRounds ?? 50); round++) {
+				await d.waitIdle()
+				const t = target
+				if (!t || d.isLoaded(t) || !d.hasMore()) break
+				const n = d.count()
+				const c = d.cursor()
+				await d.loadOlder(t)
+				// No new rows and no cursor move: the server isn't advancing (or
+				// the request failed) — stop instead of spinning.
+				if (d.count() === n && d.cursor() === c) break
+			}
+		} finally {
+			running = false
+			d.setPending(null)
+		}
+		const t = target
+		target = null
+		if (!t) return // superseded by a click on a loaded turn (already scrolled)
+		await d.beforeScroll?.()
+		d.scrollTo(t)
+	}
+}

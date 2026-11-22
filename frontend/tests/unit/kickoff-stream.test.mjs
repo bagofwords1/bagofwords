@@ -20,7 +20,7 @@ function setup() {
     isStreaming:{value:true}, isCompletionInProgress:{value:true},
     messages:{value:[{id:'temporary',status:'in_progress'}]}, promptBoxRef:{value:null},
     startKickoffWatchdog(){},stopKickoffWatchdog(){},scheduleFollowScroll(){},
-    loadReport(){},loadReportSummary(){},loadCompletions(){},recoverStreamAfterError:async()=>false,
+    loadReport(){},loadReportSummary(){},loadCompletions(){},loadTurnIndex(){},recoverStreamAfterError:async()=>false,
     useMyFetch:async()=>({data:{value:new Response(new ReadableStream({start(c){streams.push(c)}}))}}),
     handleStreamingEvent:async(type,payload,idx)=>{
       const m=ctx.messages.value[idx];
