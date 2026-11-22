@@ -24,6 +24,7 @@ from sqlalchemy.sql import ColumnElement
 
 from app.models.agent_execution import AgentExecution as AE
 from app.models.data_source import DataSource
+from app.models.llm_usage_record import LLMUsageRecord as LUR
 from app.models.report import Report
 from app.services.folder_monitoring import execution_links
 assoc = execution_links()
@@ -308,6 +309,17 @@ def _run_term(node: dict, ctx: CompileContext):
             else:
                 parts.append(or_(AE.feedback_direction == 0, AE.feedback_direction.is_(None)))
         return parts[0] if len(parts) == 1 else or_(*parts)
+
+    if field == "llm":
+        # Any model the run called, not just the planner's (``model:``).
+        q = select(LUR.id).where(LUR.agent_execution_id == AE.id)
+        if op != "has":
+            q = q.where(_text_clause(LUR.model_id, "ci", op, values))
+        return exists(q.correlate(AE))
+
+    if field == "routed":
+        routed = exists(select(LUR.id).where(LUR.agent_execution_id == AE.id, LUR.routed.is_(True)).correlate(AE))
+        return routed if bool(values[0]["b"]) else not_(routed)
 
     col, kind = _RUN_COLUMNS[field]
     if op == "has":

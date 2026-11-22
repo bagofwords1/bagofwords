@@ -14,6 +14,7 @@ from app.models.data_source import DataSource
 from app.services.folder_monitoring import execution_links, readable_reports
 from app.schemas.bow_source_schema import BowQuery, MAX_ROWS, MAX_GROUPS
 from app.services.diagnosis.compiler import compile_query, tool_match_conditions, stale_clause
+from app.services.diagnosis.grammar import top_level_terms
 from app.services.diagnosis.service import diagnosis_service, RunQueryParams, _utc_naive
 
 
@@ -93,6 +94,27 @@ async def _redact_code(db, user, records):
         row["code"] = None if withheld[key] else row["code"][:MAX_CODE_CHARS]
 
 
+def _current_report_opt_in(ast, report_id):
+    """What the query admits of the conversation that is running it, which
+    is otherwise excluded (self-observation; see bow-training-source.md).
+
+    Only an explicit top-level name counts: ``report_id:<it>`` admits the
+    whole conversation (None = no exclusion), ``run_id:<x>`` admits those runs
+    (a list of clauses to OR into the exclusion). Broad queries, and names
+    under OR or NOT, admit nothing. The query is stored in the recipe, so a
+    refresh admits exactly what the first execution did."""
+    named_runs = []
+    for term in top_level_terms(ast):
+        if term["t"] != "term" or term["op"] not in ("eq", "any"):
+            continue
+        values = [v["s"] for v in term["values"]]
+        if term["field"] == "report_id" and report_id in values:
+            return None
+        if term["field"] == "run_id":
+            named_runs += values
+    return [AE.id.in_(named_runs)] if named_runs else []
+
+
 class BowSourceService:
     async def query(self, db, organization, user, request, *, exclude_report_id=None):
         q = request if isinstance(request, BowQuery) else BowQuery.model_validate(request)
@@ -122,9 +144,10 @@ class BowSourceService:
             base.append(AE.report_id.in_(reports_in_scope(scope.data_source_ids)))
         from app.services.bow_source_access import visible_reports_clause
         base.append(await visible_reports_clause(db, organization.id, user))
-        if exclude_report_id:
+        admitted = _current_report_opt_in(parsed.ast, str(exclude_report_id)) if exclude_report_id else None
+        if admitted is not None:
             from sqlalchemy import or_
-            base.append(or_(AE.report_id.is_(None), AE.report_id != str(exclude_report_id)))
+            base.append(or_(AE.report_id.is_(None), AE.report_id != str(exclude_report_id), *admitted))
         # Runs the rollup has not indexed yet are answered like runs still in
         # progress: included, with empty rollup columns. Indexing never blocks a
         # query; the scheduled sweep (diagnosis/sweep.py) bounds how long a run

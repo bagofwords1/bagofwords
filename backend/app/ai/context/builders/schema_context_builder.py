@@ -990,7 +990,7 @@ class SchemaContextBuilder:
                         description="One row per " + ("run" if name == "bow.runs" else "tool call") + ". " + BowClient.description,
                     ))
                 ds_sections.append(TablesSchemaContext.DataSource(
-                    info=DataSourceSummarySchema(id=SOURCE_ID, name="BOW", type="bow", context=BowClient.description),
+                    info=DataSourceSummarySchema(id=SOURCE_ID, name="BOW", type="bow", context=BowClient.description_for(getattr(self.report, "id", None))),
                     tables=bow_tables,
                 ))
 

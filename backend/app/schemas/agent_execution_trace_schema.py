@@ -27,6 +27,21 @@ class TimingBreakdownSchema(BaseModel):
     iterations: List[IterationTimingSchema] = []
 
 
+class RunModelUsageSchema(BaseModel):
+    """One model's share of a run, from its llm_usage_records. Input tokens
+    include cache reads/writes for every provider (the bow.runs convention)."""
+    model_id: str
+    provider: Optional[str] = None
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cost_usd: float = 0.0
+    # Auto routing ran these calls on the small model instead of baseline_model_id.
+    routed: bool = False
+    baseline_model_id: Optional[str] = None
+
+
 class AgentExecutionTraceResponse(BaseModel):
     folder_name: Optional[str] = None
     folder_names: List[str] = []
@@ -38,6 +53,9 @@ class AgentExecutionTraceResponse(BaseModel):
     latest_feedback: Optional[CompletionFeedbackSchema] = None
     build: Optional[InstructionBuildSchema] = None
     timing_breakdown: Optional[TimingBreakdownSchema] = None
+    # Every model the run called, largest share first. Empty for runs from
+    # before per-call usage attribution: the UI shows the model as unknown.
+    models: List[RunModelUsageSchema] = []
 
 
 class TurnMemoryItemSchema(BaseModel):
