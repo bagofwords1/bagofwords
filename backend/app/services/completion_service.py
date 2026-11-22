@@ -32,6 +32,8 @@ from app.schemas.completion_v2_schema import (
     CompletionBlockV2Schema,
     ToolExecutionUISchema,
     CompletionsV2Response,
+    ReportTurnSchema,
+    ReportTurnsResponse,
 )
 from app.services.llm_service import LLMService
 from app.serializers.completion_v2 import (
@@ -253,6 +255,47 @@ def _format_sse_event_traced(event: SSEEvent) -> str:
 
 
 logger = logging.getLogger(__name__)
+
+
+# GET /completions?until=<id> widens one page back to the target completion;
+# this bounds that single response for jumps deep into a very long report.
+UNTIL_PAGE_CAP = 500
+# Turn index previews (GET /reports/{id}/turns): chars kept per prompt/answer.
+TURN_PREVIEW_CHARS = 200
+# Chars read from the DB per block before joining/truncating the answer.
+_TURN_BLOCK_READ_CHARS = 600
+
+
+def _timeline_visibility_filters():
+    """Row filters for what the report timeline shows (shared by the paginated
+    completions feed and the turn index, so the two never disagree).
+
+    Hide internal machine triggers (the synthetic prompt the agent answers):
+    (webhook_id OR trigger_source set) AND role='user'. The visible event entry
+    (role='external') and the agent reply (role='system') still show.
+    Sub-agent children (mode=subagent) are hidden completions: the parent's
+    delegate card is their only surface in the timeline. NULL-safe: a plain
+    `trigger_source == 'sub_agent'` is NULL for every ordinary row, and
+    NOT NULL filters those rows out too.
+    """
+    return (
+        ~(
+            (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
+            & (Completion.role == 'user')
+        ),
+        (Completion.trigger_source.is_(None))
+        | (Completion.trigger_source != 'sub_agent')
+        | (Completion.role != 'system'),
+    )
+
+
+def _preview(text: str | None, limit: int = TURN_PREVIEW_CHARS) -> str:
+    # Keep line breaks: the client turns markdown into plain text line by line
+    # (table separator rows, list markers, headings), which needs them.
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "…"
 
 
 
@@ -1251,6 +1294,7 @@ class CompletionService:
         current_user: User,
         limit: int = 10,
         before: str | None = None,
+        until: str | None = None,
     ) -> CompletionsV2Response:
         """Assemble v2 completions response efficiently with batched queries.
 
@@ -1258,6 +1302,9 @@ class CompletionService:
         then sorted ascending for UI render. If `before` is provided (the response's
         opaque `next_before` cursor: "<ISO8601>~<completion id>", or a bare ISO8601
         timestamp from older clients), fetches items strictly before that position.
+        If `until` (a completion id in this report) is provided, the page is
+        widened so it reaches back to and includes that completion (capped at
+        UNTIL_PAGE_CAP rows).
         """
         from app.ai.llm.pii.display import display_redaction
         from app.dependencies import async_session_maker
@@ -1268,9 +1315,121 @@ class CompletionService:
             # the org redactor to this assembly so the shared sync serializers mask
             # content without per-call wiring.
             async with display_redaction(str(organization.id) if organization else None, async_session_maker):
-                return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before)
+                return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before, until)
 
-    async def _get_completions_v2_traced(self, span, db, report_id, organization, current_user, limit, before):
+    async def get_report_turns(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        organization: Organization,
+    ) -> ReportTurnsResponse:
+        """Lightweight index of every user prompt in the report, for the
+        transcript's conversation map (TurnNavigator).
+
+        Mirrors what the paginated feed + the page's ``navTurns`` show: same
+        row visibility as ``get_completions_v2``, one entry per non-steering,
+        non-queued user prompt with text, and the answer of the first following
+        system completion that has answer text. No blocks/steps/widgets are
+        serialized — two narrow queries — so it stays cheap for long reports.
+        Previews are PII-masked with the same display redaction as the feed.
+        """
+        from app.ai.llm.pii.display import display_redaction, redact_text_display
+        from app.dependencies import async_session_maker
+
+        with tracer.start_as_current_span("completion.get_report_turns") as span:
+            span.set_attribute("report.id", str(report_id))
+            report_exists = await db.scalar(select(Report.id).where(Report.id == report_id))
+            if not report_exists:
+                raise HTTPException(status_code=404, detail="Report not found")
+
+            rows = (await db.execute(
+                select(
+                    Completion.id,
+                    Completion.role,
+                    Completion.status,
+                    Completion.message_type,
+                    Completion.created_at,
+                    Completion.prompt,
+                ).where(
+                    Completion.report_id == report_id,
+                    Completion.role.in_(('user', 'system')),
+                    *_timeline_visibility_filters(),
+                ).order_by(Completion.created_at.asc(), Completion.id.asc())
+            )).all()
+
+            # Pair each prompt with the system completions that follow it
+            # (until the next prompt) — the page takes the first one with text.
+            turns: list[dict] = []
+            current: dict | None = None
+            for cid, role, status, message_type, created_at, prompt in rows:
+                if role == 'user':
+                    content = prompt.get('content') if isinstance(prompt, dict) else None
+                    if (
+                        message_type != 'steering'
+                        and status != 'queued'
+                        and isinstance(content, str)
+                        and content.strip()
+                    ):
+                        current = {
+                            "completion_id": str(cid),
+                            "created_at": created_at,
+                            "prompt": content,
+                            "system_ids": [],
+                        }
+                        turns.append(current)
+                elif current is not None:
+                    current["system_ids"].append(str(cid))
+
+            system_ids = [sid for t in turns for sid in t["system_ids"]]
+            answer_by_completion: dict[str, list[str]] = {}
+            if system_ids:
+                # Same text the page's responseText() reads: block content, else
+                # the decision's final answer / assistant message; skipping
+                # error blocks, clarify cards and knowledge-harness decisions.
+                # Substrings only — a preview never needs the full answer.
+                blocks = (await db.execute(
+                    select(
+                        CompletionBlock.completion_id,
+                        func.substr(CompletionBlock.content, 1, _TURN_BLOCK_READ_CHARS),
+                        func.substr(PlanDecision.final_answer, 1, _TURN_BLOCK_READ_CHARS),
+                        func.substr(PlanDecision.assistant, 1, _TURN_BLOCK_READ_CHARS),
+                    )
+                    .select_from(CompletionBlock)
+                    .outerjoin(PlanDecision, CompletionBlock.plan_decision_id == PlanDecision.id)
+                    .outerjoin(ToolExecution, CompletionBlock.tool_execution_id == ToolExecution.id)
+                    .where(
+                        CompletionBlock.completion_id.in_(system_ids),
+                        (CompletionBlock.status.is_(None)) | (CompletionBlock.status != 'error'),
+                        (PlanDecision.phase.is_(None)) | (PlanDecision.phase != 'knowledge_harness'),
+                        (ToolExecution.tool_name.is_(None)) | (ToolExecution.tool_name != 'clarify'),
+                    )
+                    .order_by(CompletionBlock.completion_id.asc(), CompletionBlock.block_index.asc())
+                )).all()
+                for comp_id, content, final_answer, assistant in blocks:
+                    text = (content or final_answer or assistant or '').strip()
+                    if text:
+                        answer_by_completion.setdefault(str(comp_id), []).append(text)
+
+            async with display_redaction(str(organization.id) if organization else None, async_session_maker):
+                out: list[ReportTurnSchema] = []
+                for t in turns:
+                    answer = ''
+                    for sid in t["system_ids"]:
+                        parts = answer_by_completion.get(sid)
+                        if parts:
+                            answer = '\n\n'.join(parts)
+                            break
+                    out.append(ReportTurnSchema(
+                        completion_id=t["completion_id"],
+                        created_at=t["created_at"],
+                        # Redact before truncating so a cut never splits a match.
+                        prompt_preview=_preview(redact_text_display(t["prompt"])),
+                        answer_preview=_preview(redact_text_display(answer)),
+                    ))
+            span.set_attribute("turns.count", len(out))
+            return ReportTurnsResponse(report_id=str(report_id), turns=out)
+
+    async def _get_completions_v2_traced(self, span, db, report_id, organization, current_user, limit, before, until=None):
         # The route permission decorator already performs authorization. Keep
         # the service's defensive existence check, but do not build the full
         # ReportSchema (user, shares, agents, connections and count queries)
@@ -1286,17 +1445,7 @@ class CompletionService:
         # (role='system') still show.
         completions_stmt = select(Completion).options(lazyload("*")).where(
             Completion.report_id == report_id,
-            ~(
-                (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
-                & (Completion.role == 'user')
-            ),
-            # Sub-agent children (mode=subagent) are hidden completions: the
-            # parent's delegate card is their only surface in the timeline.
-            # NULL-safe: a plain `trigger_source == 'sub_agent'` is NULL for every
-            # ordinary row, and NOT NULL filters those rows out too.
-            (Completion.trigger_source.is_(None))
-            | (Completion.trigger_source != 'sub_agent')
-            | (Completion.role != 'system'),
+            *_timeline_visibility_filters(),
         )
         if before:
             # Cursor is "<iso timestamp>~<completion id>" (see next_before below).
@@ -1317,6 +1466,29 @@ class CompletionService:
                     completions_stmt = completions_stmt.where(Completion.created_at < before_dt)
             except Exception:
                 logger.warning(f"Ignoring unparseable completions cursor {before!r} for report {report_id}")
+        if until:
+            # Jump-to-message: widen this page so it reaches back to (and
+            # includes) the `until` completion in one request, instead of the
+            # client walking `limit`-sized pages one round trip at a time.
+            # Capped so a jump into a huge report stays bounded; the client
+            # keeps paging with the returned cursor if the cap was hit.
+            target = (await db.execute(
+                select(Completion.created_at, Completion.id).where(
+                    Completion.report_id == report_id, Completion.id == until
+                )
+            )).first()
+            if target is not None:
+                t_at, t_id = target
+                span_count = await db.scalar(
+                    select(func.count()).select_from(
+                        completions_stmt.where(
+                            (Completion.created_at > t_at)
+                            | ((Completion.created_at == t_at) & (Completion.id >= t_id))
+                        ).subquery()
+                    )
+                ) or 0
+                limit = max(limit, min(int(span_count), UNTIL_PAGE_CAP))
+                span.set_attribute("completions.until_limit", limit)
         # Order newest first (id desc as tiebreaker for identical timestamps so
         # page boundaries are deterministic), fetch one extra to determine has_more
         completions_stmt = completions_stmt.order_by(

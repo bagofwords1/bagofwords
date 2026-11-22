@@ -1459,6 +1459,12 @@
     "steeringApplied": "Orientamento applicato",
     "steerQueuedFallback": "L'esecuzione è appena terminata — il tuo messaggio è stato messo in coda",
     "jumpToLatest": "Vai all'ultimo",
+    "turnNavigator": {
+      "label": "Mappa della conversazione",
+      "jumpTo": "Vai al messaggio {n} di {total}: {text}",
+      "noResponse": "Ancora nessuna risposta",
+      "loading": "Caricamento dei messaggi precedenti…"
+    },
     "steerFailed": "Impossibile orientare il completamento in corso",
     "instructionUnavailableTitle": "Istruzione non disponibile",
     "instructionUnavailableBody": "Potrebbe essere stata eliminata oppure non hai accesso ad essa.",

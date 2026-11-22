@@ -1459,6 +1459,12 @@
     "steeringApplied": "Orientation appliquée",
     "steerQueuedFallback": "L'exécution vient de se terminer — votre message a été mis en file d'attente à la place",
     "jumpToLatest": "Aller au plus récent",
+    "turnNavigator": {
+      "label": "Plan de la conversation",
+      "jumpTo": "Aller au message {n} sur {total} : {text}",
+      "noResponse": "Pas encore de réponse",
+      "loading": "Chargement des messages précédents…"
+    },
     "steerFailed": "Échec de l'orientation de l'exécution en cours",
     "instructionUnavailableTitle": "Instruction indisponible",
     "instructionUnavailableBody": "Elle a peut-être été supprimée, ou vous n'y avez pas accès.",

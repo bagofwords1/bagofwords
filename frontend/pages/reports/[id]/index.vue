@@ -108,7 +108,7 @@
 
 		<!-- Quick jump between prompts: a rail of ticks pinned over the
 		     inline-start edge of the scroller (outside it, so it never scrolls) -->
-		<TurnNavigator :turns="navTurns" :container="scrollContainer" :content="transcriptContent" @jump="jumpToTurn" />
+		<TurnNavigator :turns="navTurns" :container="scrollContainer" :content="transcriptContent" :loading-id="jumpingTurnId" @jump="jumpToMessage" />
 
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel" @touchstart.passive="endPinHold">
@@ -1348,6 +1348,7 @@ import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
 import TurnNavigator, { type NavTurn } from '~/components/report/TurnNavigator.vue'
+import { mergeNavTurns } from '~/utils/turnIndex'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ContinuedFromCard from '~/components/dashboard/conversation/ContinuedFromCard.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
@@ -2087,7 +2088,7 @@ const visibleMessages = computed(() => {
 })
 // One entry per user prompt for the turn navigator: the prompt text and the
 // answer of the completion that follows it (until the next prompt).
-const navTurns = computed<NavTurn[]>(() => {
+const loadedNavTurns = computed<NavTurn[]>(() => {
 	const out: NavTurn[] = []
 	let current: NavTurn | null = null
 	for (const m of visibleMessages.value) {
@@ -2101,16 +2102,147 @@ const navTurns = computed<NavTurn[]>(() => {
 	return out
 })
 
-// Jump from the turn navigator: bring the prompt to the top of the view.
-function jumpToTurn(messageId: string) {
+// Turn index for the WHOLE report (GET /reports/{id}/turns): the transcript
+// only holds the pages loaded so far, so without it the map would start
+// mid-conversation. Refreshed whenever the latest page reloads.
+const turnIndex = ref<NavTurn[]>([])
+let turnIndexGeneration = 0
+async function loadTurnIndex() {
+	const generation = ++turnIndexGeneration
+	try {
+		const { data, error } = await useMyFetch(`/reports/${report_id}/turns`)
+		if (generation !== turnIndexGeneration || error?.value || !data.value) return
+		const list: any[] = (data.value as any).turns || []
+		turnIndex.value = list.map((t: any) => ({
+			id: String(t.completion_id),
+			prompt: t.prompt_preview || '',
+			answer: stripCitations(t.answer_preview || '').trim(),
+		}))
+	} catch {
+		// Non-fatal: the map falls back to the loaded turns.
+	}
+}
+
+// Whole-report index overlaid by the loaded turns (merge rules in utils/turnIndex).
+const navTurns = computed<NavTurn[]>(() => mergeNavTurns(turnIndex.value, loadedNavTurns.value))
+
+function messageEl(messageId: string): HTMLElement | null {
+	return scrollContainer.value?.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null
+}
+
+// Bring a message's prompt to the top of the view. Releases sticky-follow
+// first so the stream doesn't pull the reader back down.
+//
+// Messages that were just prepended keep changing height while the smooth
+// scroll runs (markdown, tables and charts settle after first paint), and the
+// browser's scroll anchoring can cut a programmatic smooth scroll short. So
+// once the scroll comes to rest, re-aim at the target — a few times at most,
+// and never after the reader takes over (wheel / touch / key).
+let settleJumpRaf = 0
+let cancelSettleJump: (() => void) | null = null
+function scrollMessageToTop(messageId: string): boolean {
 	const container = scrollContainer.value
-	if (!container) return
-	const el = container.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null
-	if (!el) return
+	if (!container || !messageEl(messageId)) return false
 	endPinHold()
 	isFollowing.value = false
-	const top = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 16
-	container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+	const targetTop = (): number | null => {
+		const el = messageEl(messageId)
+		if (!el) return null
+		const top = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 16
+		return Math.max(0, Math.min(top, container.scrollHeight - container.clientHeight))
+	}
+	cancelSettleJump?.()
+	container.scrollTo({ top: targetTop() ?? 0, behavior: 'smooth' })
+
+	let cancelled = false
+	const stop = () => {
+		cancelled = true
+		if (settleJumpRaf) cancelAnimationFrame(settleJumpRaf)
+		settleJumpRaf = 0
+		container.removeEventListener('wheel', stop)
+		container.removeEventListener('touchstart', stop)
+		container.removeEventListener('keydown', stop)
+		if (cancelSettleJump === stop) cancelSettleJump = null
+	}
+	cancelSettleJump = stop
+	container.addEventListener('wheel', stop, { passive: true })
+	container.addEventListener('touchstart', stop, { passive: true })
+	container.addEventListener('keydown', stop)
+	const deadline = performance.now() + 6000
+	let lastTop = -1
+	let restFrames = 0
+	let corrections = 0
+	const step = () => {
+		if (cancelled) return
+		if (performance.now() > deadline) return stop()
+		const st = container.scrollTop
+		restFrames = Math.abs(st - lastTop) < 1 ? restFrames + 1 : 0
+		lastTop = st
+		if (restFrames >= 8) {
+			const want = targetTop()
+			if (want === null || Math.abs(want - st) <= 4 || corrections >= 3) return stop()
+			corrections++
+			restFrames = 0
+			container.scrollTo({ top: want, behavior: corrections === 3 ? 'auto' : 'smooth' })
+		}
+		settleJumpRaf = requestAnimationFrame(step)
+	}
+	settleJumpRaf = requestAnimationFrame(step)
+	return true
+}
+onBeforeUnmount(() => cancelSettleJump?.())
+
+// The map can render from the turn index before the latest page has landed.
+// Paging older before that would race the initial load's merge, so a jump
+// clicked that early waits for it (the tick shows its loading state).
+function waitForFirstPage(): Promise<void> {
+	if (messages.value.length > 0 || completionsLoaded.value) return Promise.resolve()
+	return new Promise(resolve => {
+		const stop = watch([() => messages.value.length, completionsLoaded], ([n, done]) => {
+			if (n > 0 || done) { stop(); resolve() }
+		})
+	})
+}
+
+function waitForPageLoadIdle(): Promise<void> {
+	if (!isLoadingMore.value) return Promise.resolve()
+	return new Promise(resolve => {
+		const stop = watch(isLoadingMore, (v) => { if (!v) { stop(); resolve() } })
+	})
+}
+
+// Jump to any message of the report, loading older pages first when it isn't
+// in the transcript yet (turn navigator; shared with in-report search). Each
+// request asks the server for a page reaching back to the target (`until`),
+// so even turn 1 of a long report is normally one round trip. The final
+// scroll runs after the last prepend: loadPreviousCompletions restores the
+// scroll anchor after prepending, which would otherwise override it.
+const jumpingTurnId = ref<string | null>(null)
+async function jumpToMessage(messageId: string) {
+	const id = String(messageId)
+	readerJumped = true
+	const isLoaded = () => messages.value.some(m => String(m.id) === id)
+	if (!isLoaded() && hasMore.value) {
+		if (jumpingTurnId.value) return
+		jumpingTurnId.value = id
+		try {
+			await waitForFirstPage()
+			for (let attempt = 0; attempt < 50 && !isLoaded() && hasMore.value; attempt++) {
+				await waitForPageLoadIdle()
+				if (isLoaded() || !hasMore.value) break
+				const prevCount = messages.value.length
+				const prevCursor = cursorBefore.value
+				await loadPreviousCompletions({ until: id })
+				// No new rows and no cursor move: the server isn't advancing
+				// (or the request failed) — stop instead of spinning.
+				if (messages.value.length === prevCount && cursorBefore.value === prevCursor) break
+			}
+		} finally {
+			jumpingTurnId.value = null
+		}
+		await nextTick()
+	}
+	scrollMessageToTop(id)
 }
 
 const copiedMessageId = ref<string | null>(null)
@@ -4227,7 +4359,14 @@ function jumpToLatest() {
 // late — but as background follow-scrolls, so a reader who has already
 // started scrolling up keeps their place. (Forcing every catch-up re-engaged
 // following and yanked them back down ~650ms after load.)
+//
+// loadCompletions resolves only after slower follow-ups (context estimate,
+// fork enrichment), so the transcript is on screen — and clickable — before
+// this runs. A reader who already jumped somewhere (turn navigator) keeps
+// their place instead of being forced back to the bottom.
+let readerJumped = false
 function scheduleInitialScroll() {
+    if (readerJumped) return
     forceScrollToBottom()
     for (const delay of [80, 160, 320, 640]) setTimeout(followScrollToBottom, delay)
 }
@@ -5301,6 +5440,9 @@ function onReportFilesChanged() {
 let completionLoadGeneration = 0
 async function loadCompletions({ skipEstimate = false } = {}) {
 	const generation = ++completionLoadGeneration
+	// The conversation map's whole-report index, fetched alongside the latest
+	// page (cheap; refreshed with every reload so new turns show up).
+	void loadTurnIndex()
 	try {
 		const { data, error } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
 		// A refresh may have started before a new prompt. Its snapshot cannot
@@ -5596,7 +5738,7 @@ function scheduleTopUpIfPinned(progressed: boolean) {
     }, delay)
 }
 
-async function loadPreviousCompletions() {
+async function loadPreviousCompletions({ until }: { until?: string } = {}) {
     if (isLoadingMore.value || !hasMore.value) return
     const container = scrollContainer.value
     if (!container) return
@@ -5604,7 +5746,9 @@ async function loadPreviousCompletions() {
     const prevHeight = container.scrollHeight
     let progressed = false
     try {
-        const qs = cursorBefore.value ? `&before=${encodeURIComponent(cursorBefore.value)}` : ''
+        let qs = cursorBefore.value ? `&before=${encodeURIComponent(cursorBefore.value)}` : ''
+        // Jump-to-message: widen this page back to the target in one request.
+        if (until) qs += `&until=${encodeURIComponent(until)}`
         const { data, error } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}${qs}`)
         const response = data.value as any
         if (error?.value || !response) {

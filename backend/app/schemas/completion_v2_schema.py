@@ -299,6 +299,19 @@ class CompletionsV2Response(BaseModel):
     compaction: Optional[CompactionStateSchema] = None
 
 
+class ReportTurnSchema(BaseModel):
+    """One user prompt in a report's turn index (the conversation map)."""
+    completion_id: str
+    created_at: Optional[datetime] = None
+    prompt_preview: str = ""
+    answer_preview: str = ""
+
+
+class ReportTurnsResponse(BaseModel):
+    report_id: str
+    turns: List[ReportTurnSchema]
+
+
 class CompactContextRequest(BaseModel):
     """Optional body for POST /context/compact (the composer's /compact)."""
     # Focus for the summary: "/compact focus on the churn numbers".

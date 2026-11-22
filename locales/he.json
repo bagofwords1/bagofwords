@@ -1532,7 +1532,8 @@
     "turnNavigator": {
       "label": "מפת השיחה",
       "jumpTo": "מעבר להודעה {n} מתוך {total}: {text}",
-      "noResponse": "עדיין אין תשובה"
+      "noResponse": "עדיין אין תשובה",
+      "loading": "טוען הודעות קודמות…"
     },
     "steerFailed": "הכוונת ההשלמה הרצה נכשלה",
     "instructionUnavailableTitle": "ההנחיה אינה זמינה",
