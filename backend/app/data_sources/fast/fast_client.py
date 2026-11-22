@@ -19,6 +19,7 @@ import logging
 import re
 import time
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Generator, List, Optional
 
 import duckdb
@@ -88,6 +89,21 @@ class FastRelation:
         return f is not None and not f.unrestricted
 
 
+# What artifacts.new_artifact_key makes: URL-safe base64 of 32 random bytes.
+# Checked before the key is interpolated into the ATTACH.
+_KEY_FORMAT = re.compile(r"[A-Za-z0-9_-]{16,128}={0,2}")
+_key_check_refused = 0
+
+
+def _note_key_refused(relation: str) -> None:
+    global _key_check_refused
+    _key_check_refused += 1
+    logger.warning(
+        "fast.key_check.refused",
+        extra={"relation": relation, "count": _key_check_refused},
+    )
+
+
 def lock_query_session(con):
     """Seal a session after trusted code has registered its authorized relations."""
     con.execute("SET python_enable_replacements=false")
@@ -117,10 +133,12 @@ class FastQueryClient(DataSourceClient):
     # -- serving ----------------------------------------------------------
 
     @contextmanager
-    def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+    def connect(
+        self, *, trusted_extension: Optional[str] = None
+    ) -> Generator[duckdb.DuckDBPyConnection, None, None]:
         con = None
         try:
-            con = self._open_engine()
+            con = self._open_engine(trusted_extension=trusted_extension)
             attached = self._build_session(con, self.relations)
 
             logger.info(
@@ -142,9 +160,42 @@ class FastQueryClient(DataSourceClient):
 
         With no `extra_config` the engine opens with DuckDB's defaults, as
         `connect()` always has; a given dict is passed as the connect config.
-        `trusted_extension` is accepted for the verified-extension load and is
-        not used yet.
+
+        `trusted_extension` is the httpfs file `extension.current()` returned
+        for this query. When its stat still matches the verified one, the
+        engine opens with signature checks off and automatic install and load
+        off, with that file's directory as its extension directory, and loads
+        the file by path. This is the only engine that accepts unsigned
+        extensions, and `_build_session` locks it before any agent SQL runs.
+        When the stat differs or the load fails, V is marked unavailable and
+        the engine opens as today.
         """
+        if trusted_extension:
+            from app.data_sources.fast import extension
+
+            if not extension.unchanged(trusted_extension):
+                extension.mark_unavailable("the extension file changed since it was verified")
+            else:
+                config = dict(extra_config or {})
+                config.update({
+                    "allow_unsigned_extensions": True,
+                    "autoinstall_known_extensions": False,
+                    "autoload_known_extensions": False,
+                    "allow_community_extensions": False,
+                    # <dir>/<version>/<platform>/httpfs.duckdb_extension
+                    "extension_directory": str(Path(trusted_extension).parents[2]),
+                })
+                con = None
+                try:
+                    con = duckdb.connect(database=":memory:", config=config)
+                    con.execute("LOAD '" + trusted_extension.replace("'", "''") + "'")
+                    return con
+                except Exception as e:
+                    if con is not None:
+                        con.close()
+                    extension.mark_unavailable(
+                        f"the explicit load failed ({type(e).__name__})"
+                    )
         if extra_config:
             return duckdb.connect(database=":memory:", config=dict(extra_config))
         return duckdb.connect(database=":memory:")
@@ -168,11 +219,20 @@ class FastQueryClient(DataSourceClient):
             alias = f"bow_a{i}"
             safe_name = rel.name.replace('"', '""')
             try:
+                # The key is interpolated, so it must be what
+                # artifacts.new_artifact_key makes: base64url. The error
+                # names the relation only, never the key.
+                if not _KEY_FORMAT.fullmatch(rel.artifact_key or ""):
+                    _note_key_refused(rel.name)
+                    raise ValueError(
+                        f"the stored key of '{rel.name}' is not in the expected format"
+                    )
                 # Extracts are write-once (a refresh writes a new file).
                 from app.services import storage
                 storage.ensure_local(rel.artifact_path, fresh=False)
+                path_literal = str(rel.artifact_path).replace("'", "''")
                 con.execute(
-                    f"ATTACH '{rel.artifact_path}' AS {alias} "
+                    f"ATTACH '{path_literal}' AS {alias} "
                     f"(ENCRYPTION_KEY '{rel.artifact_key}', READ_ONLY)"
                 )
                 self._register_relation(con, rel, alias, safe_name, i)
@@ -313,8 +373,12 @@ class FastQueryClient(DataSourceClient):
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         assert_no_blocked_introspection(sql)
+        from app.data_sources.fast import extension
+
         t0 = time.perf_counter()
-        with self.connect() as con:
+        # Read once per query and handed down, so one query sees one answer.
+        trusted = extension.current()
+        with self.connect(trusted_extension=trusted) as con:
             df = con.execute(sql).df()
         logger.info(
             "fast.query.done",

@@ -12,22 +12,15 @@ import pytest
 from app.data_sources.fast.fast_client import FastQueryClient, FastRelation
 
 
-def _method(name):
-    fn = getattr(FastQueryClient, name, None)
-    assert callable(fn), f"FastQueryClient.{name} is missing"
-    return fn
-
-
 def _setting(con, name):
     return con.execute(f"SELECT current_setting('{name}')").fetchone()[0]
 
 
 @pytest.fixture
-def artifact(tmp_path, monkeypatch):
+def artifact(tmp_path):
     """A real encrypted extract with one four-row relation in it."""
     from app.data_sources.fast import artifacts
 
-    monkeypatch.setattr(artifacts, "ARTIFACT_DIR", tmp_path, raising=False)
     key = artifacts.new_artifact_key()
     path = tmp_path / "probe.duckdb"
     con = artifacts.connect_encrypted(path, key)
@@ -47,7 +40,7 @@ def _relation(artifact, name="sales", **kw):
 
 
 def test_an_opened_engine_has_the_default_settings_and_is_not_locked():
-    open_engine = _method("_open_engine")
+    open_engine = FastQueryClient._open_engine
     con = open_engine(FastQueryClient([]))
     try:
         assert _setting(con, "enable_external_access") is True
@@ -58,7 +51,7 @@ def test_an_opened_engine_has_the_default_settings_and_is_not_locked():
 
 
 def test_extra_config_is_applied_to_the_opened_engine():
-    open_engine = _method("_open_engine")
+    open_engine = FastQueryClient._open_engine
     con = open_engine(FastQueryClient([]), {"threads": 1})
     try:
         assert int(_setting(con, "threads")) == 1
@@ -67,8 +60,8 @@ def test_extra_config_is_applied_to_the_opened_engine():
 
 
 def test_a_built_session_serves_its_relation_and_is_locked(artifact):
-    open_engine = _method("_open_engine")
-    build_session = _method("_build_session")
+    open_engine = FastQueryClient._open_engine
+    build_session = FastQueryClient._build_session
     client = FastQueryClient([])
     con = open_engine(client)
     try:
@@ -85,8 +78,8 @@ def test_a_built_session_serves_its_relation_and_is_locked(artifact):
 def test_relations_without_an_artifact_are_not_counted_but_the_session_is_locked(
     artifact,
 ):
-    open_engine = _method("_open_engine")
-    build_session = _method("_build_session")
+    open_engine = FastQueryClient._open_engine
+    build_session = FastQueryClient._build_session
     client = FastQueryClient([])
     con = open_engine(client)
     try:
@@ -106,8 +99,8 @@ def test_relations_without_an_artifact_are_not_counted_but_the_session_is_locked
 
 
 def test_connect_opens_and_builds_through_the_two_steps(artifact, monkeypatch):
-    open_engine = _method("_open_engine")
-    build_session = _method("_build_session")
+    open_engine = FastQueryClient._open_engine
+    build_session = FastQueryClient._build_session
     calls = []
 
     def spy_open(self, *a, **kw):

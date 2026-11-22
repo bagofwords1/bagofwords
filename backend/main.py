@@ -577,6 +577,16 @@ async def startup_event():
     except Exception:
         logger.exception("Code sandbox confinement check failed; continuing startup")
 
+    # FAST verified extension load (BOW_FAST_VERIFIED_EXTENSION_LOAD): verify
+    # once now, so its state is logged before the first query. A failure only
+    # means serving engines load httpfs as before.
+    try:
+        import asyncio as _asyncio
+        from app.data_sources.fast import extension as _fast_extension
+        await _asyncio.to_thread(_fast_extension.current)
+    except Exception:
+        logger.exception("FAST extension verification failed; continuing startup")
+
     await start_tool_audit_worker()
     # Platform audit stream (bow-config audit.platform_stream): the restricted
     # collector for events that belong to no organization.

@@ -73,13 +73,38 @@ def new_artifact_path(connection_id: str) -> Path:
     return artifact_dir(connection_id) / f"{uuid.uuid4().hex}.db"
 
 
+def _open_writer_engine():
+    """An engine with httpfs loaded from the image's extension directory.
+
+    An encrypted write needs httpfs. When the image carries it
+    (`extension.directory()`), it is loaded from there by name, with
+    signature checks on, so a refresh does not depend on a download. This is
+    independent of the verified-load switch. When there is no such directory,
+    or the load fails, the engine opens exactly as before.
+    """
+    from app.data_sources.fast import extension
+
+    directory = extension.directory()
+    if directory:
+        con = None
+        try:
+            con = duckdb.connect(database=":memory:", config={"extension_directory": directory})
+            con.execute("LOAD httpfs")
+            return con
+        except Exception as e:
+            if con is not None:
+                con.close()
+            logger.info("fast.writer.extension_dir_unused", extra={"error": type(e).__name__})
+    return duckdb.connect(database=":memory:")
+
+
 def connect_encrypted(path: str | Path, key: str, read_only: bool = False):
     """Open an encrypted DuckDB database.
 
     The key is attached to an in-memory root connection and the artifact is
     ATTACHed, because DuckDB takes ENCRYPTION_KEY as an ATTACH option.
     """
-    con = duckdb.connect(database=":memory:")
+    con = _open_writer_engine()
     try:
         ro = ", READ_ONLY" if read_only else ""
         con.execute(
