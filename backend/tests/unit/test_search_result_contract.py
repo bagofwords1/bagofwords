@@ -255,3 +255,39 @@ def test_empty_histogram_retains_requested_metrics(search):
                                    "children", "high.value", "high.keys", "bin.doc_count"]
     with pytest.raises(KeyError):
         frame["lat.99.0"]
+
+
+@pytest.mark.parametrize("spec,result", [
+    ({"rate": {"unit": "hour"}}, {"value": 2.5}),
+    ({"median_absolute_deviation": {"field": "v"}}, {"value": 1.5}),
+    ({"top_metrics": {"metrics": {"field": "v"}, "sort": {"v": "desc"}}}, {"top": [{"metrics": {"v": 3}}]}),
+    ({"top_hits": {"size": 1}}, {"hits": {"hits": [{"_id": "3"}]}}),
+    ({"geo_centroid": {"field": "point"}}, {"location": {"lat": 1.0, "lon": 2.0}, "count": 2}),
+    ({"geo_bounds": {"field": "point"}}, {"bounds": {"top_left": {"lat": 1, "lon": 2}}}),
+    ({"string_stats": {"field": "label"}}, {"count": 3, "min_length": 2, "max_length": 5,
+                                            "avg_length": 3.5, "entropy": 1.1}),
+    ({"boxplot": {"field": "v"}}, dict.fromkeys(("min", "max", "q1", "q2", "q3", "lower", "upper"), 1.5)),
+    ({"scripted_metric": {"map_script": "state.x = 1"}}, {"value": {"custom": 2}}),
+])
+def test_empty_bucket_schema_matches_observed_metrics(search, spec, result):
+    query = {"aggs": {"period": {"date_histogram": {"field": "ts", "calendar_interval": "hour"},
+                                "aggs": {"measurement": spec}}}}
+    bucket = {"key": 1, "doc_count": 2, "measurement": result}
+    populated, _ = search(query, {"aggregations": {"period": {"buckets": [bucket]}}})
+    empty, _ = search(query, {"aggregations": {"period": {"buckets": []}}})
+    assert empty.empty and set(empty.columns) == set(populated.columns)
+    with pytest.raises(KeyError):
+        empty["measurment"]
+
+
+def test_nullable_integer_cells_keep_exact_bucket_keys_and_counts(search):
+    query = {"aggs": {"service": {"terms": {"field": "service"},
+                                 "aggs": {"id": {"terms": {"field": "id"}}}}}}
+    key = 2**53 + 1
+    buckets = [{"key": "a", "doc_count": 7, "id": {"buckets": []}},
+               {"key": "b", "doc_count": 3, "id": {"buckets": [{"key": key, "doc_count": 1}]}}]
+    frame, _ = search(query, {"aggregations": {"service": {"buckets": buckets}}})
+    assert frame.loc[0, ["id", "doc_count"]].isna().all()
+    records = frame.to_dict("records")
+    assert type(records[1]["doc_count"]) is int
+    assert type(records[1]["id"]) is int and records[1]["id"] == key

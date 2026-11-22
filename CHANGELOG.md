@@ -1,5 +1,8 @@
 # Release Notes
 
+## Unreleased
+- Elasticsearch and OpenSearch now reject unsupported search options. Saved queries using options such as `highlight`, `script_fields` or `explain` must be revised before they can run (#1882).
+
 ## Version 0.0.633 (November 22, 2026)
 - Added in-report search to ⌘K: find any message in the open report, including unloaded pages, and jump to it (#1863)
 - Added category tabs to ⌘K: All, Reports, Agents, Instructions, Dashboards (#1864)

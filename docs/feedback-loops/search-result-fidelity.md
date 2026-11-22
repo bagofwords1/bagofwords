@@ -76,3 +76,15 @@ Repeat the opt-in contract test above against both engines. A region with one do
 The same cases ran through the subprocess executor against the 100,000-event Elasticsearch fixture. All four service parents retained 25,000 documents when a child terms include-list selected only billing. A filter on east retained 33,334 documents with an empty child. The southern hourly p95 table had zero rows. Reading the unrequested 59th percentile with a zero fallback raised a schema error.
 
 Two Claude Haiku 5.5 questions exercised the report UI. Asked for event totals and counts over 307 ms per service, it kept all four services and returned 333 slow events each for billing and search and zero each for checkout and gateway. Asked why the southern hourly p95 chart was blank, it reported that the index contained no southern observations and left p95 uncalculated.
+
+## Additional metrics and exact nullable integer values
+
+On commit `1c722be6a`, the schema inference in `search_frames.py` omitted nine metric types when the enclosing bucket list was empty. DataFrame construction also converted sparse integer columns to floats, which rounded the test key 9007199254740993. From `backend/`, run the following to exercise both connector entry points:
+
+```bash
+.venv/bin/pytest -q tests/unit/test_search_result_contract.py -k 'observed_metrics or nullable_integer'
+```
+
+All 20 cases failed before the fix and pass afterward. The live contract test above compares populated and empty hourly results, including Elasticsearch rate, deviation, formatted boxplot, string statistics and top metrics, and both engines' geo metrics and top hits. Only predictable columns can be inferred for an empty response; for example, the individual characters in a string distribution depend on the data.
+
+On the 100,000-event fixture the subprocess executor returned a zero-row series for each requested hourly rate and median absolute deviation. A misspelled rate read with a zero default raised a schema error. The same executor preserved integer child counts and null cells on the four-service table.

@@ -25,14 +25,16 @@ def test_live_search_contract(client_type, variable):
     def search(**body):
         return client.execute_query(json.dumps({"index": index, "body": body}))
 
-    mapping = {"region": {"type": "keyword"}, "event_id": {"type": "long"}}
+    mapping = {"region": {"type": "keyword"}, "event_id": {"type": "long"},
+               "ts": {"type": "date"}, "point": {"type": "geo_point"}}
     requests.put(endpoint, json={"mappings": {"properties": mapping},
                  "settings": {"number_of_replicas": 0}}, timeout=15).raise_for_status()
     try:
         lines = []
         for event_id, region in enumerate(["east", "west", "east"], 1):
             lines.extend([json.dumps({"index": {"_id": str(event_id)}}),
-                          json.dumps({"event_id": event_id, "region": region})])
+                          json.dumps({"event_id": event_id, "region": region, "ts": "2025-01-01",
+                                      "point": {"lat": event_id, "lon": event_id}})])
         bulk = requests.post(f"{endpoint}/_bulk", params={"refresh": "true"},
                              data="\n".join(lines) + "\n",
                              headers={"Content-Type": "application/x-ndjson"}, timeout=30)
@@ -84,5 +86,23 @@ def test_live_search_contract(client_type, variable):
         assert empty[["latency.95.0", "change", "busiest.value", "busiest.keys"]].empty
         with pytest.raises(KeyError):
             empty["latency.59.0"]
+        metrics = {
+            "centroid": {"geo_centroid": {"field": "point"}},
+            "bounds": {"geo_bounds": {"field": "point"}},
+            "sample": {"top_hits": {"size": 1}},
+        }
+        if client_type is ElasticsearchClient:
+            metrics.update({
+                "events_per_hour": {"rate": {"unit": "hour"}},
+                "deviation": {"median_absolute_deviation": {"field": "event_id"}},
+                "top_event": {"top_metrics": {"metrics": {"field": "event_id"}, "sort": {"event_id": "desc"}}},
+                "labels": {"string_stats": {"field": "region"}},
+                "spread": {"boxplot": {"field": "event_id", "format": "0.00"}},
+            })
+        hourly = {"hour": {"date_histogram": {"field": "ts", "calendar_interval": "hour"}, "aggs": metrics}}
+        observed = search(aggs=hourly)
+        empty = search(query={"match_none": {}}, aggs=hourly)
+        assert len(observed) == 1 and empty.empty
+        assert set(empty.columns) == set(observed.columns)
     finally:
         requests.delete(endpoint, timeout=15).raise_for_status()

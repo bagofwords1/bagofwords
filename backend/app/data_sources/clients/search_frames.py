@@ -87,6 +87,19 @@ def search_frame(result, body, *, include_index, opensearch=False, result_format
         specs = body.get("aggs", body.get("aggregations", {}))
         rows, columns, grouped = flatten_aggregations(aggs, specs)
         frame = pd.DataFrame(rows)
+        # A missing bucket key or count makes pandas infer float64. Recover
+        # integers from the original rows, before float rounding loses bits.
+        for column in frame.select_dtypes(include="float").columns:
+            if frame[column].hasnans:
+                values = [row.get(column) for row in rows]
+                if pd.api.types.infer_dtype(values, skipna=True) == "integer":
+                    integers = [value for value in values if value is not None]
+                    if min(integers) >= -(2**63) and max(integers) < 2**63:
+                        frame[column] = pd.array(values, dtype="Int64")
+                    elif min(integers) >= 0 and max(integers) < 2**64:
+                        frame[column] = pd.array(values, dtype="UInt64")
+                    else:
+                        frame[column] = pd.Series(values, dtype=object)
         if not columns.keys() <= set(frame.columns):
             # Keep the existing order of populated columns for saved reports.
             frame = frame.reindex(columns=list(dict.fromkeys([*frame.columns, *columns])))
@@ -208,6 +221,17 @@ def _declared_layout(specs):
             columns.update(dict.fromkeys((f"{name}.value", f"{name}.keys")))
         elif "derivative" in spec and isinstance(spec["derivative"], dict) and "unit" in spec["derivative"]:
             columns.update(dict.fromkeys((f"{name}.value", f"{name}.normalized_value")))
+        elif "geo_centroid" in spec:
+            columns.update(dict.fromkeys(f"{name}.{key}" for key in ("location.lat", "location.lon", "count")))
+        elif "string_stats" in spec:
+            # A requested character distribution has data-dependent keys.
+            columns.update(dict.fromkeys(f"{name}.{key}" for key in
+                                         ("count", "min_length", "max_length", "avg_length", "entropy")))
+        elif "boxplot" in spec:
+            keys = ("min", "max", "q1", "q2", "q3", "lower", "upper")
+            columns.update(dict.fromkeys(f"{name}.{key}" for key in keys))
+            if isinstance(spec["boxplot"], dict) and "format" in spec["boxplot"]:
+                columns.update(dict.fromkeys(f"{name}.{key}_as_string" for key in keys))
         elif kinds & {"stats", "extended_stats", "stats_bucket", "extended_stats_bucket"}:
             columns.update(dict.fromkeys(f"{name}.{key}" for key in ("count", "min", "max", "avg", "sum")))
             if kinds & {"extended_stats", "extended_stats_bucket"}:
@@ -218,7 +242,8 @@ def _declared_layout(specs):
                     "upper", "lower", "upper_population", "lower_population", "upper_sampling", "lower_sampling")))
         elif kinds & {"avg", "min", "max", "sum", "value_count", "cardinality", "weighted_avg",
                       "bucket_script", "avg_bucket", "sum_bucket", "cumulative_sum", "serial_diff",
-                      "derivative", "moving_fn", "cumulative_cardinality"}:
+                      "derivative", "moving_fn", "cumulative_cardinality", "rate", "median_absolute_deviation",
+                      "top_hits", "top_metrics", "geo_bounds", "scripted_metric"}:
             columns[name] = None
     return columns, grouped
 
