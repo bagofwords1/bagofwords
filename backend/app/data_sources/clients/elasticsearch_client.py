@@ -1191,7 +1191,7 @@ class ElasticsearchClient(DataSourceClient):
 
         self._check_target(index)
 
-        body = search_body(envelope, SEARCH_KEYS | {"runtime_mappings"})
+        body, result_format = search_body(envelope, SEARCH_KEYS | {"runtime_mappings"})
         if self._target_rules_active():
             for key in ("query", "post_filter", "aggs", "aggregations"):
                 self._check_dsl_lookups(body.get(key))
@@ -1231,7 +1231,7 @@ class ElasticsearchClient(DataSourceClient):
                 "or simplify the aggregation."
             )
 
-        return search_frame(result, body, include_index=True)
+        return search_frame(result, body, result_format=result_format, include_index=True)
 
     def _run_query_string(self, index: Optional[str], query: str,
                           spec: Dict[str, Any]) -> pd.DataFrame:

@@ -51,7 +51,18 @@ def test_live_search_contract(client_type, variable):
         assert search(aggs=aggs).to_dict("records") == expected
         mixed = search(size=1, post_filter={"term": {"region": "west"}}, aggs=aggs)
         assert mixed.to_dict("records") == expected
-        assert [hit["_id"] for hit in mixed.attrs["hits"]] == ["2"]
-        assert mixed.attrs["aggregations"]["east"]["last"]["value"] == 3
+        assert mixed.attrs.keys().isdisjoint({"hits", "aggregations"})
+        raw = client.execute_query({"index": index, "result_format": "raw", "size": 1,
+                                    "post_filter": {"term": {"region": "west"}}, "aggs": aggs})
+        response = raw.iloc[0]["response"]
+        assert [hit["_id"] for hit in response["hits"]["hits"]] == ["2"]
+        assert response["aggregations"]["east"]["last"]["value"] == 3
+        empty = search(size=0, track_total_hits=True, aggs={"regions": {
+            "terms": {"field": "region", "include": ["south"]},
+            "aggs": {"peak": {"max": {"field": "event_id"}}}}})
+        assert empty.empty and list(empty.columns) == ["regions", "doc_count", "peak"]
+        assert empty.attrs["total_hits"] == {"value": 3, "relation": "eq"}
+        with pytest.raises(KeyError):
+            empty["unrequested_metric"]
     finally:
         requests.delete(endpoint, timeout=15).raise_for_status()

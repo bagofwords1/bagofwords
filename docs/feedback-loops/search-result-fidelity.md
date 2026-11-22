@@ -43,7 +43,7 @@ A separate 100,000-event synthetic index exercised column discovery and generate
 
 ## Result contract
 
-`backend/app/data_sources/clients/search_frames.py` validates envelope keys and constructs DataFrames. Both clients apply their engine-specific limits to the normalized request before sending it. An exact count is a row containing `doc_count` and `relation`. Every available raw hit total is also accessible through `df.attrs["total_hits"]`. Scalar aggregation columns use their aggregation names. The original aggregation tree is available in `df.attrs["aggregations"]` for aggregation requests. An explicit positive size keeps the flat aggregation table and makes document hits available in df.attrs["hits"].
+`backend/app/data_sources/clients/search_frames.py` validates envelope keys and constructs DataFrames. Both clients apply their engine-specific limits to the normalized request before sending it. An exact count is a row containing `doc_count` and `relation`. Every available raw hit total is also accessible through `df.attrs["total_hits"]`. Scalar aggregation columns use their aggregation names. A positive size keeps the flat aggregation table. To retrieve the engine response, set `"result_format": "raw"` alongside `"index"` and read `df.iloc[0]["response"]`. This uses the same request limits and completion checks.
 
 The tests establish connector behavior independently of the language model. Live chat also exercises schema discovery, code generation and result interpretation. The documented retries matter when evaluating first-answer reliability.
 
@@ -52,3 +52,19 @@ The tests establish connector behavior independently of the language model. Live
 The inspection and chart tools both call StreamingCodeExecutor. Its search-summary checks report the missing name and the actual columns for direct scalar reads, pandas get calls with zero/null defaults, and column-membership checks with a zero/null fallback. The regression suite runs the observed false-zero expression in both the subprocess and in-process executors. It also checks genuine zero and nonzero nested aggregation results. These checks cover common access patterns in generated Python. Arbitrary downstream Python calculations can still introduce errors.
 
 In a fresh Haiku 5.5 report, the saved queue telemetry table contained 10 events and a maximum duration of 284 ms. A second prompt saved a genuine zero for HTTP 451. Each turn made one successful create_data call. Both agreed with direct engine queries. The saved count used the supported total_hits value metadata accessor even though the count-only guidance recommends the row's doc_count and relation columns.
+
+## Empty buckets and row-loop performance
+
+On the local 100,000-event fixture, the subprocess executor returned an exact document count of zero for HTTP 429. Grouping all documents by region with a terms include-list containing only south produced zero rows with columns `regions`, `doc_count` and `peak`. Its exact hit total remained 100,000. Trying to read an undeclared metric with a zero fallback raised an error listing those three columns. Empty buckets keep names determined by the request; some aggregation outputs have data-dependent keys that cannot be inferred before a bucket exists.
+
+Pandas 2.3.3 copies DataFrame attrs during row selection. The default table used to carry the entire raw aggregation tree, so each iteration copied all buckets. A synthetic terms aggregation with one average per bucket was timed on the same machine before and after the change. Construction was outside the timed loop. Each entry below is the median of three runs of `sum(df.iloc[i]["avg"] for i in range(len(df)))`. The checksum was verified on every run.
+
+| Buckets | Before | After |
+| ---: | ---: | ---: |
+| 500 | 388 ms | 3.82 ms |
+| 1,000 | 1,655 ms | 7.88 ms |
+| 2,000 | 7,963 ms | 15.72 ms |
+
+At 5,000 buckets, a separate single-run comparison took 49.02 s on the parent implementation and 38.5 ms on the updated implementation. The synthetic response contained one bucket per integer i, with key i, doc_count 1 and avg.value i.
+
+Two further localhost report questions used Claude Haiku 5.5. Each turn saved a table on its first create_data call. The retry-event breakdown returned 5,000 events per service, with checkout highest at 306 ms. The blank southern dashboard question returned 100,000 events overall and no southern services. Direct terms and maximum aggregations independently confirmed the answers. Haiku questioned the uniformity of the retry counts; the fixture has precisely 20,000 events whose event_kind equals retry.

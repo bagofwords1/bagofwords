@@ -11,7 +11,7 @@ from app.data_sources.clients.opensearch_client import OpenSearchClient
 def search(request, monkeypatch):
     client = request.param(host="localhost")
 
-    def run(body, response):
+    def run(body, response, **options):
         captured = {}
 
         def http(method, path, json_body, **kwargs):
@@ -19,7 +19,7 @@ def search(request, monkeypatch):
             return response
 
         monkeypatch.setattr(client, "_request", http)
-        frame = client.execute_query(json.dumps({"index": "events", "body": body}))
+        frame = client.execute_query(json.dumps({"index": "events", "body": body, **options}))
         return frame, captured
 
     return run
@@ -51,8 +51,11 @@ def test_nested_metrics_and_mixed_results(search):
     frame, _ = search(query, result)
     assert frame.to_dict("records") == [{"group.doc_count": 13, "group.peak": 83}]
     mixed, _ = search({**query, "size": 1}, result)
-    assert mixed.attrs["aggregations"] == agg
-    assert mixed.attrs["hits"] == [hit]
+    assert mixed.to_dict("records") == frame.to_dict("records")
+    assert mixed.attrs.keys().isdisjoint({"hits", "aggregations"})
+    raw, wire = search({**query, "size": 1}, result, result_format="raw")
+    assert raw.iloc[0]["response"] == result
+    assert "result_format" not in wire
 
 
 def test_unknown_option_is_rejected(search):
@@ -117,7 +120,7 @@ def test_legacy_total_and_empty_aggregations(search):
     assert frame.to_dict("records") == [{"doc_count": 5, "relation": "eq"}]
     empty, _ = search({"aggs": {}}, {"hits": {"hits": [], "total": 0}})
     assert empty.empty
-    assert empty.attrs["aggregations"] == {}
+    assert "aggregations" not in empty.attrs
 
 
 def test_source_collisions_and_metric_metadata(search):
@@ -197,3 +200,29 @@ def test_bad_total_cast_supplies_schema_to_retry(monkeypatch, mode):
         StreamingCodeExecutor().execute_code(code=code, ds_clients={"search": client}, excel_files=[])
     assert "doc_count, relation" in error.value.captured_stdout
     assert "total_hits metadata is a dict" in error.value.captured_stdout
+
+def test_empty_buckets_keep_declared_columns_and_exact_total(search):
+    body = {"size": 0, "track_total_hits": True, "aggs": {"services": {
+        "terms": {"field": "service"}, "aggs": {"peak": {"max": {"field": "duration"}}}}}}
+    result = {"hits": {"total": {"value": 12, "relation": "eq"}},
+              "aggregations": {"services": {"buckets": []}}}
+    frame, _ = search(body, result)
+    assert frame.empty
+    assert list(frame.columns) == ["services", "doc_count", "peak"]
+    assert frame.attrs["total_hits"] == {"value": 12, "relation": "eq"}
+    with pytest.raises(KeyError):
+        frame["typo"]
+
+
+def test_empty_nested_bucket_keeps_parent_and_child_schema(search):
+    aggs = {"scope": {"filter": {"match_all": {}}, "aggs": {"hosts": {
+        "terms": {"field": "host"}, "aggs": {"peak": {"max": {"field": "elapsed"}}}}}}}
+    response = {"aggregations": {"scope": {"doc_count": 15, "hosts": {"buckets": []}}}}
+    frame, _ = search({"aggs": aggs}, response)
+    assert frame.empty
+    assert list(frame.columns) == ["scope.doc_count", "scope.hosts", "doc_count", "scope.peak"]
+
+
+def test_raw_response_rejects_partial_results(search):
+    with pytest.raises(ValueError, match="partial|timed out"):
+        search({"size": 1}, {"timed_out": True, "hits": {"hits": []}}, result_format="raw")

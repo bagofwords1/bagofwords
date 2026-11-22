@@ -393,7 +393,7 @@ class OpenSearchClient(DataSourceClient):
             raise ValueError("Query must specify 'index' (or use the 'sql' key)")
         index = self._check_index(index)
 
-        body = search_body(envelope, SEARCH_KEYS)
+        body, result_format = search_body(envelope, SEARCH_KEYS)
         has_aggs = "aggs" in body or "aggregations" in body
         if "size" not in body:
             body["size"] = 0 if has_aggs else 100
@@ -409,7 +409,7 @@ class OpenSearchClient(DataSourceClient):
 
         result = self._request("POST", f"/{index}/_search", json_body=body)
 
-        return search_frame(result, body, include_index=False, opensearch=True)
+        return search_frame(result, body, result_format=result_format, include_index=False, opensearch=True)
 
     def _execute_sql(self, sql: str) -> pd.DataFrame:
         """Run a statement via the bundled SQL plugin (`POST /_plugins/_sql`)."""
