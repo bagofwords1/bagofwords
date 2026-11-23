@@ -887,6 +887,12 @@ class AgentV2:
             # clients were supplied (some non-query callers pass none).
             if clients:
                 def _has_client(ds):
+                    # An agent with no connection never has a client and has
+                    # nothing to query; it stays for its description,
+                    # instructions and files. (One the user cannot access is
+                    # already left out by prepare_run_agents.)
+                    if not (getattr(ds, 'connections', None) or []):
+                        return True
                     name = getattr(ds, 'name', None)
                     if not name:
                         return False
@@ -1673,8 +1679,11 @@ class AgentV2:
                     built = await construct_agent_clients(
                         svc, self.db, ds, user, where="mid-run",
                         run_agents=run_agents_context([*(self.data_sources or []), ds], self.report))
-                    if built:
-                        self.clients.update(built)
+                    # An agent with no connection builds no client and is
+                    # attached all the same (construct_agent_clients raised
+                    # if this user may not use it).
+                    if built or not (getattr(ds, "connections", None) or []):
+                        self.clients.update(built or {})
                         self.data_sources.append(ds)
                         await self._record_exposure()
                         self._mlog(f"mid-run client built for {ds.name}")

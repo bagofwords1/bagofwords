@@ -433,10 +433,12 @@ class DataSourceListItemSchema(AgentIconTokenMixin):
 class DataSourceCreate(DataSourceBase):
     """Schema for creating a new DataSource (Domain).
 
-    Three modes:
+    Four modes:
     1. Create new connection: Provide type, config, credentials
     2. Link to existing connection: Provide connection_id (single connection)
     3. Link to multiple connections: Provide connection_ids (array)
+    4. No connection: provide none of the above — an agent made of
+       instructions, files and a description (connections can be linked later)
     """
 
     folder_id: str | None = None
@@ -488,21 +490,27 @@ class DataSourceCreate(DataSourceBase):
 
     @validator('connection_ids', always=True)
     def validate_connection_ids_or_type(cls, v, values):
-        """Ensure either connection_id, connection_ids, OR (type, config, credentials) is provided."""
-        # If connection_ids is provided, use it
+        """Validate the connection mode.
+
+        Linking existing connection(s), creating a new one (type + config), or
+        neither: an agent with no connections (instructions, files and a
+        description only). Only a half-configured new connection is rejected.
+        """
         if v and len(v) > 0:
             return v
-
-        # If connection_id (singular) is provided, that's fine too
         if values.get('connection_id'):
             return v
 
-        # Creating new connection - require type and config
-        if not values.get('type'):
-            raise ValueError('Either connection_id, connection_ids, or type must be provided')
-        if values.get('config') is None:
+        has_type = bool(values.get('type'))
+        has_config = values.get('config') is not None
+        if has_type and not has_config:
             raise ValueError('Config is required when creating a new connection')
-
+        if has_config and not has_type:
+            raise ValueError('Data source type must be specified when creating a new connection')
+        # A connector is nothing but a line into its connection: it cannot be
+        # created without one (an agent can).
+        if not has_type and values.get('kind') == 'connector':
+            raise ValueError('A connector needs a connection')
         return v
 
 

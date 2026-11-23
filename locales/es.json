@@ -9189,5 +9189,16 @@
       "key": "identificador",
       "set_by_admin": "definida por un administrador"
     }
+  },
+  "connectionlessAgent": {
+    "optional": "(opcional)",
+    "createHint": "Déjalo vacío para crear el agente solo con instrucciones y archivos. Puedes vincular una conexión más tarde.",
+    "badge": "Sin conexiones",
+    "landingHint": "Sin conexiones de datos. Este agente responde a partir de sus instrucciones y archivos.",
+    "addConnection": "Añadir conexión",
+    "unlinkLastConfirm": "¿Desvincular la última conexión? El agente se conserva, con sus instrucciones y archivos, pero sin conexión de datos.",
+    "deleteKeepsAgents": "Los agentes se conservan. Un agente que solo usa esta conexión se quedará sin conexión de datos hasta que vincules otra.",
+    "impactLoadFailed": "No se pudo cargar a qué afecta esta eliminación.",
+    "deleteRemovesConnectors": "Se eliminan con ella (conectores que solo usan esta conexión): {names}"
   }
 }

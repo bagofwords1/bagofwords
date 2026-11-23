@@ -706,7 +706,11 @@ class DataSourceService:
                     detail=f"The {conn_type} connector requires an enterprise license."
                 )
 
-    async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate):
+    async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate, *, on_committed=None):
+        """``on_committed(data_source_id)``, when given, is called the moment the
+        agent row is committed — before memberships, table sync and the rest,
+        any of which can still raise — so a caller that must undo the create
+        knows the row exists even when this method does not return."""
         if data_source.folder_id is not None:
             from app.services.folder_service import require_folder_manager
             await require_folder_manager(db, organization.id, current_user.id, data_source.folder_id)
@@ -750,6 +754,12 @@ class DataSourceService:
 
         # Track connections for linking
         connections_to_link: List[Connection] = []
+        # Mode 1 only: the connection created inline from type + config.
+        new_connection: Optional[Connection] = None
+        # Mode 3: no existing connection and no new one requested — an agent
+        # made of instructions, files and a description. The schema validator
+        # already rejected a half-configured new connection.
+        connectionless = not existing_connection_ids and not data_source_dict.get("type")
 
         if existing_connection_ids:
             # === Mode 2: Link to existing connection(s) ===
@@ -800,6 +810,14 @@ class DataSourceService:
             self.enforce_connector_license([conn.type for conn in connections_to_link])
 
             # Extract remaining connection fields that won't be used
+            data_source_dict.pop("type", None)
+            data_source_dict.pop("allowed_user_auth_modes", None)
+        elif connectionless:
+            # === Mode 3: No connection ===
+            # Nothing to validate, index or learn a schema from.
+            ds_type = None
+            auth_policy = None
+            use_llm_sync = False
             data_source_dict.pop("type", None)
             data_source_dict.pop("allowed_user_auth_modes", None)
         else:
@@ -896,9 +914,10 @@ class DataSourceService:
             # Mode 2: Link to existing connections
             for conn in connections_to_link:
                 new_data_source.connections.append(conn)
-        else:
+        elif new_connection is not None:
             # Mode 1: New connection created above
             new_data_source.connections.append(new_connection)
+        # Mode 3: no connection to link.
         
         db.add(new_data_source)
         try:
@@ -914,10 +933,12 @@ class DataSourceService:
                 status_code=409,
                 detail=f"A data source named '{name}' already exists in this organization. Please choose a different name."
             )
+        if on_committed is not None:
+            on_committed(str(new_data_source.id))
 
         # Mode 1 created a new connection inline → grant the creator ownership of
         # it too, so they can manage it and build further agents on it.
-        if not connections_to_link:
+        if new_connection is not None:
             from app.services.connection_service import grant_connection_owner
             await grant_connection_owner(
                 db, str(organization.id), str(new_connection.id), str(current_user.id)
@@ -934,7 +955,7 @@ class DataSourceService:
                     "auth_policy": auth_policy,
                     "use_llm_sync": bool(use_llm_sync),
                     "from_existing_connection": bool(existing_connection_ids),
-                    "connection_count": len(connections_to_link) if connections_to_link else 1,
+                    "connection_count": len(connections_to_link) if connections_to_link else (1 if new_connection is not None else 0),
                     "table_count": total_table_count if existing_connection_ids else None,
                 },
                 user_id=current_user.id,
@@ -1025,7 +1046,7 @@ class DataSourceService:
         new_data_source_id = str(new_data_source.id)
         try:
             tps = tool_provider_types()
-            conns_for_tools = connections_to_link if connections_to_link else [new_connection]
+            conns_for_tools = connections_to_link or ([new_connection] if new_connection is not None else [])
             tool_conn_ids = [str(c.id) for c in conns_for_tools if getattr(c, "type", None) in tps]
             if tool_conn_ids:
                 await db.commit()
@@ -1202,6 +1223,11 @@ class DataSourceService:
         data_source = ds_q.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
+
+        # No connection means no schema: generating a summary, starters and an
+        # overview instruction from nothing would invent them.
+        if not data_source.connections:
+            return {"skipped": True, "reason": "Agent has no connections"}
 
         # Respect the use_llm_sync flag - if disabled, skip all LLM generation
         if not getattr(data_source, "use_llm_sync", True):
@@ -2627,7 +2653,9 @@ class DataSourceService:
                 raise ValueError(f"Data source not found: {data_source_id}")
 
             if not data_source.connections:
-                return {"success": False, "message": "Data source has no connections"}
+                # Nothing to reach, so nothing is broken: an agent with no
+                # connection is healthy by definition.
+                return {"success": True, "message": "Agent has no connections", "no_connections": True}
 
             # Test all connections using ConnectionService (which caches results)
             conn_service = ConnectionService()
@@ -3165,7 +3193,10 @@ class DataSourceService:
                 )
 
         if not data_source.connections:
-            raise HTTPException(status_code=400, detail="Data source has no associated connections")
+            # An agent with no connection (instructions, files and a
+            # description only) has nothing to query: no clients, and not an
+            # error — a run that includes it must still run.
+            return {}
 
         # Skip connections flagged unhealthy. Connection.is_active is a cached
         # reachability flag, not a config toggle: a failed system_only connection
@@ -3711,6 +3742,17 @@ class DataSourceService:
         connection_updates = {k: update_data.pop(k) for k in list(update_data.keys()) if k in connection_fields}
         connection_changed = bool(connection_updates)
 
+        # An agent with no connection has nothing to write these to; accepting
+        # them would drop the change silently.
+        if (
+            not data_source_db.connections
+            and any(v is not None for v in connection_updates.values())
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="This agent has no connection to update. Link a connection first.",
+            )
+
         # Rewriting config/credentials/auth_policy mutates the underlying
         # (possibly shared) Connection, so it needs the same authorization as
         # PUT /connections/{id}: `manage_connection` on that connection.
@@ -3787,6 +3829,10 @@ class DataSourceService:
         # Agent/connector: "auto" clears the explicit choice (derived again).
         if 'kind' in update_data:
             _kind = update_data.pop('kind')
+            # A connector is nothing but a line into its connection: an agent
+            # with none cannot become one (create and unlink enforce the same).
+            if _kind == "connector" and not data_source_db.connections:
+                raise HTTPException(status_code=400, detail="A connector needs a connection. Link one first.")
             if _kind is not None:
                 data_source_db.kind = None if _kind == "auto" else _kind
 
@@ -6619,7 +6665,12 @@ class DataSourceService:
                     prefetched if shared_conns else None,
                 )
 
-        # No connections at all: legacy direct fetch (nothing to link against).
+        # No connection at all: nothing to refresh. (The legacy direct fetch
+        # below needs a connection and failed with a 500 here.)
+        if not data_source.connections:
+            return []
+
+        # Legacy direct fetch (nothing to link against).
         schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False, current_user=current_user)
         return schemas or []
 
@@ -7248,9 +7299,20 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        # Check if this is the last connection
-        if len(data_source.connections) <= 1:
-            raise HTTPException(status_code=400, detail="Cannot remove the last connection from an agent")
+        if connection_id not in {str(c.id) for c in data_source.connections}:
+            raise HTTPException(status_code=404, detail="Connection is not linked to this agent")
+        # Removing the last connection is allowed: the agent stays, with its
+        # instructions, files and description, and can be linked again later.
+        losing_last = len(data_source.connections) == 1
+        # Not for a connector (someone's mailbox, an MCP preset): it is nothing
+        # but its connection, so leaving it without one would strand an empty
+        # entry. The manager decides whether to delete it instead.
+        from app.services.data_source_kind import is_connector
+        if losing_last and is_connector(data_source):
+            raise HTTPException(
+                status_code=409,
+                detail="A connector needs its connection. Delete the connector instead of unlinking it.",
+            )
         
         # Remove link
         await db.execute(
@@ -7271,12 +7333,37 @@ class DataSourceService:
         # The agent's tables that came from this connection. A subquery, not a
         # bound id list: a connection can carry tens of thousands of tables,
         # past PostgreSQL's 32767-parameter ceiling.
-        removed_table_ids = select(DataSourceTable.id).where(
-            DataSourceTable.datasource_id == data_source_id,
-            DataSourceTable.connection_table_id.in_(
-                select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
-            ),
-        )
+        #
+        # On the LAST connection every table row of the agent goes: legacy
+        # name-keyed rows and a delegated user's own discoveries carry no
+        # connection_table_id, so matching through it would leave them behind,
+        # and with no delegated connection left to scope them the schema would
+        # serve them — columns once visible only through a user's overlay —
+        # to everyone with access to the agent.
+        if losing_last:
+            removed_table_ids = select(DataSourceTable.id).where(
+                DataSourceTable.datasource_id == data_source_id,
+            )
+        else:
+            # This connection's rows: those linked to its catalog, plus a
+            # delegated user's own discoveries through it, which carry no
+            # connection_table_id — only the connection in their provenance.
+            # Left behind, they would be read as canonical rows once only
+            # system connections remain, showing that user's catalog to every
+            # member of the agent.
+            discovered_via = self._json_text(db, DataSourceTable.metadata_json, "discovered_connection_id")
+            removed_table_ids = select(DataSourceTable.id).where(
+                DataSourceTable.datasource_id == data_source_id,
+                or_(
+                    DataSourceTable.connection_table_id.in_(
+                        select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
+                    ),
+                    and_(
+                        DataSourceTable.connection_table_id.is_(None),
+                        discovered_via == str(connection_id),
+                    ),
+                ),
+            )
 
         # Clear what hangs off those tables before deleting them. The bulk
         # DELETE below bypasses the ORM delete-orphan cascade declared on
@@ -7297,12 +7384,17 @@ class DataSourceService:
         )
         # Per-user overlays of this connection within this agent. Legacy rows
         # carry no connection_id; catch those by the table they point at.
-        overlay_filter = and_(
-            UserOverlayTable.data_source_id == data_source_id,
-            or_(
-                UserOverlayTable.connection_id == connection_id,
-                UserOverlayTable.data_source_table_id.in_(removed_table_ids),
-            ),
+        # On the last connection, every overlay of the agent goes with it.
+        overlay_filter = (
+            UserOverlayTable.data_source_id == data_source_id
+            if losing_last else
+            and_(
+                UserOverlayTable.data_source_id == data_source_id,
+                or_(
+                    UserOverlayTable.connection_id == connection_id,
+                    UserOverlayTable.data_source_table_id.in_(removed_table_ids),
+                ),
+            )
         )
         await db.execute(
             delete(UserOverlayColumn).where(UserOverlayColumn.user_data_source_table_id.in_(
@@ -7311,14 +7403,7 @@ class DataSourceService:
         )
         await db.execute(delete(UserOverlayTable).where(overlay_filter))
 
-        await db.execute(
-            delete(DataSourceTable).where(
-                DataSourceTable.datasource_id == data_source_id,
-                DataSourceTable.connection_table_id.in_(
-                    select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
-                ),
-            )
-        )
+        await db.execute(delete(DataSourceTable).where(DataSourceTable.id.in_(removed_table_ids)))
 
         # This agent's tool policies for the connection's tools. They only
         # cascade on agent/tool delete, so they outlived the unlink, leaked into
@@ -7341,6 +7426,15 @@ class DataSourceService:
                 DataSourceConnectionSetting.connection_id == connection_id,
             )
         )
+
+        if losing_last:
+            # is_active mirrors connection health; with no connection there is
+            # nothing to be unhealthy, and nothing would ever reset it. A plain
+            # UPDATE: flushing the ORM row would cascade into its loaded table
+            # rows, which the bulk deletes above already removed.
+            await db.execute(
+                update(DataSource).where(DataSource.id == data_source_id).values(is_active=True)
+            )
 
         await db.commit()
         return {"message": "Connection removed from agent"}
