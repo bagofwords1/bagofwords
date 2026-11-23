@@ -67,6 +67,10 @@ class _OpenCounter:
     """Counts the engines opened while it is installed (a spy, not a fake)."""
 
     def __init__(self, monkeypatch):
+        # DuckDB's version and platform are read once per process through an
+        # engine of their own; read them now so that engine is never counted,
+        # whatever ran before this test.
+        extension._layout()
         self.count = 0
         real = duckdb.connect
 
@@ -334,30 +338,15 @@ def test_a_serving_engine_with_v_has_the_exact_config_and_httpfs_loaded(
     assert loaded is True
 
 
-def test_execute_query_reads_the_decision_once_and_opens_one_engine(
-    trusted_extension_dir, extract, monkeypatch
-):
+def test_with_v_a_query_opens_one_engine_and_v_stays_trusted(trusted_extension_dir, extract, monkeypatch):
     t = trusted_extension_dir
-    asked = []
-    real_current = extension.current
-
-    def spy():
-        asked.append(1)
-        return real_current()
-
-    monkeypatch.setattr(extension, "current", spy)
-    seen = []
-    real_open = FastQueryClient._open_engine
-
-    def spy_open(self, *a, **kw):
-        seen.append(kw.get("trusted_extension"))
-        return real_open(self, *a, **kw)
-
-    monkeypatch.setattr(FastQueryClient, "_open_engine", spy_open)
+    assert extension.current() == t.path  # the one verification, done up front
+    opened = _OpenCounter(monkeypatch)
     df = FastQueryClient([_relation(*extract)]).execute_query("SELECT COUNT(*) AS n FROM sales")
     assert int(df.iloc[0]["n"]) == 4
-    assert asked == [1]
-    assert seen == [t.path]
+    assert opened.count == 1
+    state = extension.state()
+    assert (state["status"], state["verifications"]) == ("trusted", 1)
 
 
 # --------------------------------------------------------------------- V4

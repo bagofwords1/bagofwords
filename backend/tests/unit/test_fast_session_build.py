@@ -98,24 +98,17 @@ def test_relations_without_an_artifact_are_not_counted_but_the_session_is_locked
         con.close()
 
 
-def test_connect_opens_and_builds_through_the_two_steps(artifact, monkeypatch):
-    open_engine = FastQueryClient._open_engine
-    build_session = FastQueryClient._build_session
-    calls = []
+def test_a_query_reads_its_relation_on_a_session_locked_before_it_runs(artifact, tmp_path):
+    outside = tmp_path / "outside.csv"
+    outside.write_text("secret\n1\n")
+    client = FastQueryClient([_relation(artifact)])
 
-    def spy_open(self, *a, **kw):
-        calls.append("open")
-        return open_engine(self, *a, **kw)
-
-    def spy_build(self, con, relations):
-        calls.append(("build", len(relations)))
-        return build_session(self, con, relations)
-
-    monkeypatch.setattr(FastQueryClient, "_open_engine", spy_open)
-    monkeypatch.setattr(FastQueryClient, "_build_session", spy_build)
-
-    df = FastQueryClient([_relation(artifact)]).execute_query(
-        "SELECT SUM(amount) AS s FROM sales"
-    )
+    df = client.execute_query("SELECT SUM(amount) AS s FROM sales")
     assert int(df.iloc[0]["s"]) == 100
-    assert calls == ["open", ("build", 1)]
+
+    # The caller's SQL runs only after the lock: it can neither read a file
+    # nor switch file access back on.
+    with pytest.raises(Exception, match="disabled"):
+        client.execute_query(f"SELECT * FROM read_csv('{outside}')")
+    with pytest.raises(Exception, match="locked"):
+        client.execute_query("SET enable_external_access = true")
