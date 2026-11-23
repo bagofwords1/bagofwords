@@ -304,19 +304,38 @@ async def test_rerun_with_taken_names_suffixes_agents_and_keeps_the_run_session_
 @pytest.mark.asyncio
 async def test_failed_install_leaves_no_connection_and_no_agents(stub_llm, monkeypatch):
     """When the install fails after its agents were built, the cleanup takes
-    the connection AND those agents with it. (Deleting a connection keeps its
-    agents, so the cleanup has to remove them itself.)"""
+    the connection AND those agents with it — and only those: an existing
+    agent someone linked to the new connection meanwhile is kept, with its
+    own connection. (Deleting a connection keeps its agents, so the cleanup
+    has to remove the install's own agents itself.)"""
+    from app.models.domain_connection import domain_connection
     from app.services.demo_data import installer
+
+    ids = await _seed()
+    # An agent that predates the install, on a connection of its own. Written
+    # directly: the test needs it linked to the install's connection at a
+    # moment the API cannot reach (mid-install).
+    async with async_session_maker() as db:
+        own = Connection(name=f"warehouse-{ids['suffix']}", type="sqlite", config="{}",
+                         organization_id=ids["org"], is_active=True, auth_policy="system_only")
+        bystander = DataSource(name=f"Bystander {ids['suffix']}", organization_id=ids["org"],
+                               owner_user_id=ids["admin"], is_public=False)
+        bystander.connections.append(own)
+        db.add_all([own, bystander])
+        await db.commit()
+        bystander_id, own_id = str(bystander.id), str(own.id)
 
     real_create_agents = installer.create_agents
 
-    async def _create_then_fail(*args, **kwargs):
-        await real_create_agents(*args, **kwargs)
+    async def _create_link_then_fail(db, organization, user, connection, *args, **kwargs):
+        await real_create_agents(db, organization, user, connection, *args, **kwargs)
+        await db.execute(domain_connection.insert().values(
+            data_source_id=bystander_id, connection_id=str(connection.id)))
+        await db.commit()
         raise RuntimeError("boom after the agents were created")
 
-    monkeypatch.setattr(installer, "create_agents", _create_then_fail)
+    monkeypatch.setattr(installer, "create_agents", _create_link_then_fail)
 
-    ids = await _seed()
     spec = _spec(ids["suffix"])
     names = [a["name"] for a in spec["agents"]]
     out, _ = await _drive(spec, ids, decision={"approved": True, "response": {"agents": names}})
@@ -325,5 +344,6 @@ async def test_failed_install_leaves_no_connection_and_no_agents(stub_llm, monke
     async with async_session_maker() as db:
         left = (await db.execute(select(DataSource.name).where(DataSource.organization_id == ids["org"]))).scalars().all()
         assert not set(names) & set(left), left
-        conns = (await db.execute(select(Connection).where(Connection.organization_id == ids["org"]))).scalars().all()
-        assert conns == []
+        assert f"Bystander {ids['suffix']}" in left, "an agent the install did not create is never deleted"
+        conns = (await db.execute(select(Connection.id).where(Connection.organization_id == ids["org"]))).scalars().all()
+        assert set(map(str, conns)) == {own_id}, "only the install's connection goes"

@@ -7294,6 +7294,15 @@ class DataSourceService:
         # Removing the last connection is allowed: the agent stays, with its
         # instructions, files and description, and can be linked again later.
         losing_last = len(data_source.connections) == 1
+        # Not for a connector (someone's mailbox, an MCP preset): it is nothing
+        # but its connection, so leaving it without one would strand an empty
+        # entry. The manager decides whether to delete it instead.
+        from app.services.data_source_kind import is_connector
+        if losing_last and is_connector(data_source):
+            raise HTTPException(
+                status_code=409,
+                detail="A connector needs its connection. Delete the connector instead of unlinking it.",
+            )
         
         # Remove link
         await db.execute(
@@ -7314,12 +7323,24 @@ class DataSourceService:
         # The agent's tables that came from this connection. A subquery, not a
         # bound id list: a connection can carry tens of thousands of tables,
         # past PostgreSQL's 32767-parameter ceiling.
-        removed_table_ids = select(DataSourceTable.id).where(
-            DataSourceTable.datasource_id == data_source_id,
-            DataSourceTable.connection_table_id.in_(
-                select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
-            ),
-        )
+        #
+        # On the LAST connection every table row of the agent goes: legacy
+        # name-keyed rows and a delegated user's own discoveries carry no
+        # connection_table_id, so matching through it would leave them behind,
+        # and with no delegated connection left to scope them the schema would
+        # serve them — columns once visible only through a user's overlay —
+        # to everyone with access to the agent.
+        if losing_last:
+            removed_table_ids = select(DataSourceTable.id).where(
+                DataSourceTable.datasource_id == data_source_id,
+            )
+        else:
+            removed_table_ids = select(DataSourceTable.id).where(
+                DataSourceTable.datasource_id == data_source_id,
+                DataSourceTable.connection_table_id.in_(
+                    select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
+                ),
+            )
 
         # Clear what hangs off those tables before deleting them. The bulk
         # DELETE below bypasses the ORM delete-orphan cascade declared on
@@ -7340,12 +7361,17 @@ class DataSourceService:
         )
         # Per-user overlays of this connection within this agent. Legacy rows
         # carry no connection_id; catch those by the table they point at.
-        overlay_filter = and_(
-            UserOverlayTable.data_source_id == data_source_id,
-            or_(
-                UserOverlayTable.connection_id == connection_id,
-                UserOverlayTable.data_source_table_id.in_(removed_table_ids),
-            ),
+        # On the last connection, every overlay of the agent goes with it.
+        overlay_filter = (
+            UserOverlayTable.data_source_id == data_source_id
+            if losing_last else
+            and_(
+                UserOverlayTable.data_source_id == data_source_id,
+                or_(
+                    UserOverlayTable.connection_id == connection_id,
+                    UserOverlayTable.data_source_table_id.in_(removed_table_ids),
+                ),
+            )
         )
         await db.execute(
             delete(UserOverlayColumn).where(UserOverlayColumn.user_data_source_table_id.in_(
@@ -7354,14 +7380,7 @@ class DataSourceService:
         )
         await db.execute(delete(UserOverlayTable).where(overlay_filter))
 
-        await db.execute(
-            delete(DataSourceTable).where(
-                DataSourceTable.datasource_id == data_source_id,
-                DataSourceTable.connection_table_id.in_(
-                    select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
-                ),
-            )
-        )
+        await db.execute(delete(DataSourceTable).where(DataSourceTable.id.in_(removed_table_ids)))
 
         # This agent's tool policies for the connection's tools. They only
         # cascade on agent/tool delete, so they outlived the unlink, leaked into

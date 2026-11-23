@@ -241,6 +241,35 @@ def _prepare_auth_credentials(conn_type: str, config, credentials):
     return {**cleaned, **validated.model_dump(exclude_none=True)}
 
 
+async def connectors_deleted_with(db: AsyncSession, connection) -> List[tuple]:
+    """``[(id, name)]`` of the data sources that deleting ``connection``
+    deletes: connectors (someone's own mailbox, an MCP preset; see
+    app/services/data_source_kind.py) whose only connection it is. Every other
+    linked data source is kept. The delete itself and the delete confirmation
+    both use this, so what the warning names is what goes."""
+    from app.models.domain_connection import domain_connection
+    from app.services.data_source_kind import CONNECTOR, KINDS, connection_is_connector
+
+    linked = list(connection.data_sources or [])
+    if not linked:
+        return []
+    counts = dict((await db.execute(
+        select(domain_connection.c.data_source_id, func.count())
+        .where(domain_connection.c.data_source_id.in_([str(ds.id) for ds in linked]))
+        .group_by(domain_connection.c.data_source_id)
+    )).all())
+    out = []
+    for ds in linked:
+        if counts.get(str(ds.id), 0) > 1:
+            continue
+        # With this as its only connection the derived kind is this
+        # connection's; an explicit kind wins, as in data_source_kind().
+        kind = ds.kind if ds.kind in KINDS else (CONNECTOR if connection_is_connector(connection) else None)
+        if kind == CONNECTOR:
+            out.append((str(ds.id), ds.name))
+    return out
+
+
 async def grant_connection_owner(
     db: AsyncSession, organization_id: str, connection_id: str, user_id: str,
 ) -> None:
@@ -1305,21 +1334,20 @@ class ConnectionService:
         # it is nothing but a line into this connection, so it goes with it,
         # through the full agent delete.
         from app.services.data_source_service import DataSourceService
-        from app.services.data_source_kind import CONNECTOR, data_source_kind
         ds_service = DataSourceService()
         connection = await self.get_connection(db, connection_id, organization)
         has_file_table_cache = connection.type == "network_dir"
         linked = [
-            (str(ds.id), ds.name, len(ds.connections or []), data_source_kind(ds))
+            (str(ds.id), ds.name, len(ds.connections or []))
             for ds in (connection.data_sources or [])
         ]
         agent_count = len(linked)
         if agent_count:
             logger.info(
                 f"Deleting connection {connection.name} ({connection_id}) which is linked to "
-                f"{agent_count} agent(s): {[name for _, name, _, _ in linked]}"
+                f"{agent_count} agent(s): {[name for _, name, _ in linked]}"
             )
-        sole_connectors = [(ds_id, name) for ds_id, name, n, kind in linked if n <= 1 and kind == CONNECTOR]
+        sole_connectors = await connectors_deleted_with(db, connection)
         # Every connector to delete is checked first, so one that cannot be
         # deleted stops the connection delete before anything is removed.
         for ds_id, ds_name in sole_connectors:
@@ -1333,7 +1361,7 @@ class ConnectionService:
             organization = await db.get(Organization, organization_id)
         connectionless_agent_names: list = []
         deleted_ids = {ds_id for ds_id, _ in sole_connectors}
-        for ds_id, ds_name, n_connections, _kind in linked:
+        for ds_id, ds_name, n_connections in linked:
             if ds_id in deleted_ids:
                 continue
             await ds_service.remove_connection_from_domain(

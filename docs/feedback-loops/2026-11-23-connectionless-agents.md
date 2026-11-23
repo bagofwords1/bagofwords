@@ -170,3 +170,19 @@ Frontend
   whose only agent is *deleted* resolves to Auto (`resolve_run_agents`,
   `dashboard_runs.py` release fallback). Keeping agents on connection delete
   removes the most common trigger, not the behaviour.
+
+## Review round (fd34032f → next commit)
+
+Five review findings on the first push, each reproduced before the fix:
+
+| # | Finding | Loop (fails on fd34032f → passes) |
+|---|---|---|
+| 1 | The last unlink matched tables only through `connection_table_id`; legacy rows and a delegated user's own discoveries (NULL link) and their overlays survived, and the schema then served them to everyone | `test_losing_the_last_connection_leaves_no_table_behind[unlink\|delete-connection]`: `assert (2, 1) == (0, 0)` → pass |
+| 2 | The failed-install demo rollback deleted every agent linked to the new connection, including one linked there by someone else meanwhile | `test_failed_install_leaves_no_connection_and_no_agents`: `an agent the install did not create is never deleted` → pass. Rollback now uses the ids `installer.create_agents(created_ids=…)` records as each agent commits |
+| 3 | A direct unlink could strand a `kind=connector` with no connection | `test_a_connector_cannot_lose_its_last_connection_by_unlinking`: 409; the UI hides the button |
+| 4 | The confirmation listed a connector that the delete removes under "agents are kept" | `GET /connections/{id}` now returns `connectors_deleted_with_it` (the same `connectors_deleted_with()` the delete uses); the dialog lists kept agents and deleted connectors apart |
+| 5 | Delete was enabled before the impact lookup returned, and stayed enabled if it failed | Live UI loop with a delayed and a failing `GET`: Delete disabled while loading and after a failure, Retry recovers (`media/pr/…/review_delete_{impact,loading,error}.png`) |
+
+Regression after the round: 101 passed across the connection / data-source /
+RBAC / teardown suites; training suites unchanged (the same 5 pre-existing
+failures as `main`).

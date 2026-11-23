@@ -256,6 +256,83 @@ def test_the_last_connection_can_be_unlinked_and_the_agent_stays(test_client, en
     assert test_client.get(f"/api/connections/{conn}", headers=h).status_code == 200
 
 
+def _seed_unlinked_rows(agent_id, connection_id, user_id):
+    """Table rows the API cannot create: a legacy name-keyed row and a
+    delegated user's own discovery (both with no connection_table_id), plus
+    that user's overlay on it. Written directly for that reason."""
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.datasource_table import DataSourceTable
+    from app.models.user_data_source_overlay import UserDataSourceColumn, UserDataSourceTable
+
+    async def _run():
+        async with async_session_maker() as db:
+            legacy = DataSourceTable(name="legacy_payroll", datasource_id=agent_id, is_active=True,
+                                     columns=[{"name": "salary", "dtype": "int"}])
+            mine = DataSourceTable(name="my_private_sheet", datasource_id=agent_id, is_active=True,
+                                   columns=[{"name": "ssn", "dtype": "text"}],
+                                   metadata_json={"discovered_connection_id": connection_id})
+            db.add_all([legacy, mine])
+            await db.flush()
+            overlay = UserDataSourceTable(data_source_id=agent_id, user_id=user_id, connection_id=None,
+                                          table_name="my_private_sheet", data_source_table_id=mine.id)
+            db.add(overlay)
+            await db.flush()
+            db.add(UserDataSourceColumn(user_data_source_table_id=overlay.id, column_name="ssn"))
+            await db.commit()
+
+    asyncio.run(_run())
+
+
+def _agent_rows(agent_id):
+    import asyncio
+
+    from sqlalchemy import func, select
+
+    from app.dependencies import async_session_maker
+    from app.models.datasource_table import DataSourceTable
+    from app.models.user_data_source_overlay import UserDataSourceTable
+
+    async def _run():
+        async with async_session_maker() as db:
+            tables = await db.scalar(select(func.count()).select_from(DataSourceTable)
+                                     .where(DataSourceTable.datasource_id == agent_id))
+            overlays = await db.scalar(select(func.count()).select_from(UserDataSourceTable)
+                                       .where(UserDataSourceTable.data_source_id == agent_id))
+            return tables, overlays
+
+    return asyncio.run(_run())
+
+
+def _schema_names(client, headers, agent_id):
+    r = client.get(f"/api/data_sources/{agent_id}/schema", headers=headers)
+    assert r.status_code == 200, r.text
+    return {t["name"] for t in r.json()}
+
+
+@pytest.mark.parametrize("how", ["unlink", "delete-connection"])
+def test_losing_the_last_connection_leaves_no_table_behind(test_client, env, how):
+    """Rows not tied to the connection (legacy, or a delegated user's own
+    discovery) must not outlive the agent's last connection: with no
+    connection left to scope them, the schema would serve them to everyone."""
+    h = env["headers"]
+    conn = _sqlite_connection(test_client, h)
+    agent = _agent_on(test_client, h, [conn])
+    me = test_client.get("/api/users/whoami", headers=h).json()
+    _seed_unlinked_rows(agent["id"], conn, me["id"])
+    assert "legacy_payroll" in _schema_names(test_client, h, agent["id"]), "the seeded row is served before"
+
+    if how == "unlink":
+        r = test_client.delete(f"/api/data_sources/{agent['id']}/connections/{conn}", headers=h)
+    else:
+        r = test_client.delete(f"/api/connections/{conn}", headers=h)
+    assert r.status_code == 200, r.text
+
+    assert _agent_rows(agent["id"]) == (0, 0)
+    assert _schema_names(test_client, h, agent["id"]) == set()
+
+
 def test_deleting_a_connection_keeps_every_agent_that_used_it(test_client, env, llm, create_instruction):
     h = env["headers"]
     doomed = _sqlite_connection(test_client, h)
@@ -296,10 +373,36 @@ def test_deleting_a_connection_removes_a_connector_that_only_wrapped_it(test_cli
     connector = r.json()
     agent = _agent_on(test_client, h, [conn])
 
+    # The confirmation names what goes: the connector, not the agent.
+    r = test_client.get(f"/api/connections/{conn}", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["connectors_deleted_with_it"] == [connector["name"]]
+    assert set(r.json()["agent_names"]) == {connector["name"], agent["name"]}
+
     r = test_client.delete(f"/api/connections/{conn}", headers=h)
     assert r.status_code == 200, r.text
-    assert connector["name"] in r.json()["deleted_connectors"]
+    assert r.json()["deleted_connectors"] == [connector["name"]]
 
     assert test_client.get(f"/api/data_sources/{connector['id']}", headers=h).status_code == 404
     kept = test_client.get(f"/api/data_sources/{agent['id']}", headers=h)
     assert kept.status_code == 200 and kept.json()["connections"] == []
+
+
+def test_a_connector_cannot_lose_its_last_connection_by_unlinking(test_client, env):
+    """Unlinking would strand a connector with nothing behind it; the manager
+    deletes it instead. An agent on the same connection can still unlink."""
+    h = env["headers"]
+    conn = _sqlite_connection(test_client, h)
+    r = test_client.post("/api/data_sources", json={"name": _uniq("Mailbox"), "connection_ids": [conn],
+                                                     "kind": "connector"}, headers=h)
+    assert r.status_code == 200, r.text
+    connector = r.json()
+    agent = _agent_on(test_client, h, [conn])
+
+    r = test_client.delete(f"/api/data_sources/{connector['id']}/connections/{conn}", headers=h)
+    assert r.status_code == 409, r.text
+    r = test_client.get(f"/api/data_sources/{connector['id']}", headers=h)
+    assert [c["id"] for c in r.json()["connections"]] == [conn], "the refused unlink changed nothing"
+
+    r = test_client.delete(f"/api/data_sources/{agent['id']}/connections/{conn}", headers=h)
+    assert r.status_code == 200, r.text

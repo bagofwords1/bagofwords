@@ -373,6 +373,9 @@ class CreateDemoDatasetTool(Tool):
         org_id, user_id = str(organization.id), str(user.id)
         report_id = str(report.id) if report is not None else None
         created_conn_id: Optional[str] = None
+        # Agents this install committed, recorded as each one lands (see
+        # installer.create_agents); the rollback deletes exactly these.
+        created_agent_ids: list = []
         try:
             async with async_session_maker() as s:
                 s_org = await s.get(_Org, org_id)
@@ -391,7 +394,8 @@ class CreateDemoDatasetTool(Tool):
                         s_report = (await s.execute(
                             _select(_Report).options(_selectinload(_Report.data_sources)).where(_Report.id == report_id)
                         )).scalar_one_or_none()
-                    install = await installer.create_agents(s, s_org, s_user, connection, chosen, report=s_report, folder_id=spec.folder_id)
+                    install = await installer.create_agents(s, s_org, s_user, connection, chosen, report=s_report,
+                                                            folder_id=spec.folder_id, created_ids=created_agent_ids)
                 elif chosen:
                     install.skipped_agents = [{"name": a.name, "reason": "permission_denied",
                                                "detail": "Creating agents requires the create_data_source permission."}
@@ -402,16 +406,14 @@ class CreateDemoDatasetTool(Tool):
                 try:
                     from app.services.connection_service import ConnectionService
                     from app.services.data_source_service import DataSourceService
-                    from app.models.domain_connection import domain_connection as _dc
                     async with async_session_maker() as s:
                         c_org, c_user = await s.get(_Org, org_id), await s.get(_User, user_id)
-                        # Deleting a connection keeps its agents; the agents this
-                        # failed install just built on it go with it explicitly.
-                        half_built = (await s.execute(
-                            _select(_dc.c.data_source_id).where(_dc.c.connection_id == created_conn_id)
-                        )).scalars().all()
-                        for ds_id in half_built:
-                            await DataSourceService().delete_data_source(s, str(ds_id), c_org, c_user)
+                        # Deleting a connection keeps its agents, so the agents
+                        # this install built go explicitly — only those: the
+                        # connection was committed early, and an agent someone
+                        # linked to it meanwhile is not ours to delete.
+                        for ds_id in created_agent_ids:
+                            await DataSourceService().delete_data_source(s, ds_id, c_org, c_user)
                         await ConnectionService().delete_connection(s, created_conn_id, c_org, c_user)
                 except Exception as ce:
                     logger.warning("create_demo_dataset: cleanup of connection %s failed: %s", created_conn_id, ce)

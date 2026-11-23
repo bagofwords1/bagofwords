@@ -226,7 +226,11 @@ async def create_agents(
     *,
     report=None,
     folder_id: str | None = None,
+    created_ids: list | None = None,
 ) -> InstallResult:
+    """``created_ids``, when given, receives each agent's id the moment it is
+    committed — so a caller rolling back a failed install deletes exactly what
+    this install made, even when it fails before returning."""
     from app.schemas.data_source_schema import DataSourceCreate
     from app.services.data_source_service import DataSourceService
     from app.core.permission_resolver import invalidate_rbac_memo
@@ -262,6 +266,8 @@ async def create_agents(
                 pass
             result.skipped_agents.append({"name": agent.name, "reason": "failed", "detail": str(e)[:300]})
             continue
+        if created_ids is not None:
+            created_ids.append(str(created.id))
         invalidate_rbac_memo(db, str(user.id), str(organization.id))
 
         ds = (await db.execute(

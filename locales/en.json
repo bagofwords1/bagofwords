@@ -9226,6 +9226,8 @@
     "landingHint": "No data connections. This agent answers from its instructions and files.",
     "addConnection": "Add connection",
     "unlinkLastConfirm": "Unlink the last connection? The agent is kept, with its instructions and files, but no data connection.",
-    "deleteKeepsAgents": "Agents are kept. An agent that uses only this connection will have no data connection until you link another."
+    "deleteKeepsAgents": "Agents are kept. An agent that uses only this connection will have no data connection until you link another.",
+    "impactLoadFailed": "Couldn't load what this delete affects.",
+    "deleteRemovesConnectors": "Deleted with it (connectors that use only this connection): {names}"
   }
 }

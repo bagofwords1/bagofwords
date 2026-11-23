@@ -9197,6 +9197,8 @@
     "landingHint": "Sin conexiones de datos. Este agente responde a partir de sus instrucciones y archivos.",
     "addConnection": "Añadir conexión",
     "unlinkLastConfirm": "¿Desvincular la última conexión? El agente se conserva, con sus instrucciones y archivos, pero sin conexión de datos.",
-    "deleteKeepsAgents": "Los agentes se conservan. Un agente que solo usa esta conexión se quedará sin conexión de datos hasta que vincules otra."
+    "deleteKeepsAgents": "Los agentes se conservan. Un agente que solo usa esta conexión se quedará sin conexión de datos hasta que vincules otra.",
+    "impactLoadFailed": "No se pudo cargar a qué afecta esta eliminación.",
+    "deleteRemovesConnectors": "Se eliminan con ella (conectores que solo usan esta conexión): {names}"
   }
 }

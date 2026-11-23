@@ -95,7 +95,7 @@
                                 <UIcon name="heroicons-pencil" class="w-4 h-4" />
                             </UButton>
                             <UButton
-                                v-if="canLinkConnections"
+                                v-if="canLinkConnections && !(isConnector && connections.length <= 1)"
                                 color="red" variant="ghost" size="xs"
                                 @click="unlinkConnection(conn.id)"
                                 :title="$t('data.unlink')"
@@ -257,6 +257,9 @@ const displayConnections = computed(() => connections.value.map((conn: any) => (
     ...identityConnections.value[conn.id],
 })))
 const agentInfo = computed(() => props.agent ?? integration.value)
+// A connector is nothing but its connection: the backend refuses to unlink
+// its last one (delete the connector instead), so don't offer it.
+const isConnector = computed(() => (agentInfo.value?.kind ?? null) === 'connector' || agentInfo.value?.is_connector === true)
 const ready = computed(() => props.dsId != null || !!integration.value)
 let identityRequest = 0
 async function loadIdentityConnections() {
