@@ -299,3 +299,31 @@ async def test_rerun_with_taken_names_suffixes_agents_and_keeps_the_run_session_
         assert {a["requested_name"] for a in out["agents"]} == {a["name"] for a in spec["agents"]}
         # Still loaded, not expired: a plain attribute read must not need IO.
         assert report.title == "Training" and org.name.startswith("Demo Org")
+
+
+@pytest.mark.asyncio
+async def test_failed_install_leaves_no_connection_and_no_agents(stub_llm, monkeypatch):
+    """When the install fails after its agents were built, the cleanup takes
+    the connection AND those agents with it. (Deleting a connection keeps its
+    agents, so the cleanup has to remove them itself.)"""
+    from app.services.demo_data import installer
+
+    real_create_agents = installer.create_agents
+
+    async def _create_then_fail(*args, **kwargs):
+        await real_create_agents(*args, **kwargs)
+        raise RuntimeError("boom after the agents were created")
+
+    monkeypatch.setattr(installer, "create_agents", _create_then_fail)
+
+    ids = await _seed()
+    spec = _spec(ids["suffix"])
+    names = [a["name"] for a in spec["agents"]]
+    out, _ = await _drive(spec, ids, decision={"approved": True, "response": {"agents": names}})
+    assert out["success"] is False and out["status"] == "failed", out
+
+    async with async_session_maker() as db:
+        left = (await db.execute(select(DataSource.name).where(DataSource.organization_id == ids["org"]))).scalars().all()
+        assert not set(names) & set(left), left
+        conns = (await db.execute(select(Connection).where(Connection.organization_id == ids["org"]))).scalars().all()
+        assert conns == []

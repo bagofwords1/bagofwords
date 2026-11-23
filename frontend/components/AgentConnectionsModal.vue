@@ -95,7 +95,7 @@
                                 <UIcon name="heroicons-pencil" class="w-4 h-4" />
                             </UButton>
                             <UButton
-                                v-if="canLinkConnections && connections.length > 1"
+                                v-if="canLinkConnections"
                                 color="red" variant="ghost" size="xs"
                                 @click="unlinkConnection(conn.id)"
                                 :title="$t('data.unlink')"
@@ -505,7 +505,9 @@ async function linkConnection() {
 }
 
 async function unlinkConnection(connectionId: string) {
-    if (!confirm(t('data.unlinkConfirm'))) return
+    // The last connection can go too: the agent stays, with no data connection.
+    const last = connections.value.length <= 1
+    if (!confirm(last ? t('connectionlessAgent.unlinkLastConfirm') : t('data.unlinkConfirm'))) return
     const { error } = await useMyFetch(`/data_sources/${dsId.value}/connections/${connectionId}`, { method: 'DELETE' })
     if (error.value) {
         toast.add({ title: t('data.unlinkFailed'), description: (error.value as any)?.data?.detail, color: 'red' })

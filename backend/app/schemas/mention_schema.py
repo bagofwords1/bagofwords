@@ -11,7 +11,9 @@ class DataSourceMention(BaseModel):
     id: str
     type: Literal['data_source'] = 'data_source'
     name: str
-    data_source_type: str  # From DataSource.type (postgres, snowflake, etc.)
+    # From DataSource.type (postgres, snowflake, etc.); None for an agent with
+    # no connection.
+    data_source_type: Optional[str] = None
     # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
     icon: Optional[str] = None
     # Resolved display icon ("emoji:<grapheme>" | "type:<key>" | None), see
@@ -22,7 +24,8 @@ class DataSourceMention(BaseModel):
     description: Optional[str] = None  # DataSource.description
     is_active: bool
     is_public: Optional[bool] = None
-    auth_policy: str  # system_only, user_required
+    # system_only | user_required; None for an agent with no connection.
+    auth_policy: Optional[str] = None
     
     class Config:
         from_attributes = True

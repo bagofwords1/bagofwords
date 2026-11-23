@@ -2,7 +2,7 @@
       <div v-if="canManage" class="pt-4 mt-4 border-t border-gray-100 dark:border-gray-800">
         <div v-if="!confirmingDelete">
           <button
-            @click="confirmingDelete = true"
+            @click="startConfirm"
             :class="compact ? 'inline-flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700' : 'w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg transition-colors text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/50 cursor-pointer'"
           >
             <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
@@ -22,6 +22,7 @@
                   {{ agentNames.slice(0, 3).join(', ') }}{{ agentNames.length > 3 ? ' ' + $t('data.andMore', { n: agentNames.length - 3 }) : '' }}
                 </p>
                 <p class="text-amber-600 mt-1">{{ $t('data.tablesRemovedNote') }}</p>
+                <p class="text-amber-600 mt-1" data-testid="delete-keeps-agents">{{ $t('connectionlessAgent.deleteKeepsAgents') }}</p>
               </div>
             </div>
           </div>
@@ -53,9 +54,20 @@ const emit = defineEmits(['deleted'])
 const { t } = useI18n()
 const toast = useToast()
 const canManage = computed(() => useCan('manage_connection', { type: 'connection', id: props.connection?.id }))
-const agentCount = computed(() => props.connection?.agent_count || 0)
-const agentNames = computed(() => props.connection?.agent_names || [])
+// Agents on this connection, for the impact warning. Some callers pass a
+// connection embedded in an agent, which carries no counts: fetch them then,
+// or the warning would silently never show.
+const fetchedImpact = ref<{ agent_count: number; agent_names: string[] } | null>(null)
+const agentCount = computed(() => props.connection?.agent_count ?? fetchedImpact.value?.agent_count ?? 0)
+const agentNames = computed(() => props.connection?.agent_names ?? fetchedImpact.value?.agent_names ?? [])
 const confirmingDelete = ref(false)
+async function startConfirm() {
+  confirmingDelete.value = true
+  if (props.connection?.agent_count == null && props.connection?.id) {
+    const { data } = await useMyFetch<any>(`/connections/${props.connection.id}`, { method: 'GET' })
+    if (data.value) fetchedImpact.value = { agent_count: data.value.agent_count || 0, agent_names: data.value.agent_names || [] }
+  }
+}
 const deleting = ref(false)
 async function deleteConnection() {
   if (deleting.value) return

@@ -311,5 +311,6 @@ def test_deleting_the_only_connection_of_a_project_default_agent(
 
     r = test_client.delete(f"/api/connections/{sole}", headers=_h(token, org_id))
     assert r.status_code == 200, r.text
-    assert r.json()["deleted_agents"] and len(r.json()["deleted_agents"]) == 1
-    assert _run(_project_links(project_id)) == {survives}
+    assert len(r.json()["agents_without_connections"]) == 1
+    # Neither agent is deleted, so both stay project defaults.
+    assert _run(_project_links(project_id)) == {only_on_sole, survives}

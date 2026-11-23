@@ -27,7 +27,8 @@
     <UModal v-model="showDeleteModal" :ui="{ width: 'sm:max-w-sm' }">
       <div class="p-5">
         <h3 class="text-sm font-semibold mb-2">{{ $t('data.deleteConnection') }}</h3>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">{{ deletingConnection?.name }}</p>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ deletingConnection?.name }}</p>
+        <p class="text-xs text-amber-700 dark:text-amber-400 mb-4">{{ $t('data.tablesRemovedNote') }} {{ $t('connectionlessAgent.deleteKeepsAgents') }}</p>
         <div class="flex justify-end gap-2">
           <UButton color="gray" variant="ghost" size="sm" @click="showDeleteModal = false">{{ $t('data.cancel') }}</UButton>
           <UButton color="red" size="sm" :loading="deleting" @click="doDelete">{{ $t('data.delete') }}</UButton>

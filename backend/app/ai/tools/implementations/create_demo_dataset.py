@@ -401,9 +401,18 @@ class CreateDemoDatasetTool(Tool):
             if created_conn_id:  # don't leave a connection pointing at a deleted file
                 try:
                     from app.services.connection_service import ConnectionService
+                    from app.services.data_source_service import DataSourceService
+                    from app.models.domain_connection import domain_connection as _dc
                     async with async_session_maker() as s:
-                        await ConnectionService().delete_connection(
-                            s, created_conn_id, await s.get(_Org, org_id), await s.get(_User, user_id))
+                        c_org, c_user = await s.get(_Org, org_id), await s.get(_User, user_id)
+                        # Deleting a connection keeps its agents; the agents this
+                        # failed install just built on it go with it explicitly.
+                        half_built = (await s.execute(
+                            _select(_dc.c.data_source_id).where(_dc.c.connection_id == created_conn_id)
+                        )).scalars().all()
+                        for ds_id in half_built:
+                            await DataSourceService().delete_data_source(s, str(ds_id), c_org, c_user)
+                        await ConnectionService().delete_connection(s, created_conn_id, c_org, c_user)
                 except Exception as ce:
                     logger.warning("create_demo_dataset: cleanup of connection %s failed: %s", created_conn_id, ce)
             installer.remove_generated_file({"database": path, installer.GENERATED_KEY: True})

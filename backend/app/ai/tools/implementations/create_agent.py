@@ -59,7 +59,8 @@ class CreateAgentTool(Tool):
         return ToolMetadata(
             name="create_agent",
             description=(
-                "ACTION: Create a NEW agent (data source) on one or more EXISTING connections "
+                "ACTION: Create a NEW agent (data source) on one or more EXISTING connections, "
+                "or with none (an agent made of instructions, files and a description), "
                 "and attach it to this training session. Optionally select its catalog in the "
                 "same call: `schemas` (activate whole database schemas) and/or `tables` "
                 "(names or globs like 'sales.*') for table connections, or `tools` (names or "

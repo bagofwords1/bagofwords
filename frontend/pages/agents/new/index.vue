@@ -31,7 +31,7 @@
         <!-- Connection selector (multi-select for existing connections) -->
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Connections <span class="text-red-500">*</span>
+            Connections <span class="font-normal text-ink-muted">{{ $t('connectionlessAgent.optional') }}</span>
           </label>
           <USelectMenu
             v-model="selectedConnections"
@@ -69,6 +69,9 @@
               </div>
             </template>
           </USelectMenu>
+          <p v-if="selectedConnections.length === 0" class="mt-1.5 text-xs text-ink-muted">
+            {{ $t('connectionlessAgent.createHint') }}
+          </p>
           <button
             type="button"
             class="mt-2 inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700"
@@ -81,9 +84,10 @@
           </button>
         </div>
 
-        <!-- Existing connection flow (main form) -->
-        <div v-if="selectedConnections.length > 0">
-          <div class="flex items-center gap-2 mb-4">
+        <!-- Connections are optional: with none, the agent is instructions,
+             files and a description, and a connection can be linked later. -->
+        <div>
+          <div v-if="selectedConnections.length > 0" class="flex items-center gap-2 mb-4">
             <UToggle v-model="useLlmSync" :disabled="creatingFromConnection" size="xs" color="blue" />
             <span class="text-xs text-gray-700 dark:text-gray-300">Use LLM to learn agent</span>
           </div>
@@ -106,13 +110,6 @@
               Save & Continue
             </UButton>
           </div>
-        </div>
-
-        <!-- No selection yet (just show cancel) -->
-        <div v-else class="flex justify-start pt-4 border-t border-gray-100 dark:border-gray-800">
-          <NuxtLink to="/agents" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
-            ← Cancel
-          </NuxtLink>
         </div>
       </div>
 
@@ -183,8 +180,8 @@ async function handleNewConnectionCreated(connectionData: any) {
 }
 
 const canSubmitExisting = computed(() => {
+  // Only a name is required: connections are optional.
   return (
-    selectedConnections.value.length > 0 &&
     agentName.value.trim().length > 0 &&
     !creatingFromConnection.value
   )
@@ -208,7 +205,8 @@ async function loadConnections() {
 }
 
 async function createAgentFromExistingConnection() {
-  if (selectedConnections.value.length === 0 || !agentName.value.trim()) return
+  if (!agentName.value.trim()) return
+  const noConnections = selectedConnections.value.length === 0
   creatingFromConnection.value = true
   errorMessage.value = ''
 
@@ -216,7 +214,8 @@ async function createAgentFromExistingConnection() {
     const payload = {
       name: agentName.value.trim(),
       connection_ids: selectedConnections.value.map(c => c.id),
-      use_llm_sync: useLlmSync.value,
+      // Nothing to learn from without a connection.
+      use_llm_sync: noConnections ? false : useLlmSync.value,
       is_public: false,
       // Built through "New agent" = an analysis agent, whatever it connects
       // to (an MCP wrapped here is a curated agent, not a personal connector).
@@ -239,7 +238,8 @@ async function createAgentFromExistingConnection() {
 
     const result = response.data.value as any
     if (result?.id) {
-      navigateTo(`/agents/new/${result.id}/schema`)
+      // No connection, no tables to select: straight to the context step.
+      navigateTo(noConnections ? `/agents/new/${result.id}/context` : `/agents/new/${result.id}/schema`)
     } else {
       navigateTo('/agents')
     }
@@ -262,8 +262,9 @@ onMounted(async () => {
     if (matchingConn) {
       selectedConnections.value = [matchingConn]
     }
-  } else if (forcedNew || connections.value.length === 0) {
-    // Open Add Connection modal if no connections exist or forced
+  } else if (forcedNew) {
+    // Open Add Connection modal only when asked to. With no connections the
+    // form stays usable: an agent can be created without one.
     showAddConnectionModal.value = true
   } else if (connections.value.length === 1) {
     // Single connection - auto-select it

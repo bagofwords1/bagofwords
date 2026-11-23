@@ -715,7 +715,8 @@ async def delete_connection(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Delete a connection. Fails if connection is linked to any agents."""
+    """Delete a connection. Agents linked to it are unlinked and kept; one that
+    had no other connection is left with none."""
     return await connection_service.delete_connection(
         db=db,
         connection_id=connection_id,
