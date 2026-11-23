@@ -77,6 +77,8 @@ class _Provider:
                 import asyncio
                 await asyncio.to_thread(provider.on_first_call)
             step = provider.planner_step(index)
+            if step[0] == "fail":
+                raise RuntimeError(step[1])
             if step[0] == "tool":
                 tid = f"tu_{uuid.uuid4().hex[:8]}"
                 events = [ToolUseStartEvent(id=tid, name=step[1]),
@@ -230,6 +232,19 @@ def test_after_two_stray_tools_the_turn_goes_on_unforced(test_client, env, provi
     assert turn["status"] != "error", turn
 
 
+def test_a_forced_call_the_provider_rejects_is_retried_unforced(test_client, env, provider, stub_render):
+    rejected = "Error code: 400 - tool_choice 'required' is not supported with this model"
+    provider.script = [("text", "Here is the dashboard."), ("fail", rejected), ("text", CHAT_ANSWER)]
+    report_id, turn = _ask(test_client, env, "Build a dashboard of revenue by month.")
+
+    assert len(provider.restricted_calls()) == 1, "the rejected forced call is not sent again"
+    names, required = provider.offered[2]
+    assert not required and "create_data" in names, "the call after the failure is not forced"
+    assert len(provider.offered) == 3, "the turn ended on the unforced answer"
+    assert turn["status"] != "error", turn
+    assert _says(turn, CHAT_ANSWER)
+
+
 # --- a steer mid-turn ------------------------------------------------------
 
 @pytest.fixture
@@ -335,12 +350,14 @@ class _AnthropicAPI:
         return self.requests[1]
 
 
-@pytest.mark.parametrize("model_id,tool_choice", [
-    ("claude-sonnet-5-5", "auto"),               # answers a forced tool_choice with HTTP 400
-    ("claude-haiku-4-5-20251001", "any"),
+@pytest.mark.parametrize("model_id,tool_choice,thinking", [
+    # Answers a forced tool_choice with HTTP 400, and cannot switch reasoning fully off.
+    ("claude-sonnet-5-5", "auto", "between_tools"),
+    # A required tool call is not allowed together with extended thinking.
+    ("claude-haiku-4-5-20251001", "any", "disabled"),
 ])
 def test_the_forced_call_uses_the_tool_choice_the_model_accepts(
-    model_id, tool_choice, test_client, create_user, login_user, whoami, monkeypatch, stub_render,
+    model_id, tool_choice, thinking, test_client, create_user, login_user, whoami, monkeypatch, stub_render,
 ):
     from anthropic.resources.messages import AsyncMessages
 
@@ -373,4 +390,5 @@ def test_the_forced_call_uses_the_tool_choice_the_model_accepts(
     # No tool_choice in the request is the API's default, "auto".
     sent = ((forced.get("extra_body") or {}).get("tool_choice") or {"type": "auto"})["type"]
     assert sent == tool_choice
+    assert ((forced.get("extra_body") or {}).get("thinking") or {}).get("type") == thinking
     assert len(_saved_pages(test_client, env, report_id)) == 1, "the forced call built the page"
