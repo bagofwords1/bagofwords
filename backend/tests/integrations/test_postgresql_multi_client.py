@@ -769,6 +769,26 @@ def test_left_out_tables_and_tenants_are_reported_in_index_stats(multi_tenant_se
     assert client.index_stats()["unreadable_dataset_count"] == len(entries)
 
 
+@pytest.mark.parametrize("json_type", ["json", "jsonb"])
+def test_indexed_json_columns_stay_queryable_from_every_tenant(multi_tenant_server, json_type):
+    prefix = f"docs_{json_type}"
+    tenants = {f"{prefix}_1": 2, f"{prefix}_2": 3, f"{prefix}_3": 1}
+    for name, rows in tenants.items():
+        values = ", ".join(f"({i}, '{{\"k\": {i}}}', '[{i}]')" for i in range(rows))
+        _create_tenant(multi_tenant_server, name, [
+            f"CREATE TABLE public.docs (id int, body {json_type}, tags {json_type})",
+            f"INSERT INTO public.docs VALUES {values}",
+        ])
+    spec = f"{prefix}_*"
+    indexed = _client(multi_tenant_server, databases=spec, connection_id=f"conn-{prefix}").get_schemas()
+    fresh = _client(multi_tenant_server, databases=spec, connection_id=f"conn-{prefix}-fresh")
+    fresh.attach_table_metadata(_as_stored(indexed))
+
+    df = fresh.execute_query("SELECT tenant_db, count(body) AS n FROM public.docs WHERE tags IS NOT NULL GROUP BY tenant_db")
+
+    assert dict(zip(df["tenant_db"], df["n"], strict=True)) == tenants
+
+
 def test_unreadable_reasons_name_the_cause_without_server_or_login(multi_tenant_server):
     client = _client(multi_tenant_server)
     client.get_schemas()
