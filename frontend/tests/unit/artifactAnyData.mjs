@@ -26,8 +26,10 @@ function App() {
   const [n, setN] = React.useState(0);
   // Inline option, rebuilt on every render: a formatter (same content) and, from the 2nd click, new data (same shape).
   const live = { xAxis: { type: 'category', data: ${JSON.stringify(months)} }, yAxis: { type: 'value' }, tooltip: { formatter: (p) => String(p.value) },
-    // From the 2nd click, new data that also swaps the two largest series' totals.
-    series: LINES.map((l, i) => ({ ...l, data: (n >= 2 && i >= 10 ? LINES[21 - i].data : l.data).map((v) => v + (n >= 2 ? 1 : 0)) })) };
+    dataZoom: [{ type: 'inside' }],
+    // From the 2nd click, new data that also swaps the two largest series' totals;
+    // from the 3rd, CC-103 grows into the top eight and pushes CC-104 out.
+    series: LINES.map((l, i) => ({ ...l, data: (n >= 2 && i >= 10 ? LINES[21 - i].data : l.data).map((v) => v + (n >= 2 ? 1 : 0) + (n >= 3 && i === 3 ? 10000 : 0)) })) };
   return (
     <div className="p-4 space-y-4">
       <button id="rerender" onClick={() => setN(n + 1)}>rerender</button>
@@ -130,6 +132,18 @@ try{
  assert.equal((await sel())['CC-100'],true,'same content re-render keeps the reader\'s choice');
  await frame.click('#rerender'); await frame.waitForTimeout(300);
  assert.equal((await sel())['CC-100'],true,'new data that swaps two totals keeps the reader\'s choice');
+ // New data that moves a series across the eighth-place cutoff is still a data
+ // refresh: the reader's legend click and zoom survive; series the reader never
+ // touched follow the new top eight.
+ const zoom=()=>frame.evaluate(()=>window.echarts.getInstanceByDom(document.querySelector('#live [_echarts_instance_]')).getOption().dataZoom[0].start);
+ await frame.evaluate(()=>window.echarts.getInstanceByDom(document.querySelector('#live [_echarts_instance_]')).dispatchAction({type:'dataZoom',start:50,end:100}));
+ assert.equal(await zoom(),50);
+ await frame.click('#rerender'); await frame.waitForTimeout(300);
+ const crossed=await sel();
+ assert.equal(crossed['CC-100'],true,'a refresh that changes the top eight keeps the reader\'s choice');
+ assert.equal(await zoom(),50,'a refresh that changes the top eight keeps the reader\'s zoom');
+ assert.equal(crossed['CC-103'],true,'an untouched series that enters the top eight turns on');
+ assert.equal(crossed['CC-104'],false,'an untouched series that leaves the top eight turns grey');
 
  // Series drawn from a dataset have no data of their own: the chart is left uncapped.
  const dsOff=await frame.evaluate(()=>{const l=window.echarts.getInstanceByDom(document.querySelector('#dataset [_echarts_instance_]')).getOption().legend; const s=l&&l[0]&&l[0].selected; return s?Object.values(s).filter(v=>!v).length:0;});
