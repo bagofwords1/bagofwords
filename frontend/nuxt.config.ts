@@ -254,9 +254,12 @@ export default defineNuxtConfig({
         }
       },
     },
-    session: {
-      enableRefreshOnWindowFocus: true,
-      enableRefreshPeriodically: false
+    // nuxt-auth 0.9 reads `sessionRefresh`; the older `session.enableRefresh*`
+    // keys are silently ignored. Re-checking on focus is safe because a failed
+    // check only signs the user out on a 401 (patches/@sidebase+nuxt-auth+0.9.3.patch).
+    sessionRefresh: {
+      enableOnWindowFocus: true,
+      enablePeriodically: false
     },
     globalAppMiddleware: {
       isEnabled: true
