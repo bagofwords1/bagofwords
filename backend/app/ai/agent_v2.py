@@ -63,11 +63,13 @@ def repeated_call_nudge(tool_name: str) -> str:
 
 # A build ask: a build verb with a page or document noun in the user's message
 # (English, Hebrew, Spanish). A how-to question about building is not one.
+_BASE_VERBS = r"build|create|make|design|generate|set up|put together|prepare|write|draft"
+_HEBREW_VERBS = r"בנה|תבנה|תבני|צור|תיצור|הכן|תכין|כתוב|תכתוב"
+_SPANISH_VERBS = r"crea|haz|construye|diseña|prepara|escribe|redacta"
 _BUILD_VERB_SRC = (
-    r"(\b(build|create|make|design|generate|set up|put together|prepare|write|draft)\b|\bturn\b.*\binto\b"
-    r"|בנה|תבנה|תבני|צור|תיצור|הכן|תכין|כתוב|תכתוב|\b(crea|haz|construye|diseña|prepara|escribe|redacta)\b)"
+    r"(\b(" + _BASE_VERBS + r")\b|\bturn\b.*\binto\b"
+    r"|" + _HEBREW_VERBS + r"|\b(" + _SPANISH_VERBS + r")\b)"
 )
-_BUILD_VERB = _re_mod.compile(r"(?i)" + _BUILD_VERB_SRC)
 _PAGE_NOUN = _re_mod.compile(
     r"(?i)(\b(dashboards?|scorecards?|pages?|apps?|artifacts?|portals?|screens?|forms?|trackers?|explorers?|calculators?|tableros?|panel|página|pantalla|aplicación)\b"
     r"|דשבורד|לוח מחוונים|לוח בקרה|דף|עמוד|אפליקציה|פורטל|מסך)"
@@ -88,11 +90,16 @@ _HOW_TO = _re_mod.compile(r"(?i)^\s*(how (do|can|should) i|how to|can you (expla
 # anything else ("build a dashboard, don't include refunds") leaves the ask
 # standing, and so does a bare "no" before the verb ("no, build the dashboard").
 _NEGATION = (
-    r"(?:\b(?:don'?t|do not|does not|doesn'?t|never|not|needn'?t|shouldn'?t|should not|without|nunca|sin)\b"
-    r"|\bno need (?:to|for)\b|\bno hace falta\b|\bno es necesario\b"
+    r"(?:\b(?:don'?t|do not|does not|doesn'?t|never|not|needn'?t|shouldn'?t|should not|without|nunca|sin"
+    r"|no need (?:to|for)|no hace falta|no es necesario)\b"
     r"|(?<![\u0590-\u05FF])(?:אל|לא|בלי|ללא|אין צורך)(?![\u0590-\u05FF]))"
 )
-_NEGATION_ASIDE = r"(?:\s*,[^,.;:!?\n]{1,40},)?"
+# The aside follows only a negation that cannot stand alone as "no": "לא, כמו
+# שאמרתי, תבנה דשבורד" and "if not, as discussed, build a dashboard" are asks.
+_NEGATION_ASIDE = (
+    r"(?:(?:(?<=\bdon't)|(?<=\bdont)|(?<=\bdo not)|(?<=\bnever)|(?<=\bshouldn't)|(?<=\bshouldnt)|(?<=\bshould not)|(?<=אל))"
+    r"\s*,[^,.;:!?\n]{1,40},)?"
+)
 _NEGATION_FILLER = (
     r"(?:(?:just|only|simply|even|ever|need|needs|have|bother|please|you|to|want|wanna|going|gonna|i|we|actually|really|"
     r"me|nos|le|lo|que|crear|hacer|צריך|צריכה|צריכים|רוצה|ל)\s+){0,3}"
@@ -101,13 +108,14 @@ _INSTEAD_OF = r"(?:\b(?:instead of|rather than|en lugar de|en vez de)\b|(?<![\u0
 # Forms a build verb takes only under a negation or "instead of": the Spanish
 # negative imperative and infinitive ("no hagas", "sin crear"), the English
 # gerund ("without building") and the Hebrew infinitive ("לא ליצור").
+_GERUNDS = r"building|creating|making|designing|generating|setting up|putting together|preparing|writing|drafting"
+_SPANISH_INFINITIVES = r"crear|hacer|construir|diseñar|preparar|escribir|redactar|generar"
+_HEBREW_INFINITIVES = r"לבנות|ליצור|להכין|לעשות|לכתוב"
 _SPANISH_NEGATED_VERB = (
-    r"\b(?:crees|hagas|construyas|diseñes|prepares|escribas|redactes|generes"
-    r"|crear|hacer|construir|diseñar|preparar|escribir|redactar|generar)\b"
+    r"\b(?:crees|hagas|construyas|diseñes|prepares|escribas|redactes|generes|" + _SPANISH_INFINITIVES + r")\b"
 )
 _DEPENDENT_VERB = (
-    r"(?:\b(?:building|creating|making|designing|generating|setting up|putting together|preparing|writing|drafting)\b"
-    r"|" + _SPANISH_NEGATED_VERB + r"|תעשה|תעשי|לבנות|ליצור|להכין|לעשות|לכתוב)"
+    r"(?:\b(?:" + _GERUNDS + r")\b|" + _SPANISH_NEGATED_VERB + r"|תעשה|תעשי|" + _HEBREW_INFINITIVES + r")"
 )
 _NEGATED_VERB = _re_mod.compile(
     r"(?i)(?:" + _NEGATION + _NEGATION_ASIDE + r"\s+" + _NEGATION_FILLER + r"(?:" + _BUILD_VERB_SRC + r"|" + _DEPENDENT_VERB + r")"
@@ -129,15 +137,33 @@ _NEGATED_NOUN_TAIL = _re_mod.compile(
     r"[בהל]?$"
 )
 _CLAUSE_END = _re_mod.compile(r"[.,;:!?\n]|\b(?:but|instead|pero|sino)\b|אבל|במקום")
+# A negated gerund or infinitive ("instead of writing a long answer build a
+# dashboard", "לא רוצה לכתוב שאילתות אז תבנה דשבורד") also ends at the next
+# imperative build verb, or at Hebrew "אז": that verb opens the ask itself.
+_GERUND_OR_INFINITIVE = tuple("|".join((_GERUNDS, _SPANISH_INFINITIVES, _HEBREW_INFINITIVES)).split("|"))
+_DEPENDENT_END = _re_mod.compile(
+    _CLAUSE_END.pattern + r"|(?i:\b(?:" + _BASE_VERBS + r"|" + _SPANISH_VERBS + r")\b)"
+    r"|(?<![\u0590-\u05FF])(?:" + _HEBREW_VERBS + r"|אז)(?![\u0590-\u05FF])"
+)
 # An explicit ask for the answer in chat or in text, unless it is itself
-# negated ("don't just answer in chat", "not a text-only answer"). Only phrases
-# that name the place count: "just tell me" or "reply here" also follow a real
-# build ask ("build it and just tell me when it is ready").
+# negated ("don't just answer in chat", "not a text-only answer"). These
+# phrases name the place, so they decide wherever they stand.
 _CHAT_ONLY = _re_mod.compile(
-    r"(?i)(\b(?:answer|reply|respond)\s+(?:it\s+)?(?:only\s+)?in (?:the )?chat\b"
-    r"|\b(?:in\s+)?(?:plain\s+)?text[- ]only\b|\bchat[- ]only\b"
-    r"|\b(?:responde|contesta)\s+(?:solo\s+)?en el chat\b|\bsolo en el chat\b|\bsolo (?:en )?texto\b"
+    r"(?i)(\b(?:(?:answer|reply|respond)\s+(?:it\s+)?(?:only\s+)?in (?:the )?chat"
+    r"|(?:in\s+)?(?:plain\s+)?text[- ]only|chat[- ]only"
+    r"|(?:responde|contesta)\s+(?:solo\s+)?en el chat|solo en el chat|solo (?:en )?texto)\b"
     r"|(?:ת)?ענה\s+(?:רק\s+)?בצ'?אט|רק\s+בצ'?אט|בצ'?אט\s+בלבד|בטקסט\s+בלבד)"
+)
+# "just answer", "only tell me", "reply here" name no place. They decide only
+# when no build ask comes before them: "just answer, I'll build the dashboard
+# myself" is a chat ask, "build it and just tell me when it is ready" is not.
+# One scan finds both: these phrases up to the first build verb that stands.
+_SOFT_CHAT_ONLY_OR_VERB = _re_mod.compile(
+    r"(?i)\b(?:(?P<soft>(?<!-)(?:(?:just|only|simply)\s+(?:answer|reply|respond|tell me)\b"
+    r"|(?:answer|reply|respond)\s+(?:it\s+)?here\b"
+    r"|solo\s+(?:responde|contesta|dime)\b|responde\s+(?:solo\s+)?aquí\b))"
+    r"|(?:" + _BASE_VERBS + r"|" + _SPANISH_VERBS + r")\b|turn\b.*\binto\b)"
+    r"|(?P<soft_he>רק\s+(?:(?:ת)?ענה|תשובה))|" + _HEBREW_VERBS
 )
 _NEGATED_TAIL = _re_mod.compile(
     r"(?i)(?:" + _NEGATION + r"|\bno\b)\s+" + _NEGATION_FILLER + r"(?:(?:a|an|the|un|una)\s+)?$"
@@ -145,23 +171,53 @@ _NEGATED_TAIL = _re_mod.compile(
 
 
 def _negated_spans(text: str) -> list:
-    """(start, end) of each negated build verb through the end of its clause."""
+    """(start, end) of each negated build verb through the end of its clause,
+    in order, with overlapping spans joined."""
     spans = []
+    stops = {}  # per stop pattern, the last stop found: it also ends every later span that starts before it
     for m in _NEGATED_VERB.finditer(text):
-        stop = _CLAUSE_END.search(text, m.end())
-        spans.append((m.start(), stop.start() if stop else len(text)))
+        end = _DEPENDENT_END if m.group(0).lower().endswith(_GERUND_OR_INFINITIVE) else _CLAUSE_END
+        if stops.get(end, -1) < m.end():
+            stop = end.search(text, m.end())
+            stops[end] = stop.start() if stop else len(text)
+        if spans and m.start() < spans[-1][1]:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], stops[end]))
+        else:
+            spans.append((m.start(), stops[end]))
     return spans
 
 
-def _live(pattern, text: str, spans: list, *, noun: bool = False) -> bool:
-    """True when a match of ``pattern`` lies outside every negated span (and, for
-    a noun, is not itself negated: "without a dashboard")."""
+def _negated(text: str, at: int) -> bool:
+    return bool(_NEGATED_TAIL.search(text[max(0, at - 40):at]))
+
+
+def _next_verb(scan, soft_at: list):
+    """Start of the next build verb in ``scan``; the soft chat-only phrases
+    passed on the way are added to ``soft_at``."""
+    for m in scan:
+        if m.lastgroup is None:
+            return m.start()
+        soft_at.append(m.start())
+    return None
+
+
+def _span_at(spans: list, i: int, at: int) -> int:
+    """Index of the first span, from ``i`` on, that ends after ``at``. ``at``
+    lies in a negated span when that one starts at or before it."""
+    while i < len(spans) and spans[i][1] <= at:
+        i += 1
+    return i
+
+
+def _live_noun(pattern, text: str, spans: list) -> bool:
+    """True when a noun lies outside every negated span and is not itself
+    negated ("without a dashboard")."""
+    i = 0
     for m in pattern.finditer(text):
-        if any(a <= m.start() < b for a, b in spans):
-            continue
-        if noun and _NEGATED_NOUN_TAIL.search(text[max(0, m.start() - 60):m.start()]):
-            continue
-        return True
+        at = m.start()
+        i = _span_at(spans, i, at)
+        if (i == len(spans) or spans[i][0] > at) and not _NEGATED_NOUN_TAIL.search(text[max(0, at - 60):at]):
+            return True
     return False
 
 
@@ -169,25 +225,28 @@ def build_ask_kinds(message: str) -> set:
     """{"page"} / {"doc"} / both when the user's message asks to build one; empty otherwise.
 
     A how-to question, an explicit chat-only ask ("answer in chat", "text
-    only", "רק בצ'אט", "solo en el chat") and a build that is itself negated
+    only", "רק בצ'אט", "solo en el chat"), a "just answer" / "רק תענה" / "solo
+    responde" with no build verb before it, and a build that is itself negated
     ("don't create a dashboard", "אל תבנה דשבורד", "no hagas un tablero",
     "sin dashboard") are not.
     """
     text = str(message or "")
     if not text.strip() or _HOW_TO.search(text):
         return set()
-    for m in _CHAT_ONLY.finditer(text):
-        if not _NEGATED_TAIL.search(text[max(0, m.start() - 40):m.start()]):
-            return set()
-    spans = _negated_spans(text)
-    if not _live(_BUILD_VERB, text, spans):
+    scan, soft_at = _SOFT_CHAT_ONLY_OR_VERB.finditer(text), []
+    verb = _next_verb(scan, soft_at)
+    if verb is None or any(not _negated(text, m.start()) for m in _CHAT_ONLY.finditer(text)):
         return set()
-    kinds = set()
-    if _live(_PAGE_NOUN, text, spans, noun=True):
-        kinds.add("page")
-    if _live(_DOC_NOUN, text, spans, noun=True):
-        kinds.add("doc")
-    return kinds
+    spans = _negated_spans(text)
+    i = 0
+    while verb is not None:  # on to the first build verb outside every negated span
+        i = _span_at(spans, i, verb)
+        if i == len(spans) or spans[i][0] > verb:
+            break
+        verb = _next_verb(scan, soft_at)
+    if verb is None or any(not _negated(text, at) for at in soft_at):
+        return set()
+    return {kind for kind, noun in (("page", _PAGE_NOUN), ("doc", _DOC_NOUN)) if _live_noun(noun, text, spans)}
 
 
 def forced_build_note(kinds: set) -> str:

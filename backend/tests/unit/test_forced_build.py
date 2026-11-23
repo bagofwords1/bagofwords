@@ -102,6 +102,14 @@ REFUSED_BUILDS = [
     "אל תכין דוח, תגיד לי רק את הסכום.",
     "בלי לבנות דשבורד, כתוב לי כמה הזמנות היו החודש.",
     "תן לי את המספרים בלי דשבורד או דוח, כתוב אותם כאן.",
+    # "just answer", "only answer", "answer here" open the message: nothing was
+    # asked for before them, and the build verb after is the person's own plan.
+    "Just answer: what was revenue last month? I'll build the dashboard myself.",
+    "Just tell me the top customers, I'll make the dashboard myself.",
+    "Only answer the question, I'll put together the report later.",
+    "Answer here, I will make the dashboard later.",
+    "Solo responde: escribe el total. El tablero lo hago yo.",
+    "רק תענה, אני אבנה את הדשבורד בעצמי. כתוב את הסכום",
 ]
 # A negation that targets something else in a build ask leaves the ask standing.
 STILL_BUILDS = [
@@ -136,6 +144,19 @@ STILL_BUILDS = [
     ("Prepara un resumen o un informe de gastos.", {"doc"}),
     ("בנה דשבורד ואל תשכח את המסננים.", {"page"}),
     ("הכן דוח או סיכום של ההוצאות.", {"doc"}),
+    # "לא" and "not" also stand alone as "no": an aside after them is not a
+    # refusal of the verb that follows it.
+    ("לא, כמו שאמרתי, תבנה דשבורד", {"page"}),
+    ("לא, בבקשה, תבנה דשבורד", {"page"}),
+    ("לא, לא ככה, תבנה דשבורד חדש", {"page"}),
+    ("If not, as discussed, build a dashboard", {"page"}),
+    ("Sure, why not, go ahead, build the dashboard", {"page"}),
+    # "instead of writing…", "without creating…", "לא רוצה לכתוב…" with no
+    # comma: the refused part ends where the ask's own verb starts.
+    ("Instead of writing a long answer build a dashboard", {"page"}),
+    ("Rather than writing it all out in chat just build a dashboard", {"page"}),
+    ("Without creating new queries build a dashboard of revenue", {"page"}),
+    ("אני לא רוצה לכתוב שאילתות אז תבנה לי דשבורד", {"page"}),
 ]
 # Known misses. "no/not + noun" as a statement of absence ("we have no
 # dashboard, build one") reads to a pattern exactly like a refusal ("no
