@@ -8,8 +8,8 @@ result get no block. The block survives compaction of an older observation and
 the transcript's tool-result content.
 
 Seams: ``ReadQueryTool.run_stream`` on the migration-backed test database
-(``db``-marked tests: report, owner and org come from the API, the stored step
-is seeded directly), the public ``CreateDataTool.build_success_observation``
+(``db``-marked tests: report, owner, org and query come from the API; only the
+stored step and its ``default_step_id`` link are seeded directly), the public ``CreateDataTool.build_success_observation``
 (the ``create_data`` success path itself needs code generation; pure Python,
 no DB), and ``ObservationContextBuilder.add_tool_observation`` and
 ``build_result_part`` fed a real read_query observation. No LLM.
@@ -38,7 +38,6 @@ from app.models.query import Query
 from app.models.report import Report
 from app.models.step import Step
 from app.models.user import User
-from app.models.widget import Widget
 from tests.unit.test_data_preview_sums import _assert_k_clean, _dicts_with_key
 
 # 12 departments. budget_eur and actual_eur are non-negative and k-clean;
@@ -80,8 +79,24 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def api_query_creator(test_client, token, org_id, report_id):
+    """``create_query(title)``: POST /api/queries for *report_id* as its owner."""
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    def create_query(title):
+        response = test_client.post(
+            "/api/queries", json={"title": title, "report_id": report_id}, headers=headers
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    return create_query
+
+
 @pytest.fixture
-def sums_report(create_report, create_user, login_user, whoami, update_organization_settings):
+def sums_report(
+    test_client, create_report, create_user, login_user, whoami, update_organization_settings
+):
     """A report owned by a fresh user and org, created through the API."""
     user = create_user()
     token = login_user(user["email"], user["password"])
@@ -89,48 +104,47 @@ def sums_report(create_report, create_user, login_user, whoami, update_organizat
     report = create_report(title="Budget", user_token=token, org_id=org_id)
     return SimpleNamespace(
         report_id=report["id"],
+        create_query=api_query_creator(test_client, token, org_id, report["id"]),
         hide_data=lambda: update_organization_settings(
             {"allow_llm_see_data": False}, user_token=token, org_id=org_id
         ),
     )
 
 
-async def seed_default_step(report_id, df, title="Budget by department"):
-    """A query of *report_id* whose default step holds *df*'s stored result.
+def seed_default_step(report, df, title="Budget by department"):
+    """A query of *report* whose default step holds *df*'s stored result.
 
-    Direct rows: queries and steps are written by an agent run (code
-    generation plus execution); no API call can create a step holding a given
-    result. The report, its owner and org come from the API.
+    The report, its owner and org, and the query with its widget come from
+    the API (``report.create_query``). Only the Step and the query's
+    ``default_step_id`` link are written directly: a step is written by an
+    agent run or a query run (code generation plus execution), and no API
+    call stores a step holding a given result.
     """
-    suffix = uuid.uuid4().hex[:8]
-    async with async_session_maker() as db:
-        report = await db.get(Report, report_id)
-        widget = Widget(title=title, slug=f"sums-w-{suffix}", report_id=report_id)
-        db.add(widget)
-        await db.flush()
-        query = Query(
-            title=title, report_id=report_id, widget_id=widget.id,
-            organization_id=report.organization_id, user_id=report.user_id,
-        )
-        db.add(query)
-        await db.flush()
-        step = Step(
-            title=title,
-            slug=f"sums-s-{suffix}",
-            status="success",
-            prompt="select department, budget_eur, actual_eur",
-            code="select department, budget_eur, actual_eur",
-            data=_formatted(df),
-            type="table",
-            data_model={"type": "table"},
-            widget_id=widget.id,
-            query_id=query.id,
-        )
-        db.add(step)
-        await db.flush()
-        query.default_step_id = step.id
-        await db.commit()
-        return SimpleNamespace(report_id=report_id, query_id=str(query.id), step_id=str(step.id))
+    query = report.create_query(title)
+
+    async def seed():
+        async with async_session_maker() as db:
+            step = Step(
+                title=title,
+                slug=f"sums-s-{uuid.uuid4().hex[:8]}",
+                status="success",
+                prompt="select department, budget_eur, actual_eur",
+                code="select department, budget_eur, actual_eur",
+                data=_formatted(df),
+                type="table",
+                data_model={"type": "table"},
+                widget_id=query["widget_id"],
+                query_id=query["id"],
+            )
+            db.add(step)
+            await db.flush()
+            stored = await db.get(Query, query["id"])
+            stored.default_step_id = step.id
+            await db.commit()
+            return str(step.id)
+
+    step_id = _run(seed())
+    return SimpleNamespace(report_id=report.report_id, query_id=query["id"], step_id=step_id)
 
 
 async def _read(report_id, tool_input):
@@ -153,7 +167,7 @@ async def _read(report_id, tool_input):
 
 
 def _read_departments(sums_report):
-    seeded = _run(seed_default_step(sums_report.report_id, _departments_df()))
+    seeded = seed_default_step(sums_report, _departments_df())
     return seeded, _run(_read(sums_report.report_id, {"query_ids": [seeded.query_id]}))
 
 
@@ -183,8 +197,8 @@ def test_read_query_single_observation_carries_sums_output_does_not(sums_report,
 
 @pytest.mark.db
 def test_read_query_multi_entries_carry_sums(sums_report):
-    budget = _run(seed_default_step(sums_report.report_id, _departments_df()))
-    regions = _run(seed_default_step(sums_report.report_id, _regions_df(), "Revenue by region"))
+    budget = seed_default_step(sums_report, _departments_df())
+    regions = seed_default_step(sums_report, _regions_df(), "Revenue by region")
     payload = _run(_read(sums_report.report_id, {"query_ids": [budget.query_id, regions.query_id]}))
     obs, out = payload["observation"], payload["output"]
 

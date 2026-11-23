@@ -6,9 +6,10 @@ longer result those rows are incomplete, so a total row the section cannot see
 is caught by the ``k × max`` check only. Hidden previews get no block.
 
 Seam: ``QueryContextBuilder.build`` on the migration-backed test database. The
-report, its owner and org come from the API; the step holding the result is
-seeded directly (see ``seed_default_step``) and its summary is written by the
-existing Step write-through.
+report, its owner and org and the query come from the API; only the step
+holding the result and its ``default_step_id`` link are seeded directly (see
+``seed_default_step``). The step's summary is written by the existing Step
+write-through.
 """
 from __future__ import annotations
 
@@ -25,7 +26,12 @@ from app.ai.context.builders.query_context_builder import QueryContextBuilder
 from app.ai.data_preview import clamp_stats, gate_stats_for_privacy
 from app.dependencies import async_session_maker
 from app.models.step import Step
-from tests.unit.test_observation_sums import EXPECTED_SUMS, _departments_df, seed_default_step
+from tests.unit.test_observation_sums import (
+    EXPECTED_SUMS,
+    _departments_df,
+    api_query_creator,
+    seed_default_step,
+)
 
 pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
 
@@ -37,17 +43,20 @@ def _run(coro):
 
 
 @pytest.fixture
-def sums_report(create_report, create_user, login_user, whoami):
+def sums_report(test_client, create_report, create_user, login_user, whoami):
     """A report owned by a fresh user and org, created through the API."""
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
     report = create_report(title="Budget", user_token=token, org_id=org_id)
-    return SimpleNamespace(report_id=report["id"])
+    return SimpleNamespace(
+        report_id=report["id"],
+        create_query=api_query_creator(test_client, token, org_id, report["id"]),
+    )
 
 
 def _seed(report, df):
-    return _run(seed_default_step(report.report_id, df))
+    return seed_default_step(report, df)
 
 
 def _section(scenario, *, include_data_preview=True):

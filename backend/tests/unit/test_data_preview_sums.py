@@ -928,6 +928,27 @@ def test_numeric_column_with_cancelling_magnitudes_gets_no_sum():
     assert _sums(df) == {"net_eur": 1350.25, "units": 17}
 
 
+def test_skewed_same_sign_columns_keep_their_sums():
+    # One very large value among many small ones of the same sign: no
+    # cancellation, so the sum is exact as long as it stays under the bound,
+    # however large max x count is (1e12 x 1000 = 1e15 here).
+    bytes_read = [2_500_000] * 1000
+    bytes_read[500] = 10**12  # one 1 TB scan
+    refunds = [-2_500] * 1000
+    refunds[700] = -(10**12)
+    df = pd.DataFrame({
+        "bytes_read": bytes_read,
+        "refund_cents": refunds,
+        "units": np.arange(1000) % 10 + 1,  # control: 1..10 a hundred times
+    })
+    _assert_k_clean(df, ["bytes_read", "units"])
+    assert _sums(df) == {
+        "bytes_read": 1_002_497_500_000,  # 999 x 2.5e6 + 1e12
+        "refund_cents": -1_000_002_497_500,  # 999 x -2500 - 1e12
+        "units": 5500,
+    }
+
+
 def _huge_object_data():
     info = {"total_rows": 3, "column_info": {
         "amount": {"dtype": "object", "non_null_count": 3},
