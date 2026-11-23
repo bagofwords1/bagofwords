@@ -65,7 +65,7 @@ export default defineNuxtPlugin(async (nuxtApp) => {
   // first whoami resolves before `organization.value.id` is set, the org
   // lookup misses and an admin is left without `full_admin_access` — silently
   // hiding admin-gated sidebar items (Monitoring, Evals) until a full reload.
-  // The session refreshes on window focus (`enableRefreshOnWindowFocus`) and
+  // The session refreshes on window focus (`sessionRefresh.enableOnWindowFocus`) and
   // the active org can change, so re-resolve from the latest session whenever
   // either settles. Resolving is pure (no fetch), so watching `sessionData`
   // can't loop, and we only ever set `permissionsLoaded` true (never back to
