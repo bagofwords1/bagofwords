@@ -20,7 +20,7 @@ const log = (...a) => console.log('[deliverable-groups]', ...a);
 
 const browser = await chromium.launch();
 const context = await browser.newContext({
-  viewport: { width: 1100, height: 900 }, deviceScaleFactor: 2,
+  viewport: { width: 1100, height: 2600 }, deviceScaleFactor: 2,
   colorScheme: process.env.DARK ? 'dark' : 'light',
 });
 await context.addInitScript((l) => localStorage.setItem('bow.locale', l), LOCALE);
@@ -45,7 +45,7 @@ const reportId = await runner.evaluate(async (content) => {
   const H = { Authorization: auth, 'X-Organization-Id': orgs[0].id, 'Content-Type': 'application/json' };
   const ds = await (await fetch('/api/data_sources', { headers: H })).json();
   const music = ds.find((d) => /music/i.test(d.name)) || ds[0];
-  const r = await (await fetch('/api/reports', { method: 'POST', headers: H, body: JSON.stringify({ title: 'Album sales', data_sources: [music.id] }) })).json();
+  const r = await (await fetch('/api/reports', { method: 'POST', headers: H, body: JSON.stringify({ title: 'Album sales', data_sources: [music.id], mode: 'training' }) })).json();
   window.__run = fetch(`/api/reports/${r.id}/completions`, {
     method: 'POST', headers: H,
     body: JSON.stringify({ prompt: { content, mode: 'training' }, stream: true }),
@@ -59,14 +59,20 @@ await page.goto(`${BASE}/reports/${reportId}`);
 const card = page.locator('.tool-execution-container').filter({ hasText: /Album sales/ }).first();
 await card.waitFor({ state: 'visible', timeout: 180000 });
 await page.waitForTimeout(2500);
-const chain = page.locator('[data-message-role="system"]').last();
-await chain.scrollIntoViewIfNeeded().catch(() => {});
-await page.screenshot({ path: name('live') });
+// Close the dashboard panel the run opens, then shoot the whole turn.
+const closePanel = page.locator('button:has(svg)').filter({ has: page.locator('[class*="x-mark"]') }).first();
+await closePanel.click({ timeout: 3000 }).catch(() => {});
+await page.waitForTimeout(800);
+const turn = page.locator('[data-message-role="system"]').last();
+const box = await turn.boundingBox();
+const top = await page.locator('[data-message-role]').first().boundingBox();
+const y = Math.max(0, (top?.y ?? box.y) - 16);
+await page.screenshot({ path: name('live'), clip: { x: box.x - 16, y, width: box.width + 32, height: Math.min(2600 - y, box.y + box.height - y + 24) } });
 log('shot', name('live'));
-
 const groups = await page.locator('[data-testid="run-tool-group"]').allInnerTexts();
-const rows = await page.locator('.tool-call-label').allInnerTexts();
-writeFileSync(name('live').replace(/\.png$/, '.json'), JSON.stringify({ reportId, groups, rows }, null, 2));
+const rows = await turn.locator('.tool-call-label:visible').allInnerTexts();
+const deliverables = await turn.locator('[data-testid="run-deliverables"]').count();
+writeFileSync(name('live').replace(/\.png$/, '.json'), JSON.stringify({ reportId, groups, rows, deliverables }, null, 2));
 log('groups', JSON.stringify(groups));
-log('rows', JSON.stringify(rows));
+log('rows', JSON.stringify(rows), 'deliverables section:', deliverables);
 await browser.close();

@@ -37,21 +37,16 @@ UUID_RE = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 
 def _turn(body: dict):
-    """Tool names called and tool results seen since the last user message."""
-    msgs = body.get("messages", [])
-    last_user = max((i for i, m in enumerate(msgs) if m.get("role") == "user"), default=-1)
+    """Tool names called and tool results seen so far. The planner appends a
+    context `user` message after the tool results, so count the whole
+    conversation: every scenario runs in a fresh report."""
     names, results = [], []
-    for m in msgs[last_user + 1:]:
+    for m in body.get("messages", []):
         for tc in m.get("tool_calls") or []:
             names.append(tc.get("function", {}).get("name", ""))
         if m.get("role") == "tool":
             c = m.get("content")
             results.append(c if isinstance(c, str) else json.dumps(c))
-    # Some providers fold observations into the user message instead.
-    if not names:
-        text = base._all_text(body)
-        names = [n for n in ("inspect_data", "create_data", "create_instruction", "edit_instruction", "create_artifact") if f'"{n}"' in text or f"<tool_name>{n}" in text]
-        results = [text]
     return names, results
 
 
@@ -95,7 +90,8 @@ def _planner(body: dict):
             "category": "general", "confidence": 0.9, "load_mode": "intelligent",
             "destination": "agents", "data_source_ids": [base.DS_ID], "table_names": ["Invoice"]}}], None
     if "edit_instruction" not in names:
-        ids = re.findall(r'"instruction_id"\s*:\s*"(' + UUID_RE + ')"', joined)
+        # The observation lists the new instruction under "artifacts".
+        ids = re.findall(r'"type"\s*:\s*"instruction"\s*,\s*"id"\s*:\s*"(' + UUID_RE + ')"', joined)
         return [{"name": "edit_instruction", "arguments": {
             "instruction_id": ids[-1] if ids else "missing",
             "old_text": "Group by BillingCountry for revenue by country.",
