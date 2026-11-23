@@ -6495,7 +6495,8 @@
       "windowNote": "Användningen återställs i början av varje månad.",
       "dailyNote": "per dag sedan månadens början",
       "disabledTitle": "Användningsspårning är inte aktiverad",
-      "disabledNote": "Användning per användare (tokens, frågor och skannade data) spåras när funktionen Användningsgränser är aktiverad i din plan."
+      "disabledNote": "Användning per användare (tokens, frågor och skannade data) spåras när funktionen Användningsgränser är aktiverad i din plan.",
+      "today": "I dag: {used} / {limit}"
     },
     "appearance": {
       "title": "Utseende",
@@ -6955,7 +6956,7 @@
     "newQuota": "Ny kvot",
     "noDirectQuota": "Standard",
     "noPoliciesFound": "Inga kvotpolicyer hittades",
-    "noPoliciesHint": "Skapa en kvot för att begränsa månatlig AI- och dataanvändning.",
+    "noPoliciesHint": "Skapa en kvot för att begränsa daglig och månatlig AI- och dataanvändning.",
     "none": "Ingen",
     "principalTypes": {
       "group": "Grupp",
@@ -6977,7 +6978,20 @@
     "tokensShort": "Tokens",
     "unlimited": "Obegränsad",
     "update": "Uppdatera",
-    "users": "Användare"
+    "users": "Användare",
+    "dayShort": "Dag",
+    "monthShort": "Månad",
+    "limitPerUser": "Gräns per användare",
+    "perDay": "Per dag",
+    "perMonth": "Per månad",
+    "resetsDaily": "Nollställs 00:00 {tz}",
+    "resetsMonthly": "Nollställs den 1:a",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Frågor",
+    "dataLabel": "Skannad data (MB)",
+    "spendLabel": "LLM-kostnad (USD)",
+    "limitsHint": "Lämna tomt för obegränsat. Ange en daglig gräns, en månadsgräns eller båda – en begäran blockeras när någon av dem nås.",
+    "dailyAboveMonthly": "Den dagliga gränsen kan inte vara högre än månadsgränsen."
   },
   "serviceAccounts": {
     "active": "Aktivt",
@@ -7202,7 +7216,9 @@
     "nothingRan": "Din kopia kunde inte skapas: ingen av dess frågor kunde köras med dina inloggningsuppgifter."
   },
   "quota": {
-    "resetsOn": "återställs {date}"
+    "resetsOn": "återställs {date}",
+    "todayLabel": "{metric} · i dag",
+    "resetsDailyAndMonthly": "I dag nollställs 00:00 {tz} · månad {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Lär dig under natten",
