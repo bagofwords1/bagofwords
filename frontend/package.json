@@ -8,7 +8,7 @@
     "devs": "NODE_TLS_REJECT_UNAUTHORIZED=0 nuxt dev --https --ssl-cert localhost.pem --ssl-key localhost-key.pem",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "patch-package && nuxt prepare"
+    "postinstall": "patch-package --error-on-fail && nuxt prepare"
   },
   "dependencies": {
     "@nuxt-alt/proxy": "^2.5.8",
