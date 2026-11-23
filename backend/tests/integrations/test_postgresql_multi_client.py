@@ -784,7 +784,7 @@ def test_indexed_json_columns_stay_queryable_from_every_tenant(multi_tenant_serv
     fresh = _client(multi_tenant_server, databases=spec, connection_id=f"conn-{prefix}-fresh")
     fresh.attach_table_metadata(_as_stored(indexed))
 
-    df = fresh.execute_query("SELECT tenant_db, count(*) AS n FROM public.docs GROUP BY tenant_db")
+    df = fresh.execute_query("SELECT tenant_db, count(body) AS n FROM public.docs WHERE tags IS NOT NULL GROUP BY tenant_db")
 
     assert dict(zip(df["tenant_db"], df["n"], strict=True)) == tenants
 
