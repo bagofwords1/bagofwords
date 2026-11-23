@@ -1255,7 +1255,7 @@ import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import { placeSteers, isSteerApplied, groupSteersByParent } from '~/composables/useSteerPlacement'
-import { describeDataOutput, isDataResultCall, type RunActivity } from '~/composables/useRunActivity'
+import { describeDataOutput, isDataResultCall, isPendingWait, type RunActivity } from '~/composables/useRunActivity'
 import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
 import { isRunWorking } from '~/composables/runWorkingDot'
 import { citeText, collectSources, stripCitations, FIGURE_TAGS, type CitationSource } from '~/composables/useCitations'
@@ -1658,8 +1658,9 @@ function isAwaitingUser(b: any): boolean {
 		!isConfirmationAnswered(cid)
 }
 // Work that outlives its tool call and carries its own Stop: an eval run still
-// going (attached to this turn or detached in the background) and a sub-agent
-// still investigating. The run fold never hides these cards.
+// going (attached to this turn or detached in the background), a sub-agent
+// still investigating, and a wait still armed (its card holds the countdown
+// and Cancel). The run fold never hides these cards.
 const LIVE_SUB_AGENT_STATUSES = new Set(['running', 'pending', 'waiting'])
 const TERMINAL_EVAL_STATUSES = new Set(['success', 'error', 'stopped'])
 function hasRunningStopControl(b: any): boolean {
@@ -1669,6 +1670,7 @@ function hasRunningStopControl(b: any): boolean {
 		const id = te.result_json?.sub_agent_id
 		return !!id && LIVE_SUB_AGENT_STATUSES.has(String(subAgentById.value[id]?.status || ''))
 	}
+	if (te.tool_name === 'wait') return isPendingWait(te)
 	if (te.tool_name === 'run_eval') {
 		if (te.status === 'running') return true
 		const rj = te.result_json || {}
