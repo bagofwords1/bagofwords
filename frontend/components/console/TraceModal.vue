@@ -252,6 +252,11 @@
                                   data-testid="turn-model-routed">{{ $t('traceModal.autoRouted') }}</span>
                             <UIcon v-if="runModels.length" :name="showRunModels ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3 h-3" />
                         </button>
+                        <span v-for="a in traceData?.agents || []" :key="a.id" data-testid="turn-agent" :title="a.name"
+                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400 max-w-[180px]">
+                            <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon="a.icon" class="h-3.5 w-3.5 flex-shrink-0" />
+                            <span v-text-dir class="truncate">{{ a.name }}</span>
+                        </span>
                         <span v-if="selectedTurn.llm_cost_usd" class="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-medium text-gray-600 dark:text-gray-400" :title="$t('traceModal.turnUsageTooltip')">
                             {{ formatCost(selectedTurn.llm_cost_usd) }}
                         </span>
@@ -839,6 +844,7 @@ interface AgentExecutionTraceResponse {
     completion_blocks: CompletionBlockV2[]
     models?: RunModelUsage[]
     auto_routed?: boolean
+    agents?: Array<{ id: string, name: string, type?: string | null, connector_key?: string | null, icon?: string | null }>
     head_prompt_snippet?: string
     head_context_snapshot?: any
     latest_feedback?: CompletionFeedbackUI | null

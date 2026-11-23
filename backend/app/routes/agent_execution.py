@@ -11,6 +11,7 @@ from app.core.console_access import ConsoleScope, console_identity
 from app.schemas.agent_execution_schema import ContextSnapshotSchema
 from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse, ConversationTraceResponse
 from app.services.console_service import ConsoleService
+from app.services.diagnosis.service import diagnosis_service
 
 import logging
 
@@ -48,6 +49,7 @@ async def _trace(db, organization, user, execution_id):
     from app.models.agent_execution import folder_execution_agents
 
     trace = await console_service.get_agent_execution_trace(db, organization, execution_id)
+    trace.agents = (await diagnosis_service.agents_for_runs(db, [execution_id])).get(str(execution_id), [])
     primary, folders = (await db.execute(select(AgentExecution.starting_folder_id, AgentExecution.starting_folder_ids)
         .where(AgentExecution.id == execution_id))).one()
     if primary:
