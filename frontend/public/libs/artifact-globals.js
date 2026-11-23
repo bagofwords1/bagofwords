@@ -2485,9 +2485,29 @@ function _dtDetectDir(cols, rows) {
       }
       return o;
     }
+    // The 8-series default `legend.selected` that _chLimitSeries added, or
+    // null (none added, or the author set `selected` themselves).
+    function autoSelected(o) {
+      var own = props.option.legend && !Array.isArray(props.option.legend) && props.option.legend.selected;
+      return !own && o.legend && !Array.isArray(o.legend) && o.legend.selected || null;
+    }
+    // `o` without that automatic selection, so a merge keeps the chart's live
+    // legend (the reader may have switched series on or off since).
+    function withoutAutoSelected(o) {
+      if (!autoSelected(o)) return o;
+      var c = {}; for (var k in o) c[k] = o[k];
+      var lg = {}; for (var lk in o.legend) if (lk !== 'selected') lg[lk] = o.legend[lk];
+      c.legend = lg;
+      return c;
+    }
+    // The shape signature leaves the automatic selection out: it follows the
+    // data (which series are the 8 largest), so a refresh that moves a series
+    // across the cutoff is a data change, not a shape change.
+    function shapeSig(o) { return _optionSig(withoutAutoSelected(o), true); }
     // Signatures of the option last applied: `full` (everything) and `shape`
-    // (everything but the data arrays). See applyOption.
-    var appliedRef = React.useRef({ full: null, shape: null });
+    // (everything but the data arrays and the automatic legend selection),
+    // plus that automatic selection. See applyOption.
+    var appliedRef = React.useRef({ full: null, shape: null, auto: null });
     React.useEffect(function() {
       if (!ref.current) return;
       var el = ref.current;
@@ -2498,10 +2518,10 @@ function _dtDetectDir(cols, rows) {
       }
       var chart = echarts.init(el, 'bow', { renderer: props.renderer || 'canvas' });
       chartRef.current = chart;
-      appliedRef.current = { full: null, shape: null };
+      appliedRef.current = { full: null, shape: null, auto: null };
       if (props.option) {
         var opt = withPalette(props.option);
-        appliedRef.current = { full: _optionSig(opt, false), shape: _optionSig(opt, true) };
+        appliedRef.current = { full: _optionSig(opt, false), shape: shapeSig(opt), auto: autoSelected(opt) };
         chart.setOption(safeOption(opt));
       }
       if (props.onClick) chart.on('click', props.onClick);
@@ -2524,25 +2544,32 @@ function _dtDetectDir(cols, rows) {
       var opt = withPalette(props.option);
       var full = _optionSig(opt, false);
       var last = appliedRef.current;
-      // A merge keeps the chart's live legend: the reader may have switched
-      // series on or off since the 8-series default was applied, so merges
-      // drop that automatic selection (an author's own `selected` stays).
-      function keepLegend(o) {
-        var own = props.option.legend && !Array.isArray(props.option.legend) && props.option.legend.selected;
-        if (own || !o.legend || Array.isArray(o.legend) || !o.legend.selected) return o;
-        var c = {}; for (var k in o) c[k] = o[k];
-        var lg = {}; for (var lk in o.legend) if (lk !== 'selected') lg[lk] = o.legend[lk];
-        c.legend = lg;
-        return c;
-      }
+      // Merges keep the chart's live legend (an author's own `selected` stays).
       if (full !== null && full === last.full) {
         // Same source, but a formatter may close over newer state.
-        if (_hasFunction(opt)) chart.setOption(safeOption(keepLegend(opt)), { notMerge: false, silent: true });
+        if (_hasFunction(opt)) chart.setOption(safeOption(withoutAutoSelected(opt)), { notMerge: false, silent: true });
         return;
       }
-      var shape = _optionSig(opt, true);
-      appliedRef.current = { full: full, shape: shape };
-      if (shape !== null && shape === last.shape) chart.setOption(safeOption(keepLegend(opt)), { notMerge: false });
+      var shape = shapeSig(opt);
+      var auto = autoSelected(opt);
+      appliedRef.current = { full: full, shape: shape, auto: auto };
+      if (shape !== null && shape === last.shape) {
+        var merged = withoutAutoSelected(opt);
+        // The new data may change which series are the 8 largest. A series
+        // whose legend state still equals the last automatic default was
+        // never switched by the reader: it follows the new default. Every
+        // series the reader switched keeps the reader's choice.
+        if (auto && last.auto) {
+          var lgs = chart.getOption().legend;
+          var live = (lgs && lgs[0] && lgs[0].selected) || {};
+          var follow = null;
+          for (var nm in auto) {
+            if (auto[nm] !== last.auto[nm] && live[nm] === last.auto[nm]) { follow = follow || {}; follow[nm] = auto[nm]; }
+          }
+          if (follow) merged.legend.selected = follow;
+        }
+        chart.setOption(safeOption(merged), { notMerge: false });
+      }
       else chart.setOption(safeOption(opt), true);
     }, [props.option, gen]);
     var chart = h('div', { ref: ref, style: { width: '100%', height: ht }, className: props.className || '' }, !window.echarts ? h(_LoadingSpinner, {size:20}) : null);
