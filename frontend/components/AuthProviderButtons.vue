@@ -25,6 +25,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import { isFramed, openSsoPopup, resultUrl } from '~/utils/ssoPopup'
 
 interface AuthProvider {
   name: string
@@ -114,7 +115,35 @@ function persistRedirectForOAuth() {
   } catch (_) {}
 }
 
+// The popup attempt in progress when this page is framed (one at a time).
+let abandonPopup: (() => void) | null = null
+onBeforeUnmount(() => abandonPopup?.())
+
+// Inside another site's iframe the provider's page cannot load (it refuses to
+// be framed), so the round trip runs in a popup and hands back the single-use
+// login code; the sign-in page then finishes exactly as after a redirect.
+function startInPopup(name: string) {
+  abandonPopup?.()
+  persistRedirectForOAuth()
+  abandonPopup = openSsoPopup(name, {
+    onResult: (result) => {
+      abandonPopup = null
+      window.location.replace(resultUrl(result, safeRedirectTarget(route.query.redirect)))
+    },
+    onClosed: () => { loadingProvider.value = null },
+  }, props.loginHint)
+  if (!abandonPopup) {
+    emit('error', t('embed.gate.popupBlocked'))
+    return
+  }
+  loadingProvider.value = name
+}
+
 async function start(name: string) {
+  if (isFramed()) {
+    startInPopup(name)
+    return
+  }
   try {
     loadingProvider.value = name
     persistRedirectForOAuth()
