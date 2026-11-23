@@ -73,7 +73,12 @@ def _graph(scopes, fake=None):
         c._http = httpx.Client(transport=httpx.MockTransport(fake))
         return c
 
-    with patch("app.services.connection_service.ConnectionService.construct_client", _construct):
+    async def _signed_in(self, db, data_sources, current_user):
+        # The user holds a Microsoft token (above), so no connector needs sign-in.
+        return list(data_sources or []), []
+
+    with patch("app.services.connection_service.ConnectionService.construct_client", _construct), \
+            patch("app.services.data_source_service.DataSourceService.filter_user_usable_data_sources", _signed_in):
         yield fake
 
 
