@@ -56,7 +56,14 @@ test('an outside click closes the group/sort menu and still reaches its target',
     // One click on the row's ⋯ closes the menu and opens the row menu.
     await trigger.click();
     await expect(groupByRow).toBeVisible();
-    await openRowMenu(page, title);
+    // A raw press where the user aims: a locator click first scrolls the
+    // list to show the whole ⋯ (the last row is a few pixels clipped), and
+    // that scroll closes the row menu the click has just opened.
+    const row = reportRow(page, title);
+    await row.hover();
+    const box = await row.getByRole('button', { name: 'Report actions' }).boundingBox();
+    expect(box).toBeTruthy();
+    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
     await expect(groupByRow).toBeHidden();
     await expect(rowMenuItem(page)).toBeVisible();
   } finally {
