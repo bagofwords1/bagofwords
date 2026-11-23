@@ -13,8 +13,9 @@ Contracts:
   * the permissions endpoint names what the caller's token is missing.
 
 The LLM and Microsoft Graph are faked at the boundary (scripted planner,
-``FakeM365`` behind httpx.MockTransport); routes, services, the agent loop and
-the tool policy run real.
+``FakeM365`` behind httpx.MockTransport), and so is the sign-in's
+code-for-token exchange; routes, services, the sign-in check, the agent loop
+and the tool policy run real.
 """
 from __future__ import annotations
 
@@ -27,7 +28,9 @@ import httpx
 import pytest
 
 from tests.e2e.rbac.test_mcp_tools_cap import _Planner, _name
+from tests.e2e.test_connection_oauth_flow import _state_from_authorize
 from tests.mocks.fake_microsoft365 import FakeM365, make_token
+from tests.mocks.mock_oauth_provider import MockOAuthProvider
 
 pytestmark = pytest.mark.e2e
 
@@ -73,12 +76,7 @@ def _graph(scopes, fake=None):
         c._http = httpx.Client(transport=httpx.MockTransport(fake))
         return c
 
-    async def _signed_in(self, db, data_sources, current_user):
-        # The user holds a Microsoft token (above), so no connector needs sign-in.
-        return list(data_sources or []), []
-
-    with patch("app.services.connection_service.ConnectionService.construct_client", _construct), \
-            patch("app.services.data_source_service.DataSourceService.filter_user_usable_data_sources", _signed_in):
+    with patch("app.services.connection_service.ConnectionService.construct_client", _construct):
         yield fake
 
 
@@ -93,6 +91,32 @@ def org(test_client, bootstrap_admin, invite_user_to_org, create_llm_provider_an
     member = invite_user_to_org(org_id=org_id, admin_token=token)
     return {"admin": admin, "member": member, "org_id": org_id, "h": h,
             "mh": {"Authorization": f"Bearer {member['token']}", "X-Organization-Id": str(org_id)}}
+
+
+@pytest.fixture
+def sign_in(test_client, org, wait_for_connection_indexing):
+    """The admin signs in to a connector through the OAuth routes.
+
+    Only the provider's code-for-token exchange is faked; the callback stores
+    the credential, tests it and starts the per-user catalog sync for real.
+    Call it inside ``_graph`` so that test and sync talk to the fake Microsoft,
+    and it waits for the sync so none of it outlives the fake.
+    """
+    def _sign_in(c):
+        with patch("app.routes.connection_oauth.exchange_code_for_tokens",
+                   side_effect=MockOAuthProvider().exchange_code_for_tokens):
+            auth = test_client.get(f"/api/connections/{c['conn_id']}/oauth/authorize", headers=org["h"])
+            assert auth.status_code == 200, auth.text
+            cb = test_client.get(
+                f"/api/connections/oauth/callback?code=test_auth_code&state={_state_from_authorize(auth)}",
+                headers=org["h"], follow_redirects=False,
+            )
+        assert cb.status_code in (302, 307) and "oauth=success" in cb.headers["location"], cb.headers
+        run = wait_for_connection_indexing(connection_id=c["conn_id"], user_token=org["admin"]["token"],
+                                           org_id=org["org_id"])
+        assert run is not None and run["status"] == "completed", run
+
+    return _sign_in
 
 
 def _connector(test_client, h, conn_type, config=None):
@@ -179,10 +203,11 @@ def test_turning_an_action_on_adds_its_scope_to_the_microsoft_sign_in(test_clien
     assert "Mail.Send" not in scopes()
 
 
-def test_only_switched_on_actions_are_offered_and_a_call_reaches_microsoft_once(test_client, org, planner):
+def test_only_switched_on_actions_are_offered_and_a_call_reaches_microsoft_once(test_client, org, planner, sign_in):
     c = _connector(test_client, org["h"], "outlook_mail")
     assert _set_tool(test_client, org["h"], c, "flag_email", is_enabled=True, policy="allow").status_code == 200
     with _graph(["Mail.Read", "Mail.ReadWrite"]) as fake:
+        sign_in(c)
         mid = next(m["id"] for m in fake.messages.values() if m["parentFolderId"] == "fld-inbox")
         _run(test_client, org["h"], [c["ds_id"]], planner, [
             (_name(c["name"], "flag_email"), {"message_id": mid, "flag": "flagged"}),
@@ -196,10 +221,11 @@ def test_only_switched_on_actions_are_offered_and_a_call_reaches_microsoft_once(
     assert "disabled" in planner.results[-1].lower(), planner.results[-1]
 
 
-def test_a_teams_post_follows_the_connections_allowed_channels(test_client, org, planner):
+def test_a_teams_post_follows_the_connections_allowed_channels(test_client, org, planner, sign_in):
     c = _connector(test_client, org["h"], "teams_messages", config={"allowed_post_channels": "Alerts"})
     assert _set_tool(test_client, org["h"], c, "post_message", is_enabled=True, policy="allow").status_code == 200
     with _graph(["ChannelMessage.Send", "Chat.Read"]) as fake:
+        sign_in(c)
         _run(test_client, org["h"], [c["ds_id"]], planner, [
             (_name(c["name"], "post_message"), {"channel": "Alerts", "text": "3 detections closed"}),
             (_name(c["name"], "post_message"), {"channel": "General", "text": "should not post"}),
@@ -218,13 +244,14 @@ def test_the_permissions_endpoint_names_missing_scopes(test_client, org):
     assert body["missing"]["send_email"] == ["Mail.Send"] and body["missing"]["flag_email"] == []
 
 
-def test_an_action_past_the_native_budget_is_still_listed_for_search(test_client, org, planner, monkeypatch):
+def test_an_action_past_the_native_budget_is_still_listed_for_search(test_client, org, planner, sign_in, monkeypatch):
     """<mcp_tools> lists built-in actions like any connection tool, so one
     behind search_tools (past tools_max) is still discoverable."""
     monkeypatch.setenv("BOW_TOOLS_MAX", "0")
     c = _connector(test_client, org["h"], "outlook_mail")
     assert _set_tool(test_client, org["h"], c, "flag_email", is_enabled=True, policy="allow").status_code == 200
     with _graph(["Mail.Read", "Mail.ReadWrite"]):
+        sign_in(c)
         _run(test_client, org["h"], [c["ds_id"]], planner, [])
     assert planner.mcp_tools(0) == []
     context = planner.texts[0].replace('\\"', '"')
