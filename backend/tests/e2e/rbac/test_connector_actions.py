@@ -14,8 +14,10 @@ Contracts:
 
 The LLM and Microsoft Graph are faked at the boundary (scripted planner,
 ``FakeM365`` behind httpx.MockTransport), and so is the sign-in's
-code-for-token exchange; routes, services, the sign-in check, the agent loop
-and the tool policy run real.
+code-for-token exchange. ``_graph`` also replaces
+``ConnectionService.construct_client`` so the Graph client it builds talks to
+the fake with the test's scopes. Routes, the sign-in and its check, the agent
+loop and the tool policy run real.
 """
 from __future__ import annotations
 
