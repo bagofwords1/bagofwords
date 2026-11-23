@@ -79,38 +79,69 @@ _DOC_NOUN = _re_mod.compile(
 _HOW_TO = _re_mod.compile(r"(?i)^\s*(how (do|can|should) i|how to|can you (explain|tell)|what is|why|איך|מה זה|למה|cómo|qué es|por qué)\b")
 
 # Negation scope. A negation word, then at most a few filler words ("don't
-# even bother to", "no me"), then the next word: that word is what is negated.
+# even bother to", "no me") or a short aside between commas ("do not, under
+# any circumstances, build"), then the next word: that word is what is negated.
 # A negated build verb takes its clause with it ("don't make a page, write a
-# report" leaves the report); a noun after "without"/"no need for" is negated
-# alone ("a report without a dashboard"). A negation aimed at anything else
-# ("build a dashboard, don't include refunds") leaves the ask standing.
+# report" leaves the report); a noun after "without"/"no need for"/"instead of"
+# is negated alone ("a report without a dashboard"), and "or" carries that on
+# to the next noun ("without a dashboard or a report"). A negation aimed at
+# anything else ("build a dashboard, don't include refunds") leaves the ask
+# standing, and so does a bare "no" before the verb ("no, build the dashboard").
 _NEGATION = (
-    r"(?:\b(?:don'?t|do not|does not|doesn'?t|never|not|no|needn'?t|shouldn'?t|should not|without|nunca|sin)\b"
+    r"(?:\b(?:don'?t|do not|does not|doesn'?t|never|not|needn'?t|shouldn'?t|should not|without|nunca|sin)\b"
     r"|\bno need (?:to|for)\b|\bno hace falta\b|\bno es necesario\b"
     r"|(?<![\u0590-\u05FF])(?:אל|לא|בלי|ללא|אין צורך)(?![\u0590-\u05FF]))"
 )
+_NEGATION_ASIDE = r"(?:\s*,[^,.;:!?\n]{1,40},)?"
 _NEGATION_FILLER = (
     r"(?:(?:just|only|simply|even|ever|need|needs|have|bother|please|you|to|want|wanna|going|gonna|i|we|actually|really|"
     r"me|nos|le|lo|que|crear|hacer|צריך|צריכה|צריכים|רוצה|ל)\s+){0,3}"
 )
-_NEGATED_VERB = _re_mod.compile(r"(?i)" + _NEGATION + r"\s+" + _NEGATION_FILLER + _BUILD_VERB_SRC)
-# A noun is negated by "without", "no", "no need for", "don't need"… right before it.
+_INSTEAD_OF = r"(?:\b(?:instead of|rather than|en lugar de|en vez de)\b|(?<![\u0590-\u05FF])במקום(?![\u0590-\u05FF]))"
+# Forms a build verb takes only under a negation or "instead of": the Spanish
+# negative imperative and infinitive ("no hagas", "sin crear"), the English
+# gerund ("without building") and the Hebrew infinitive ("לא ליצור").
+_SPANISH_NEGATED_VERB = (
+    r"\b(?:crees|hagas|construyas|diseñes|prepares|escribas|redactes|generes"
+    r"|crear|hacer|construir|diseñar|preparar|escribir|redactar|generar)\b"
+)
+_DEPENDENT_VERB = (
+    r"(?:\b(?:building|creating|making|designing|generating|setting up|putting together|preparing|writing|drafting)\b"
+    r"|" + _SPANISH_NEGATED_VERB + r"|תעשה|תעשי|לבנות|ליצור|להכין|לעשות|לכתוב)"
+)
+_NEGATED_VERB = _re_mod.compile(
+    r"(?i)(?:" + _NEGATION + _NEGATION_ASIDE + r"\s+" + _NEGATION_FILLER + r"(?:" + _BUILD_VERB_SRC + r"|" + _DEPENDENT_VERB + r")"
+    # Spanish "no" negates the verb form that only follows it; English "no" does not ("no, build it").
+    r"|\bno\s+(?:(?:me|nos|te|le|lo|la|que|quiero|necesito)\s+){0,2}" + _SPANISH_NEGATED_VERB
+    + r"|" + _INSTEAD_OF + r"\s+" + _DEPENDENT_VERB + r")"
+)
+_ARTICLE = r"(?:(?:a|an|the|any|el|la|los|las|un|una|ningún|ninguna)\s+)?"
+# A noun is negated by "without", "no", "no need for", "don't need", "instead
+# of"… right before it, or by one of those before an earlier noun it is joined
+# to with "or" ("no dashboard or report").
 _NEGATED_NOUN_TAIL = _re_mod.compile(
-    r"(?i)(?:\b(?:without|no|not|sin|ni)\b|\bno need for\b|\b(?:don'?t|do not) (?:need|want)\b"
+    r"(?i)(?:\b(?:without|no|not|neither|nor|sin|ni)\b|\bno need for\b|\b(?:don'?t|do not) (?:need|want)\b"
+    r"|\b(?:instead of|rather than|en lugar de|en vez de)\b"
     r"|\bno hace falta\b|\bno (?:necesito|quiero)\b"
-    r"|(?<![\u0590-\u05FF])(?:בלי|ללא|אין צורך|לא צריך|לא רוצה)(?![\u0590-\u05FF]))"
-    r"\s*(?:(?:a|an|the|any|el|la|los|las|un|una|ningún|ninguna)\s+)?(?:[\w-]+\s+)?[בהל]?$"
+    r"|(?<![\u0590-\u05FF])(?:בלי|ללא|אין צורך|לא צריך|לא רוצה|במקום)(?![\u0590-\u05FF]))"
+    r"\s*" + _ARTICLE + r"(?:[\w-]+\s+)?"
+    r"(?:[\w\"-]+\s+(?:or|o|או)\s+" + _ARTICLE + r"(?:[\w-]+\s+)?){0,2}"
+    r"[בהל]?$"
 )
 _CLAUSE_END = _re_mod.compile(r"[.,;:!?\n]|\b(?:but|instead|pero|sino)\b|אבל|במקום")
-# An explicit ask to answer in chat or in text, unless it is itself negated
-# ("don't just answer in chat").
+# An explicit ask for the answer in chat or in text, unless it is itself
+# negated ("don't just answer in chat", "not a text-only answer"). Only phrases
+# that name the place count: "just tell me" or "reply here" also follow a real
+# build ask ("build it and just tell me when it is ready").
 _CHAT_ONLY = _re_mod.compile(
-    r"(?i)(\b(?:just|only|simply)\s+(?:answer|reply|respond|tell me)\b|\b(?:answer|reply|respond)\s+(?:it\s+)?"
-    r"(?:here|in (?:the )?chat)\b|\b(?:in\s+)?(?:plain\s+)?text[- ]only\b|\bchat[- ]only\b"
-    r"|\bsolo\s+(?:responde|contesta|dime)\b|\bresponde\s+(?:solo\s+)?(?:aquí|en el chat)\b|\bsolo (?:en )?texto\b"
-    r"|רק\s+(?:ת)?ענה|רק\s+תשובה|רק\s+בצ'?אט|בצ'?אט\s+בלבד|בטקסט\s+בלבד)"
+    r"(?i)(\b(?:answer|reply|respond)\s+(?:it\s+)?(?:only\s+)?in (?:the )?chat\b"
+    r"|\b(?:in\s+)?(?:plain\s+)?text[- ]only\b|\bchat[- ]only\b"
+    r"|\b(?:responde|contesta)\s+(?:solo\s+)?en el chat\b|\bsolo en el chat\b|\bsolo (?:en )?texto\b"
+    r"|(?:ת)?ענה\s+(?:רק\s+)?בצ'?אט|רק\s+בצ'?אט|בצ'?אט\s+בלבד|בטקסט\s+בלבד)"
 )
-_NEGATED_TAIL = _re_mod.compile(r"(?i)" + _NEGATION + r"\s+" + _NEGATION_FILLER + r"$")
+_NEGATED_TAIL = _re_mod.compile(
+    r"(?i)(?:" + _NEGATION + r"|\bno\b)\s+" + _NEGATION_FILLER + r"(?:(?:a|an|the|un|una)\s+)?$"
+)
 
 
 def _negated_spans(text: str) -> list:
@@ -137,9 +168,10 @@ def _live(pattern, text: str, spans: list, *, noun: bool = False) -> bool:
 def build_ask_kinds(message: str) -> set:
     """{"page"} / {"doc"} / both when the user's message asks to build one; empty otherwise.
 
-    A how-to question, an explicit chat-only ask ("just answer", "answer in
-    chat", "רק תענה", "solo responde") and a build that is itself negated
-    ("don't create a dashboard", "אל תבנה דשבורד", "sin dashboard") are not.
+    A how-to question, an explicit chat-only ask ("answer in chat", "text
+    only", "רק בצ'אט", "solo en el chat") and a build that is itself negated
+    ("don't create a dashboard", "אל תבנה דשבורד", "no hagas un tablero",
+    "sin dashboard") are not.
     """
     text = str(message or "")
     if not text.strip() or _HOW_TO.search(text):

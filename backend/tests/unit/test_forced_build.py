@@ -81,6 +81,27 @@ REFUSED_BUILDS = [
     "No hace falta un panel, ¿cuál fue el ingreso del mes pasado?",
     "Dame los ingresos por región, sin dashboard.",
     "Escribe la respuesta aquí, sin panel ni informe: ¿cuánto fue el ingreso del mes pasado?",
+    # The refusal alone decides these: no chat-only phrase, and another build
+    # verb ("write", "escribe", "כתוב") is live in the next clause.
+    "No hagas un tablero, escribe el total aquí",
+    "No crees un panel, prepara una lista corta en el chat",
+    "No construyas un tablero; haz una tabla simple aquí",
+    "No crees un informe de esto, escribe la cifra aquí.",
+    "אל תעשה דשבורד, כתוב את המספר",
+    "לא ליצור דשבורד. כתוב לי תשובה קצרה",
+    "Write the totals here without a dashboard or a report",
+    "No dashboard or report please, write the top 5 customers here",
+    "Instead of building a dashboard, write the answer",
+    "Please do not, under any circumstances, build a dashboard",
+    "Don't bother putting together a report, write the number here.",
+    "Rather than creating a page, write the numbers here.",
+    "Give me the churn figure without a report or a dashboard.",
+    "No prepares un informe, escribe el total aquí.",
+    "No me generes un reporte; dame solo la cifra.",
+    "En lugar de crear un tablero, escribe cuántos pedidos hubo.",
+    "אל תכין דוח, תגיד לי רק את הסכום.",
+    "בלי לבנות דשבורד, כתוב לי כמה הזמנות היו החודש.",
+    "תן לי את המספרים בלי דשבורד או דוח, כתוב אותם כאן.",
 ]
 # A negation that targets something else in a build ask leaves the ask standing.
 STILL_BUILDS = [
@@ -91,6 +112,40 @@ STILL_BUILDS = [
     ("Create a report without a dashboard.", {"doc"}),
     ("בנה דשבורד הכנסות לפי חודש, אל תכלול החזרים.", {"page"}),
     ("Crea un panel de ventas por mes, no incluyas las devoluciones.", {"page"}),
+    # "no" as an interjection before the verb is not a refusal.
+    ("no build the dashboard", {"page"}),
+    ("no just build the dashboard", {"page"}),
+    ("No please build a dashboard of revenue", {"page"}),
+    ("no make it a dashboard", {"page"}),
+    ("No worries, create a report on churn.", {"doc"}),
+    ("No tengo tiempo, crea un informe de ventas.", {"doc"}),
+    ("אין לי זמן, צור דוח מכירות.", {"doc"}),
+    # "just tell me", "reply here" and "only answer" say nothing about where
+    # the deliverable goes: the build ask stands.
+    ("Build a dashboard and just tell me when it is ready", {"page"}),
+    ("Create a report and reply here with the link", {"doc"}),
+    ("Build a dashboard. If something is unclear just reply with a question.", {"page"}),
+    ("I asked you to build a dashboard and you only answer in text. Build the dashboard.", {"page"}),
+    ("I asked for a dashboard, not a text-only answer. Build it.", {"page"}),
+    ("Crea un tablero y solo dime cuando esté listo", {"page"}),
+    ("בנה דשבורד ורק תענה לי כשזה מוכן", {"page"}),
+    # "or" between two nouns that are asked for carries nothing.
+    ("Build a dashboard, no need to ask me questions first.", {"page"}),
+    ("Make a dashboard or a report of sales by region.", {"page", "doc"}),
+    ("Haz un tablero de ventas y no olvides los filtros.", {"page"}),
+    ("Prepara un resumen o un informe de gastos.", {"doc"}),
+    ("בנה דשבורד ואל תשכח את המסננים.", {"page"}),
+    ("הכן דוח או סיכום של ההוצאות.", {"doc"}),
+]
+# Known misses. "no/not + noun" as a statement of absence ("we have no
+# dashboard, build one") reads to a pattern exactly like a refusal ("no
+# dashboard, write the number"), so the detector takes it as one and the turn
+# is not forced. That is the safe side: a miss leaves the model its own choice,
+# a false hit would override a chat answer the person asked for.
+KNOWN_MISSES = [
+    "We have no dashboard for sales, build one",
+    "There is no sales dashboard yet. Create one with revenue by month.",
+    "This is not the dashboard I asked for, build it again with revenue by month",
 ]
 
 
@@ -102,6 +157,11 @@ def test_a_prohibited_build_or_a_chat_only_ask_is_not_a_build_ask():
 def test_a_negation_aimed_elsewhere_keeps_the_build_ask():
     for m, kinds in STILL_BUILDS:
         assert build_ask_kinds(m) == kinds, m
+
+
+def test_a_missing_page_reads_as_a_refusal_and_is_not_forced():
+    for m in KNOWN_MISSES:
+        assert build_ask_kinds(m) == set(), m
 
 
 def test_the_note_names_the_build_and_the_exit():
