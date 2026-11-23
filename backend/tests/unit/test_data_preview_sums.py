@@ -914,6 +914,20 @@ def test_numeric_sum_past_float_precision_gets_no_sum(dtype):
     assert _sums(df) == {"units": 75750}
 
 
+def test_numeric_column_with_cancelling_magnitudes_gets_no_sum():
+    # A small net sum does not make mean x count precise: 1e16 + 1 rounds to
+    # 1e16 in float64, so describe()'s mean is 0 while the exact sum is 1.
+    df = pd.DataFrame({
+        "amount": [1e16, 1.0, -1e16],
+        "net_eur": [1200.5, -300.25, 450.0],  # mixed sign, small magnitudes
+        "units": [3, 5, 9],  # control
+    })
+    assert df["amount"].dtype == "float64"
+    assert df["amount"].mean() * len(df) != 1  # the cancellation is real
+    _assert_k_clean(df, ["units"])
+    assert _sums(df) == {"net_eur": 1350.25, "units": 17}
+
+
 def _huge_object_data():
     info = {"total_rows": 3, "column_info": {
         "amount": {"dtype": "object", "non_null_count": 3},

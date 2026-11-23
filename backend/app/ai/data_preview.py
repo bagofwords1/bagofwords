@@ -410,7 +410,9 @@ def _numeric_column(ci: Any) -> Optional[Tuple[float, bool, float, float]]:
     if not all(_finite(v) for v in (mean, count, lo, hi)) or count < 1:
         return None
     s = mean * count
-    if abs(s) >= _MAX_FLOAT_SUM:
+    # A small net sum is not enough: [1e16, 1, -1e16] has a describe() mean of
+    # 0. Bounding every value bounds the error accumulated while summing.
+    if abs(s) >= _MAX_FLOAT_SUM or max(abs(lo), abs(hi)) * count >= _MAX_FLOAT_SUM:
         return None
     return s, dtype.startswith(("int", "uint")), lo, hi
 
