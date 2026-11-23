@@ -6495,7 +6495,8 @@
       "windowNote": "Die Nutzung wird zu Beginn jedes Monats zurückgesetzt.",
       "dailyNote": "täglich seit Monatsbeginn",
       "disabledTitle": "Nutzungserfassung ist nicht aktiviert",
-      "disabledNote": "Die Nutzung pro Benutzer (Tokens, Abfragen und gescannte Daten) wird erfasst, wenn die Funktion „Nutzungslimits“ in Ihrem Tarif aktiviert ist."
+      "disabledNote": "Die Nutzung pro Benutzer (Tokens, Abfragen und gescannte Daten) wird erfasst, wenn die Funktion „Nutzungslimits“ in Ihrem Tarif aktiviert ist.",
+      "today": "Heute: {used} / {limit}"
     },
     "appearance": {
       "title": "Darstellung",
@@ -6955,7 +6956,7 @@
     "newQuota": "Neues Kontingent",
     "noDirectQuota": "Standard",
     "noPoliciesFound": "Keine Kontingentrichtlinien gefunden",
-    "noPoliciesHint": "Erstelle ein Kontingent, um die monatliche KI- und Datennutzung zu begrenzen.",
+    "noPoliciesHint": "Erstelle ein Kontingent, um die tägliche und monatliche KI- und Datennutzung zu begrenzen.",
     "none": "Keine",
     "principalTypes": {
       "group": "Gruppe",
@@ -6977,7 +6978,20 @@
     "tokensShort": "Tokens",
     "unlimited": "Unbegrenzt",
     "update": "Aktualisieren",
-    "users": "Benutzer"
+    "users": "Benutzer",
+    "dayShort": "Tag",
+    "monthShort": "Monat",
+    "limitPerUser": "Limit pro Benutzer",
+    "perDay": "Pro Tag",
+    "perMonth": "Pro Monat",
+    "resetsDaily": "Zurückgesetzt um 00:00 {tz}",
+    "resetsMonthly": "Zurückgesetzt am 1.",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Abfragen",
+    "dataLabel": "Gescannte Daten (MB)",
+    "spendLabel": "LLM-Kosten (USD)",
+    "limitsHint": "Leer lassen für unbegrenzt. Legen Sie ein Tageslimit, ein Monatslimit oder beides fest – eine Anfrage wird blockiert, sobald eines erreicht ist. Monatliche Abfrage- und Datenlimits gelten pro Verbindung; tägliche zählen alle Verbindungen zusammen.",
+    "dailyAboveMonthly": "Das Tageslimit darf nicht höher als das Monatslimit sein."
   },
   "serviceAccounts": {
     "active": "Aktiv",
@@ -7202,7 +7216,9 @@
     "nothingRan": "Deine Kopie konnte nicht erstellt werden: Keine ihrer Abfragen ließ sich mit deinen Zugangsdaten ausführen."
   },
   "quota": {
-    "resetsOn": "Zurücksetzung am {date}"
+    "resetsOn": "Zurücksetzung am {date}",
+    "todayLabel": "{metric} · heute",
+    "resetsDailyAndMonthly": "Heute: Reset um 00:00 {tz} · Monat {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Über Nacht lernen",

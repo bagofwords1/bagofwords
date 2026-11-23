@@ -184,6 +184,9 @@ async def test_check_data_query_enforces_limit(monkeypatch):
 
     class _Limits:
         policy_ids = []
+        timezone = "UTC"
+        daily_query_limit = None
+        daily_data_bytes_limit = None
 
         def query_limit_for_connection(self, connection_id):
             return 2

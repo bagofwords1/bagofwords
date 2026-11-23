@@ -3047,7 +3047,7 @@
     "noDirectQuota": "Default",
     "inherited": "Inherited",
     "noPoliciesFound": "No quota policies found",
-    "noPoliciesHint": "Create a quota to limit monthly AI and data usage.",
+    "noPoliciesHint": "Create a quota to limit daily and monthly AI and data usage.",
     "editQuota": "Edit Quota",
     "createQuota": "Create Quota",
     "nameLabel": "Name",
@@ -3088,7 +3088,20 @@
       "user": "{n} users",
       "group": "{n} groups",
       "role": "{n} roles"
-    }
+    },
+    "dayShort": "Day",
+    "monthShort": "Month",
+    "limitPerUser": "Limit per user",
+    "perDay": "Per day",
+    "perMonth": "Per month",
+    "resetsDaily": "Resets 00:00 {tz}",
+    "resetsMonthly": "Resets on the 1st",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Queries",
+    "dataLabel": "Data scanned (MB)",
+    "spendLabel": "LLM spend (USD)",
+    "limitsHint": "Leave empty for unlimited. Set a daily limit, a monthly limit, or both — a request is blocked when either is reached. Monthly query and data limits apply per connection; daily ones count all connections together.",
+    "dailyAboveMonthly": "Daily limit can't be higher than the monthly limit."
   },
   "signupPolicy": {
     "title": "Domain-based signup",
@@ -4845,7 +4858,7 @@
       "members": "Invite people to the workspace and manage their role, groups and access.",
       "roles": "Define what each role can see and do, then assign roles to members and groups.",
       "groups": "Organize members into groups to grant roles, quotas and data access together.",
-      "quotas": "Cap monthly AI and data usage for members, groups and roles.",
+      "quotas": "Cap daily and monthly AI and data usage for members, groups and roles.",
       "models": "Connect LLM providers and choose which models your workspace can use.",
       "identityProvider": "Sync users, groups and profile details from your identity provider.",
       "smtp": "The server that sends system emails — invites, report shares and scheduled-report results. When enabled, it overrides the server configured for this instance."
@@ -7341,7 +7354,8 @@
       "windowNote": "Usage resets at the start of each month.",
       "dailyNote": "daily since the start of the month",
       "disabledTitle": "Usage tracking isn't enabled",
-      "disabledNote": "Per-user usage (tokens, queries, and data scanned) is tracked when the Usage Limits feature is enabled on your plan."
+      "disabledNote": "Per-user usage (tokens, queries, and data scanned) is tracked when the Usage Limits feature is enabled on your plan.",
+      "today": "Today: {used} / {limit}"
     },
     "appearance": {
       "title": "Appearance",
@@ -7910,7 +7924,9 @@
     "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
   },
   "quota": {
-    "resetsOn": "resets {date}"
+    "resetsOn": "resets {date}",
+    "todayLabel": "{metric} · today",
+    "resetsDailyAndMonthly": "Today resets 00:00 {tz} · month {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Learn overnight",
@@ -9218,5 +9234,16 @@
       "key": "identifier",
       "set_by_admin": "set by an admin"
     }
+  },
+  "connectionlessAgent": {
+    "optional": "(optional)",
+    "createHint": "Leave empty to build the agent from instructions and files only. You can link a connection later.",
+    "badge": "No connections",
+    "landingHint": "No data connections. This agent answers from its instructions and files.",
+    "addConnection": "Add connection",
+    "unlinkLastConfirm": "Unlink the last connection? The agent is kept, with its instructions and files, but no data connection.",
+    "deleteKeepsAgents": "Agents are kept. An agent that uses only this connection will have no data connection until you link another.",
+    "impactLoadFailed": "Couldn't load what this delete affects.",
+    "deleteRemovesConnectors": "Deleted with it (connectors that use only this connection): {names}"
   }
 }

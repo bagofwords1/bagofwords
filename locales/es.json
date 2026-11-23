@@ -2970,7 +2970,7 @@
     "noDirectQuota": "Predeterminada",
     "inherited": "Heredada",
     "noPoliciesFound": "No se encontraron políticas de cuota",
-    "noPoliciesHint": "Crea una cuota para limitar el uso mensual de IA y datos.",
+    "noPoliciesHint": "Crea una cuota para limitar el uso diario y mensual de IA y datos.",
     "editQuota": "Editar cuota",
     "createQuota": "Crear cuota",
     "nameLabel": "Nombre",
@@ -3011,7 +3011,20 @@
       "user": "{n} usuarios",
       "group": "{n} grupos",
       "role": "{n} roles"
-    }
+    },
+    "dayShort": "Día",
+    "monthShort": "Mes",
+    "limitPerUser": "Límite por usuario",
+    "perDay": "Por día",
+    "perMonth": "Por mes",
+    "resetsDaily": "Se reinicia a las 00:00 {tz}",
+    "resetsMonthly": "Se reinicia el día 1",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Consultas",
+    "dataLabel": "Datos escaneados (MB)",
+    "spendLabel": "Gasto en LLM (USD)",
+    "limitsHint": "Déjalo vacío para ilimitado. Define un límite diario, uno mensual o ambos: la solicitud se bloquea cuando se alcanza cualquiera. Los límites mensuales de consultas y datos se aplican por conexión; los diarios suman todas las conexiones.",
+    "dailyAboveMonthly": "El límite diario no puede superar el límite mensual."
   },
   "signupPolicy": {
     "title": "Registro basado en dominio",
@@ -4768,7 +4781,7 @@
       "members": "Invita a personas al espacio de trabajo y gestiona su rol, grupos y acceso.",
       "roles": "Define qué puede ver y hacer cada rol, y asígnalos a miembros y grupos.",
       "groups": "Organiza a los miembros en grupos para conceder roles, cuotas y acceso a datos en conjunto.",
-      "quotas": "Limita el uso mensual de IA y datos para miembros, grupos y roles.",
+      "quotas": "Limita el uso diario y mensual de IA y datos para miembros, grupos y roles.",
       "models": "Conecta proveedores de LLM y elige qué modelos puede usar tu espacio de trabajo.",
       "identityProvider": "Sincroniza usuarios, grupos y datos de perfil desde tu proveedor de identidad.",
       "smtp": "El servidor que envía los correos del sistema: invitaciones, informes compartidos y resultados de informes programados. Si está activado, reemplaza al servidor configurado para esta instancia."
@@ -7250,7 +7263,8 @@
       "windowNote": "El uso se reinicia al comienzo de cada mes.",
       "dailyNote": "por día desde el inicio del mes",
       "disabledTitle": "El seguimiento de uso no está habilitado",
-      "disabledNote": "El uso por usuario (tokens, consultas y datos analizados) se registra cuando la función de Límites de uso está habilitada en tu plan."
+      "disabledNote": "El uso por usuario (tokens, consultas y datos analizados) se registra cuando la función de Límites de uso está habilitada en tu plan.",
+      "today": "Hoy: {used} / {limit}"
     },
     "appearance": {
       "title": "Apariencia",
@@ -7881,7 +7895,9 @@
     "nothingRan": "No se pudo crear tu copia: ninguna de sus consultas pudo ejecutarse con tus credenciales."
   },
   "quota": {
-    "resetsOn": "se reinicia el {date}"
+    "resetsOn": "se reinicia el {date}",
+    "todayLabel": "{metric} · hoy",
+    "resetsDailyAndMonthly": "Hoy se reinicia a las 00:00 {tz} · mes {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Aprender durante la noche",
@@ -9189,5 +9205,16 @@
       "key": "identificador",
       "set_by_admin": "definida por un administrador"
     }
+  },
+  "connectionlessAgent": {
+    "optional": "(opcional)",
+    "createHint": "Déjalo vacío para crear el agente solo con instrucciones y archivos. Puedes vincular una conexión más tarde.",
+    "badge": "Sin conexiones",
+    "landingHint": "Sin conexiones de datos. Este agente responde a partir de sus instrucciones y archivos.",
+    "addConnection": "Añadir conexión",
+    "unlinkLastConfirm": "¿Desvincular la última conexión? El agente se conserva, con sus instrucciones y archivos, pero sin conexión de datos.",
+    "deleteKeepsAgents": "Los agentes se conservan. Un agente que solo usa esta conexión se quedará sin conexión de datos hasta que vincules otra.",
+    "impactLoadFailed": "No se pudo cargar a qué afecta esta eliminación.",
+    "deleteRemovesConnectors": "Se eliminan con ella (conectores que solo usan esta conexión): {names}"
   }
 }

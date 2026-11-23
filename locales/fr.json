@@ -6495,7 +6495,8 @@
       "windowNote": "L'utilisation est réinitialisée au début de chaque mois.",
       "dailyNote": "par jour depuis le début du mois",
       "disabledTitle": "Le suivi de l'utilisation n'est pas activé",
-      "disabledNote": "L'utilisation par utilisateur (jetons, requêtes et données analysées) est suivie lorsque la fonctionnalité Limites d'utilisation est activée sur votre forfait."
+      "disabledNote": "L'utilisation par utilisateur (jetons, requêtes et données analysées) est suivie lorsque la fonctionnalité Limites d'utilisation est activée sur votre forfait.",
+      "today": "Aujourd'hui : {used} / {limit}"
     },
     "appearance": {
       "title": "Apparence",
@@ -6955,7 +6956,7 @@
     "newQuota": "Nouveau quota",
     "noDirectQuota": "Par défaut",
     "noPoliciesFound": "Aucune politique de quota trouvée",
-    "noPoliciesHint": "Créez un quota pour limiter l'usage mensuel de l'IA et des données.",
+    "noPoliciesHint": "Créez un quota pour limiter l'usage quotidien et mensuel de l'IA et des données.",
     "none": "Aucun",
     "principalTypes": {
       "group": "Groupe",
@@ -6977,7 +6978,20 @@
     "tokensShort": "Tokens",
     "unlimited": "Illimité",
     "update": "Mettre à jour",
-    "users": "Utilisateurs"
+    "users": "Utilisateurs",
+    "dayShort": "Jour",
+    "monthShort": "Mois",
+    "limitPerUser": "Limite par utilisateur",
+    "perDay": "Par jour",
+    "perMonth": "Par mois",
+    "resetsDaily": "Réinitialisé à 00:00 {tz}",
+    "resetsMonthly": "Réinitialisé le 1er",
+    "tokensLabel": "Jetons",
+    "queriesLabel": "Requêtes",
+    "dataLabel": "Données analysées (Mo)",
+    "spendLabel": "Dépenses LLM (USD)",
+    "limitsHint": "Laissez vide pour illimité. Définissez une limite quotidienne, mensuelle ou les deux : une requête est bloquée dès que l'une est atteinte. Les limites mensuelles de requêtes et de données s'appliquent par connexion ; les limites quotidiennes cumulent toutes les connexions.",
+    "dailyAboveMonthly": "La limite quotidienne ne peut pas dépasser la limite mensuelle."
   },
   "serviceAccounts": {
     "active": "Actif",
@@ -7202,7 +7216,9 @@
     "nothingRan": "Votre copie n’a pas pu être créée : aucune de ses requêtes n’a pu s’exécuter avec vos identifiants."
   },
   "quota": {
-    "resetsOn": "réinitialisation le {date}"
+    "resetsOn": "réinitialisation le {date}",
+    "todayLabel": "{metric} · aujourd'hui",
+    "resetsDailyAndMonthly": "Aujourd'hui : réinitialisé à 00:00 {tz} · mois {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Apprendre pendant la nuit",

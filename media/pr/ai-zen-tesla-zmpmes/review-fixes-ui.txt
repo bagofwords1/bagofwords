@@ -1,0 +1,6 @@
+PASS name-only edit keeps daily spend $0.004 0.004
+PASS name-only edit keeps daily data 1,024 B 1024
+PASS name-only edit keeps monthly data 1,536 B 1536
+PASS daily queries above per-connection monthly: Save enabled 
+PASS daily queries above per-connection monthly: saved [ 150, 100 ]
+ALL PASSED

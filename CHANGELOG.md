@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.635 (November 23, 2026)
+- Added agents with no data connection, built from instructions, files and a description only (#1895)
+- Added daily caps on LLM tokens, LLM spend, data queries and data scanned to usage policies, alongside monthly caps (#1896) — the day resets at midnight in the org's timezone
+- Added the agents a run drew on to the trace modal's turn strip (#1892)
+- Changed deleting a connection to keep the agents that used it, unlinked, instead of deleting them; the delete dialog always lists the agents affected (#1895)
+- Fixed users being signed out when the session check failed during a deploy, restart or network blip (#1894)
+
 ## Version 0.0.634 (November 22, 2026)
 - Added a PostgreSQL (multi-database) connector: one server with a database per tenant, queried across tenants (#1879, originally #1808 by @roytev)
 - Added WhatsApp "typing…" while the agent works on a question; the user's message now shows as read when the run starts (#1880)

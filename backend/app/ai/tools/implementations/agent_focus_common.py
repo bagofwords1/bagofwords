@@ -471,6 +471,10 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
         from app.services.folder_knowledge import record_knowledge_scope
         await record_knowledge_scope(db, report, organization, user)
     clients: Dict[str, Any] = {}
+    # Agents with no connection that this user may not use. Any other agent
+    # the user cannot reach is dropped by AgentV2 for having no client; a
+    # connectionless agent never has one, so it has to be dropped here.
+    denied_connectionless: set = set()
     for ds in agents:
         # Each connection on its own: one that cannot be set up for this user
         # (an unreachable server, a missing sign-in) gets a stand-in client
@@ -486,11 +490,15 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
         except HTTPException as e:
             if eval_targets or e.status_code != 403:
                 raise
+            if not (getattr(ds, "connections", None) or []):
+                denied_connectionless.add(str(ds.id))
             logger.warning("run agents: skipping %s — %s", getattr(ds, "name", "?"), e.detail)
         except Exception:
             if eval_targets:
                 raise
             logger.exception("run agents: client construction failed for %s", getattr(ds, "name", "?"))
+    if denied_connectionless:
+        agents = [a for a in agents if str(a.id) not in denied_connectionless]
     return agents, clients
 
 

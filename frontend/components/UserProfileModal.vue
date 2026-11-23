@@ -299,16 +299,19 @@
                   <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.tokens') }}</div>
                   <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatNumber(usage.tokens.used) }}</div>
                   <div v-if="usage.tokens.limit" class="text-2xs text-ink-muted">/ {{ formatNumber(usage.tokens.limit) }}</div>
+                  <div v-if="usage.daily.tokens.limit != null" class="mt-1 text-2xs" :class="(usage.daily.tokens.percent ?? 0) >= 100 ? 'font-semibold text-red-600 dark:text-red-400' : 'text-ink-muted'" data-testid="usage-today-tokens">{{ $t('profile.usage.today', { used: formatNumber(usage.daily.tokens.used), limit: formatNumber(usage.daily.tokens.limit) }) }}</div>
                 </div>
                 <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
                   <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.queries') }}</div>
                   <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatNumber(usage.queries.used) }}</div>
                   <div v-if="usage.queries.limit" class="text-2xs text-ink-muted">/ {{ formatNumber(usage.queries.limit) }}</div>
+                  <div v-if="usage.daily.queries.limit != null" class="mt-1 text-2xs" :class="(usage.daily.queries.percent ?? 0) >= 100 ? 'font-semibold text-red-600 dark:text-red-400' : 'text-ink-muted'" data-testid="usage-today-queries">{{ $t('profile.usage.today', { used: formatNumber(usage.daily.queries.used), limit: formatNumber(usage.daily.queries.limit) }) }}</div>
                 </div>
                 <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
                   <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.data') }}</div>
                   <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatBytes(usage.data_bytes.used) }}</div>
                   <div v-if="usage.data_bytes.limit" class="text-2xs text-ink-muted">/ {{ formatBytes(usage.data_bytes.limit) }}</div>
+                  <div v-if="usage.daily.data_bytes.limit != null" class="mt-1 text-2xs" :class="(usage.daily.data_bytes.percent ?? 0) >= 100 ? 'font-semibold text-red-600 dark:text-red-400' : 'text-ink-muted'" data-testid="usage-today-data_bytes">{{ $t('profile.usage.today', { used: formatBytes(usage.daily.data_bytes.used), limit: formatBytes(usage.daily.data_bytes.limit) }) }}</div>
                 </div>
               </div>
               <p class="text-2xs text-ink-muted">{{ $t('profile.usage.windowNote') }}</p>
@@ -1107,6 +1110,12 @@ const usage = computed(() => {
     tokens: q?.tokens || emptyMetric,
     queries: q?.queries || emptyMetric,
     data_bytes: q?.data_bytes || emptyMetric,
+    // Today's usage against the daily caps (org timezone); limit null = no daily cap.
+    daily: {
+      tokens: q?.daily?.tokens || emptyMetric,
+      queries: q?.daily?.queries || emptyMetric,
+      data_bytes: q?.daily?.data_bytes || emptyMetric,
+    } as Record<string, any>,
   }
 })
 

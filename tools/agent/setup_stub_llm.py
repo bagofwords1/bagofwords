@@ -15,6 +15,10 @@ p.add_argument("--stub-url", default="http://127.0.0.1:9099/v1")
 p.add_argument("--email", default="admin@example.com")
 p.add_argument("--password", default="Password123!")
 p.add_argument("--model-id", default="stub")
+# Optional per-million-token prices, so LLM spend (and spend caps) can be
+# exercised against the stub; omitted = no cost recorded.
+p.add_argument("--input-cost", type=float, default=None)
+p.add_argument("--output-cost", type=float, default=None)
 a = p.parse_args()
 
 c = httpx.Client(base_url=a.base_url, timeout=60, trust_env=False)
@@ -24,7 +28,11 @@ H = {"Authorization": f"Bearer {tok}", "X-Organization-Id": org}
 r = c.post("/api/llm/providers", json={
     "name": "Stub", "provider_type": "custom",
     "credentials": {"base_url": a.stub_url, "api_key": "sk-stub"},
-    "models": [{"model_id": a.model_id, "name": "Stub", "is_custom": True, "is_enabled": True}],
+    "models": [{
+        "model_id": a.model_id, "name": "Stub", "is_custom": True, "is_enabled": True,
+        "input_cost_per_million_tokens_usd": a.input_cost,
+        "output_cost_per_million_tokens_usd": a.output_cost,
+    }],
 }, headers=H)
 r.raise_for_status()
 models = [m for m in c.get("/api/llm/models", headers=H).json() if m.get("model_id") == a.model_id]

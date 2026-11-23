@@ -6495,7 +6495,8 @@
       "windowNote": "O uso é reiniciado no início de cada mês.",
       "dailyNote": "por dia desde o início do mês",
       "disabledTitle": "O monitoramento de uso não está ativado",
-      "disabledNote": "O uso por usuário (tokens, consultas e dados analisados) é monitorado quando o recurso Limites de uso está ativado no seu plano."
+      "disabledNote": "O uso por usuário (tokens, consultas e dados analisados) é monitorado quando o recurso Limites de uso está ativado no seu plano.",
+      "today": "Hoje: {used} / {limit}"
     },
     "appearance": {
       "title": "Aparência",
@@ -6955,7 +6956,7 @@
     "newQuota": "Nova cota",
     "noDirectQuota": "Padrão",
     "noPoliciesFound": "Nenhuma política de cota encontrada",
-    "noPoliciesHint": "Crie uma cota para limitar o uso mensal de IA e de dados.",
+    "noPoliciesHint": "Crie uma cota para limitar o uso diário e mensal de IA e de dados.",
     "none": "Nenhuma",
     "principalTypes": {
       "group": "Grupo",
@@ -6977,7 +6978,20 @@
     "tokensShort": "Tokens",
     "unlimited": "Ilimitada",
     "update": "Atualizar",
-    "users": "Usuários"
+    "users": "Usuários",
+    "dayShort": "Dia",
+    "monthShort": "Mês",
+    "limitPerUser": "Limite por usuário",
+    "perDay": "Por dia",
+    "perMonth": "Por mês",
+    "resetsDaily": "Reinicia às 00:00 {tz}",
+    "resetsMonthly": "Reinicia no dia 1",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Consultas",
+    "dataLabel": "Dados escaneados (MB)",
+    "spendLabel": "Gasto com LLM (USD)",
+    "limitsHint": "Deixe vazio para ilimitado. Defina um limite diário, mensal ou ambos — a solicitação é bloqueada quando qualquer um é atingido. Os limites mensais de consultas e dados valem por conexão; os diários somam todas as conexões.",
+    "dailyAboveMonthly": "O limite diário não pode ser maior que o limite mensal."
   },
   "serviceAccounts": {
     "active": "Ativa",
@@ -7202,7 +7216,9 @@
     "nothingRan": "Não foi possível criar sua cópia: nenhuma das consultas pôde ser executada com suas credenciais."
   },
   "quota": {
-    "resetsOn": "reinicia em {date}"
+    "resetsOn": "reinicia em {date}",
+    "todayLabel": "{metric} · hoje",
+    "resetsDailyAndMonthly": "Hoje reinicia às 00:00 {tz} · mês {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Aprender durante a noite",
