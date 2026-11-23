@@ -333,6 +333,36 @@ def test_losing_the_last_connection_leaves_no_table_behind(test_client, env, how
     assert _schema_names(test_client, h, agent["id"]) == set()
 
 
+@pytest.mark.parametrize("how", ["unlink", "delete-connection"])
+def test_removing_one_connection_takes_the_rows_discovered_through_it(
+    test_client, env, how, refresh_schema, bulk_update_tables,
+):
+    """On an agent that keeps another connection, the departing connection's
+    rows go too — including a user's own discoveries through it, which carry
+    only its id in their provenance — while the remaining connection's own
+    catalog stays visible."""
+    h = env["headers"]
+    kept = _sqlite_connection(test_client, h)
+    departing = _sqlite_connection(test_client, h)
+    agent = _agent_on(test_client, h, [kept, departing])
+    refresh_schema(data_source_id=agent["id"], user_token=env["token"], org_id=env["org_id"])
+    bulk_update_tables(data_source_id=agent["id"], action="activate", user_token=env["token"], org_id=env["org_id"])
+    me = test_client.get("/api/users/whoami", headers=h).json()
+    _seed_unlinked_rows(agent["id"], departing, me["id"])
+    before = _schema_names(test_client, h, agent["id"])
+    assert "my_private_sheet" in before and "Album" in before
+
+    if how == "unlink":
+        r = test_client.delete(f"/api/data_sources/{agent['id']}/connections/{departing}", headers=h)
+    else:
+        r = test_client.delete(f"/api/connections/{departing}", headers=h)
+    assert r.status_code == 200, r.text
+
+    after = _schema_names(test_client, h, agent["id"])
+    assert "my_private_sheet" not in after, "a user's discovery through the departed connection must not survive"
+    assert "Album" in after, "the remaining connection's catalog stays"
+
+
 def test_deleting_a_connection_keeps_every_agent_that_used_it(test_client, env, llm, create_instruction):
     h = env["headers"]
     doomed = _sqlite_connection(test_client, h)
@@ -405,4 +435,21 @@ def test_a_connector_cannot_lose_its_last_connection_by_unlinking(test_client, e
     assert [c["id"] for c in r.json()["connections"]] == [conn], "the refused unlink changed nothing"
 
     r = test_client.delete(f"/api/data_sources/{agent['id']}/connections/{conn}", headers=h)
+    assert r.status_code == 200, r.text
+
+
+def test_a_connector_cannot_exist_without_a_connection(test_client, env):
+    """Neither created without one nor made one from a connectionless agent;
+    an agent that has a connection can still be turned into a connector."""
+    h = env["headers"]
+    r = test_client.post("/api/data_sources", json={"name": _uniq("Mailbox"), "kind": "connector"}, headers=h)
+    assert r.status_code == 422, r.text
+
+    bare = _connectionless(test_client, h)
+    r = test_client.put(f"/api/data_sources/{bare['id']}", json={"kind": "connector"}, headers=h)
+    assert r.status_code == 400, r.text
+    assert test_client.get(f"/api/data_sources/{bare['id']}", headers=h).json()["kind"] in (None, "agent")
+
+    linked = _agent_on(test_client, h, [_sqlite_connection(test_client, h)])
+    r = test_client.put(f"/api/data_sources/{linked['id']}", json={"kind": "connector"}, headers=h)
     assert r.status_code == 200, r.text

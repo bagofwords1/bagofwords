@@ -347,3 +347,42 @@ async def test_failed_install_leaves_no_connection_and_no_agents(stub_llm, monke
         assert f"Bystander {ids['suffix']}" in left, "an agent the install did not create is never deleted"
         conns = (await db.execute(select(Connection.id).where(Connection.organization_id == ids["org"]))).scalars().all()
         assert set(map(str, conns)) == {own_id}, "only the install's connection goes"
+
+
+@pytest.mark.asyncio
+async def test_rollback_covers_an_agent_whose_create_failed_after_commit(stub_llm, monkeypatch):
+    """An agent whose create committed its row and then raised (here: the
+    membership step) is still this install's; when the install fails, the
+    rollback deletes it rather than leaving it orphaned."""
+    from app.services.data_source_service import DataSourceService
+    from app.services.demo_data import installer
+
+    real_memberships = DataSourceService._create_memberships
+    calls = {"n": 0}
+
+    async def _first_one_fails(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("membership step failed after the agent was committed")
+        return await real_memberships(self, *args, **kwargs)
+
+    monkeypatch.setattr(DataSourceService, "_create_memberships", _first_one_fails)
+
+    real_create_agents = installer.create_agents
+
+    async def _create_then_fail(*args, **kwargs):
+        await real_create_agents(*args, **kwargs)
+        raise RuntimeError("boom after the agents were created")
+
+    monkeypatch.setattr(installer, "create_agents", _create_then_fail)
+
+    ids = await _seed()
+    spec = _spec(ids["suffix"])
+    names = [a["name"] for a in spec["agents"]]
+    out, _ = await _drive(spec, ids, decision={"approved": True, "response": {"agents": names}})
+    assert out["success"] is False and out["status"] == "failed", out
+    assert calls["n"] >= 1, "the failure was injected"
+
+    async with async_session_maker() as db:
+        left = (await db.execute(select(DataSource.name).where(DataSource.organization_id == ids["org"]))).scalars().all()
+        assert not set(names) & set(left), f"half-created agent left behind: {left}"

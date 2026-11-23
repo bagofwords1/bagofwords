@@ -507,6 +507,10 @@ class DataSourceCreate(DataSourceBase):
             raise ValueError('Config is required when creating a new connection')
         if has_config and not has_type:
             raise ValueError('Data source type must be specified when creating a new connection')
+        # A connector is nothing but a line into its connection: it cannot be
+        # created without one (an agent can).
+        if not has_type and values.get('kind') == 'connector':
+            raise ValueError('A connector needs a connection')
         return v
 
 

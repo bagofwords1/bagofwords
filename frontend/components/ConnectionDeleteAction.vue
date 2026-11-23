@@ -1,5 +1,5 @@
 <template>      <!-- Delete Section (only for admins) -->
-      <div v-if="canManage" class="pt-4 mt-4 border-t border-gray-100 dark:border-gray-800">
+      <div v-if="canManage" :class="autoConfirm ? '' : 'pt-4 mt-4 border-t border-gray-100 dark:border-gray-800'">
         <div v-if="!confirmingDelete">
           <button
             @click="startConfirm"
@@ -43,7 +43,7 @@
           <p class="text-xs text-gray-600 dark:text-gray-400 text-center">{{ $t('data.deleteConfirm') }}</p>
           <div class="flex gap-2">
             <button
-              @click="confirmingDelete = false"
+              @click="cancel"
               :disabled="deleting"
               class="flex-1 px-3 py-2 text-xs text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50"
             >
@@ -63,8 +63,10 @@
       </div></template>
 <script setup lang="ts">
 import { useCan } from '~/composables/usePermissions'
-const props = defineProps<{ connection: any; compact?: boolean }>()
-const emit = defineEmits(['deleted'])
+// autoConfirm: open straight on the confirmation (a caller that already has
+// its own "Delete" entry point, e.g. a modal); Cancel then emits 'cancel'.
+const props = defineProps<{ connection: any; compact?: boolean; autoConfirm?: boolean }>()
+const emit = defineEmits(['deleted', 'cancel'])
 const { t } = useI18n()
 const toast = useToast()
 const canManage = computed(() => useCan('manage_connection', { type: 'connection', id: props.connection?.id }))
@@ -105,6 +107,11 @@ function startConfirm() {
   confirmingDelete.value = true
   loadImpact()
 }
+function cancel() {
+  confirmingDelete.value = false
+  emit('cancel')
+}
+onMounted(() => { if (props.autoConfirm) startConfirm() })
 const deleting = ref(false)
 async function deleteConnection() {
   if (deleting.value || !impact.value) return

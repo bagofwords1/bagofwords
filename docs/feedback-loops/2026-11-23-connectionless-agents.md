@@ -186,3 +186,16 @@ Five review findings on the first push, each reproduced before the fix:
 Regression after the round: 101 passed across the connection / data-source /
 RBAC / teardown suites; training suites unchanged (the same 5 pre-existing
 failures as `main`).
+
+## Re-review round (d8258d44 → next commit)
+
+| # | Finding | Loop (fails on d8258d44 → passes) |
+|---|---|---|
+| 1 | On an agent that keeps another connection, a user's own discoveries through the departing connection (NULL link, only `metadata_json.discovered_connection_id`) survived the unlink and were then served as canonical rows | `test_removing_one_connection_takes_the_rows_discovered_through_it[unlink\|delete-connection]`: `a user's discovery through the departed connection must not survive` → pass; the remaining connection's `Album` stays visible |
+| 2 | The schema wizard's Tools tab had its own delete dialog (no impact, Delete enabled at once) | It now renders the shared `ConnectionDeleteAction` (`auto-confirm`); live: names the agent kept and the connector deleted (`media/pr/…/review_wizard_delete.png`) |
+| 3 | A connector could be created with no connection, or a connectionless agent switched to `kind=connector` | `test_a_connector_cannot_exist_without_a_connection`: POST 422, PUT 400; an agent with a connection can still become one |
+| 4 | Demo agent ids were recorded after `create_data_source` returned, but it commits the row earlier | `create_data_source(on_committed=…)` reports the id at the first commit; `test_rollback_covers_an_agent_whose_create_failed_after_commit`: `half-created agent left behind: ['Sales …']` → pass |
+
+Regression after the round: 112 passed (connection / data-source / RBAC /
+teardown / delegated-scope / sign-in suites); training suites unchanged apart
+from the new test (the same 5 pre-existing failures as `main`).

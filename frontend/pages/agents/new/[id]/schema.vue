@@ -23,16 +23,20 @@
     <AddMCPModal v-if="modalType === 'mcp'" v-model="showModal" :edit-connection="editingConnection" @created="onConnectionChanged" />
     <AddCustomAPIModal v-else-if="modalType === 'custom_api'" v-model="showModal" :edit-connection="editingConnection" @created="onConnectionChanged" />
 
-    <!-- Delete confirmation -->
+    <!-- Delete confirmation: the shared one, so the wizard shows the same
+         impact (kept agents, deleted connectors) and waits for it. -->
     <UModal v-model="showDeleteModal" :ui="{ width: 'sm:max-w-sm' }">
       <div class="p-5">
         <h3 class="text-sm font-semibold mb-2">{{ $t('data.deleteConnection') }}</h3>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ deletingConnection?.name }}</p>
-        <p class="text-xs text-amber-700 dark:text-amber-400 mb-4">{{ $t('data.tablesRemovedNote') }} {{ $t('connectionlessAgent.deleteKeepsAgents') }}</p>
-        <div class="flex justify-end gap-2">
-          <UButton color="gray" variant="ghost" size="sm" @click="showDeleteModal = false">{{ $t('data.cancel') }}</UButton>
-          <UButton color="red" size="sm" :loading="deleting" @click="doDelete">{{ $t('data.delete') }}</UButton>
-        </div>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">{{ deletingConnection?.name }}</p>
+        <ConnectionDeleteAction
+          v-if="showDeleteModal && deletingConnection"
+          :key="deletingConnection.id"
+          :connection="deletingConnection"
+          auto-confirm
+          @cancel="showDeleteModal = false"
+          @deleted="onConnectionDeleted"
+        />
       </div>
     </UModal>
   </div>
@@ -44,6 +48,7 @@ import WizardSteps from '@/components/datasources/WizardSteps.vue'
 import AgentKnowledgeTabs from '@/components/datasources/AgentKnowledgeTabs.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
+import ConnectionDeleteAction from '~/components/ConnectionDeleteAction.vue'
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
@@ -89,20 +94,13 @@ async function onConnectionChanged(conn?: any) {
 
 const showDeleteModal = ref(false)
 const deletingConnection = ref<any>(null)
-const deleting = ref(false)
 function confirmDelete(conn: any) {
   deletingConnection.value = conn
   showDeleteModal.value = true
 }
-async function doDelete() {
-  if (!deletingConnection.value) return
-  deleting.value = true
-  try {
-    await useMyFetch(`/connections/${deletingConnection.value.id}`, { method: 'DELETE' })
-    showDeleteModal.value = false
-    router.go(0)
-  } finally {
-    deleting.value = false
-  }
+function onConnectionDeleted() {
+  showDeleteModal.value = false
+  // The tools list, counts and policies all changed.
+  router.go(0)
 }
 </script>

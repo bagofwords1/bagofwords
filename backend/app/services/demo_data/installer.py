@@ -247,13 +247,15 @@ async def create_agents(
             name = next(f"{name} ({i})" for i in range(2, 1000) if f"{name} ({i})".lower() not in taken)
         taken.add(name.lower())
         try:
+            # Recorded at the agent's first commit, not when create returns:
+            # the create commits the row before steps that can still raise.
             created = await service.create_data_source(db, organization, user, DataSourceCreate(
                 name=name,
                 connection_ids=[str(connection.id)],
                 folder_id=folder_id,
                 is_public=False,
                 use_llm_sync=False,
-            ))
+            ), on_committed=created_ids.append if created_ids is not None else None)
         except HTTPException as he:
             reason = {409: "name_taken", 402: "limit_reached", 403: "permission_denied"}.get(he.status_code, "rejected")
             result.skipped_agents.append({"name": agent.name, "reason": reason, "detail": str(he.detail)})
@@ -266,8 +268,6 @@ async def create_agents(
                 pass
             result.skipped_agents.append({"name": agent.name, "reason": "failed", "detail": str(e)[:300]})
             continue
-        if created_ids is not None:
-            created_ids.append(str(created.id))
         invalidate_rbac_memo(db, str(user.id), str(organization.id))
 
         ds = (await db.execute(

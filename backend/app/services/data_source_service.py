@@ -706,7 +706,11 @@ class DataSourceService:
                     detail=f"The {conn_type} connector requires an enterprise license."
                 )
 
-    async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate):
+    async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate, *, on_committed=None):
+        """``on_committed(data_source_id)``, when given, is called the moment the
+        agent row is committed — before memberships, table sync and the rest,
+        any of which can still raise — so a caller that must undo the create
+        knows the row exists even when this method does not return."""
         if data_source.folder_id is not None:
             from app.services.folder_service import require_folder_manager
             await require_folder_manager(db, organization.id, current_user.id, data_source.folder_id)
@@ -929,6 +933,8 @@ class DataSourceService:
                 status_code=409,
                 detail=f"A data source named '{name}' already exists in this organization. Please choose a different name."
             )
+        if on_committed is not None:
+            on_committed(str(new_data_source.id))
 
         # Mode 1 created a new connection inline → grant the creator ownership of
         # it too, so they can manage it and build further agents on it.
@@ -3823,6 +3829,10 @@ class DataSourceService:
         # Agent/connector: "auto" clears the explicit choice (derived again).
         if 'kind' in update_data:
             _kind = update_data.pop('kind')
+            # A connector is nothing but a line into its connection: an agent
+            # with none cannot become one (create and unlink enforce the same).
+            if _kind == "connector" and not data_source_db.connections:
+                raise HTTPException(status_code=400, detail="A connector needs a connection. Link one first.")
             if _kind is not None:
                 data_source_db.kind = None if _kind == "auto" else _kind
 
@@ -7335,10 +7345,23 @@ class DataSourceService:
                 DataSourceTable.datasource_id == data_source_id,
             )
         else:
+            # This connection's rows: those linked to its catalog, plus a
+            # delegated user's own discoveries through it, which carry no
+            # connection_table_id — only the connection in their provenance.
+            # Left behind, they would be read as canonical rows once only
+            # system connections remain, showing that user's catalog to every
+            # member of the agent.
+            discovered_via = self._json_text(db, DataSourceTable.metadata_json, "discovered_connection_id")
             removed_table_ids = select(DataSourceTable.id).where(
                 DataSourceTable.datasource_id == data_source_id,
-                DataSourceTable.connection_table_id.in_(
-                    select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
+                or_(
+                    DataSourceTable.connection_table_id.in_(
+                        select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
+                    ),
+                    and_(
+                        DataSourceTable.connection_table_id.is_(None),
+                        discovered_via == str(connection_id),
+                    ),
                 ),
             )
 
