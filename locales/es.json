@@ -1610,10 +1610,10 @@
         "search": "Buscó",
         "files": "Leyó archivos",
         "inspect": "Inspeccionó datos",
-        "data": "Ejecutó {count} consultas",
+        "data": "Ejecutó {count} consulta | Ejecutó {count} consultas",
         "create": "Creó y actualizó resultados",
         "tools": "Usó herramientas",
-        "results": "Ejecutó {count} consultas"
+        "results": "Ejecutó {count} consulta | Ejecutó {count} consultas"
       },
       "workedFor": "Trabajó durante {duration}",
       "worked": "Trabajó",

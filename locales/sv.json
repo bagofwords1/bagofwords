@@ -1456,10 +1456,10 @@
         "search": "Sökte",
         "files": "Läste filer",
         "inspect": "Granskade data",
-        "data": "Körde {count} frågor",
+        "data": "Körde {count} fråga | Körde {count} frågor",
         "create": "Skapade och uppdaterade resultat",
         "tools": "Använde verktyg",
-        "results": "Körde {count} frågor"
+        "results": "Körde {count} fråga | Körde {count} frågor"
       }
     },
     "tabChat": "Chatt",

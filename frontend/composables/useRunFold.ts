@@ -116,7 +116,11 @@ export function useRunFold<M>(opts: {
     const fold = runFold(m)
     if (!fold?.deliverableIds.length) return []
     const byId = new Map(opts.blocksFor(m).map((b: any) => [String(b.id), b]))
-    return fold.deliverableIds.map((id) => byId.get(id)).filter(Boolean)
+    const cards = fold.deliverableIds.map((id) => byId.get(id)).filter(Boolean)
+    // While the run works its open chain already shows each deliverable as its
+    // own row (deliverables never fold into a tool group): don't repeat it
+    // below. Once the run settles the list sits under the conclusion as usual.
+    return fold.live ? cards.filter((b: any) => !(isRunBlockShown(m, b) && isRunToolShown(m, b))) : cards
   }
 
   return {

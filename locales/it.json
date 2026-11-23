@@ -1456,10 +1456,10 @@
         "search": "Ricerca",
         "files": "Lettura di file",
         "inspect": "Analisi dei dati",
-        "data": "{count} query eseguite",
+        "data": "{count} query eseguita | {count} query eseguite",
         "create": "Creazione e aggiornamento dei risultati",
         "tools": "Utilizzo degli strumenti",
-        "results": "{count} query eseguite"
+        "results": "{count} query eseguita | {count} query eseguite"
       }
     },
     "tabChat": "Chat",

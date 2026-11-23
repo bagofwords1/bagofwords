@@ -1456,10 +1456,10 @@
         "search": "Recherche",
         "files": "Lecture de fichiers",
         "inspect": "Inspection des données",
-        "data": "{count} requêtes exécutées",
+        "data": "{count} requête exécutée | {count} requêtes exécutées",
         "create": "Création et mise à jour des résultats",
         "tools": "Utilisation des outils",
-        "results": "{count} requêtes exécutées"
+        "results": "{count} requête exécutée | {count} requêtes exécutées"
       }
     },
     "tabChat": "Conversation",
