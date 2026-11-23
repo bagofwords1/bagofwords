@@ -1651,10 +1651,10 @@
         "search": "Searched",
         "files": "Read files",
         "inspect": "Inspected data",
-        "data": "Ran {count} queries",
+        "data": "Ran {count} query | Ran {count} queries",
         "create": "Created and updated results",
         "tools": "Used tools",
-        "results": "Ran {count} queries"
+        "results": "Ran {count} query | Ran {count} queries"
       },
       "workedFor": "Worked for {duration}",
       "worked": "Worked",

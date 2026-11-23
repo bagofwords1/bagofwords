@@ -98,15 +98,16 @@ const table = (title, rows) => tool('create_data', { title }, {
 }
 
 // Running work with its own Stop (an eval, a sub-agent) is never hidden: open
-// in place while live — even inside a merged tool group — and kept under the
-// answer once the run folds, after the outputs. Finished work folds as usual.
+// in place while live — run_eval is a deliverable, so it is its own row rather
+// than a member of the search group — and kept under the answer once the run
+// folds, after the outputs. Finished work folds as usual.
 {
   const search = tool('search_evals')
   const evalRun = tool('run_eval', {}, { te: { status: 'running' } })
   const keepVisible = (b) => b.id === evalRun.id
   const live = computeRunActivity([search, evalRun], { runStatus: 'in_progress', keepVisible })
   assert.deepEqual(live?.openIds, [evalRun.id])
-  assert.deepEqual(live?.toolGroups.map((g) => g.blockIds), [[search.id, evalRun.id]])
+  assert.deepEqual(live?.toolGroups.map((g) => g.blockIds), [[search.id], [evalRun.id]])
   assert.deepEqual(live?.deliverableIds, [])
 
   const dash = tool('create_dashboard', {}, { te: { result_json: { artifact_id: 'a1' } } })
@@ -451,4 +452,30 @@ console.log('useRunActivity: shared-link payload assertions passed')
   const [stillRunning] = computeRunToolGroups([tool('inspect_data', {}, { te: { status: 'running' } })], undefined, false)
   assert.equal(stillRunning.failedCount, 0)
   console.log('useRunActivity: tool-group failure count passed')
+}
+
+// Deliverables never fold into a live tool group: a dashboard, an instruction
+// or a doc is its own row (a one-call group renders as a plain tool row), and
+// the groupable calls around it keep their own groups on either side.
+{
+  const ids = (blocks) => computeRunToolGroups(blocks, undefined, false).map((g) => g.blockIds)
+
+  const a = tool('inspect_data'), b = tool('create_data', { title: 'Sales' }), dash = tool('create_artifact')
+  assert.deepEqual(ids([a, b, dash]), [[a.id, b.id], [dash.id]])
+
+  const s = tool('search_instructions'), r = tool('read_instruction'), ed = tool('edit_instruction')
+  const cr = tool('create_instruction'), after = tool('inspect_data')
+  assert.deepEqual(ids([s, r, ed, cr, after]), [[s.id, r.id], [ed.id], [cr.id], [after.id]])
+
+  const d1 = tool('create_data', { title: 'A' }), edit = tool('edit_artifact'), d2 = tool('create_data', { title: 'B' }), d3 = tool('inspect_data')
+  assert.deepEqual(ids([d1, edit, d2, d3]), [[d1.id], [edit.id], [d2.id, d3.id]])
+
+  // Every listed deliverable (and submit_*) stands alone; a plain read still groups.
+  for (const name of ['create_doc', 'edit_doc', 'create_dashboard', 'create_scheduled_task', 'send_email', 'submit_review', 'execute_sql']) {
+    const x = tool('read_file'), y = tool(name)
+    assert.deepEqual(ids([x, y]), [[x.id], [y.id]], name)
+  }
+  const x = tool('read_file'), y = tool('grep_files')
+  assert.deepEqual(ids([x, y]), [[x.id, y.id]])
+  console.log('useRunActivity: deliverables stay out of tool groups passed')
 }
