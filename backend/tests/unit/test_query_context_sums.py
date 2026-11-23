@@ -5,100 +5,71 @@ summary: the stored ``info`` (all rows) plus at most 5 ``preview_rows``. For a
 longer result those rows are incomplete, so a total row the section cannot see
 is caught by the ``k × max`` check only. Hidden previews get no block.
 
-Seam: ``QueryContextBuilder.build`` on the migration-backed test database; the
-step's summary is written by the existing Step write-through.
+Seam: ``QueryContextBuilder.build`` on the migration-backed test database. The
+report, its owner and org come from the API; the step holding the result is
+seeded directly (see ``seed_default_step``) and its summary is written by the
+existing Step write-through.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
-import uuid
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
-import pytest_asyncio
 from sqlalchemy import select
 
 from app.ai import data_preview
-from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.context.builders.query_context_builder import QueryContextBuilder
 from app.ai.data_preview import clamp_stats, gate_stats_for_privacy
 from app.dependencies import async_session_maker
-from app.models.organization import Organization
-from app.models.query import Query
-from app.models.report import Report
 from app.models.step import Step
-from app.models.user import User
-from app.models.widget import Widget
-from tests.unit.test_observation_sums import EXPECTED_SUMS, _departments_df
+from tests.unit.test_observation_sums import EXPECTED_SUMS, _departments_df, seed_default_step
 
 pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
 
 NOTE_12 = "sum = sum of all 12 rows"
 
 
-@pytest_asyncio.fixture
-async def db():
-    """Use the migration-backed test database selected by ``--db``."""
-    async with async_session_maker() as session:
-        yield session
-        await session.rollback()
+def _run(coro):
+    return asyncio.run(coro)
 
 
-async def _seed_step(db, df) -> SimpleNamespace:
-    user = User(
-        name="Sums owner",
-        email=f"sums-{uuid.uuid4()}@example.test",
-        hashed_password="not-used",
-    )
-    organization = Organization(name=f"Sums org {uuid.uuid4()}")
-    db.add_all([user, organization])
-    await db.flush()
-    report = Report(
-        title="Budget report",
-        slug=f"sums-report-{uuid.uuid4()}",
-        user_id=str(user.id),
-        organization_id=str(organization.id),
-    )
-    db.add(report)
-    await db.flush()
-    widget = Widget(title="Budget", slug=f"sums-widget-{uuid.uuid4()}", report_id=str(report.id))
-    db.add(widget)
-    await db.flush()
-    query = Query(
-        title="Budget by department",
-        report_id=str(report.id),
-        widget_id=str(widget.id),
-        organization_id=str(organization.id),
-        user_id=str(user.id),
-    )
-    db.add(query)
-    await db.flush()
-    step = Step(
-        title="Budget by department",
-        slug=f"sums-step-{uuid.uuid4()}",
-        status="success",
-        prompt="select department, budget_eur, actual_eur",
-        code="select department, budget_eur, actual_eur",
-        data=StreamingCodeExecutor().format_df_for_widget(df),
-        type="table",
-        data_model={"type": "table"},
-        widget_id=str(widget.id),
-        query_id=str(query.id),
-    )
-    db.add(step)
-    await db.flush()
-    query.default_step_id = str(step.id)
-    await db.commit()
-    return SimpleNamespace(report_id=str(report.id), step_id=str(step.id))
+@pytest.fixture
+def sums_report(create_report, create_user, login_user, whoami):
+    """A report owned by a fresh user and org, created through the API."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    report = create_report(title="Budget", user_token=token, org_id=org_id)
+    return SimpleNamespace(report_id=report["id"])
 
 
-async def _section(db, scenario, *, include_data_preview=True):
-    return await QueryContextBuilder(
-        db,
-        organization=None,
-        report=SimpleNamespace(id=scenario.report_id),
-    ).build(max_queries=5, include_data_preview=include_data_preview)
+def _seed(report, df):
+    return _run(seed_default_step(report.report_id, df))
+
+
+def _section(scenario, *, include_data_preview=True):
+    async def build():
+        async with async_session_maker() as db:
+            return await QueryContextBuilder(
+                db,
+                organization=None,
+                report=SimpleNamespace(id=scenario.report_id),
+            ).build(max_queries=5, include_data_preview=include_data_preview)
+
+    return _run(build())
+
+
+def _persisted_summary(step_id):
+    async def load():
+        async with async_session_maker() as db:
+            return (
+                await db.execute(select(Step.context_summary_json).where(Step.id == step_id))
+            ).scalar_one()
+
+    return _run(load())
 
 
 def _with_unlabelled_total_row(df):
@@ -113,15 +84,12 @@ def _with_unlabelled_total_row(df):
     return pd.concat([df, pd.DataFrame([total])], ignore_index=True)
 
 
-@pytest.mark.asyncio
-async def test_queries_section_shows_sums_when_previews_visible(db):
-    scenario = await _seed_step(db, _departments_df())
-    persisted = (
-        await db.execute(select(Step.context_summary_json).where(Step.id == scenario.step_id))
-    ).scalar_one()
+def test_queries_section_shows_sums_when_previews_visible(sums_report):
+    scenario = _seed(sums_report, _departments_df())
+    persisted = _persisted_summary(scenario.step_id)
     assert len(persisted["preview_rows"]) == 5  # 5 of 12 rows: incomplete
 
-    section = await _section(db, scenario)
+    section = _section(scenario)
 
     [item] = section.items
     assert item.row_count == 12
@@ -132,13 +100,12 @@ async def test_queries_section_shows_sums_when_previews_visible(db):
     assert "&quot;budget_eur&quot;: 2140" in rendered  # xml_escape, as every tag
 
 
-@pytest.mark.asyncio
-async def test_queries_section_drops_sums_for_a_total_row_it_cannot_see(db):
+def test_queries_section_drops_sums_for_a_total_row_it_cannot_see(sums_report):
     df = _with_unlabelled_total_row(_departments_df())
     assert df["budget_eur"].sum() == 2 * df["budget_eur"].max()  # the k = 2 signature
-    scenario = await _seed_step(db, df)
+    scenario = _seed(sums_report, df)
 
-    section = await _section(db, scenario)
+    section = _section(scenario)
 
     [item] = section.items
     assert item.row_count == 13
@@ -148,15 +115,11 @@ async def test_queries_section_drops_sums_for_a_total_row_it_cannot_see(db):
     # step without the total row) gets the block.
 
 
-@pytest.mark.asyncio
-async def test_queries_section_has_no_sums_when_previews_hidden(db):
-    scenario = await _seed_step(db, _departments_df())
-    persisted = (
-        await db.execute(select(Step.context_summary_json).where(Step.id == scenario.step_id))
-    ).scalar_one()
-    info = dict(persisted["info"])
+def test_queries_section_has_no_sums_when_previews_hidden(sums_report):
+    scenario = _seed(sums_report, _departments_df())
+    info = dict(_persisted_summary(scenario.step_id)["info"])
 
-    hidden = await _section(db, scenario, include_data_preview=False)
+    hidden = _section(scenario, include_data_preview=False)
 
     [item] = hidden.items
     assert item.column_sums is None
@@ -166,16 +129,15 @@ async def test_queries_section_has_no_sums_when_previews_hidden(db):
     assert item.stats == clamp_stats(gate_stats_for_privacy(info))
 
     # Control: the same step with previews visible shows the block.
-    visible = await _section(db, scenario)
+    visible = _section(scenario)
     assert visible.items[0].column_sums == {"note": NOTE_12, "sum": EXPECTED_SUMS}
     assert "<column_sums>" in visible.render()
 
 
-@pytest.mark.asyncio
-async def test_single_row_query_has_no_sums(db):
-    scenario = await _seed_step(db, _departments_df().head(1))
+def test_single_row_query_has_no_sums(sums_report):
+    scenario = _seed(sums_report, _departments_df().head(1))
 
-    section = await _section(db, scenario)
+    section = _section(scenario)
 
     [item] = section.items
     assert item.row_count == 1
@@ -184,9 +146,8 @@ async def test_single_row_query_has_no_sums(db):
     # Control: the 12-row step of test_queries_section_shows_sums_when_previews_visible.
 
 
-@pytest.mark.asyncio
-async def test_queries_section_survives_a_column_sums_failure(db, monkeypatch, caplog):
-    scenario = await _seed_step(db, _departments_df())
+def test_queries_section_survives_a_column_sums_failure(sums_report, monkeypatch, caplog):
+    scenario = _seed(sums_report, _departments_df())
     monkeypatch.setattr(logging.getLogger("app.ai.data_preview"), "disabled", False)
     caplog.set_level(logging.INFO, logger="app.ai.data_preview")
 
@@ -195,7 +156,7 @@ async def test_queries_section_survives_a_column_sums_failure(db, monkeypatch, c
 
     monkeypatch.setattr(data_preview, "column_sums", boom)
 
-    section = await _section(db, scenario)
+    section = _section(scenario)
 
     [item] = section.items
     assert item.row_count == 12

@@ -7,17 +7,20 @@ which stay as they are. A hidden preview and a source-flagged ``create_data``
 result get no block. The block survives compaction of an older observation and
 the transcript's tool-result content.
 
-Seams: ``ReadQueryTool.run_stream`` with a fake DB (the external boundary), the
-public ``CreateDataTool.build_success_observation`` (the ``create_data``
-success path itself needs code generation), and
-``ObservationContextBuilder.add_tool_observation`` and ``build_result_part``
-fed a real read_query observation. Pure Python: no DB, no LLM.
+Seams: ``ReadQueryTool.run_stream`` on the migration-backed test database
+(``db``-marked tests: report, owner and org come from the API, the stored step
+is seeded directly), the public ``CreateDataTool.build_success_observation``
+(the ``create_data`` success path itself needs code generation; pure Python,
+no DB), and ``ObservationContextBuilder.add_tool_observation`` and
+``build_result_part`` fed a real read_query observation. No LLM.
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
+import uuid
 from types import SimpleNamespace
 
 import pandas as pd
@@ -29,6 +32,13 @@ from app.ai.context.result_parts import build_result_part
 from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
 from app.ai.tools.implementations.create_data import CreateDataTool
 from app.ai.tools.implementations.read_query import ReadQueryTool
+from app.dependencies import async_session_maker
+from app.models.organization import Organization
+from app.models.query import Query
+from app.models.report import Report
+from app.models.step import Step
+from app.models.user import User
+from app.models.widget import Widget
 from tests.unit.test_data_preview_sums import _assert_k_clean, _dicts_with_key
 
 # 12 departments. budget_eur and actual_eur are non-negative and k-clean;
@@ -66,70 +76,85 @@ def _formatted(df):
     return StreamingCodeExecutor().format_df_for_widget(df)
 
 
-class _Step:
-    def __init__(self, step_id, data, title):
-        self.id = step_id
-        self.code = "SELECT 1"
-        self.title = title
-        self.data = data
-        self.data_model = {"type": "table"}
-        self.view = None
+def _run(coro):
+    return asyncio.run(coro)
 
 
-class _Query:
-    def __init__(self, query_id, data, title):
-        self.id = query_id
-        self.title = title
-        self.default_step = _Step(f"{query_id}-step", data, title)
-        self.steps = [self.default_step]
+@pytest.fixture
+def sums_report(create_report, create_user, login_user, whoami, update_organization_settings):
+    """A report owned by a fresh user and org, created through the API."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    report = create_report(title="Budget", user_token=token, org_id=org_id)
+    return SimpleNamespace(
+        report_id=report["id"],
+        hide_data=lambda: update_organization_settings(
+            {"allow_llm_see_data": False}, user_token=token, org_id=org_id
+        ),
+    )
 
 
-class _Result:
-    def __init__(self, value):
-        self._value = value
+async def seed_default_step(report_id, df, title="Budget by department"):
+    """A query of *report_id* whose default step holds *df*'s stored result.
 
-    def scalar_one_or_none(self):
-        return self._value
+    Direct rows: queries and steps are written by an agent run (code
+    generation plus execution); no API call can create a step holding a given
+    result. The report, its owner and org come from the API.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        widget = Widget(title=title, slug=f"sums-w-{suffix}", report_id=report_id)
+        db.add(widget)
+        await db.flush()
+        query = Query(
+            title=title, report_id=report_id, widget_id=widget.id,
+            organization_id=report.organization_id, user_id=report.user_id,
+        )
+        db.add(query)
+        await db.flush()
+        step = Step(
+            title=title,
+            slug=f"sums-s-{suffix}",
+            status="success",
+            prompt="select department, budget_eur, actual_eur",
+            code="select department, budget_eur, actual_eur",
+            data=_formatted(df),
+            type="table",
+            data_model={"type": "table"},
+            widget_id=widget.id,
+            query_id=query.id,
+        )
+        db.add(step)
+        await db.flush()
+        query.default_step_id = step.id
+        await db.commit()
+        return SimpleNamespace(report_id=report_id, query_id=str(query.id), step_id=str(step.id))
 
-    def first(self):
-        return self._value
 
-
-class _FakeDB:
-    """Queued rows in call order: the Query, then its Visualization."""
-
-    def __init__(self, values):
-        self._values = list(values)
-
-    async def execute(self, *args, **kwargs):
-        return _Result(self._values.pop(0) if self._values else None)
-
-    async def scalar(self, *args, **kwargs):
-        # No owning saved report: the ungated read path.
-        return None
-
-
-class _Settings:
-    def __init__(self, allow_llm_see_data):
-        self._allow = allow_llm_see_data
-
-    def get_config(self, name):
-        return SimpleNamespace(value=self._allow if name == "allow_llm_see_data" else None)
-
-
-async def _payload(tool_input, rows, settings=None):
-    runtime_ctx = {
-        "db": _FakeDB(rows),
-        "organization": SimpleNamespace(id="org-1"),
-        "report": SimpleNamespace(id="report-1"),
-        "tool_call_id": "te-read",
-    }
-    if settings is not None:
-        runtime_ctx["settings"] = settings
-    events = [e async for e in ReadQueryTool().run_stream(tool_input, runtime_ctx)]
+async def _read(report_id, tool_input):
+    """read_query as the agent runs it for the report owner, with the org's settings."""
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        organization = await db.get(Organization, report.organization_id)
+        runtime_ctx = {
+            "db": db,
+            "report": report,
+            "organization": organization,
+            "user": await db.get(User, report.user_id),
+            "settings": await organization.get_settings(db),
+            "tool_call_id": "te-read",
+        }
+        events = [e async for e in ReadQueryTool().run_stream(tool_input, runtime_ctx)]
     payload = events[-1].payload
     assert payload["output"]["success"] is True, payload
     return payload
+
+
+def _read_departments(sums_report):
+    seeded = _run(seed_default_step(sums_report.report_id, _departments_df()))
+    return seeded, _run(_read(sums_report.report_id, {"query_ids": [seeded.query_id]}))
 
 
 @pytest.fixture
@@ -140,10 +165,9 @@ def sums_log(monkeypatch, caplog):
     return lambda: [r.getMessage() for r in caplog.records if r.name == "app.ai.data_preview"]
 
 
-@pytest.mark.asyncio
-async def test_read_query_single_observation_carries_sums_output_does_not(sums_log):
-    formatted = _formatted(_departments_df())
-    payload = await _payload({"query_ids": ["q1"]}, [_Query("q1", formatted, "Budget"), None])
+@pytest.mark.db
+def test_read_query_single_observation_carries_sums_output_does_not(sums_report, sums_log):
+    _, payload = _read_departments(sums_report)
     obs, out = payload["observation"], payload["output"]
 
     block = obs["data_preview"]["column_sums"]
@@ -157,45 +181,39 @@ async def test_read_query_single_observation_carries_sums_output_does_not(sums_l
     assert sums_log() == ["column sums added: call=te-read rows=12 columns=3"]
 
 
-@pytest.mark.asyncio
-async def test_read_query_multi_entries_carry_sums():
-    payload = await _payload(
-        {"query_ids": ["q1", "q2"]},
-        [_Query("q1", _formatted(_departments_df()), "Budget"), None,
-         _Query("q2", _formatted(_regions_df()), "Regions"), None],
-    )
+@pytest.mark.db
+def test_read_query_multi_entries_carry_sums(sums_report):
+    budget = _run(seed_default_step(sums_report.report_id, _departments_df()))
+    regions = _run(seed_default_step(sums_report.report_id, _regions_df(), "Revenue by region"))
+    payload = _run(_read(sums_report.report_id, {"query_ids": [budget.query_id, regions.query_id]}))
     obs, out = payload["observation"], payload["output"]
 
-    entries = obs["results_summary"]
-    assert [e["data_preview"]["column_sums"]["sum"] for e in entries] == [
-        EXPECTED_SUMS, {"revenue": 1360},
-    ]
-    assert [e["data_preview"]["column_sums"]["note"] for e in entries] == [
-        "sum = sum of all 12 rows", "sum = sum of all 4 rows",
-    ]
+    blocks = {e["query_id"]: e["data_preview"]["column_sums"] for e in obs["results_summary"]}
+    assert blocks == {
+        budget.query_id: {"note": "sum = sum of all 12 rows", "sum": EXPECTED_SUMS},
+        regions.query_id: {"note": "sum = sum of all 4 rows", "sum": {"revenue": 1360}},
+    }
     assert len(out["results"]) == 2
     assert _dicts_with_key(out, "column_sums") == []
 
 
-@pytest.mark.asyncio
-async def test_read_query_hidden_data_has_no_sums():
-    formatted = _formatted(_departments_df())
-    hidden = await _payload(
-        {"query_ids": ["q1"]}, [_Query("q1", formatted, "Budget"), None], _Settings(False)
-    )
+@pytest.mark.db
+def test_read_query_hidden_data_has_no_sums(sums_report):
+    seeded, visible = _read_departments(sums_report)
+    # Control: with data visible the same step carries the block.
+    assert visible["observation"]["data_preview"]["column_sums"]["sum"] == EXPECTED_SUMS
+
+    sums_report.hide_data()
+    hidden = _run(_read(sums_report.report_id, {"query_ids": [seeded.query_id]}))
+
     obs = hidden["observation"]
     assert obs["data_preview"]["data_hidden"] is True
     assert _dicts_with_key(hidden, "column_sums") == []
-    assert obs["stats"] == clamp_stats(gate_stats_for_privacy(formatted["info"]))
-
-    # Control: the same call with data visible carries the block.
-    visible = await _payload(
-        {"query_ids": ["q1"]}, [_Query("q1", formatted, "Budget"), None], _Settings(True)
-    )
-    assert visible["observation"]["data_preview"]["column_sums"]["sum"] == EXPECTED_SUMS
+    info = _formatted(_departments_df())["info"]
+    assert obs["stats"] == clamp_stats(gate_stats_for_privacy(info))
 
 
-_OBSERVATION_KEYS = ["summary", "data_preview", "stats", "analysis_complete", "final_answer"]
+_OBSERVATION_KEYS = {"summary", "data_preview", "stats", "analysis_complete", "final_answer"}
 
 
 def test_create_data_success_observation_carries_sums(sums_log):
@@ -207,7 +225,7 @@ def test_create_data_success_observation_carries_sums(sums_log):
         allow_llm_see_data=True, source_flagged=False, call_id="te-1",
     )
 
-    assert list(obs) == _OBSERVATION_KEYS
+    assert obs.keys() == _OBSERVATION_KEYS
     assert obs["summary"] == "Built a table."
     assert obs["data_preview"]["column_sums"]["sum"] == EXPECTED_SUMS
     assert obs["data_preview"]["rows"] == preview["rows"]
@@ -227,7 +245,7 @@ def test_create_data_hidden_observation_has_no_sums():
         allow_llm_see_data=False, source_flagged=False, call_id="te-1",
     )
 
-    assert list(obs) == _OBSERVATION_KEYS
+    assert obs.keys() == _OBSERVATION_KEYS
     assert obs["data_preview"] is preview and "column_sums" not in preview
     assert obs["stats"] == clamp_stats(gate_stats_for_privacy(formatted["info"]))
 
@@ -251,20 +269,15 @@ def test_create_data_observation_has_no_sums_when_source_flagged():
     assert clean["data_preview"]["column_sums"]["sum"] == EXPECTED_SUMS
 
 
-async def _read_query_observation():
-    formatted = _formatted(_departments_df())
-    payload = await _payload({"query_ids": ["q1"]}, [_Query("q1", formatted, "Budget"), None])
-    return payload["observation"]
-
-
-@pytest.mark.asyncio
-async def test_compaction_keeps_sums():
-    obs = await _read_query_observation()
+@pytest.mark.db
+def test_compaction_keeps_sums(sums_report):
+    seeded, payload = _read_departments(sums_report)
+    obs = payload["observation"]
     before = copy.deepcopy(obs["data_preview"])
     assert len(before["rows"]) == 12
 
     builder = ObservationContextBuilder()
-    builder.add_tool_observation("read_query", {"query_ids": ["q1"]}, obs, loop_index=0)
+    builder.add_tool_observation("read_query", {"query_ids": [seeded.query_id]}, obs, loop_index=0)
     builder.add_tool_observation("create_data", {}, {"summary": "ok"}, loop_index=1)
 
     compacted = builder.tool_observations[0]["observation"]["data_preview"]
@@ -276,9 +289,10 @@ async def test_compaction_keeps_sums():
     assert compacted["column_sums"] == {"note": "sum = sum of all 12 rows", "sum": EXPECTED_SUMS}
 
 
-@pytest.mark.asyncio
-async def test_transcript_result_content_carries_sums():
-    obs = await _read_query_observation()
+@pytest.mark.db
+def test_transcript_result_content_carries_sums(sums_report):
+    _, payload = _read_departments(sums_report)
+    obs = payload["observation"]
 
     part = build_result_part(call_id="c1", tool_name="read_query", observation=obs)
 
