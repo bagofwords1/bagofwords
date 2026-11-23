@@ -172,8 +172,6 @@ def test_daily_limits_round_trip_through_the_api_in_any_combination(test_client,
 @pytest.mark.e2e
 @pytest.mark.parametrize("daily_key,monthly_key,daily,monthly", [
     ("daily_token_limit", "monthly_token_limit", 501, 500),
-    ("daily_query_limit", "monthly_query_limit", 11, 10),
-    ("daily_data_bytes_limit", "monthly_data_bytes_limit", 2049, 2048),
     ("daily_spend_limit_usd", "monthly_spend_limit_usd", 5.01, 5.0),
 ])
 def test_daily_limit_above_monthly_is_rejected_on_create_and_on_update(
@@ -193,6 +191,27 @@ def test_daily_limit_above_monthly_is_rejected_on_create_and_on_update(
     res = test_client.put(f"{base}/{ok.json()['id']}", json={monthly_key: monthly / 2},
                           headers=_headers(token, org_id))
     assert res.status_code == 422
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("daily_key,monthly_key,daily,monthly", [
+    ("daily_query_limit", "monthly_query_limit", 150, 100),
+    ("daily_data_bytes_limit", "monthly_data_bytes_limit", 3072, 2048),
+])
+def test_daily_data_cap_above_the_per_connection_monthly_cap_is_accepted(
+    test_client, create_user, login_user, whoami, daily_key, monthly_key, daily, monthly,
+):
+    """Monthly query/data caps apply per connection; the daily ones count every
+    connection together. 150 a day across two connections next to 100 per
+    connection a month is a real, enforceable policy — not a typo."""
+    token, org_id, _ = _bootstrap(create_user, login_user, whoami)
+    base = f"/api/organizations/{org_id}/usage-policies"
+    res = test_client.post(base, json={"name": "multi-connection", daily_key: daily, monthly_key: monthly},
+                           headers=_headers(token, org_id))
+    assert res.status_code == 200, res.text
+    res = test_client.put(f"{base}/{res.json()['id']}", json={monthly_key: monthly // 2},
+                          headers=_headers(token, org_id))
+    assert res.status_code == 200, res.text
 
 
 @pytest.mark.e2e
@@ -351,32 +370,94 @@ def test_yesterdays_usage_does_not_count_against_today(create_user, login_user, 
     assert _blocked(lambda: _ctx(org_id, user_id).check_tokens(100)) is None
 
 
+@pytest.fixture
+def clock(monkeypatch):
+    """Move the service's clock; every window and buffer timestamp follows it."""
+    import app.services.usage_policy_service as svc
+    state = {"now": datetime.utcnow()}
+    monkeypatch.setattr(svc, "_utcnow", lambda: state["now"])
+    return state
+
+
 @pytest.mark.e2e
-def test_a_running_context_starts_the_new_day_at_zero(create_user, login_user, whoami):
+def test_a_running_context_starts_the_new_day_at_zero(create_user, login_user, whoami, clock):
     """A context that loaded its cache before midnight must not keep applying
-    yesterday's total after it (the 30s cache TTL alone wouldn't save it if a
-    refresh happened to land just before midnight)."""
+    yesterday's total after it (the 30s TTL alone wouldn't save it if a
+    refresh landed just before midnight)."""
     _, org_id, user_id = _bootstrap(create_user, login_user, whoami)
     _assign(org_id, user_id, daily_token_limit=100)
+    clock["now"] = datetime(2026, 11, 23, 23, 58)
     _record(org_id, user_id, tokens=100)
 
     async def _scenario():
         ctx = _ctx(org_id, user_id)
         with pytest.raises(UsageLimitExceeded):
             await ctx.check_tokens(1)
-        # Simulate midnight passing: today's counter is (genuinely) empty in
-        # the new window and the cached window has ended.
-        ctx._cached_day_end = datetime.utcnow() - timedelta(seconds=1)
-        ctx._cached_daily_used = 100
-        real_window = current_day_window
-
-        import app.services.usage_policy_service as svc
-        svc.current_day_window = lambda tz=None, now=None: real_window(tz, (now or datetime.utcnow()) + timedelta(days=1))
-        try:
-            await ctx.check_tokens(1)  # must not raise
-        finally:
-            svc.current_day_window = real_window
+        clock["now"] = datetime(2026, 11, 24, 0, 1)
+        await ctx.check_tokens(100)  # a full, fresh day
     _run(_scenario())
+
+
+@pytest.mark.e2e
+def test_usage_buffered_before_midnight_stays_on_that_day(create_user, login_user, whoami, clock):
+    """A run that is still buffering when the day ends: what it used before
+    midnight is charged to that day, never to the next one — neither when the
+    next day's checks run nor when the run finally flushes. All four metrics."""
+    _, org_id, user_id = _bootstrap(create_user, login_user, whoami)
+    conn = _create_connection(org_id, "warehouse")
+    _assign(org_id, user_id, daily_token_limit=100, daily_spend_limit_usd=1.0,
+            daily_query_limit=2, daily_data_bytes_limit=1000)
+    day1, day2 = datetime(2026, 11, 23, 23, 59), datetime(2026, 11, 24, 0, 1)
+
+    async def _run_across_midnight():
+        clock["now"] = day1
+        ctx = _ctx(org_id, user_id)
+        await ctx.check_tokens(100)
+        ctx.add_tokens(100)
+        ctx.add_cost(1_000_000)
+        for _ in range(2):
+            await ctx.check_data_query(conn)
+            ctx.add_data_query(conn)
+        await ctx.check_data_bytes(conn, 1000)
+        ctx.add_data_bytes(conn, 1000)
+        with pytest.raises(UsageLimitExceeded):  # day 1 is spent
+            await ctx.check_tokens(1)
+
+        clock["now"] = day2  # the same run, still unflushed, after midnight
+        await ctx.check_tokens(100)
+        await ctx.check_data_query(conn)
+        await ctx.check_data_bytes(conn, 1000)
+        ctx.add_tokens(30)
+        ctx.add_data_query(conn)
+        await ctx.flush()
+    _run(_run_across_midnight())
+
+    def totals(at):
+        return {m: _daily_counter(org_id, user_id, m, now=at)
+                for m in (METRIC_LLM_TOKENS, METRIC_LLM_COST, METRIC_DATA_QUERIES, METRIC_DATA_BYTES)}
+    assert totals(day1) == {METRIC_LLM_TOKENS: 100, METRIC_LLM_COST: 1_000_000,
+                            METRIC_DATA_QUERIES: 2, METRIC_DATA_BYTES: 1000}
+    assert totals(day2) == {METRIC_LLM_TOKENS: 30, METRIC_LLM_COST: 0,
+                            METRIC_DATA_QUERIES: 1, METRIC_DATA_BYTES: 0}
+    # And the next run on day 2 sees only day 2's usage.
+    assert _blocked(lambda: _ctx(org_id, user_id).check_tokens(70)) is None
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("daily,monthly", [
+    ({"daily_spend_limit_usd": 1.0}, {"monthly_token_limit": 100}),
+    ({"daily_token_limit": 100}, {"monthly_spend_limit_usd": 1.0}),
+])
+def test_a_monthly_cap_on_another_metric_wins_over_a_daily_reset(create_user, login_user, whoami, daily, monthly):
+    """With today's cap on one metric and this month's cap on the other both
+    reached, the user must hear about the monthly one: "resets at midnight"
+    would promise access that the monthly cap still denies tomorrow."""
+    _, org_id, user_id = _bootstrap(create_user, login_user, whoami)
+    _assign(org_id, user_id, **daily, **monthly)
+    _record(org_id, user_id, tokens=100, cost_micro=1_000_000)
+    exc = _blocked(lambda: _ctx(org_id, user_id).check_tokens(1))
+    assert exc is not None and exc.window == WINDOW_MONTHLY
+    assert exc.metric == (METRIC_LLM_TOKENS if "monthly_token_limit" in monthly else METRIC_LLM_COST)
 
 
 @pytest.mark.e2e

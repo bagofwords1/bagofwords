@@ -6990,7 +6990,7 @@
     "queriesLabel": "Frågor",
     "dataLabel": "Skannad data (MB)",
     "spendLabel": "LLM-kostnad (USD)",
-    "limitsHint": "Lämna tomt för obegränsat. Ange en daglig gräns, en månadsgräns eller båda – en begäran blockeras när någon av dem nås.",
+    "limitsHint": "Lämna tomt för obegränsat. Ange en daglig gräns, en månadsgräns eller båda – en begäran blockeras när någon av dem nås. Månadsgränser för frågor och data gäller per anslutning; dagliga gränser räknar alla anslutningar tillsammans.",
     "dailyAboveMonthly": "Den dagliga gränsen kan inte vara högre än månadsgränsen."
   },
   "serviceAccounts": {

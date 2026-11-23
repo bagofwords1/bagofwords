@@ -6990,7 +6990,7 @@
     "queriesLabel": "Abfragen",
     "dataLabel": "Gescannte Daten (MB)",
     "spendLabel": "LLM-Kosten (USD)",
-    "limitsHint": "Leer lassen für unbegrenzt. Legen Sie ein Tageslimit, ein Monatslimit oder beides fest – eine Anfrage wird blockiert, sobald eines erreicht ist.",
+    "limitsHint": "Leer lassen für unbegrenzt. Legen Sie ein Tageslimit, ein Monatslimit oder beides fest – eine Anfrage wird blockiert, sobald eines erreicht ist. Monatliche Abfrage- und Datenlimits gelten pro Verbindung; tägliche zählen alle Verbindungen zusammen.",
     "dailyAboveMonthly": "Das Tageslimit darf nicht höher als das Monatslimit sein."
   },
   "serviceAccounts": {

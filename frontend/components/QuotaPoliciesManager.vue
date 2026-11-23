@@ -322,6 +322,7 @@ import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useI18n } from 'vue-i18n'
+import { dailyExceedsMonthly, limitValue, type LimitBaseline } from '~/utils/quotaLimitInputs'
 
 type PrincipalType = 'user' | 'group' | 'role'
 
@@ -421,19 +422,23 @@ const LIMIT_METRICS: {
     { key: 'spend', shortLabel: 'quotaPolicies.spendShort', formLabel: 'quotaPolicies.spendLabel', dailyField: 'daily_spend_limit_usd', monthlyField: 'monthly_spend_limit_usd', dailyForm: 'dailySpendLimitUsd', monthlyForm: 'monthlySpendLimitUsd', step: '0.01', format: v => formatUsdLimit(v) },
 ]
 
-// A daily cap above the monthly cap can never bind — almost always a typo.
-// The backend rejects it too; this just says so before Save.
+// A daily cap above the monthly cap of the same scope can never bind — almost
+// always a typo. Only tokens and spend share a scope (see quotaLimitInputs);
+// the backend applies the same rule, this just says so before Save.
 const limitErrors = computed<Record<string, string>>(() => {
     const errors: Record<string, string> = {}
     for (const metric of LIMIT_METRICS) {
-        const daily = String(form[metric.dailyForm] ?? '').trim()
-        const monthly = String(form[metric.monthlyForm] ?? '').trim()
-        if (daily !== '' && monthly !== '' && Number(daily) > Number(monthly)) {
+        if (dailyExceedsMonthly(metric.key, String(form[metric.dailyForm] ?? ''), String(form[metric.monthlyForm] ?? ''))) {
             errors[metric.key] = t('quotaPolicies.dailyAboveMonthly')
         }
     }
     return errors
 })
+
+// What each limit input showed when the editor opened, with the exact stored
+// value behind it. An untouched input is saved as that stored value, so the
+// inputs' rounding (cents, 0.01 MB) can never rewrite a precise cap.
+const limitBaselines = ref<Partial<Record<FormLimitField, LimitBaseline>>>({})
 const hasLimitErrors = computed(() => Object.keys(limitErrors.value).length > 0)
 
 const connectionOptions = computed(() =>
@@ -577,6 +582,7 @@ function resetForm() {
 
 function openCreateModal() {
     editingPolicy.value = null
+    limitBaselines.value = {}
     resetForm()
     showModal.value = true
 }
@@ -593,6 +599,12 @@ function openEditModal(policy: UsagePolicy) {
     form.dailyQueryLimit = policy.daily_query_limit == null ? '' : String(policy.daily_query_limit)
     form.dailyDataLimitMb = bytesToMbInput(policy.daily_data_bytes_limit)
     form.dailySpendLimitUsd = policy.daily_spend_limit_usd == null ? '' : String(policy.daily_spend_limit_usd)
+    const baselines: Partial<Record<FormLimitField, LimitBaseline>> = {}
+    for (const metric of LIMIT_METRICS) {
+        baselines[metric.dailyForm] = { input: String(form[metric.dailyForm] ?? ''), raw: (policy[metric.dailyField] as number | null) ?? null }
+        baselines[metric.monthlyForm] = { input: String(form[metric.monthlyForm] ?? ''), raw: (policy[metric.monthlyField] as number | null) ?? null }
+    }
+    limitBaselines.value = baselines
     form.enabled = policy.enabled
     form.connectionOverrides = policy.connection_overrides.map(override => ({
         connection_id: override.connection_id,
@@ -673,18 +685,22 @@ function connectionOverridesForSave(): UsagePolicyConnectionOverride[] {
     return overrides
 }
 
+function limitField(field: FormLimitField, parse: (value: string | number | null | undefined) => number | null): number | null {
+    return limitValue(form[field], limitBaselines.value[field], parse)
+}
+
 function policyPayload() {
     return {
         name: form.name.trim(),
         description: form.description.trim() || null,
-        monthly_token_limit: parseOptionalInt(form.monthlyTokenLimit),
-        monthly_query_limit: parseOptionalInt(form.monthlyQueryLimit),
-        monthly_data_bytes_limit: parseOptionalMb(form.monthlyDataLimitMb),
-        monthly_spend_limit_usd: parseOptionalUsd(form.monthlySpendLimitUsd),
-        daily_token_limit: parseOptionalInt(form.dailyTokenLimit),
-        daily_query_limit: parseOptionalInt(form.dailyQueryLimit),
-        daily_data_bytes_limit: parseOptionalMb(form.dailyDataLimitMb),
-        daily_spend_limit_usd: parseOptionalUsd(form.dailySpendLimitUsd),
+        monthly_token_limit: limitField('monthlyTokenLimit', parseOptionalInt),
+        monthly_query_limit: limitField('monthlyQueryLimit', parseOptionalInt),
+        monthly_data_bytes_limit: limitField('monthlyDataLimitMb', parseOptionalMb),
+        monthly_spend_limit_usd: limitField('monthlySpendLimitUsd', parseOptionalUsd),
+        daily_token_limit: limitField('dailyTokenLimit', parseOptionalInt),
+        daily_query_limit: limitField('dailyQueryLimit', parseOptionalInt),
+        daily_data_bytes_limit: limitField('dailyDataLimitMb', parseOptionalMb),
+        daily_spend_limit_usd: limitField('dailySpendLimitUsd', parseOptionalUsd),
         enabled: form.enabled,
         connection_overrides: connectionOverridesForSave(),
     }

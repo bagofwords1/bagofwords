@@ -3100,7 +3100,7 @@
     "queriesLabel": "Queries",
     "dataLabel": "Data scanned (MB)",
     "spendLabel": "LLM spend (USD)",
-    "limitsHint": "Leave empty for unlimited. Set a daily limit, a monthly limit, or both — a request is blocked when either is reached.",
+    "limitsHint": "Leave empty for unlimited. Set a daily limit, a monthly limit, or both — a request is blocked when either is reached. Monthly query and data limits apply per connection; daily ones count all connections together.",
     "dailyAboveMonthly": "Daily limit can't be higher than the monthly limit."
   },
   "signupPolicy": {

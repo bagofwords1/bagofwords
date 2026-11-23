@@ -3023,7 +3023,7 @@
     "queriesLabel": "Consultas",
     "dataLabel": "Datos escaneados (MB)",
     "spendLabel": "Gasto en LLM (USD)",
-    "limitsHint": "Déjalo vacío para ilimitado. Define un límite diario, uno mensual o ambos: la solicitud se bloquea cuando se alcanza cualquiera.",
+    "limitsHint": "Déjalo vacío para ilimitado. Define un límite diario, uno mensual o ambos: la solicitud se bloquea cuando se alcanza cualquiera. Los límites mensuales de consultas y datos se aplican por conexión; los diarios suman todas las conexiones.",
     "dailyAboveMonthly": "El límite diario no puede superar el límite mensual."
   },
   "signupPolicy": {
