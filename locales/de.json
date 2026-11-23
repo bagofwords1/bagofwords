@@ -1456,10 +1456,10 @@
         "search": "Gesucht",
         "files": "Dateien gelesen",
         "inspect": "Daten geprüft",
-        "data": "{count} Abfragen ausgeführt",
+        "data": "{count} Abfrage ausgeführt | {count} Abfragen ausgeführt",
         "create": "Ergebnisse erstellt und aktualisiert",
         "tools": "Werkzeuge verwendet",
-        "results": "{count} Abfragen ausgeführt"
+        "results": "{count} Abfrage ausgeführt | {count} Abfragen ausgeführt"
       }
     },
     "tabChat": "Chat",

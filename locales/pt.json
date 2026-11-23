@@ -1456,10 +1456,10 @@
         "search": "Pesquisou",
         "files": "Leu arquivos",
         "inspect": "Inspecionou dados",
-        "data": "Executou {count} consultas",
+        "data": "Executou {count} consulta | Executou {count} consultas",
         "create": "Criou e atualizou resultados",
         "tools": "Usou ferramentas",
-        "results": "Executou {count} consultas"
+        "results": "Executou {count} consulta | Executou {count} consultas"
       }
     },
     "tabChat": "Chat",

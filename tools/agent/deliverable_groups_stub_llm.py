@@ -3,7 +3,8 @@
 groupable calls with deliverables, to check that deliverables never fold into
 a live tool group on /reports/:id.
 
-  round 1: inspect_data + create_data            -> one live group
+  round 1: create_data + inspect_data            -> one live group, labelled
+           by category (its last call has no title): "Ran 1 query, ..."
   round 2: create_instruction                    -> its own row
   round 3: edit_instruction (the new instruction)-> its own row
   round 4: create_artifact with authored code    -> its own row
@@ -75,13 +76,13 @@ def _planner(body: dict):
     joined = "\n".join(results)
     if "create_data" not in names:
         return [
-            {"name": "inspect_data", "arguments": {
-                "user_prompt": "Check the row count and date range in Invoice", "tables_by_source": TABLES}},
             {"name": "create_data", "arguments": {
                 "title": "Revenue by country",
                 "user_prompt": "Revenue by billing country",
                 "interpreted_prompt": "Sum Invoice.Total grouped by BillingCountry, highest first.",
                 "tables_by_source": TABLES, "visualization_type": "table"}},
+            {"name": "inspect_data", "arguments": {
+                "user_prompt": "Check the row count and date range in Invoice", "tables_by_source": TABLES}},
         ], "Checking the invoices and building the revenue table."
     if "create_instruction" not in names:
         return [{"name": "create_instruction", "arguments": {
