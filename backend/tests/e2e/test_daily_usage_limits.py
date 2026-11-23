@@ -1,4 +1,4 @@
-"""Daily usage caps (BOW-224), alongside the monthly ones.
+"""Daily usage caps, alongside the monthly ones.
 
 The promise: every metric (LLM tokens, LLM spend, data queries, data scanned)
 can be capped per day, per month, both, or neither. A request is blocked when

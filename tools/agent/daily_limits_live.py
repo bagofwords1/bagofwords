@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live loop for daily + monthly usage caps (BOW-224) against a running stack.
+"""Live loop for daily + monthly usage caps against a running stack.
 
 Drives real agent runs through the API and checks, for every metric (LLM
 tokens, LLM spend, data queries, data scanned) and every window (daily,

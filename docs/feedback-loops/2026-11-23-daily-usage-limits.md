@@ -1,4 +1,4 @@
-# Feedback Loop — "add token/usage limit per user on a daily level as well, not just monthly" (BOW-224)
+# Feedback Loop — "add token/usage limit per user on a daily level as well, not just monthly"
 
 Usage policies only capped usage per calendar month (LLM tokens, LLM spend,
 data queries, data scanned). One user could burn most of a monthly budget in a

@@ -1,4 +1,4 @@
-// UI verification for daily usage limits (BOW-224), driven as real users.
+// UI verification for daily usage limits, driven as real users.
 //   node tools/agent/daily_limits_ui.cjs <outdir>
 // Needs: a running stack (boot_stack.sh --dev), admin@example.com, a member
 // (seed_org.py --invite member@example.com), the "Interns" policy assigned to
