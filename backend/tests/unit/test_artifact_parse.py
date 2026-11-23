@@ -73,11 +73,11 @@ class TestBracketBalanceHint:
 
 
 class TestParseCheckIntegration:
-    """Live Babel checks — skipped when no browser is available (the gate
-    itself degrades the same way, deferring to render validation)."""
+    """Exercise the deployment compiler without a browser."""
 
     @pytest.mark.asyncio
-    async def test_broken_and_clean_and_wrapped(self):
+    async def test_broken_and_clean_and_wrapped(self, monkeypatch):
+        monkeypatch.setenv("BOW_CHROMIUM_EXECUTABLE", "/missing/chromium")
         from app.ai.tools.implementations._artifact_parse import parse_check_page_code
 
         broken = (
@@ -87,8 +87,7 @@ class TestParseCheckIntegration:
             "}\n"
         )
         err = await parse_check_page_code(broken)
-        if err is None:
-            pytest.skip("browser/libs unavailable — gate defers by design")
+        assert err is not None
         assert "Unexpected token" in err or "expected" in err
         assert "bracket-balance hint" in err
 
@@ -98,3 +97,11 @@ class TestParseCheckIntegration:
         # Stored wrapper shape must be unwrapped before parsing.
         wrapped = f'<script type="text/babel">\n{clean}</script>'
         assert await parse_check_page_code(wrapped) is None
+
+    @pytest.mark.asyncio
+    async def test_unavailable_compiler_cannot_approve_valid_code(self, monkeypatch):
+        from app.ai.tools.implementations._artifact_parse import ParseCheckUnavailable, parse_check_page_code
+
+        monkeypatch.setenv("PLAYWRIGHT_NODEJS_PATH", "/missing/compiler")
+        with pytest.raises(ParseCheckUnavailable):
+            await parse_check_page_code("const page = <div />;")

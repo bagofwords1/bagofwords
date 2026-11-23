@@ -1,23 +1,13 @@
-"""Fast parse gate for planner-authored artifact code.
+"""Check generated page JSX with the iframe's vendored Babel compiler.
 
-Runs the SAME parser that judges the code at render time (the vendored
-babel-standalone) in a blank Playwright page — no React, no data payload, no
-networkidle — so a syntax error costs ~1-3s instead of a full ~10s validation
-render. Authoritative by construction: there is no second parser whose opinion
-could drift from the runtime's. Shares its mechanics with
-app.services.jsx_transpile (the export-time transpiler).
-
-On failure, ``bracket_balance_hint`` enriches Babel's often-useless column
-pointer ("expected ',' at col 189" of a 280-char line) with a heuristic
-"1 unclosed '(' — likely opened at line N, col M" note. The hint is ONLY ever
-attached to an already-confirmed Babel failure — never used as a gate — so its
-one known blind spot (bare brackets inside JSX text) can mislabel a hint but
-can never reject valid code.
+Playwright ships a Node executable even on deployments without a browser.
+Artifact source is passed as data to Babel and is never executed.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -113,66 +103,57 @@ def bracket_balance_hint(code: str) -> Optional[str]:
     return "bracket-balance hint (heuristic; JSX text can skew it): " + "; ".join(parts)
 
 
+class ParseCheckUnavailable(RuntimeError):
+    """The server could not verify the candidate source."""
+
+
+_PARSE_SCRIPT = """
+const fs = require('node:fs');
+const context = {};
+require('node:vm').runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), context);
+const babel = context.Babel;
+const source = fs.readFileSync(0, 'utf8');
+try {
+    babel.transform(source, { presets: [['react', {runtime: 'classic'}]], sourceType: 'script' });
+} catch (error) {
+    if (error.code !== 'BABEL_PARSE_ERROR') throw error;
+    process.stdout.write(String(error.message).slice(0, 1500));
+    process.exitCode = 2;
+}
+"""
+
+
 async def parse_check_page_code(code: str, timeout_ms: int = 8000) -> Optional[str]:
-    """Return the Babel parse error (hint-enriched) for page code, or None.
+    """Return a syntax diagnostic or None on success. Raise on infrastructure failure."""
+    from app.services.artifact_libs import _find_libs_dir
+    from app.services.jsx_transpile import extract_babel_source
 
-    Accepts either bare JSX or the stored `<script type="text/babel">` wrapper
-    shape. Any infrastructure failure (no Playwright, browser unavailable,
-    timeout) returns None — the gate silently defers to full render
-    validation, same fallback philosophy as the screenshot pipeline.
-    """
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        return None
-    try:
-        from app.services.artifact_libs import _find_libs_dir, _read_lib
-        from app.services.jsx_transpile import extract_babel_source
-
-        libs_dir = _find_libs_dir()
-        if libs_dir is None:
-            raise FileNotFoundError("vendored libs dir not found")
-        babel_src = _read_lib(libs_dir, "babel-standalone.min.js")
-    except Exception as e:
-        logger.warning(f"parse gate unavailable (libs missing): {e}")
-        return None
-
-    # Stored artifact code carries a <script type="text/babel"> wrapper; the
-    # parser must see only the JSX inside it (the wrapper itself would parse
-    # as a stray JSX element and produce a bogus error).
     src = extract_babel_source(code) or code
+    libs = _find_libs_dir()
+    try:
+        from playwright._impl._driver import compute_driver_executable
 
-    # Parse-only intent, but Babel exposes transform, not parse; presets match
-    # what babel-standalone applies to text/babel blocks at render time.
-    check = """
-        (source) => {
-          try {
-            Babel.transform(source, { presets: [['react', { runtime: 'classic' }]], sourceType: 'script' });
-            return null;
-          } catch (e) {
-            return String((e && e.message) || e).split("\\n")[0].slice(0, 500);
-          }
-        }
-    """
-    try:
-        async with async_playwright() as p:
-            exe = os.environ.get("BOW_CHROMIUM_EXECUTABLE") or None
-            browser = await p.chromium.launch(headless=True, executable_path=exe)
-            try:
-                page = await browser.new_page(viewport={"width": 320, "height": 200})
-                page.set_default_timeout(timeout_ms)
-                await page.add_script_tag(content=babel_src)
-                err = await page.evaluate(check, src)
-            finally:
-                await browser.close()
-    except Exception as e:
-        logger.warning(f"parse gate skipped (browser unavailable): {e}")
-        return None
-    if not err or not isinstance(err, str):
-        return None
-    hint = None
-    try:
-        hint = bracket_balance_hint(src)
-    except Exception:
-        hint = None
-    return err + (f"\n{hint}" if hint else "")
+        if libs is None:
+            raise FileNotFoundError("vendored artifact libraries missing")
+        node, _ = compute_driver_executable()
+        proc = await asyncio.create_subprocess_exec(
+            node, "--max-old-space-size=192", "-e", _PARSE_SCRIPT,
+            str(Path(libs).resolve() / "babel-standalone.min.js"),
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(src.encode()), timeout_ms / 1000)
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+        if proc.returncode == 0:
+            return None
+        if proc.returncode == 2 and out:
+            hint = bracket_balance_hint(src)
+            return out.decode(errors="replace") + (f"\n{hint}" if hint else "")
+        raise RuntimeError(f"Babel exited {proc.returncode}: {err[:300].decode(errors='replace')}")
+    except (ImportError, OSError, RuntimeError) as exc:
+        logger.exception("Artifact JSX validation unavailable")
+        raise ParseCheckUnavailable("Server could not run the artifact JSX compiler.") from exc
