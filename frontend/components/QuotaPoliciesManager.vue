@@ -52,12 +52,18 @@
                                     </div>
                                 </td>
                                 <td>
-                                    <dl class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs whitespace-nowrap">
-                                        <div class="flex gap-1.5"><dt class="text-ink-muted">{{ $t('quotaPolicies.tokensShort') }}</dt><dd class="text-ink-2 tabular-nums">{{ formatCountLimit(policy.monthly_token_limit) }}</dd></div>
-                                        <div class="flex gap-1.5"><dt class="text-ink-muted">{{ $t('quotaPolicies.queriesShort') }}</dt><dd class="text-ink-2 tabular-nums">{{ formatCountLimit(policy.monthly_query_limit) }}</dd></div>
-                                        <div class="flex gap-1.5"><dt class="text-ink-muted">{{ $t('quotaPolicies.dataShort') }}</dt><dd class="text-ink-2 tabular-nums">{{ formatBytesLimit(policy.monthly_data_bytes_limit) }}</dd></div>
-                                        <div class="flex gap-1.5"><dt class="text-ink-muted">{{ $t('quotaPolicies.spendShort') }}</dt><dd class="text-ink-2 tabular-nums">{{ formatUsdLimit(policy.monthly_spend_limit_usd) }}</dd></div>
-                                    </dl>
+                                    <!-- Day | Month per metric. Uncapped values are muted so the
+                                         caps that actually bind stand out. -->
+                                    <div class="grid grid-cols-[auto_auto_auto] gap-x-3 gap-y-0.5 text-xs whitespace-nowrap w-max" data-testid="quota-limits">
+                                        <span></span>
+                                        <span class="text-2xs text-ink-muted">{{ $t('quotaPolicies.dayShort') }}</span>
+                                        <span class="text-2xs text-ink-muted">{{ $t('quotaPolicies.monthShort') }}</span>
+                                        <template v-for="metric in LIMIT_METRICS" :key="metric.key">
+                                            <span class="text-ink-muted">{{ $t(metric.shortLabel) }}</span>
+                                            <span class="tabular-nums" :title="policy[metric.dailyField] == null ? $t('quotaPolicies.unlimited') : undefined" :class="policy[metric.dailyField] == null ? 'text-ink-subtle' : 'text-ink'">{{ policy[metric.dailyField] == null ? '—' : metric.format(policy[metric.dailyField]) }}</span>
+                                            <span class="tabular-nums" :title="policy[metric.monthlyField] == null ? $t('quotaPolicies.unlimited') : undefined" :class="policy[metric.monthlyField] == null ? 'text-ink-subtle' : 'text-ink-2'">{{ policy[metric.monthlyField] == null ? '—' : metric.format(policy[metric.monthlyField]) }}</span>
+                                        </template>
+                                    </div>
                                 </td>
                                 <td>
                                     <div class="flex gap-1 flex-wrap items-center">
@@ -162,23 +168,56 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 gap-3 mb-5">
-                    <div>
-                        <label class="block text-xs font-medium text-ink-muted mb-1">{{ $t('quotaPolicies.monthlyTokenLimit') }}</label>
-                        <UInput v-model="form.monthlyTokenLimit" type="number" min="0" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
+                <!-- One row per metric, a daily and a monthly input side by side.
+                     Either, both or neither may be set; empty = unlimited. -->
+                <div class="border rounded-lg mb-5" data-testid="quota-limits-form">
+                    <div class="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_minmax(0,1fr)] gap-3 items-end px-3 py-2 bg-surface-subtle border-b rounded-t-lg">
+                        <span class="text-xs font-medium text-ink-muted">{{ $t('quotaPolicies.limitPerUser') }}</span>
+                        <span class="text-xs font-medium text-ink">
+                            {{ $t('quotaPolicies.perDay') }}
+                            <span class="block font-normal text-2xs text-ink-muted">{{ $t('quotaPolicies.resetsDaily', { tz: orgTimezone }) }}</span>
+                        </span>
+                        <span class="text-xs font-medium text-ink">
+                            {{ $t('quotaPolicies.perMonth') }}
+                            <span class="block font-normal text-2xs text-ink-muted">{{ $t('quotaPolicies.resetsMonthly') }}</span>
+                        </span>
                     </div>
-                    <div>
-                        <label class="block text-xs font-medium text-ink-muted mb-1">{{ $t('quotaPolicies.monthlyQueryLimit') }}</label>
-                        <UInput v-model="form.monthlyQueryLimit" type="number" min="0" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
+                    <div class="p-3 space-y-3">
+                        <div
+                            v-for="metric in LIMIT_METRICS"
+                            :key="metric.key"
+                            class="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_minmax(0,1fr)] gap-3 items-start"
+                        >
+                            <label :for="`quota-${metric.key}-daily`" class="text-sm text-ink-2 pt-1.5">{{ $t(metric.formLabel) }}</label>
+                            <div>
+                                <UInput
+                                    :id="`quota-${metric.key}-daily`"
+                                    v-model="form[metric.dailyForm]"
+                                    type="number"
+                                    min="0"
+                                    :step="metric.step"
+                                    :placeholder="$t('quotaPolicies.unlimited')"
+                                    size="sm"
+                                    :color="limitErrors[metric.key] ? 'red' : 'white'"
+                                    :aria-label="`${$t(metric.formLabel)} · ${$t('quotaPolicies.perDay')}`"
+                                    :data-testid="`quota-${metric.key}-daily`"
+                                />
+                                <p v-if="limitErrors[metric.key]" class="mt-1 text-2xs text-red-600 dark:text-red-400">{{ limitErrors[metric.key] }}</p>
+                            </div>
+                            <UInput
+                                :id="`quota-${metric.key}-monthly`"
+                                v-model="form[metric.monthlyForm]"
+                                type="number"
+                                min="0"
+                                :step="metric.step"
+                                :placeholder="$t('quotaPolicies.unlimited')"
+                                size="sm"
+                                :aria-label="`${$t(metric.formLabel)} · ${$t('quotaPolicies.perMonth')}`"
+                                :data-testid="`quota-${metric.key}-monthly`"
+                            />
+                        </div>
                     </div>
-                    <div>
-                        <label class="block text-xs font-medium text-ink-muted mb-1">{{ $t('quotaPolicies.monthlyDataLimitMb') }}</label>
-                        <UInput v-model="form.monthlyDataLimitMb" type="number" min="0" step="0.01" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-ink-muted mb-1">{{ $t('quotaPolicies.monthlySpendLimitUsd') }}</label>
-                        <UInput v-model="form.monthlySpendLimitUsd" type="number" min="0" step="0.01" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
-                    </div>
+                    <p class="px-3 pb-3 text-2xs text-ink-muted">{{ $t('quotaPolicies.limitsHint') }}</p>
                 </div>
 
                 <div class="border rounded-lg">
@@ -269,7 +308,7 @@
 
                 <div class="flex justify-end gap-2 mt-6">
                     <UButton variant="ghost" @click="showModal = false">{{ $t('quotaPolicies.cancel') }}</UButton>
-                    <UButton color="blue" :loading="saving" :disabled="!form.name.trim()" @click="savePolicy">
+                    <UButton color="blue" :loading="saving" :disabled="!form.name.trim() || hasLimitErrors" data-testid="quota-save" @click="savePolicy">
                         {{ editingPolicy ? $t('quotaPolicies.save') : $t('quotaPolicies.create') }}
                     </UButton>
                 </div>
@@ -308,6 +347,10 @@ interface UsagePolicy {
     monthly_query_limit: number | null
     monthly_data_bytes_limit: number | null
     monthly_spend_limit_usd: number | null
+    daily_token_limit: number | null
+    daily_query_limit: number | null
+    daily_data_bytes_limit: number | null
+    daily_spend_limit_usd: number | null
     enabled: boolean
     assignments: UsagePolicyAssignment[]
     connection_overrides: UsagePolicyConnectionOverride[]
@@ -345,9 +388,53 @@ const form = reactive({
     monthlyQueryLimit: '',
     monthlyDataLimitMb: '',
     monthlySpendLimitUsd: '',
+    dailyTokenLimit: '',
+    dailyQueryLimit: '',
+    dailyDataLimitMb: '',
+    dailySpendLimitUsd: '',
     enabled: true,
     connectionOverrides: [] as UsagePolicyConnectionOverride[],
 })
+
+// The org timezone the daily window is measured in (midnight to midnight).
+const orgTimezone = ref('UTC')
+
+type LimitMetricKey = 'tokens' | 'queries' | 'data' | 'spend'
+type FormLimitField = 'dailyTokenLimit' | 'monthlyTokenLimit' | 'dailyQueryLimit' | 'monthlyQueryLimit'
+    | 'dailyDataLimitMb' | 'monthlyDataLimitMb' | 'dailySpendLimitUsd' | 'monthlySpendLimitUsd'
+
+// One entry per capped metric; the table, the form and validation all read it.
+const LIMIT_METRICS: {
+    key: LimitMetricKey
+    shortLabel: string
+    formLabel: string
+    dailyField: keyof UsagePolicy
+    monthlyField: keyof UsagePolicy
+    dailyForm: FormLimitField
+    monthlyForm: FormLimitField
+    step: string
+    format: (value: any) => string
+}[] = [
+    { key: 'tokens', shortLabel: 'quotaPolicies.tokensShort', formLabel: 'quotaPolicies.tokensLabel', dailyField: 'daily_token_limit', monthlyField: 'monthly_token_limit', dailyForm: 'dailyTokenLimit', monthlyForm: 'monthlyTokenLimit', step: '1', format: v => formatCountLimit(v) },
+    { key: 'queries', shortLabel: 'quotaPolicies.queriesShort', formLabel: 'quotaPolicies.queriesLabel', dailyField: 'daily_query_limit', monthlyField: 'monthly_query_limit', dailyForm: 'dailyQueryLimit', monthlyForm: 'monthlyQueryLimit', step: '1', format: v => formatCountLimit(v) },
+    { key: 'data', shortLabel: 'quotaPolicies.dataShort', formLabel: 'quotaPolicies.dataLabel', dailyField: 'daily_data_bytes_limit', monthlyField: 'monthly_data_bytes_limit', dailyForm: 'dailyDataLimitMb', monthlyForm: 'monthlyDataLimitMb', step: '0.01', format: v => formatBytesLimit(v) },
+    { key: 'spend', shortLabel: 'quotaPolicies.spendShort', formLabel: 'quotaPolicies.spendLabel', dailyField: 'daily_spend_limit_usd', monthlyField: 'monthly_spend_limit_usd', dailyForm: 'dailySpendLimitUsd', monthlyForm: 'monthlySpendLimitUsd', step: '0.01', format: v => formatUsdLimit(v) },
+]
+
+// A daily cap above the monthly cap can never bind — almost always a typo.
+// The backend rejects it too; this just says so before Save.
+const limitErrors = computed<Record<string, string>>(() => {
+    const errors: Record<string, string> = {}
+    for (const metric of LIMIT_METRICS) {
+        const daily = String(form[metric.dailyForm] ?? '').trim()
+        const monthly = String(form[metric.monthlyForm] ?? '').trim()
+        if (daily !== '' && monthly !== '' && Number(daily) > Number(monthly)) {
+            errors[metric.key] = t('quotaPolicies.dailyAboveMonthly')
+        }
+    }
+    return errors
+})
+const hasLimitErrors = computed(() => Object.keys(limitErrors.value).length > 0)
 
 const connectionOptions = computed(() =>
     connections.value.map(connection => ({ value: connection.id, label: connection.name }))
@@ -451,10 +538,19 @@ async function loadConnections() {
     }
 }
 
+async function loadOrgTimezone() {
+    try {
+        const { data } = await useMyFetch('/organization/timezone')
+        orgTimezone.value = (data.value as any)?.effective_timezone || 'UTC'
+    } catch (e) {
+        orgTimezone.value = 'UTC'
+    }
+}
+
 async function loadAll() {
     isLoading.value = true
     try {
-        await Promise.all([loadPolicies(), loadConnections()])
+        await Promise.all([loadPolicies(), loadConnections(), loadOrgTimezone()])
     } finally {
         isLoading.value = false
     }
@@ -467,6 +563,10 @@ function resetForm() {
     form.monthlyQueryLimit = ''
     form.monthlyDataLimitMb = ''
     form.monthlySpendLimitUsd = ''
+    form.dailyTokenLimit = ''
+    form.dailyQueryLimit = ''
+    form.dailyDataLimitMb = ''
+    form.dailySpendLimitUsd = ''
     form.enabled = true
     form.connectionOverrides = []
     overrideConnection.value = null
@@ -489,6 +589,10 @@ function openEditModal(policy: UsagePolicy) {
     form.monthlyQueryLimit = policy.monthly_query_limit == null ? '' : String(policy.monthly_query_limit)
     form.monthlyDataLimitMb = bytesToMbInput(policy.monthly_data_bytes_limit)
     form.monthlySpendLimitUsd = policy.monthly_spend_limit_usd == null ? '' : String(policy.monthly_spend_limit_usd)
+    form.dailyTokenLimit = policy.daily_token_limit == null ? '' : String(policy.daily_token_limit)
+    form.dailyQueryLimit = policy.daily_query_limit == null ? '' : String(policy.daily_query_limit)
+    form.dailyDataLimitMb = bytesToMbInput(policy.daily_data_bytes_limit)
+    form.dailySpendLimitUsd = policy.daily_spend_limit_usd == null ? '' : String(policy.daily_spend_limit_usd)
     form.enabled = policy.enabled
     form.connectionOverrides = policy.connection_overrides.map(override => ({
         connection_id: override.connection_id,
@@ -577,6 +681,10 @@ function policyPayload() {
         monthly_query_limit: parseOptionalInt(form.monthlyQueryLimit),
         monthly_data_bytes_limit: parseOptionalMb(form.monthlyDataLimitMb),
         monthly_spend_limit_usd: parseOptionalUsd(form.monthlySpendLimitUsd),
+        daily_token_limit: parseOptionalInt(form.dailyTokenLimit),
+        daily_query_limit: parseOptionalInt(form.dailyQueryLimit),
+        daily_data_bytes_limit: parseOptionalMb(form.dailyDataLimitMb),
+        daily_spend_limit_usd: parseOptionalUsd(form.dailySpendLimitUsd),
         enabled: form.enabled,
         connection_overrides: connectionOverridesForSave(),
     }

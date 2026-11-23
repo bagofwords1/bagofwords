@@ -6495,7 +6495,8 @@
       "windowNote": "L'utilizzo si azzera all'inizio di ogni mese.",
       "dailyNote": "giornaliero dall'inizio del mese",
       "disabledTitle": "Il monitoraggio dell'utilizzo non è abilitato",
-      "disabledNote": "L'utilizzo per utente (token, query e dati analizzati) viene monitorato quando la funzione Limiti di utilizzo è abilitata nel tuo piano."
+      "disabledNote": "L'utilizzo per utente (token, query e dati analizzati) viene monitorato quando la funzione Limiti di utilizzo è abilitata nel tuo piano.",
+      "today": "Oggi: {used} / {limit}"
     },
     "appearance": {
       "title": "Aspetto",
@@ -6955,7 +6956,7 @@
     "newQuota": "Nuova quota",
     "noDirectQuota": "Predefinita",
     "noPoliciesFound": "Nessun criterio di quota trovato",
-    "noPoliciesHint": "Crea una quota per limitare l'uso mensile di AI e dati.",
+    "noPoliciesHint": "Crea una quota per limitare l'uso giornaliero e mensile di AI e dati.",
     "none": "Nessuna",
     "principalTypes": {
       "group": "Gruppo",
@@ -6977,7 +6978,20 @@
     "tokensShort": "Token",
     "unlimited": "Illimitata",
     "update": "Aggiorna",
-    "users": "Utenti"
+    "users": "Utenti",
+    "dayShort": "Giorno",
+    "monthShort": "Mese",
+    "limitPerUser": "Limite per utente",
+    "perDay": "Al giorno",
+    "perMonth": "Al mese",
+    "resetsDaily": "Si azzera alle 00:00 {tz}",
+    "resetsMonthly": "Si azzera il 1°",
+    "tokensLabel": "Token",
+    "queriesLabel": "Query",
+    "dataLabel": "Dati analizzati (MB)",
+    "spendLabel": "Spesa LLM (USD)",
+    "limitsHint": "Lascia vuoto per illimitato. Imposta un limite giornaliero, mensile o entrambi: la richiesta viene bloccata quando uno dei due è raggiunto.",
+    "dailyAboveMonthly": "Il limite giornaliero non può superare quello mensile."
   },
   "serviceAccounts": {
     "active": "Attivo",
@@ -7202,7 +7216,9 @@
     "nothingRan": "Impossibile creare la tua copia: nessuna delle sue query è stata eseguita con le tue credenziali."
   },
   "quota": {
-    "resetsOn": "si azzera il {date}"
+    "resetsOn": "si azzera il {date}",
+    "todayLabel": "{metric} · oggi",
+    "resetsDailyAndMonthly": "Oggi si azzera alle 00:00 {tz} · mese {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Impara durante la notte",
