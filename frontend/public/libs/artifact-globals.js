@@ -2485,18 +2485,29 @@ function _dtDetectDir(cols, rows) {
       }
       return o;
     }
-    // The 8-series default `legend.selected` that _chLimitSeries added, or
-    // null (none added, or the author set `selected` themselves).
-    function autoSelected(o) {
-      var own = props.option.legend && !Array.isArray(props.option.legend) && props.option.legend.selected;
-      return !own && o.legend && !Array.isArray(o.legend) && o.legend.selected || null;
+    // The author's own `legend.selected`, or null.
+    function ownSelected() {
+      var lg = props.option.legend;
+      return lg && !Array.isArray(lg) && lg.selected || null;
     }
-    // `o` without that automatic selection, so a merge keeps the chart's live
-    // legend (the reader may have switched series on or off since).
+    // The 8-series defaults _chLimitSeries added for the names the author left
+    // unset, or null (none added).
+    function autoSelected(o) {
+      var sel = o.legend && !Array.isArray(o.legend) && o.legend.selected;
+      if (!sel) return null;
+      var own = ownSelected() || {}, auto = null;
+      for (var n in sel) if (!Object.prototype.hasOwnProperty.call(own, n)) { auto = auto || {}; auto[n] = sel[n]; }
+      return auto;
+    }
+    // `o` with only the author's own selection, so a merge keeps the chart's
+    // live legend for every other name (the reader may have switched series on
+    // or off since).
     function withoutAutoSelected(o) {
       if (!autoSelected(o)) return o;
+      var own = ownSelected();
       var c = {}; for (var k in o) c[k] = o[k];
       var lg = {}; for (var lk in o.legend) if (lk !== 'selected') lg[lk] = o.legend[lk];
+      if (own) lg.selected = own;
       c.legend = lg;
       return c;
     }
@@ -2508,6 +2519,9 @@ function _dtDetectDir(cols, rows) {
     // (everything but the data arrays and the automatic legend selection),
     // plus that automatic selection. See applyOption.
     var appliedRef = React.useRef({ full: null, shape: null, auto: null });
+    // Legend names the reader switched since the chart was last built. They
+    // keep the reader's choice whatever the new top eight is.
+    var touchedRef = React.useRef({});
     React.useEffect(function() {
       if (!ref.current) return;
       var el = ref.current;
@@ -2519,11 +2533,19 @@ function _dtDetectDir(cols, rows) {
       var chart = echarts.init(el, 'bow', { renderer: props.renderer || 'canvas' });
       chartRef.current = chart;
       appliedRef.current = { full: null, shape: null, auto: null };
+      touchedRef.current = {};
       if (props.option) {
         var opt = withPalette(props.option);
         appliedRef.current = { full: _optionSig(opt, false), shape: shapeSig(opt), auto: autoSelected(opt) };
         chart.setOption(safeOption(opt));
       }
+      // A toggle names one series; select-all and inverse touch every series.
+      function touch(e) {
+        var t = touchedRef.current;
+        if (e && e.name != null) t[e.name] = true;
+        else for (var tn in (e && e.selected) || {}) t[tn] = true;
+      }
+      ['legendselectchanged', 'legendselected', 'legendunselected', 'legendselectall', 'legendinverseselect'].forEach(function(ev) { chart.on(ev, touch); });
       if (props.onClick) chart.on('click', props.onClick);
       // A chart in a hidden tab or collapsed panel measures 0×0; resizing it
       // then would only blank it. It re-lays out when it is shown again.
@@ -2556,21 +2578,24 @@ function _dtDetectDir(cols, rows) {
       if (shape !== null && shape === last.shape) {
         var merged = withoutAutoSelected(opt);
         // The new data may change which series are the 8 largest. A series
-        // whose legend state still equals the last automatic default was
-        // never switched by the reader: it follows the new default. Every
-        // series the reader switched keeps the reader's choice.
+        // the reader never switched (and the author left unset) follows the
+        // new default; every series the reader switched keeps the reader's
+        // choice, and the author's own choices are never overridden.
         if (auto && last.auto) {
-          var lgs = chart.getOption().legend;
-          var live = (lgs && lgs[0] && lgs[0].selected) || {};
-          var follow = null;
+          var touched = touchedRef.current, follow = null;
           for (var nm in auto) {
-            if (auto[nm] !== last.auto[nm] && live[nm] === last.auto[nm]) { follow = follow || {}; follow[nm] = auto[nm]; }
+            if (auto[nm] !== last.auto[nm] && !touched[nm]) { follow = follow || {}; follow[nm] = auto[nm]; }
           }
-          if (follow) merged.legend.selected = follow;
+          if (follow) {
+            var s = {}, own = merged.legend.selected || {};
+            for (var on in own) s[on] = own[on];
+            for (var fn in follow) s[fn] = follow[fn];
+            merged.legend.selected = s;
+          }
         }
         chart.setOption(safeOption(merged), { notMerge: false });
       }
-      else chart.setOption(safeOption(opt), true);
+      else { touchedRef.current = {}; chart.setOption(safeOption(opt), true); }
     }, [props.option, gen]);
     var chart = h('div', { ref: ref, style: { width: '100%', height: ht }, className: props.className || '' }, !window.echarts ? h(_LoadingSpinner, {size:20}) : null);
     if (!props.viz) return chart;

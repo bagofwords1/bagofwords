@@ -30,9 +30,19 @@ function App() {
     // From the 2nd click, new data that also swaps the two largest series' totals;
     // from the 3rd, CC-103 grows into the top eight and pushes CC-104 out.
     series: LINES.map((l, i) => ({ ...l, data: (n >= 2 && i >= 10 ? LINES[21 - i].data : l.data).map((v) => v + (n >= 2 ? 1 : 0) + (n >= 3 && i === 3 ? 10000 : 0)) })) };
+  // The same chart with the author's own choice for one series only.
+  const author = { ...live, legend: { selected: { 'CC-111': false } } };
+  // A data step that lifts the smallest series (CC-100) into the top eight and
+  // drops the largest (CC-111) out of it; the next step undoes it.
+  const [c, setC] = React.useState(0);
+  const cross = { xAxis: { type: 'category', data: ${JSON.stringify(months)} }, yAxis: { type: 'value' }, dataZoom: [{ type: 'inside' }],
+    series: LINES.map((l, i) => ({ ...l, data: l.data.map((v) => c % 2 === 1 && i === 0 ? v + 10000 : c % 2 === 1 && i === 11 ? 1 : v + c) })) };
   return (
     <div className="p-4 space-y-4">
       <button id="rerender" onClick={() => setN(n + 1)}>rerender</button>
+      <button id="cross-step" onClick={() => setC(c + 1)}>cross</button>
+      <div id="author"><EChart option={author} height={200} /></div>
+      <div id="cross"><EChart option={cross} height={200} /></div>
       <div id="lines"><EChart viz={viz} option={${JSON.stringify({xAxis:{type:'category',data:months},yAxis:{type:'value'},series:lines})}} height={260} /></div>
       <div id="live"><EChart option={live} height={200} /></div>
       <div id="dataset"><EChart option={${JSON.stringify({dataset:{source:dsRows},xAxis:{type:'category'},yAxis:{type:'value'},series:lines.map(l=>({name:l.name,type:'line',encode:{x:'month',y:l.name}}))})}} height={200} /></div>
@@ -66,7 +76,7 @@ try{
   const f=document.createElement('iframe');f.style.width='900px';f.style.height='1180px';f.style.border='0';f.srcdoc=html;document.body.appendChild(f);
  },{code:app,VIZ,EURVIZ,PLAIN,GBPVIZ,rows});
  const frame=page.frames().find(f=>f.parentFrame());
- await frame.waitForFunction(()=>window.__bowCharts&&window.echarts&&document.querySelector('#lines [_echarts_instance_]')&&document.querySelector('#live [_echarts_instance_]')&&document.querySelector('#dataset [_echarts_instance_]')&&document.querySelector('#table table'),null,{timeout:30000});
+ await frame.waitForFunction(()=>window.__bowCharts&&window.echarts&&document.querySelector('#lines [_echarts_instance_]')&&document.querySelector('#live [_echarts_instance_]')&&document.querySelector('#dataset [_echarts_instance_]')&&document.querySelector('#author [_echarts_instance_]')&&document.querySelector('#cross [_echarts_instance_]')&&document.querySelector('#table table'),null,{timeout:30000});
  await frame.waitForTimeout(400);
 
  // Currency: the column name, the viz's saved format, the viz's columns, the page's columns
@@ -104,19 +114,29 @@ try{
  assert.deepEqual(leg.on,['CC-104','CC-105','CC-106','CC-107','CC-108','CC-109','CC-110','CC-111'],'the 8 largest by total stay on');
 
  // A reader's legend choice survives the parent re-rendering the same option, and new data merged in.
- const sel=()=>frame.evaluate(()=>window.echarts.getInstanceByDom(document.querySelector('#live [_echarts_instance_]')).getOption().legend[0].selected);
+ const selOf=(id)=>frame.evaluate((id)=>window.echarts.getInstanceByDom(document.querySelector(`#${id} [_echarts_instance_]`)).getOption().legend[0].selected,id);
+ const zoomOf=(id)=>frame.evaluate((id)=>window.echarts.getInstanceByDom(document.querySelector(`#${id} [_echarts_instance_]`)).getOption().dataZoom[0].start,id);
+ const act=(id,a)=>frame.evaluate(({id,a})=>window.echarts.getInstanceByDom(document.querySelector(`#${id} [_echarts_instance_]`)).dispatchAction(a),{id,a});
+ const sel=()=>selOf('live');
  assert.equal((await sel())['CC-100'],false,'CC-100 (smallest) starts greyed');
- await frame.evaluate(()=>window.echarts.getInstanceByDom(document.querySelector('#live [_echarts_instance_]')).dispatchAction({type:'legendToggleSelect',name:'CC-100'}));
+ await act('live',{type:'legendToggleSelect',name:'CC-100'});
  assert.equal((await sel())['CC-100'],true);
+ // The author set `selected` for one series only (CC-111 off); the reader turns CC-100 on.
+ const authorStart=await selOf('author');
+ assert.equal(authorStart['CC-111'],false,'the author\'s own choice applies');
+ assert.equal(authorStart['CC-100'],false,'the series the author left unset start with the top-eight default');
+ await act('author',{type:'legendToggleSelect',name:'CC-100'});
  await frame.click('#rerender'); await frame.waitForTimeout(300);
  assert.equal((await sel())['CC-100'],true,'same content re-render keeps the reader\'s choice');
  await frame.click('#rerender'); await frame.waitForTimeout(300);
  assert.equal((await sel())['CC-100'],true,'new data that swaps two totals keeps the reader\'s choice');
+ assert.equal((await selOf('author'))['CC-100'],true,'with a partial author `selected`, new data keeps the reader\'s choice');
  // New data that moves a series across the eighth-place cutoff is still a data
  // refresh: the reader's legend click and zoom survive; series the reader never
  // touched follow the new top eight.
- const zoom=()=>frame.evaluate(()=>window.echarts.getInstanceByDom(document.querySelector('#live [_echarts_instance_]')).getOption().dataZoom[0].start);
- await frame.evaluate(()=>window.echarts.getInstanceByDom(document.querySelector('#live [_echarts_instance_]')).dispatchAction({type:'dataZoom',start:50,end:100}));
+ const zoom=()=>zoomOf('live');
+ await act('live',{type:'dataZoom',start:50,end:100});
+ await act('author',{type:'dataZoom',start:50,end:100});
  assert.equal(await zoom(),50);
  await frame.click('#rerender'); await frame.waitForTimeout(300);
  const crossed=await sel();
@@ -124,7 +144,27 @@ try{
  assert.equal(await zoom(),50,'a refresh that changes the top eight keeps the reader\'s zoom');
  assert.equal(crossed['CC-103'],true,'an untouched series that enters the top eight turns on');
  assert.equal(crossed['CC-104'],false,'an untouched series that leaves the top eight turns grey');
+ // Same refresh, partial author `selected`: still a data refresh, not a rebuild.
+ const authorCrossed=await selOf('author');
+ assert.equal(await zoomOf('author'),50,'with a partial author `selected`, a refresh that changes the top eight keeps the zoom');
+ assert.equal(authorCrossed['CC-111'],false,'the author\'s own choice is never overridden');
+ assert.equal(authorCrossed['CC-100'],true,'with a partial author `selected`, the reader\'s choice survives the cutoff move');
+ assert.equal(authorCrossed['CC-103'],true,'a series the author left unset follows the new top eight (in)');
+ assert.equal(authorCrossed['CC-104'],false,'a series the author left unset follows the new top eight (out)');
 
+ // A reader's explicit choice holds even when the series crosses the cutoff
+ // twice, so its state passes through the default on the way.
+ const crossStart=await selOf('cross');
+ assert.equal(crossStart['CC-100'],false); assert.equal(crossStart['CC-111'],true);
+ await act('cross',{type:'legendToggleSelect',name:'CC-100'}); // reader: on (default off)
+ await act('cross',{type:'legendToggleSelect',name:'CC-111'}); // reader: off (default on)
+ await frame.click('#cross-step'); await frame.waitForTimeout(300); // CC-100 in, CC-111 out: both now equal the default
+ const mid=await selOf('cross');
+ assert.equal(mid['CC-100'],true); assert.equal(mid['CC-111'],false);
+ await frame.click('#cross-step'); await frame.waitForTimeout(300); // back across the cutoff
+ const back=await selOf('cross');
+ assert.equal(back['CC-100'],true,'a series the reader turned on stays on after crossing the cutoff in and back out');
+ assert.equal(back['CC-111'],false,'a series the reader turned off stays off after crossing the cutoff out and back in');
  // Series drawn from a dataset have no data of their own: the chart is left uncapped.
  const dsOff=await frame.evaluate(()=>{const l=window.echarts.getInstanceByDom(document.querySelector('#dataset [_echarts_instance_]')).getOption().legend; const s=l&&l[0]&&l[0].selected; return s?Object.values(s).filter(v=>!v).length:0;});
  assert.equal(dsOff,0,'a dataset-backed chart keeps every series on');
@@ -147,5 +187,5 @@ try{
  const pageCur=await rf.evaluate(({rows,EURVIZ})=>window.__bowCharts.buildTrend({viz:vizById(EURVIZ),rows:rows.map(r=>({month:r.month,dept:r.dept,amount:r.spend})),x:'month',y:'amount',series:'dept',unit:'currency',additive:true},window.bowTheme,'en').option.yAxis.axisLabel.formatter(2000),{rows,EURVIZ});
  assert.match(pageCur,/€/,`the page's single currency (${pageCur})`);
  assert.equal(rtlDir,'rtl','on a right-to-left page the table runs right to left, even with English cells');
- console.log('PASS: data currency on components (name, saved, viz columns, page), RankChart axis, 8 of 12 series (reader choice kept, dataset charts uncapped), equal card heights, RTL tables');
+ console.log('PASS: data currency on components (name, saved, viz columns, page), RankChart axis, 8 of 12 series (reader choice kept across cutoff moves, author partial selection kept, dataset charts uncapped), equal card heights, RTL tables');
 }finally{await browser.close()}
