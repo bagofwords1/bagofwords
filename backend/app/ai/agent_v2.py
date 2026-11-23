@@ -63,10 +63,11 @@ def repeated_call_nudge(tool_name: str) -> str:
 
 # A build ask: a build verb with a page or document noun in the user's message
 # (English, Hebrew, Spanish). A how-to question about building is not one.
-_BUILD_VERB = _re_mod.compile(
-    r"(?i)(\b(build|create|make|design|generate|set up|put together|prepare|write|draft)\b|\bturn\b.*\binto\b"
+_BUILD_VERB_SRC = (
+    r"(\b(build|create|make|design|generate|set up|put together|prepare|write|draft)\b|\bturn\b.*\binto\b"
     r"|בנה|תבנה|תבני|צור|תיצור|הכן|תכין|כתוב|תכתוב|\b(crea|haz|construye|diseña|prepara|escribe|redacta)\b)"
 )
+_BUILD_VERB = _re_mod.compile(r"(?i)" + _BUILD_VERB_SRC)
 _PAGE_NOUN = _re_mod.compile(
     r"(?i)(\b(dashboards?|scorecards?|pages?|apps?|artifacts?|portals?|screens?|forms?|trackers?|explorers?|calculators?|tableros?|panel|página|pantalla|aplicación)\b"
     r"|דשבורד|לוח מחוונים|לוח בקרה|דף|עמוד|אפליקציה|פורטל|מסך)"
@@ -77,16 +78,82 @@ _DOC_NOUN = _re_mod.compile(
 )
 _HOW_TO = _re_mod.compile(r"(?i)^\s*(how (do|can|should) i|how to|can you (explain|tell)|what is|why|איך|מה זה|למה|cómo|qué es|por qué)\b")
 
+# Negation scope. A negation word, then at most a few filler words ("don't
+# even bother to", "no me"), then the next word: that word is what is negated.
+# A negated build verb takes its clause with it ("don't make a page, write a
+# report" leaves the report); a noun after "without"/"no need for" is negated
+# alone ("a report without a dashboard"). A negation aimed at anything else
+# ("build a dashboard, don't include refunds") leaves the ask standing.
+_NEGATION = (
+    r"(?:\b(?:don'?t|do not|does not|doesn'?t|never|not|no|needn'?t|shouldn'?t|should not|without|nunca|sin)\b"
+    r"|\bno need (?:to|for)\b|\bno hace falta\b|\bno es necesario\b"
+    r"|(?<![\u0590-\u05FF])(?:אל|לא|בלי|ללא|אין צורך)(?![\u0590-\u05FF]))"
+)
+_NEGATION_FILLER = (
+    r"(?:(?:just|only|simply|even|ever|need|needs|have|bother|please|you|to|want|wanna|going|gonna|i|we|actually|really|"
+    r"me|nos|le|lo|que|crear|hacer|צריך|צריכה|צריכים|רוצה|ל)\s+){0,3}"
+)
+_NEGATED_VERB = _re_mod.compile(r"(?i)" + _NEGATION + r"\s+" + _NEGATION_FILLER + _BUILD_VERB_SRC)
+# A noun is negated by "without", "no", "no need for", "don't need"… right before it.
+_NEGATED_NOUN_TAIL = _re_mod.compile(
+    r"(?i)(?:\b(?:without|no|not|sin|ni)\b|\bno need for\b|\b(?:don'?t|do not) (?:need|want)\b"
+    r"|\bno hace falta\b|\bno (?:necesito|quiero)\b"
+    r"|(?<![\u0590-\u05FF])(?:בלי|ללא|אין צורך|לא צריך|לא רוצה)(?![\u0590-\u05FF]))"
+    r"\s*(?:(?:a|an|the|any|el|la|los|las|un|una|ningún|ninguna)\s+)?(?:[\w-]+\s+)?[בהל]?$"
+)
+_CLAUSE_END = _re_mod.compile(r"[.,;:!?\n]|\b(?:but|instead|pero|sino)\b|אבל|במקום")
+# An explicit ask to answer in chat or in text, unless it is itself negated
+# ("don't just answer in chat").
+_CHAT_ONLY = _re_mod.compile(
+    r"(?i)(\b(?:just|only|simply)\s+(?:answer|reply|respond|tell me)\b|\b(?:answer|reply|respond)\s+(?:it\s+)?"
+    r"(?:here|in (?:the )?chat)\b|\b(?:in\s+)?(?:plain\s+)?text[- ]only\b|\bchat[- ]only\b"
+    r"|\bsolo\s+(?:responde|contesta|dime)\b|\bresponde\s+(?:solo\s+)?(?:aquí|en el chat)\b|\bsolo (?:en )?texto\b"
+    r"|רק\s+(?:ת)?ענה|רק\s+תשובה|רק\s+בצ'?אט|בצ'?אט\s+בלבד|בטקסט\s+בלבד)"
+)
+_NEGATED_TAIL = _re_mod.compile(r"(?i)" + _NEGATION + r"\s+" + _NEGATION_FILLER + r"$")
+
+
+def _negated_spans(text: str) -> list:
+    """(start, end) of each negated build verb through the end of its clause."""
+    spans = []
+    for m in _NEGATED_VERB.finditer(text):
+        stop = _CLAUSE_END.search(text, m.end())
+        spans.append((m.start(), stop.start() if stop else len(text)))
+    return spans
+
+
+def _live(pattern, text: str, spans: list, *, noun: bool = False) -> bool:
+    """True when a match of ``pattern`` lies outside every negated span (and, for
+    a noun, is not itself negated: "without a dashboard")."""
+    for m in pattern.finditer(text):
+        if any(a <= m.start() < b for a, b in spans):
+            continue
+        if noun and _NEGATED_NOUN_TAIL.search(text[max(0, m.start() - 60):m.start()]):
+            continue
+        return True
+    return False
+
 
 def build_ask_kinds(message: str) -> set:
-    """{"page"} / {"doc"} / both when the user's message asks to build one; empty otherwise."""
+    """{"page"} / {"doc"} / both when the user's message asks to build one; empty otherwise.
+
+    A how-to question, an explicit chat-only ask ("just answer", "answer in
+    chat", "רק תענה", "solo responde") and a build that is itself negated
+    ("don't create a dashboard", "אל תבנה דשבורד", "sin dashboard") are not.
+    """
     text = str(message or "")
-    if not text.strip() or _HOW_TO.search(text) or not _BUILD_VERB.search(text):
+    if not text.strip() or _HOW_TO.search(text):
+        return set()
+    for m in _CHAT_ONLY.finditer(text):
+        if not _NEGATED_TAIL.search(text[max(0, m.start() - 40):m.start()]):
+            return set()
+    spans = _negated_spans(text)
+    if not _live(_BUILD_VERB, text, spans):
         return set()
     kinds = set()
-    if _PAGE_NOUN.search(text):
+    if _live(_PAGE_NOUN, text, spans, noun=True):
         kinds.add("page")
-    if _DOC_NOUN.search(text):
+    if _live(_DOC_NOUN, text, spans, noun=True):
         kinds.add("doc")
     return kinds
 

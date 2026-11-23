@@ -1,4 +1,4 @@
-"""A page the tool writes itself must pass the page checks, through create_artifact's public path.
+"""A page the tool writes itself must pass the page checks, in a real agent turn.
 
 When the planner sends no code, create_artifact asks its own LLM for the page
 and repairs it in-tool. It used to save the page even if a page check still
@@ -6,24 +6,21 @@ failed (only a note rode along), so every check could be skipped by not
 sending code. Now the call fails with the check errors and no completed
 version is saved.
 
-Only the external boundaries are faked: the LLM (it writes a raw line chart,
-and its "repair" returns the same code) and the headless browser (the page
-renders without a thrown error).
+The ask goes through the completions route. Only the external boundaries are
+faked: the LLM provider (the planner calls create_artifact without code; the
+tool's own call writes a raw line chart, and its "repair" returns the same
+page) and the headless browser (the page renders without a thrown error).
 
 Run:
     cd backend
-    TESTING=true uv run pytest tests/e2e/test_generated_page_checks.py --db=sqlite
+    TESTING=true uv run pytest tests/e2e/test_generated_page_checks.py -m e2e --db=sqlite
 """
-import asyncio
+import json
+import uuid
 
 import pytest
 
-from app.dependencies import async_session_maker
-from app.models.organization import Organization
-from app.models.report import Report
-from app.models.user import User
-
-from tests.e2e.test_create_artifact_replaces import _make_report, _seed_viz
+pytestmark = pytest.mark.e2e
 
 RAW_LINE_PAGE = (
     '```jsx\n<script type="text/babel">\n'
@@ -35,68 +32,107 @@ RAW_LINE_PAGE = (
     "ReactDOM.createRoot(document.getElementById('root')).render(<App />);\n"
     "</script>\n```"
 )
+FINAL_ANSWER = "I could not save the page."
 
 
-class _FakeLLM:
-    """The model writes a raw line chart; the in-tool repair returns the same page."""
+class _Provider:
+    """The planner asks create_artifact to write the page, then answers; the
+    tool's own calls (generation and repair) get the raw line chart."""
 
-    def __init__(self, *args, **kwargs):
-        pass
+    def __init__(self):
+        self.planner_messages = []
 
-    async def inference_stream_v2(self, **kwargs):
-        from app.ai.llm.types import TextDeltaEvent
-        yield TextDeltaEvent(text=RAW_LINE_PAGE)
+    def stream(self):
+        from app.ai.llm.types import (
+            MessageStopEvent,
+            TextDeltaEvent,
+            ToolUseCompleteEvent,
+            ToolUseStartEvent,
+            UsageEvent,
+        )
+        provider = self
+
+        async def scripted(self, *, model_id=None, messages, system=None, tools=None, **kwargs):
+            if not tools:
+                yield TextDeltaEvent(text=RAW_LINE_PAGE)
+                yield MessageStopEvent(stop_reason="end_turn", raw_stop_reason="end_turn")
+                return
+            provider.planner_messages.append(list(messages or []))
+            if len(provider.planner_messages) == 1:
+                tid = f"tu_{uuid.uuid4().hex[:8]}"
+                args = {"prompt": "A line chart of revenue by month", "title": "Revenue", "mode": "page",
+                        "visualization_ids": []}
+                events = [ToolUseStartEvent(id=tid, name="create_artifact"),
+                          ToolUseCompleteEvent(id=tid, name="create_artifact", input=args),
+                          MessageStopEvent(stop_reason="tool_use", raw_stop_reason="tool_use")]
+            else:
+                events = [TextDeltaEvent(text=FINAL_ANSWER),
+                          MessageStopEvent(stop_reason="end_turn", raw_stop_reason="end_turn")]
+            for event in events + [UsageEvent(input_tokens=10, output_tokens=5)]:
+                yield event
+
+        return scripted
+
+    def planner_saw(self, text):
+        return any(text in json.dumps(m, default=str) for m in self.planner_messages[1:])
 
 
-@pytest.fixture()
-def fake_boundaries(monkeypatch):
-    import app.ai.tools.implementations.create_artifact as mod
+@pytest.fixture
+def provider(monkeypatch):
+    from app.ai.llm.llm import LLM
 
-    async def _renders(self, html):
-        return None, []          # the browser: renders, no thrown error
+    p = _Provider()
 
-    monkeypatch.setattr(mod, "LLM", _FakeLLM)
-    monkeypatch.setattr(mod.CreateArtifactTool, "_take_preview_screenshot", _renders)
-    # No vendored browser libs in CI: give the validator a page to "render".
-    monkeypatch.setattr(mod.CreateArtifactTool, "_build_thumbnail_html", lambda self, data, code, mode="page": "<html></html>")
+    async def _stream(self, prompt, **kwargs):
+        yield "ok"
+
+    monkeypatch.setattr(LLM, "inference_stream_v2", p.stream())
+    monkeypatch.setattr(LLM, "inference_stream", _stream)
+    monkeypatch.setattr(LLM, "inference", lambda self, prompt, *a, **k: "[]")
+    return p
 
 
-async def _create(report_id: str, viz_id: str):
+@pytest.fixture
+def browser(monkeypatch):
     from app.ai.tools.implementations.create_artifact import CreateArtifactTool
 
-    async with async_session_maker() as db:
-        report = await db.get(Report, report_id)
-        user = await db.get(User, report.user_id)
-        organization = await db.get(Organization, report.organization_id)
-        runtime_ctx = {"db": db, "report": report, "user": user, "organization": organization}
-        events = []
-        tool_input = {"prompt": "A line chart of revenue", "title": "Revenue", "mode": "page", "visualization_ids": [viz_id]}
-        async for evt in CreateArtifactTool().run_stream(tool_input, runtime_ctx):
-            events.append(evt)
-    ends = [e for e in events if e.type == "tool.end"]
-    assert ends, f"no tool.end event in {[e.type for e in events]}"
-    return ends[-1].payload
+    async def renders(self, html):
+        return None, []          # the page renders, no thrown error
+
+    monkeypatch.setattr(CreateArtifactTool, "_take_preview_screenshot", renders)
+    # No vendored browser libs in CI: give the validator a page to "render".
+    monkeypatch.setattr(CreateArtifactTool, "_build_thumbnail_html", lambda self, data, code, mode="page": "<html></html>")
 
 
-async def _completed_versions(report_id: str) -> int:
-    from sqlalchemy import text
-    async with async_session_maker() as db:
-        row = await db.execute(text(
-            "select count(*) from artifact_versions v join artifacts a on a.id = v.artifact_id "
-            "where a.report_id = :r and v.status = 'completed'"), {"r": report_id})
-        return int(row.scalar() or 0)
+@pytest.fixture
+def env(test_client, create_user, login_user, whoami, create_llm_provider_and_models, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY_TEST", "dummy-local-provider-boundary")
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    create_llm_provider_and_models(user_token=token, org_id=org_id)
+    return {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
 
 
-@pytest.mark.e2e
-def test_a_generated_page_that_fails_a_check_is_not_saved_as_completed(
-    create_report, create_user, login_user, whoami, test_client, fake_boundaries
-):
-    report, _token, _org = _make_report(create_report, create_user, login_user, whoami, "Generated page checks")
-    viz_id = asyncio.run(_seed_viz(report["id"]))
+def test_a_generated_page_that_fails_a_check_is_not_saved_as_completed(test_client, env, provider, browser):
+    r = test_client.post("/api/reports", headers=env, json={"title": "Generated page checks", "files": [],
+                                                            "data_sources": []})
+    assert r.status_code == 200, r.text
+    report_id = r.json()["id"]
 
-    payload = asyncio.run(_create(report["id"], viz_id))
-    observation = payload.get("observation") or {}
-    text = str(observation)
-    assert observation.get("success") is False or payload.get("output", {}).get("success") is False, payload
-    assert "[charts]" in text, "the planner is told which check failed"
-    assert asyncio.run(_completed_versions(report["id"])) == 0, "no completed version is saved"
+    r = test_client.post(f"/api/reports/{report_id}/completions", headers=env, params={"background": False},
+                         json={"prompt": {"content": "Build a page with a line chart of revenue by month."}})
+    assert r.status_code == 200, r.text
+
+    r = test_client.get(f"/api/artifacts/report/{report_id}", headers=env)
+    assert r.status_code == 200, r.text
+    assert [a for a in r.json() if a["status"] == "completed"] == [], "no completed version is saved"
+
+    r = test_client.get(f"/api/reports/{report_id}/completions", headers=env)
+    assert r.status_code == 200, r.text
+    turn = [c for c in r.json()["completions"] if c["role"] == "system"][-1]
+    builds = [b["tool_execution"] for b in turn.get("completion_blocks") or []
+              if (b.get("tool_execution") or {}).get("tool_name") == "create_artifact"]
+    assert builds, "the planner's create_artifact call ran"
+    assert all(not b["success"] for b in builds), "the build is shown as failed"
+    assert provider.planner_saw("[charts]"), "the planner is told which check failed"
