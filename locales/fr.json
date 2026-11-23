@@ -6990,7 +6990,7 @@
     "queriesLabel": "Requêtes",
     "dataLabel": "Données analysées (Mo)",
     "spendLabel": "Dépenses LLM (USD)",
-    "limitsHint": "Laissez vide pour illimité. Définissez une limite quotidienne, mensuelle ou les deux : une requête est bloquée dès que l'une est atteinte.",
+    "limitsHint": "Laissez vide pour illimité. Définissez une limite quotidienne, mensuelle ou les deux : une requête est bloquée dès que l'une est atteinte. Les limites mensuelles de requêtes et de données s'appliquent par connexion ; les limites quotidiennes cumulent toutes les connexions.",
     "dailyAboveMonthly": "La limite quotidienne ne peut pas dépasser la limite mensuelle."
   },
   "serviceAccounts": {

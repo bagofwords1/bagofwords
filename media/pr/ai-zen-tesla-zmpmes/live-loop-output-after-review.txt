@@ -1,0 +1,255 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+PASS baseline run records today's usage in all four metrics {"delta_today": {"tokens": 1200, "queries": 2, "data_bytes": 462, "spend": 1.2}, "run_status": "success"}
+PASS daily and monthly counters move together {"delta_month": {"tokens": 1200, "queries": 2, "data_bytes": 462, "spend": 1.2}}
+PASS daily window is today in the org timezone {"window": ["2026-11-22T22:00:00", "2026-11-23T22:00:00"], "timezone": "Asia/Jerusalem"}
+PASS daily tokens cap reached → run blocked by the daily cap {"limits": {"daily_token_limit": 10691}, "run_status": "error", "message": "Organization usage quota reached: Daily LLM token quota exceeded. Resets at 00:00 Asia/Jerusalem (in 50m).  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', '", "tools": [], "grew_by": 0}
+PASS daily spend cap reached → run blocked by the daily cap {"limits": {"daily_spend_limit_usd": 10.500191}, "run_status": "error", "message": "Organization usage quota reached: Daily LLM spend quota exceeded. Resets at 00:00 Asia/Jerusalem (in 50m).  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', '", "tools": [], "grew_by": 0.0}
+PASS daily queries cap reached → run blocked by the daily cap {"limits": {"daily_query_limit": 16}, "run_status": "success", "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ", "tools": [["inspect_data", "error", "Execution error: Daily usage quota exceeded (data queries). Resets at 00:00 Asia/Jerusalem (in 50m)."], ["create_data", "error", "Execution error: Daily usage quota exceeded (data 
+PASS daily data_bytes cap reached → run blocked by the daily cap {"limits": {"daily_data_bytes_limit": 924}, "run_status": "success", "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ", "tools": [["inspect_data", "error", "Execution error: Daily usage quota exceeded (data scanned). Resets at 00:00 Asia/Jerusalem (in 50m)."], ["create_data", "error", "Execution error: Daily usage quota exceeded 
+PASS monthly tokens cap reached → run blocked by the monthly cap {"limits": {"monthly_token_limit": 13391}, "run_status": "error", "message": "Organization usage quota reached: Monthly LLM token quota exceeded.  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', 'provider_message': 'Monthly LLM token q", "tools": [], "grew_by": 0}
+PASS monthly spend cap reached → run blocked by the monthly cap {"limits": {"monthly_spend_limit_usd": 13.200191}, "run_status": "error", "message": "Organization usage quota reached: Monthly LLM spend quota exceeded.  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', 'provider_message': 'Monthly LLM spend q", "tools": [], "grew_by": 0.0}
+PASS monthly queries cap reached → run blocked by the monthly cap {"limits": {"monthly_query_limit": 20}, "run_status": "success", "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ", "tools": [["inspect_data", "error", "Execution error: Monthly usage quota exceeded."], ["create_data", "error", "Execution error: Monthly usage quota exceeded."]], "grew_by": 0}
+PASS monthly data_bytes cap reached → run blocked by the monthly cap {"limits": {"monthly_data_bytes_limit": 924}, "run_status": "success", "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ", "tools": [["inspect_data", "error", "Execution error: Monthly usage quota exceeded."], ["create_data", "error", "Execution error: Monthly usage quota exceeded."]], "grew_by": 0}
+PASS both tokens cap reached → run blocked by the daily cap {"limits": {"daily_token_limit": 16091, "monthly_token_limit": 2609100}, "run_status": "error", "message": "Organization usage quota reached: Daily LLM token quota exceeded. Resets at 00:00 Asia/Jerusalem (in 49m).  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', '", "tools": [], "grew_by": 0}
+PASS both spend cap reached → run blocked by the daily cap {"limits": {"daily_spend_limit_usd": 15.900191, "monthly_spend_limit_usd": 1001590.0191}, "run_status": "error", "message": "Organization usage quota reached: Daily LLM spend quota exceeded. Resets at 00:00 Asia/Jerusalem (in 49m).  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', '", "tools": [], "grew_by": 0.0}
+PASS both queries cap reached → run blocked by the daily cap {"limits": {"daily_query_limit": 24, "monthly_query_limit": 1002400}, "run_status": "success", "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ", "tools": [["inspect_data", "error", "Execution error: Daily usage quota exceeded (data queries). Resets at 00:00 Asia/Jerusalem (in 49m)."], ["create_data", "error", "Execution error: D
+PASS both data_bytes cap reached → run blocked by the daily cap {"limits": {"daily_data_bytes_limit": 924, "monthly_data_bytes_limit": 1092400}, "run_status": "success", "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ", "tools": [["inspect_data", "error", "Execution error: Daily usage quota exceeded (data scanned). Resets at 00:00 Asia/Jerusalem (in 49m)."], ["create_data", "error", "Executi
+{
+  "timezone": "Asia/Jerusalem",
+  "passed": 15,
+  "total": 15,
+  "results": [
+    {
+      "check": "baseline run records today's usage in all four metrics",
+      "pass": true,
+      "delta_today": {
+        "tokens": 1200,
+        "queries": 2,
+        "data_bytes": 462,
+        "spend": 1.2
+      },
+      "run_status": "success"
+    },
+    {
+      "check": "daily and monthly counters move together",
+      "pass": true,
+      "delta_month": {
+        "tokens": 1200,
+        "queries": 2,
+        "data_bytes": 462,
+        "spend": 1.2
+      }
+    },
+    {
+      "check": "daily window is today in the org timezone",
+      "pass": true,
+      "window": [
+        "2026-11-22T22:00:00",
+        "2026-11-23T22:00:00"
+      ],
+      "timezone": "Asia/Jerusalem"
+    },
+    {
+      "check": "daily tokens cap reached \u2192 run blocked by the daily cap",
+      "pass": true,
+      "limits": {
+        "daily_token_limit": 10691
+      },
+      "run_status": "error",
+      "message": "Organization usage quota reached: Daily LLM token quota exceeded. Resets at 00:00 Asia/Jerusalem (in 50m).  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', '",
+      "tools": [],
+      "grew_by": 0
+    },
+    {
+      "check": "daily spend cap reached \u2192 run blocked by the daily cap",
+      "pass": true,
+      "limits": {
+        "daily_spend_limit_usd": 10.500191
+      },
+      "run_status": "error",
+      "message": "Organization usage quota reached: Daily LLM spend quota exceeded. Resets at 00:00 Asia/Jerusalem (in 50m).  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', '",
+      "tools": [],
+      "grew_by": 0.0
+    },
+    {
+      "check": "daily queries cap reached \u2192 run blocked by the daily cap",
+      "pass": true,
+      "limits": {
+        "daily_query_limit": 16
+      },
+      "run_status": "success",
+      "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ",
+      "tools": [
+        [
+          "inspect_data",
+          "error",
+          "Execution error: Daily usage quota exceeded (data queries). Resets at 00:00 Asia/Jerusalem (in 50m)."
+        ],
+        [
+          "create_data",
+          "error",
+          "Execution error: Daily usage quota exceeded (data queries). Resets at 00:00 Asia/Jerusalem (in 50m)."
+        ]
+      ],
+      "grew_by": 0
+    },
+    {
+      "check": "daily data_bytes cap reached \u2192 run blocked by the daily cap",
+      "pass": true,
+      "limits": {
+        "daily_data_bytes_limit": 924
+      },
+      "run_status": "success",
+      "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ",
+      "tools": [
+        [
+          "inspect_data",
+          "error",
+          "Execution error: Daily usage quota exceeded (data scanned). Resets at 00:00 Asia/Jerusalem (in 50m)."
+        ],
+        [
+          "create_data",
+          "error",
+          "Execution error: Daily usage quota exceeded (data scanned). Resets at 00:00 Asia/Jerusalem (in 50m)."
+        ]
+      ],
+      "grew_by": 0
+    },
+    {
+      "check": "monthly tokens cap reached \u2192 run blocked by the monthly cap",
+      "pass": true,
+      "limits": {
+        "monthly_token_limit": 13391
+      },
+      "run_status": "error",
+      "message": "Organization usage quota reached: Monthly LLM token quota exceeded.  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', 'provider_message': 'Monthly LLM token q",
+      "tools": [],
+      "grew_by": 0
+    },
+    {
+      "check": "monthly spend cap reached \u2192 run blocked by the monthly cap",
+      "pass": true,
+      "limits": {
+        "monthly_spend_limit_usd": 13.200191
+      },
+      "run_status": "error",
+      "message": "Organization usage quota reached: Monthly LLM spend quota exceeded.  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', 'provider_message': 'Monthly LLM spend q",
+      "tools": [],
+      "grew_by": 0.0
+    },
+    {
+      "check": "monthly queries cap reached \u2192 run blocked by the monthly cap",
+      "pass": true,
+      "limits": {
+        "monthly_query_limit": 20
+      },
+      "run_status": "success",
+      "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ",
+      "tools": [
+        [
+          "inspect_data",
+          "error",
+          "Execution error: Monthly usage quota exceeded."
+        ],
+        [
+          "create_data",
+          "error",
+          "Execution error: Monthly usage quota exceeded."
+        ]
+      ],
+      "grew_by": 0
+    },
+    {
+      "check": "monthly data_bytes cap reached \u2192 run blocked by the monthly cap",
+      "pass": true,
+      "limits": {
+        "monthly_data_bytes_limit": 924
+      },
+      "run_status": "success",
+      "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ",
+      "tools": [
+        [
+          "inspect_data",
+          "error",
+          "Execution error: Monthly usage quota exceeded."
+        ],
+        [
+          "create_data",
+          "error",
+          "Execution error: Monthly usage quota exceeded."
+        ]
+      ],
+      "grew_by": 0
+    },
+    {
+      "check": "both tokens cap reached \u2192 run blocked by the daily cap",
+      "pass": true,
+      "limits": {
+        "daily_token_limit": 16091,
+        "monthly_token_limit": 2609100
+      },
+      "run_status": "error",
+      "message": "Organization usage quota reached: Daily LLM token quota exceeded. Resets at 00:00 Asia/Jerusalem (in 49m).  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', '",
+      "tools": [],
+      "grew_by": 0
+    },
+    {
+      "check": "both spend cap reached \u2192 run blocked by the daily cap",
+      "pass": true,
+      "limits": {
+        "daily_spend_limit_usd": 15.900191,
+        "monthly_spend_limit_usd": 1001590.0191
+      },
+      "run_status": "error",
+      "message": "Organization usage quota reached: Daily LLM spend quota exceeded. Resets at 00:00 Asia/Jerusalem (in 49m).  {'code': 'usage_cap', 'provider': 'custom', 'model': 'stub-priced', 'status': None, 'summary': 'Organization usage quota reached', '",
+      "tools": [],
+      "grew_by": 0.0
+    },
+    {
+      "check": "both queries cap reached \u2192 run blocked by the daily cap",
+      "pass": true,
+      "limits": {
+        "daily_query_limit": 24,
+        "monthly_query_limit": 1002400
+      },
+      "run_status": "success",
+      "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ",
+      "tools": [
+        [
+          "inspect_data",
+          "error",
+          "Execution error: Daily usage quota exceeded (data queries). Resets at 00:00 Asia/Jerusalem (in 49m)."
+        ],
+        [
+          "create_data",
+          "error",
+          "Execution error: Daily usage quota exceeded (data queries). Resets at 00:00 Asia/Jerusalem (in 49m)."
+        ]
+      ],
+      "grew_by": 0
+    },
+    {
+      "check": "both data_bytes cap reached \u2192 run blocked by the daily cap",
+      "pass": true,
+      "limits": {
+        "daily_data_bytes_limit": 924,
+        "monthly_data_bytes_limit": 1092400
+      },
+      "run_status": "success",
+      "message": "**\ud83e\udde0 Planning (research) \u2192 inspect_data \u2717**\nInspecting all sources in parallel.\n\n**\ud83e\udde0 Planning (action) \u2192 create_data \u2717**\nCreating one summary per source in parallel.\n\n**\ud83e\udde0 Planning (unknown) \u2713**\nAll 1 sources processed. Each orders table was ",
+      "tools": [
+        [
+          "inspect_data",
+          "error",
+          "Execution error: Daily usage quota exceeded (data scanned). Resets at 00:00 Asia/Jerusalem (in 49m)."
+        ],
+        [
+          "create_data",
+          "error",
+          "Execution error: Daily usage quota exceeded (data scanned). Resets at 00:00 Asia/Jerusalem (in 49m)."
+        ]
+      ],
+      "grew_by": 0
+    }
+  ]
+}

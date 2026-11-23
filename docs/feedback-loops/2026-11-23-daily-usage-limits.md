@@ -131,3 +131,15 @@ live-loop, Haiku and Playwright output).
 - Wider e2e sweep (`-k "whoami or quota or usage or organization"`): the same
   25 failures/errors (dashboards, org isolation / OIDC sign-in) occur with this
   change stashed — pre-existing and unrelated; with it, 23 more tests pass.
+
+## Review round 1 — four cases the first version missed
+
+| # | Case | Root cause | Fix | Regression test |
+|---|---|---|---|---|
+| 1 | A run still buffering at midnight: its pre-midnight usage counted against the new day's cap, and the flush charged it to the new day | Pending usage was one running total; the daily check and the daily counter write both used "now" | Buffers keep `(time, amount)`; daily checks count only what happened inside the current day; the flush charges each amount to the day it happened (`_increment_daily_by_day`, data events carry `at`). A `_utcnow()` seam lets tests move the clock | `test_usage_buffered_before_midnight_stays_on_that_day` (all four metrics, both days' totals asserted) |
+| 2 | Daily spend + monthly tokens both exhausted → "resets at midnight", but tomorrow is still blocked | The spend check raised before the token check ran | `_llm_breach` evaluates every token and spend cap, then prefers any monthly breach | `test_a_monthly_cap_on_another_metric_wins_over_a_daily_reset` (both mixes) |
+| 3 | "150 queries/day" next to "100 per connection/month" rejected | Monthly query/data caps apply per connection; daily ones count all connections, so the comparison mixed scopes | Daily ≤ monthly is checked only for tokens and spend (API `_DAILY_MONTHLY_PAIRS`, UI `COMPARABLE_DAILY_MONTHLY`); the form hint says monthly query/data caps are per connection | `test_daily_data_cap_above_the_per_connection_monthly_cap_is_accepted`; `frontend/tests/unit/quotaLimitInputs.mjs` |
+| 4 | Renaming a policy re-saved `$0.004` as `$0` and `1,024 B` as `0 MB` | The editor re-parsed every rounded input on save | Untouched inputs are sent back as their exact stored value (`frontend/utils/quotaLimitInputs.ts` `limitValue`) | `frontend/tests/unit/quotaLimitInputs.mjs`; Playwright `tools/agent/daily_limits_review_ui.cjs` (name-only edit keeps 0.004 / 1024 / 1536) |
+
+After the fixes: backend usage suites 147 passed; frontend unit test passes;
+live loop 15/15 again; full Playwright UI flow passes; review UI checks 5/5.

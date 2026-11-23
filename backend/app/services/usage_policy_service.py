@@ -83,6 +83,12 @@ WINDOW_DAILY = "daily"
 _DAILY_DATA_KEY = "__daily__"
 
 
+def _utcnow() -> datetime:
+    """The service's clock (naive UTC). One seam so tests can move time across
+    midnight without patching datetime itself."""
+    return datetime.utcnow()
+
+
 def daily_metric(metric: str) -> str:
     return f"{metric}{DAILY_METRIC_SUFFIX}"
 
@@ -144,7 +150,7 @@ def build_limit_exceeded(
 ) -> UsageLimitExceeded:
     """One place that words a cap error, so every enforcement path (LLM, data,
     buffered or direct) tells the user which window ran out and when it resets."""
-    now = now or datetime.utcnow()
+    now = now or _utcnow()
     detail = _LIMIT_MESSAGES[(window, metric)]
     if window == WINDOW_DAILY:
         tz_name = tz_name or "UTC"
@@ -295,7 +301,14 @@ class UsageLimitContext:
     _cached_daily_used: int = field(default=0, init=False, repr=False)
     _cached_daily_spend_limit_micro: Optional[int] = field(default=None, init=False, repr=False)
     _cached_daily_spend_used_micro: int = field(default=0, init=False, repr=False)
+    _cached_day_start: Optional[datetime] = field(default=None, init=False, repr=False)
     _cached_day_end: Optional[datetime] = field(default=None, init=False, repr=False)
+    # When each buffered amount happened: (utc time, amount). Daily caps only
+    # count what was used inside the current day, and the flush charges each
+    # amount to the day it happened — a run that buffers usage at 23:59 must
+    # not spend tomorrow's budget, nor be blocked by it after midnight.
+    _pending_token_log: List[tuple] = field(default_factory=list, init=False, repr=False)
+    _pending_cost_log: List[tuple] = field(default_factory=list, init=False, repr=False)
     _cached_timezone: str = field(default="UTC", init=False, repr=False)
     _cache_loaded_at: float = field(default=-1.0, init=False, repr=False)
     _CACHE_TTL_SECONDS: float = field(default=30.0, init=False, repr=False)
@@ -351,6 +364,7 @@ class UsageLimitContext:
             return
         root = self._root()
         root._pending_tokens += int(amount)
+        root._pending_token_log.append((_utcnow(), int(amount)))
         if metadata is not None:
             root._last_metadata = metadata
 
@@ -362,6 +376,7 @@ class UsageLimitContext:
             return
         root = self._root()
         root._pending_cost_micro += int(amount_micro_usd)
+        root._pending_cost_log.append((_utcnow(), int(amount_micro_usd)))
         if metadata is not None:
             root._last_cost_metadata = metadata
 
@@ -411,6 +426,7 @@ class UsageLimitContext:
                 await _used(daily_metric(METRIC_LLM_COST), day_start)
                 if limits.daily_spend_micro_usd is not None else 0
             )
+            self._cached_day_start = day_start
             self._cached_day_end = day_end
             self._cached_timezone = limits.timezone
         import time as _time
@@ -421,7 +437,16 @@ class UsageLimitContext:
             return True
         # The day rolled over since the last load: yesterday's daily usage
         # must not keep blocking (or keep counting toward) today.
-        return self._cached_day_end is not None and datetime.utcnow() >= self._cached_day_end
+        return self._cached_day_end is not None and _utcnow() >= self._cached_day_end
+
+    def _in_cached_day(self, log: List[tuple]) -> int:
+        """Sum of the buffered amounts that happened inside the cached day."""
+        if self._cached_day_start is None or self._cached_day_end is None:
+            return sum(amount for _, amount in log)
+        return sum(
+            amount for at, amount in log
+            if self._cached_day_start <= at < self._cached_day_end
+        )
 
     async def _ensure_fresh(self) -> None:
         import time as _time
@@ -466,14 +491,7 @@ class UsageLimitContext:
 
         await self._ensure_fresh()
 
-        # Spend caps: this call's dollar cost isn't known until after the
-        # provider responds, so we can't project it. Instead we stop once
-        # the buffered+recorded spend has already reached a cap — the same
-        # one-call grace window the token cap tolerates.
-        if self._cached_spend_limit_micro is not None or self._cached_daily_spend_limit_micro is not None:
-            await self._enforce_spend_cap()
-
-        if self._token_breach(requested_tokens) is None:
+        if self._llm_breach(requested_tokens) is None:
             return
 
         # We *might* be over — but our cache could be stale low. Force a
@@ -482,55 +500,49 @@ class UsageLimitContext:
             self._cache_lock = asyncio.Lock()
         async with self._cache_lock:
             await self._refresh_quota_cache()
-        breach = self._token_breach(requested_tokens)
+        breach = self._llm_breach(requested_tokens)
         if breach is not None:
-            window, limit, used = breach
+            metric, window, limit, used, requested = breach
             raise build_limit_exceeded(
-                METRIC_LLM_TOKENS, window,
-                limit=limit, used=used, requested=int(requested_tokens),
+                metric, window,
+                limit=limit, used=used, requested=requested,
                 tz_name=self._cached_timezone,
             )
 
-    def _token_breach(self, requested_tokens: int) -> Optional[tuple]:
-        """(window, limit, used) of the first token cap this call would pass,
-        or None. Monthly is checked first: when both are exhausted the user
-        should hear about the one that lasts longer."""
-        pending = self._pending_tokens
-        for window, limit, used in (
-            (WINDOW_MONTHLY, self._cached_limit, self._cached_used),
-            (WINDOW_DAILY, self._cached_daily_limit, self._cached_daily_used),
-        ):
-            if limit is not None and used + pending + int(requested_tokens) > limit:
-                return window, limit, used + pending
-        return None
+    def _llm_breach(self, requested_tokens: int) -> Optional[tuple]:
+        """(metric, window, limit, used, requested) of the cap this LLM call
+        would pass, or None.
 
-    def _spend_breach(self) -> Optional[tuple]:
-        pending = self._pending_cost_micro
-        for window, limit, used in (
-            (WINDOW_MONTHLY, self._cached_spend_limit_micro, self._cached_spend_used_micro),
-            (WINDOW_DAILY, self._cached_daily_spend_limit_micro, self._cached_daily_spend_used_micro),
-        ):
-            if limit is not None and used + pending >= limit:
-                return window, limit, used + pending
-        return None
+        Spend caps: this call's dollar cost isn't known until the provider
+        responds, so they block once recorded+buffered spend has reached the
+        cap — the same one-call grace window the token cap tolerates.
 
-    async def _enforce_spend_cap(self) -> None:
-        """Raise UsageLimitExceeded if accumulated LLM spend has hit a cap."""
-        if self._spend_breach() is None:
-            return
-        # Cache might be stale low — force a refresh and re-check before raising.
-        if self._cache_lock is None:
-            self._cache_lock = asyncio.Lock()
-        async with self._cache_lock:
-            await self._refresh_quota_cache()
-        breach = self._spend_breach()
-        if breach is not None:
-            window, limit, used = breach
-            raise build_limit_exceeded(
-                METRIC_LLM_COST, window,
-                limit=limit, used=used, requested=0,
-                tz_name=self._cached_timezone,
-            )
+        Every token and spend cap is evaluated before choosing. A monthly
+        breach always wins over a daily one, whichever metric it is on: a
+        "resets at midnight" message would be a false promise while a monthly
+        cap keeps blocking tomorrow."""
+        pending_tokens = self._pending_tokens
+        pending_cost = self._pending_cost_micro
+        day_tokens = self._in_cached_day(self._pending_token_log)
+        day_cost = self._in_cached_day(self._pending_cost_log)
+        requested = int(requested_tokens)
+        candidates = (
+            (METRIC_LLM_COST, WINDOW_MONTHLY, self._cached_spend_limit_micro,
+             self._cached_spend_used_micro + pending_cost, 0),
+            (METRIC_LLM_TOKENS, WINDOW_MONTHLY, self._cached_limit,
+             self._cached_used + pending_tokens, requested),
+            (METRIC_LLM_COST, WINDOW_DAILY, self._cached_daily_spend_limit_micro,
+             self._cached_daily_spend_used_micro + day_cost, 0),
+            (METRIC_LLM_TOKENS, WINDOW_DAILY, self._cached_daily_limit,
+             self._cached_daily_used + day_tokens, requested),
+        )
+        for metric, window, limit, used, req in candidates:
+            if limit is None:
+                continue
+            over = used >= limit if metric == METRIC_LLM_COST else used + req > limit
+            if over:
+                return metric, window, limit, used, req
+        return None
 
     async def flush(self) -> None:
         """Persist any buffered tokens, spend, and data-plane usage events.
@@ -549,18 +561,21 @@ class UsageLimitContext:
         if self._pending_tokens <= 0:
             return
         amount = self._pending_tokens
+        log = self._pending_token_log
         meta = self._last_metadata
         self._pending_tokens = 0
+        self._pending_token_log = []
         self._last_metadata = None
         try:
-            await usage_policy_service.record_llm_tokens_with_context(self, amount, meta)
+            await usage_policy_service.record_llm_tokens_with_context(self, amount, meta, occurred=log)
             # Reflect the just-persisted amount in the cache so the next
-            # check_tokens doesn't undercount.
+            # check_tokens doesn't undercount. Daily: only today's share.
             self._cached_used += amount
-            self._cached_daily_used += amount
+            self._cached_daily_used += self._in_cached_day(log)
         except Exception:
             # Best-effort. Re-credit so a future flush retries.
             self._pending_tokens += amount
+            self._pending_token_log = log + self._pending_token_log
             if meta is not None:
                 self._last_metadata = meta
             raise
@@ -569,15 +584,18 @@ class UsageLimitContext:
         if self._pending_cost_micro <= 0:
             return
         amount_micro = self._pending_cost_micro
+        log = self._pending_cost_log
         meta = self._last_cost_metadata
         self._pending_cost_micro = 0
+        self._pending_cost_log = []
         self._last_cost_metadata = None
         try:
-            await usage_policy_service.record_llm_cost_with_context(self, amount_micro, meta)
+            await usage_policy_service.record_llm_cost_with_context(self, amount_micro, meta, occurred=log)
             self._cached_spend_used_micro += amount_micro
-            self._cached_daily_spend_used_micro += amount_micro
+            self._cached_daily_spend_used_micro += self._in_cached_day(log)
         except Exception:
             self._pending_cost_micro += amount_micro
+            self._pending_cost_log = log + self._pending_cost_log
             if meta is not None:
                 self._last_cost_metadata = meta
             raise
@@ -605,14 +623,17 @@ class UsageLimitContext:
             "source": self.source,
             "source_ref_id": self.source_ref_id,
             "metadata": metadata,
+            "at": _utcnow(),
         }
         root = self._root()
         with root._data_lock:
             root._pending_data_events.append(event)
-            for key in ((metric, event["connection_id"]), (metric, _DAILY_DATA_KEY)):
-                entry = root._data_cache.get(key)
-                if entry is not None:
-                    entry["pending"] = entry.get("pending", 0) + int(amount)
+            # Daily entries derive their pending share from the events'
+            # timestamps (see _daily_pending), so only the per-connection
+            # monthly entry keeps a running total.
+            entry = root._data_cache.get((metric, event["connection_id"]))
+            if entry is not None:
+                entry["pending"] = entry.get("pending", 0) + int(amount)
 
     def add_data_query(self, connection_id: str, metadata: Optional[dict] = None) -> None:
         """Buffer one data-query usage event. Cheap, no IO, thread-safe."""
@@ -631,6 +652,7 @@ class UsageLimitContext:
         limit = None
         used = 0
         expires_at = None
+        window_start = None
         tz_name = "UTC"
         if self.session_maker is not None:
             async with self.session_maker() as db:
@@ -644,6 +666,7 @@ class UsageLimitContext:
                         else limits.daily_data_bytes_limit
                     )
                     day_start, expires_at = current_day_window(limits.timezone)
+                    window_start = day_start
                     if limit is not None:
                         used = await usage_policy_service._get_counter_used(
                             db,
@@ -675,6 +698,7 @@ class UsageLimitContext:
                 "limit": limit,
                 "used": used,
                 "loaded_at": _time.monotonic(),
+                "window_start": window_start,
                 "expires_at": expires_at,
                 "timezone": tz_name,
                 # keep unflushed local usage in the projection
@@ -688,7 +712,22 @@ class UsageLimitContext:
         if entry is None or (_time.monotonic() - entry["loaded_at"]) >= self._CACHE_TTL_SECONDS:
             return True
         expires_at = entry.get("expires_at")
-        return expires_at is not None and datetime.utcnow() >= expires_at
+        return expires_at is not None and _utcnow() >= expires_at
+
+    def _daily_pending(self, metric: str, entry: dict) -> int:
+        """Unflushed amount of `metric` that happened inside the entry's day."""
+        start, end = entry.get("window_start"), entry.get("expires_at")
+        with self._data_lock:
+            return sum(
+                event["amount"] for event in self._pending_data_events
+                if event["metric"] == metric
+                and (start is None or start <= event.get("at", start) < end)
+            )
+
+    def _entry_pending(self, metric: str, connection_id: str, entry: dict) -> int:
+        if connection_id == _DAILY_DATA_KEY:
+            return self._daily_pending(metric, entry)
+        return entry.get("pending", 0)
 
     async def _check_data(self, metric: str, connection_id: str, amount: int) -> None:
         """Pre-query quota check. In-memory against the cached limit/counter
@@ -708,20 +747,21 @@ class UsageLimitContext:
                     entry = await self._refresh_data_cache_entry(metric, connection_id)
         if entry["limit"] is None:
             return
-        projected = entry["used"] + entry.get("pending", 0) + int(amount)
+        projected = entry["used"] + self._entry_pending(metric, connection_id, entry) + int(amount)
         if projected <= entry["limit"]:
             return
         # Might be stale low — refresh and re-check before raising.
         entry = await self._refresh_data_cache_entry(metric, connection_id)
         if entry["limit"] is None:
             return
-        projected = entry["used"] + entry.get("pending", 0) + int(amount)
+        pending = self._entry_pending(metric, connection_id, entry)
+        projected = entry["used"] + pending + int(amount)
         if projected > entry["limit"]:
             raise build_limit_exceeded(
                 metric,
                 WINDOW_DAILY if connection_id == _DAILY_DATA_KEY else WINDOW_MONTHLY,
                 limit=entry["limit"],
-                used=entry["used"] + entry.get("pending", 0),
+                used=entry["used"] + pending,
                 requested=int(amount),
                 tz_name=entry.get("timezone"),
             )
@@ -753,11 +793,17 @@ class UsageLimitContext:
         # stay accurate without a DB refresh.
         with self._data_lock:
             for event in events:
-                for key in ((event["metric"], event["connection_id"]), (event["metric"], _DAILY_DATA_KEY)):
-                    entry = self._data_cache.get(key)
-                    if entry is not None:
-                        entry["pending"] = max(entry.get("pending", 0) - event["amount"], 0)
-                        entry["used"] = entry.get("used", 0) + event["amount"]
+                entry = self._data_cache.get((event["metric"], event["connection_id"]))
+                if entry is not None:
+                    entry["pending"] = max(entry.get("pending", 0) - event["amount"], 0)
+                    entry["used"] = entry.get("used", 0) + event["amount"]
+                daily = self._data_cache.get((event["metric"], _DAILY_DATA_KEY))
+                at = event.get("at")
+                if daily is not None and (
+                    daily.get("window_start") is None or at is None
+                    or daily["window_start"] <= at < daily["expires_at"]
+                ):
+                    daily["used"] = daily.get("used", 0) + event["amount"]
 
     def run_blocking(self, coroutine):
         if self.loop and self.loop.is_running():
@@ -1179,6 +1225,7 @@ class UsagePolicyService:
         source: Optional[str] = None,
         source_ref_id: Optional[str] = None,
         metadata: Optional[dict] = None,
+        occurred: Optional[List[tuple]] = None,
     ) -> None:
         if not has_feature("usage_limits") or amount <= 0:
             return
@@ -1194,7 +1241,7 @@ class UsagePolicyService:
             limit=limits.monthly_token_limit,
             enforce_limit=False,
         )
-        await self._increment_daily(db, org_id, user_id, METRIC_LLM_TOKENS, amount, limits.timezone)
+        await self._increment_daily_by_day(db, org_id, user_id, METRIC_LLM_TOKENS, amount, occurred, limits.timezone)
         self._add_event(
             db,
             org_id=org_id,
@@ -1219,6 +1266,7 @@ class UsagePolicyService:
         source: Optional[str] = None,
         source_ref_id: Optional[str] = None,
         metadata: Optional[dict] = None,
+        occurred: Optional[List[tuple]] = None,
     ) -> None:
         """Record LLM spend (in micro-USD) against the monthly spend counter.
 
@@ -1240,7 +1288,7 @@ class UsagePolicyService:
             limit=limits.monthly_spend_micro_usd,
             enforce_limit=False,
         )
-        await self._increment_daily(db, org_id, user_id, METRIC_LLM_COST, amount_micro_usd, limits.timezone)
+        await self._increment_daily_by_day(db, org_id, user_id, METRIC_LLM_COST, amount_micro_usd, occurred, limits.timezone)
         self._add_event(
             db,
             org_id=org_id,
@@ -1358,6 +1406,7 @@ class UsagePolicyService:
         context: UsageLimitContext,
         amount: int,
         metadata: Optional[dict] = None,
+        occurred: Optional[List[tuple]] = None,
     ) -> None:
         if not context.session_maker:
             return
@@ -1370,6 +1419,7 @@ class UsagePolicyService:
                 source=context.source,
                 source_ref_id=context.source_ref_id,
                 metadata=metadata,
+                occurred=occurred,
             )
             await db.commit()
 
@@ -1378,6 +1428,7 @@ class UsagePolicyService:
         context: UsageLimitContext,
         amount_micro_usd: int,
         metadata: Optional[dict] = None,
+        occurred: Optional[List[tuple]] = None,
     ) -> None:
         if not context.session_maker:
             return
@@ -1390,6 +1441,7 @@ class UsagePolicyService:
                 source=context.source,
                 source_ref_id=context.source_ref_id,
                 metadata=metadata,
+                occurred=occurred,
             )
             await db.commit()
 
@@ -1468,11 +1520,14 @@ class UsagePolicyService:
                 limit=None,
                 enforce_limit=False,
             )
-        daily_totals: Dict[str, int] = {}
-        for (metric, _connection_id), amount in totals.items():
-            daily_totals[metric] = daily_totals.get(metric, 0) + amount
-        for metric, amount in daily_totals.items():
-            await self._increment_daily(db, org_id, user_id, metric, amount, limits.timezone)
+        # Daily counters: one per metric per day the events happened on.
+        daily_totals: Dict[tuple, int] = {}
+        for event in events:
+            day_start, _ = current_day_window(limits.timezone, event.get("at") or _utcnow())
+            key = (event["metric"], day_start)
+            daily_totals[key] = daily_totals.get(key, 0) + int(event.get("amount") or 0)
+        for (metric, day_start), amount in daily_totals.items():
+            await self._increment_daily(db, org_id, user_id, metric, amount, limits.timezone, at=day_start)
         for event in events:
             self._add_event(
                 db,
@@ -1948,6 +2003,28 @@ class UsagePolicyService:
                     tz_name=tz_name,
                 )
 
+    async def _increment_daily_by_day(
+        self,
+        db: AsyncSession,
+        org_id: str,
+        user_id: str,
+        metric: str,
+        amount: int,
+        occurred: Optional[List[tuple]],
+        tz_name: str,
+    ) -> None:
+        """Charge `amount` to the day(s) it happened on. `occurred` is the
+        buffer's (utc time, amount) log; without one, everything is today's."""
+        if not occurred:
+            await self._increment_daily(db, org_id, user_id, metric, amount, tz_name)
+            return
+        by_day: Dict[datetime, int] = {}
+        for at, part in occurred:
+            day_start, _ = current_day_window(tz_name, at)
+            by_day[day_start] = by_day.get(day_start, 0) + int(part)
+        for day_start, part in by_day.items():
+            await self._increment_daily(db, org_id, user_id, metric, part, tz_name, at=day_start)
+
     async def _increment_daily(
         self,
         db: AsyncSession,
@@ -1959,6 +2036,7 @@ class UsagePolicyService:
         *,
         limit: Optional[int] = None,
         enforce_limit: bool = False,
+        at: Optional[datetime] = None,
     ) -> None:
         """Add to the user's counter for today (org timezone), counted across
         all connections. Recorded whether or not a daily cap is set, so a cap
@@ -1973,7 +2051,7 @@ class UsagePolicyService:
             amount=amount,
             limit=limit,
             enforce_limit=enforce_limit,
-            window=current_day_window(tz_name),
+            window=current_day_window(tz_name, at),
             window_kind=WINDOW_DAILY,
             tz_name=tz_name,
             limit_metric=metric,
@@ -2014,7 +2092,7 @@ class UsagePolicyService:
 
 
 def current_month_window(now: Optional[datetime] = None) -> tuple[datetime, datetime]:
-    now = now or datetime.utcnow()
+    now = now or _utcnow()
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     if start.month == 12:
         end = start.replace(year=start.year + 1, month=1)
@@ -2034,7 +2112,7 @@ def current_day_window(
         from app.services.reindex_schedule import resolve_timezone
 
         tz = resolve_timezone(tz)
-    now = now or datetime.utcnow()
+    now = now or _utcnow()
     local = now.replace(tzinfo=dt_timezone.utc).astimezone(tz)
     next_day = local.date() + timedelta(days=1)
     start_local = datetime(local.year, local.month, local.day, tzinfo=tz)
@@ -2053,10 +2131,13 @@ _DAILY_LIMIT_FIELDS = (
     "daily_spend_limit_usd",
 )
 
+# Only caps with the same scope are compared. Token and spend caps are per
+# user on both windows. The monthly query/data caps apply per connection
+# (query_limit_for_connection) while the daily ones count every connection
+# together, so "150 queries a day" alongside "100 per connection a month" is a
+# meaningful policy and must not be rejected.
 _DAILY_MONTHLY_PAIRS = (
     ("daily_token_limit", "monthly_token_limit", "token"),
-    ("daily_query_limit", "monthly_query_limit", "query"),
-    ("daily_data_bytes_limit", "monthly_data_bytes_limit", "data"),
     ("daily_spend_limit_usd", "monthly_spend_limit_usd", "spend"),
 )
 

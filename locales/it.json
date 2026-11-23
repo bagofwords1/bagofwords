@@ -6990,7 +6990,7 @@
     "queriesLabel": "Query",
     "dataLabel": "Dati analizzati (MB)",
     "spendLabel": "Spesa LLM (USD)",
-    "limitsHint": "Lascia vuoto per illimitato. Imposta un limite giornaliero, mensile o entrambi: la richiesta viene bloccata quando uno dei due è raggiunto.",
+    "limitsHint": "Lascia vuoto per illimitato. Imposta un limite giornaliero, mensile o entrambi: la richiesta viene bloccata quando uno dei due è raggiunto. I limiti mensili di query e dati valgono per connessione; quelli giornalieri sommano tutte le connessioni.",
     "dailyAboveMonthly": "Il limite giornaliero non può superare quello mensile."
   },
   "serviceAccounts": {

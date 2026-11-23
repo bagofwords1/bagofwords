@@ -6990,7 +6990,7 @@
     "queriesLabel": "Consultas",
     "dataLabel": "Dados escaneados (MB)",
     "spendLabel": "Gasto com LLM (USD)",
-    "limitsHint": "Deixe vazio para ilimitado. Defina um limite diário, mensal ou ambos — a solicitação é bloqueada quando qualquer um é atingido.",
+    "limitsHint": "Deixe vazio para ilimitado. Defina um limite diário, mensal ou ambos — a solicitação é bloqueada quando qualquer um é atingido. Os limites mensais de consultas e dados valem por conexão; os diários somam todas as conexões.",
     "dailyAboveMonthly": "O limite diário não pode ser maior que o limite mensal."
   },
   "serviceAccounts": {
