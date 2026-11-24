@@ -372,16 +372,14 @@
     };
 
     try {
-      const response = await $fetch('/api/auth/jwt/login', {
+      // A directory sign-in can create the account: inside a host
+      // application's sign-in window it is sent with the host's intent or not
+      // at all (utils/embedSignupIntent.ts).
+      const response = await submitWithEmbedIntent(route.query.redirect, headers => $fetch('/api/auth/jwt/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          // A directory sign-in can create the account: inside a host
-          // application's sign-in window it is that application's.
-          ...(await embedSignupHeaders(route.query.redirect)),
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...headers },
         body: qs.stringify(credentials),
-      });
+      }));
 
 
       if (response) {
@@ -405,7 +403,10 @@
         isSubmitting.value = false
       }
     } catch (error: any) {
-      error_message.value = extractErrorMessage(error, t('auth.invalidCredentials'))
+      // Nothing was sent when the host application could not be confirmed.
+      error_message.value = error instanceof EmbedIntentError
+        ? t('embed.signin.intentFailed')
+        : extractErrorMessage(error, t('auth.invalidCredentials'))
       isSubmitting.value = false
     }
   }

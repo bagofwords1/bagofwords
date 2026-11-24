@@ -468,3 +468,12 @@ def test_an_account_a_saml_sign_in_creates_in_an_applications_window_is_its_app_
     reports = test_client.get("/api/reports", headers={"Authorization": f"Bearer {token}",
                                                        "X-Organization-Id": cfg.organization_id})
     assert reports.status_code == (403 if in_window else 200)
+
+
+def test_a_saml_request_that_cannot_be_tied_to_its_application_does_not_start(saml_env):
+    """Fail closed, as for OIDC: an unknown host application starts nothing."""
+    client, cfg, *_ = saml_env
+    refused = client.get(f"/api/auth/saml/{cfg.name}/authorize", params={"embed_host": "host_" + "0" * 20})
+    assert refused.status_code == 403, refused.text
+    assert "authorization_url" not in refused.text
+    assert client.get(f"/api/auth/saml/{cfg.name}/authorize").status_code == 200

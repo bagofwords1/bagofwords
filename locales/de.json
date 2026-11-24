@@ -7756,6 +7756,9 @@
       "denied": "Sie haben keinen Zugriff darauf. Bitten Sie den Eigentümer, es mit Ihnen zu teilen.",
       "notAllowed": "Dies ist für diese Anwendung nicht aktiviert. Ein Bearbeiter kann es in den Einbettungseinstellungen in BOW erlauben.",
       "failed": "Das konnte nicht geladen werden. Versuchen Sie es gleich noch einmal."
+    },
+    "signin": {
+      "intentFailed": "Die App, bei der Sie sich anmelden, konnte nicht bestätigt werden. Es wurde nichts gesendet. Versuchen Sie es erneut."
     }
   },
   "connectedApps": {

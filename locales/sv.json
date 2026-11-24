@@ -7756,6 +7756,9 @@
       "denied": "Du har inte åtkomst till det här. Be ägaren att dela det med dig.",
       "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i BOW.",
       "failed": "Det gick inte att läsa in. Försök igen om en stund."
+    },
+    "signin": {
+      "intentFailed": "Det gick inte att bekräfta appen du loggar in på. Inget skickades. Försök igen."
     }
   },
   "connectedApps": {

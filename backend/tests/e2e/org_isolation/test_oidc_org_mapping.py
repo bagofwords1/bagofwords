@@ -279,6 +279,29 @@ def test_an_abandoned_window_s_authorization_does_not_reach_another_sign_in(test
     assert test_client.get("/api/reports", headers=hdr(session, org)).status_code == 200
 
 
+@pytest.mark.parametrize("named", ["unknown", "disabled", "malformed"])
+def test_an_authorization_that_cannot_be_tied_to_its_application_does_not_start(test_client, monkeypatch, multi_org,
+                                                                               named):
+    """Fail closed: a sign-in that says it belongs to a host application
+    either is bound to it or does not begin. Beginning it unbound would make
+    an ordinary member where the application says app user."""
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[f"{G_FINANCE}:{org}:member"])])
+    host = _portal(test_client, admin, org)
+    if named == "disabled":
+        off = test_client.patch(f"/api/host_applications/{host['id']}", headers=hdr(admin["token"], org),
+                                json={"revision": host["revision"], "enabled": False})
+        assert off.status_code == 200, off.text
+    embed_host = {"unknown": "host_" + "0" * 20, "disabled": host["public_id"], "malformed": "not-a-host"}[named]
+    test_client.cookies.clear()
+    started = test_client.get("/api/auth/corp/authorize", params={"embed_host": embed_host})
+    assert started.status_code == 403, started.text
+    assert "authorization_url" not in started.text and not started.cookies.get("oidc_corp_embed")
+    # The same button outside a window still works.
+    assert test_client.get("/api/auth/corp/authorize").status_code == 200
+
+
 def test_rule_for_an_unknown_organization_is_skipped(test_client, monkeypatch, multi_org):
     admin = bootstrap_admin(test_client)
     idp = FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[

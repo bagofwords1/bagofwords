@@ -7756,6 +7756,9 @@
       "denied": "Vous n'avez pas accès à ce contenu. Demandez à son propriétaire de le partager avec vous.",
       "notAllowed": "Ce contenu n'est pas activé pour cette application. Un éditeur peut l'autoriser dans ses paramètres d'intégration dans BOW.",
       "failed": "Impossible de charger ce contenu. Réessayez dans un instant."
+    },
+    "signin": {
+      "intentFailed": "Impossible de confirmer l'application à laquelle vous vous connectez. Rien n'a été envoyé. Réessayez."
     }
   },
   "connectedApps": {
