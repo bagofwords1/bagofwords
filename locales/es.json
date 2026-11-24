@@ -8709,6 +8709,10 @@
     "shareToggleLabel": "Poner a disposición de toda tu organización",
     "shareToggleHint": "Añade “{name}” a los conectores de todos. Cada persona inicia sesión con su propia cuenta: nadie ve los datos de los demás.",
     "useAsAgent": "Usar como agente",
+    "enableForChat": "Activar para el chat",
+    "disableForChat": "Desactivar para el chat",
+    "enabledHint": "Activado: la IA puede usarlo en el chat",
+    "disabledHint": "Desactivado: la IA no lo usará en el chat",
     "movedToAgents": "{name} ahora es un agente"
   },
   "tablePreview": {

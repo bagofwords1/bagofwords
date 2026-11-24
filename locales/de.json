@@ -7776,6 +7776,10 @@
     "shareToggleLabel": "Für alle in deiner Organisation verfügbar machen",
     "shareToggleHint": "Fügt „{name}“ zu den Konnektoren aller hinzu. Jede Person meldet sich mit ihrem eigenen Konto an — niemand sieht die Daten anderer.",
     "useAsAgent": "Als Agent verwenden",
+    "enableForChat": "Für den Chat aktivieren",
+    "disableForChat": "Für den Chat deaktivieren",
+    "enabledHint": "An – die KI kann ihn im Chat nutzen",
+    "disabledHint": "Aus – die KI nutzt ihn im Chat nicht",
     "movedToAgents": "{name} ist jetzt ein Agent"
   },
   "tablePreview": {

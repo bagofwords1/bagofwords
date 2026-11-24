@@ -84,6 +84,7 @@ from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
 from app.models.user_connection_tool_preference import UserConnectionToolPreference
+from app.models.user_connector_preference import UserConnectorPreference
 from app.models.tool_confirmation import ToolConfirmation
 from app.models.officejs_pending_result import OfficeJsPendingResult
 from app.models.login_exchange_code import LoginExchangeCode

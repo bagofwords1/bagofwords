@@ -8738,6 +8738,10 @@
     "shareToggleLabel": "Make available to everyone in your org",
     "shareToggleHint": "Adds “{name}” to everyone's connectors. Each person signs in with their own account — nobody sees anyone else's data.",
     "useAsAgent": "Use as agent",
+    "enableForChat": "Turn on for chat",
+    "disableForChat": "Turn off for chat",
+    "enabledHint": "On — the AI can use this in chat",
+    "disabledHint": "Off — the AI won't use this in chat",
     "movedToAgents": "{name} is now an agent"
   },
   "tablePreview": {

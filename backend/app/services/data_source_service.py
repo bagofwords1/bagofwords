@@ -1877,6 +1877,16 @@ class DataSourceService:
         last_used_by_ds = await self._last_used_at_by_ds(
             db, organization, current_user, data_sources
         )
+        # The current user's chat on/off choices for connectors, batched: one
+        # query for the whole list. Only ids switched OFF come back (default ON).
+        disabled_connector_ids: set = set()
+        from app.ai.tools.implementations.agent_focus_common import _is_personal_connector
+        if current_user:
+            from app.services.connector_preference_service import get_disabled_connector_ids
+            disabled_connector_ids = await get_disabled_connector_ids(
+                db, str(current_user.id), str(organization.id),
+                data_source_ids=[str(d.id) for d in data_sources],
+            )
 
         # Compute once whether the current user has admin-level access to data sources
         # (full_admin_access or org-level create_data_source).
@@ -1970,6 +1980,11 @@ class DataSourceService:
                 kind=_ds_kind(d),
                 kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
+                # Personal connectors only: the chat toggle state (default ON).
+                # Agents and shared/org-wide connectors leave this None — the
+                # run-time filter only drops personal connectors, so only they
+                # may report a toggle state (same predicate the filter uses).
+                chat_enabled=(str(d.id) not in disabled_connector_ids) if _is_personal_connector(d) else None,
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
