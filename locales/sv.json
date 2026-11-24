@@ -7776,6 +7776,10 @@
     "shareToggleLabel": "Gör tillgänglig för alla i organisationen",
     "shareToggleHint": "Lägger till ”{name}” bland allas kopplingar. Var och en loggar in med sitt eget konto — ingen ser någon annans data.",
     "useAsAgent": "Använd som agent",
+    "enableForChat": "Aktivera för chatt",
+    "disableForChat": "Inaktivera för chatt",
+    "enabledHint": "På – AI:n kan använda den i chatten",
+    "disabledHint": "Av – AI:n använder den inte i chatten",
     "movedToAgents": "{name} är nu en agent"
   },
   "tablePreview": {

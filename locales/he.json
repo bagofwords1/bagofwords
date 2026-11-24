@@ -8729,6 +8729,10 @@
     "shareToggleLabel": "להנגיש לכל הארגון",
     "shareToggleHint": "מוסיף את “{name}” למחברים של כולם. כל אחד מתחבר עם החשבון שלו — אף אחד לא רואה מידע של אחרים.",
     "useAsAgent": "שימוש כסוכן",
+    "enableForChat": "הפעלה בצ'אט",
+    "disableForChat": "כיבוי בצ'אט",
+    "enabledHint": "פעיל — ה-AI יכול להשתמש בו בצ'אט",
+    "disabledHint": "כבוי — ה-AI לא ישתמש בו בצ'אט",
     "movedToAgents": "{name} הוא עכשיו סוכן"
   },
   "tablePreview": {

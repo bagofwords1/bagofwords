@@ -368,6 +368,18 @@ class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
         from_attributes = True
 
 
+class ConnectorChatPreferenceUpdate(BaseModel):
+    """Body for PUT /data_sources/{id}/chat-preference — the user's on/off
+    choice for a personal connector in the chat composer."""
+    enabled: bool
+
+
+class ConnectorChatPreference(BaseModel):
+    """The saved on/off choice for one connector."""
+    data_source_id: str
+    enabled: bool
+
+
 class DataSourceListItemSchema(AgentIconTokenMixin):
     limited_access: bool = False
     """List item schema for DataSource with nested connection info."""
@@ -414,6 +426,10 @@ class DataSourceListItemSchema(AgentIconTokenMixin):
     # Catalog key for a known connector (e.g. "notion", "monday"), so the UI can
     # render the provider's icon instead of the generic MCP glyph. None otherwise.
     connector_key: Optional[str] = None
+    # Connectors only: the current user's chat on/off choice (the connectors
+    # menu toggle). True = joins runs as usual, False = switched off for chat;
+    # None for agents (the toggle does not apply). Default True when unset.
+    chat_enabled: Optional[bool] = None
 
     # Legacy fields for backward compatibility - computed from first connection
     type: Optional[str] = None

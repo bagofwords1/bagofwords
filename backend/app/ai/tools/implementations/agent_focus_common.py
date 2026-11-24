@@ -328,6 +328,19 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         agents = await accessible_agents(db, organization, user)
     if exclude_personal_connectors:
         agents = [ds for ds in agents if not _is_personal_connector(ds)]
+    # A connector the user switched OFF in the chat composer contributes
+    # nothing: dropped here, it gets no client, no schema and no tool
+    # definitions, and its tools never reach discovery or execution. Only
+    # personal connectors are affected — a pinned agent is never filtered — and
+    # an anonymous run (no user) has no preferences to apply. One indexed query.
+    if user is not None:
+        from app.services.connector_preference_service import get_disabled_connector_ids
+        disabled = await get_disabled_connector_ids(
+            db, str(getattr(user, "id", "") or ""), str(organization.id),
+            data_source_ids=[str(ds.id) for ds in agents if _is_personal_connector(ds)],
+        )
+        if disabled:
+            agents = [ds for ds in agents if str(ds.id) not in disabled]
     from app.services.connected_application_service import filter_agents
     agents = await filter_agents(db, agents, organization.id)
     return [ds for ds in agents if DataSourceService.is_execution_live(ds)]
