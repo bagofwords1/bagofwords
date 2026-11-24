@@ -1,6 +1,8 @@
 # Release Notes
 
 ## Version 0.0.636 (November 24, 2026)
+- Added PII policies per agent; an agent's policy merges with the provider's and the strictest rule wins (#1911) — set in Settings → PII or the agent's settings
+- Added a SharePoint Server lists connector for on-prem SharePoint 2013+ over NTLM or Kerberos (#1910)
 - Added a Fathom connector for meetings, summaries and transcripts, with each user signing in to their own account (#1905)
 - Added sending requested files back to the user over WhatsApp (#1903)
 - Added removing a report from a project on the project page (#1902)
@@ -9,6 +11,8 @@
 - Changed a shared folder's instruction list in the Knowledge Explorer to show status, Pending review, category and load mode, like an agent's list (#1908)
 - Fixed result cards in chat opening collapsed, and a pending wait's Cancel button scrolling out of view (#1897)
 - Fixed Power BI schema refresh failing when one semantic model has no readable tables; that model is now skipped with a warning (#1907)
+- Fixed the Outlook Mail connect form missing its setup steps; it now lists the Entra app steps, permissions and the redirect URI to copy (#1912)
+- Fixed slow opening of shared dashboards with large results, which also blocked other requests while loading (#1909)
 
 ## Version 0.0.635 (November 23, 2026)
 - Added agents with no data connection, built from instructions, files and a description only (#1895)
