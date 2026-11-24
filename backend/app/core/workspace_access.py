@@ -96,7 +96,9 @@ def is_open(path: str, method: str) -> bool:
 #
 # * a registration or password/LDAP sign-in carries it in the
 #   ``X-Embed-Signup`` header of that request (the form asks for it as it
-#   submits, so it is always fresh);
+#   submits, so it is always fresh). A header that is supplied and not valid
+#   (expired, forged) refuses the request: it is never run as an ordinary
+#   sign-up;
 # * an OIDC authorization gets it in a cookie that names that authorization's
 #   own ``state``; the callback accepts it only for that state;
 # * a SAML request gets it in a cookie bound to that request's browser token
@@ -255,10 +257,22 @@ def _cookie(scope, name: str) -> Optional[str]:
     return None
 
 
+class _InvalidIntent(Exception):
+    """The request supplied an intent that is not valid (expired, forged,
+    issued for something else)."""
+
+
 def _intent_of_scope(scope) -> Optional[SignupIntent]:
     for key, value in scope.get("headers") or ():
         if key == INTENT_HEADER.encode():
-            return decode_signup_intent(value.decode("latin-1"), INTENT_FORM)
+            intent = decode_signup_intent(value.decode("latin-1"), INTENT_FORM)
+            if intent is None:
+                # Supplied and not valid: the request says it belongs to a
+                # host application and cannot prove which. Refuse it rather
+                # than run it as an ordinary sign-up, which would create a
+                # member where the application says app user.
+                raise _InvalidIntent()
+            return intent
     match = _OIDC_CALLBACK.match(scope.get("path") or "")
     if match:
         from urllib.parse import parse_qs
@@ -309,7 +323,20 @@ class SignupIntentMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        intent = _intent_of_scope(scope)
+        try:
+            intent = _intent_of_scope(scope)
+        except _InvalidIntent:
+            import json
+
+            body = json.dumps({
+                "detail": "This sign-in could not be tied to its application. Try again.",
+                "error_code": ErrorCode.EMBED_NOT_ALLOWED.value, "params": {}, "status_code": 403,
+            }).encode()
+            await send({"type": "http.response.start", "status": 403, "headers": [
+                (b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()),
+                (b"cache-control", b"no-store")]})
+            await send({"type": "http.response.body", "body": body})
+            return
         if intent is None:
             return await self.app(scope, receive, send)
         async with signup_intent_scope(intent):

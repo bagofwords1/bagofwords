@@ -483,24 +483,54 @@ def test_an_abandoned_window_does_not_follow_the_browser(people, corpus, corpus_
     assert people.has_workspace(headers)
 
 
-def test_an_expired_intent_is_an_ordinary_sign_up_and_the_form_asks_at_submit(people, corpus, corpus_rows,
-                                                                             test_client, monkeypatch):
-    """An intent lives minutes, and the form asks for it as it submits, so
-    how long the window sat open does not matter. One that did expire is not
-    honoured: the account is then an ordinary sign-up, by the organization's
-    own policy."""
+@pytest.mark.parametrize("supplied", ["expired", "forged", "garbage", "for_another_transaction"])
+def test_a_supplied_intent_that_is_not_valid_refuses_the_registration(people, corpus, corpus_rows, test_client,
+                                                                      monkeypatch, supplied):
+    """A request that says it belongs to a host application and cannot prove
+    which is refused before any account exists. It is never run as an
+    ordinary sign-up (that would make a member where the application says
+    app user). The form asks again as it resubmits, and that one goes
+    through; a sign-up with no intent at all is still an ordinary one."""
+    import time
+
+    import jwt
+
     from app.core import workspace_access
 
     _domain_signup(corpus_rows, corpus, "slow.example")
     host = _host_app(test_client, corpus)
-    monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", -10)  # issued already expired
-    stale = _register(test_client, "hal@slow.example", _intent(test_client, host))
-    assert stale.status_code == 201, stale.text
-    monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", 600)
-    fresh = _register(test_client, "ivy@slow.example", _intent(test_client, host))
-    assert fresh.status_code == 201, fresh.text
-    assert people.member(stale.json()["id"])["role"] == "member"
-    assert people.member(fresh.json()["id"])["role"] == "app_user"
+    if supplied == "expired":
+        monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", -10)  # issued already expired
+        header = _intent(test_client, host)
+        monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", 600)
+    elif supplied == "forged":
+        now = int(time.time())
+        header = {"X-Embed-Signup": jwt.encode({
+            "host": host["public_id"], "hid": host["id"], "org": people.org, "role": "member", "started": now - 1,
+            "for": "form", "aud": "bow:embed-signup", "exp": now + 600}, "not-the-key", algorithm="HS256")}
+    elif supplied == "garbage":
+        header = {"X-Embed-Signup": "x"}
+    else:  # a real token, issued for an OIDC authorization's state rather than a form
+        from types import SimpleNamespace
+
+        header = {"X-Embed-Signup": workspace_access.issue_signup_intent(SimpleNamespace(
+            public_id=host["public_id"], id=host["id"], organization_id=people.org, new_user_role="app_user"),
+            "some-oidc-state")}
+
+    refused = _register(test_client, "hal@slow.example", header)
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["error_code"] == "embed.not_allowed"
+    assert _count(corpus_rows, "select count(*) from users where lower(email) = 'hal@slow.example'") == 0
+    assert not [m for m in people.members() if "hal@slow.example" in str(m)]
+    login = test_client.post("/api/auth/jwt/login", headers=header,
+                             data={"username": "hal@slow.example", "password": "Password123!"})
+    assert login.status_code == 403  # the same for a sign-in that could create a directory account
+
+    again = _register(test_client, "hal@slow.example", _intent(test_client, host))  # the form resubmits
+    assert again.status_code == 201, again.text
+    assert people.member(again.json()["id"])["role"] == "app_user"
+    plain = _register(test_client, "ivy@slow.example")  # no window at all
+    assert plain.status_code == 201 and people.member(plain.json()["id"])["role"] == "member"
 
 
 def test_a_disabled_application_opens_no_sign_up_window(people, corpus, corpus_rows, test_client):
