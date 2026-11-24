@@ -163,3 +163,12 @@ async def test_a_queued_question_keeps_typing_until_its_own_run_ends():
 
     _run_ended("sys-2")
     assert not _typing_is_on()
+
+
+@pytest.fixture(autouse=True)
+def _member_has_workspace_access(monkeypatch):
+    """These tests drive a member's chat message on a mocked database, which
+    can't resolve permissions; the app-user gate (#1914) is covered by its own
+    tests, so a member here has the workspace."""
+    monkeypatch.setattr("app.core.workspace_access.has_workspace_access",
+                        AsyncMock(return_value=True))

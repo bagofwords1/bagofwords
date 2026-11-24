@@ -606,7 +606,7 @@ _EXPECTED_LITERAL_RULES = {
     "QlikSenseOnPremClient": "standard", "S3Client": "standard", "SalesforceClient": "backslash",
     "SapBwXmlaClient": "standard", "SapDatasphereClient": "standard", "SapHanaClient": "standard",
     "ServiceDemoClient": "standard", "ServiceNowClient": "standard", "SharepointClient": "standard",
-    "SharepointListsClient": "standard", "SharepointOnpremClient": "standard", "SisenseClient": "standard",
+    "SharepointListsClient": "standard", "SharepointOnpremClient": "standard", "SharepointOnpremListsClient": "standard", "SisenseClient": "standard",
     "SlackMessagesClient": "standard", "SnowflakeClient": "doubled", "SparkConnectClient": "backslash", "SpectrumClient": "standard",
     "SplunkClient": None, "SqliteClient": "standard", "TableauClient": "standard",
     "TeradataClient": "standard", "TimbrA2aClient": "standard", "TimbrClient": "standard",

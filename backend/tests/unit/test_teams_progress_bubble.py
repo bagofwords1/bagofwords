@@ -741,3 +741,12 @@ async def test_failed_run_creation_does_not_leave_a_bubble(teams):
     # The run never started, so no bubble is shown at all.
     assert teams.activities == []
     assert CONV not in teams_stream._conversations
+
+
+@pytest.fixture(autouse=True)
+def _member_has_workspace_access(monkeypatch):
+    """These tests drive a member's chat message on a mocked database, which
+    can't resolve permissions; the app-user gate (#1914) is covered by its own
+    tests, so a member here has the workspace."""
+    monkeypatch.setattr("app.core.workspace_access.has_workspace_access",
+                        AsyncMock(return_value=True))
