@@ -466,9 +466,9 @@ class OrganizationService:
 
         # An existing account joins directly: adding someone who already has an
         # account (in this or another organization) makes them a member right
-        # away, with no invite to accept. Only an instance administrator's
-        # account still joins by accepting an invite — an organization never
-        # places it in itself. An unknown account id is left to the insert.
+        # away, with no invite to accept. An instance administrator's account
+        # may only be added by another instance administrator (403 otherwise),
+        # and then joins directly too. An unknown account id is left to the insert.
         is_self = lambda u: str(u.id) == str(getattr(current_user, "id", ""))  # noqa: E731
         target = user
         if target is None and membership_data.user_id:
@@ -481,18 +481,7 @@ class OrganizationService:
                     "This account is an instance administrator. Only an instance "
                     "administrator can add it to an organization.",
                 )
-            if is_instance_admin_account(target):
-                target_email = (target.email or "").strip().lower()
-                if user is None and await self._is_email_already_in_organization(
-                    db, target_email, membership_data.organization_id
-                ):
-                    raise HTTPException(status_code=400, detail="Already a member with this email")
-                user = None
-                membership_data.user_id = None
-                membership_data.email = target_email
-                invitation_email = target_email
-            else:
-                user = target
+            user = target
 
         if user:
             membership_data.user_id = user.id

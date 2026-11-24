@@ -4,8 +4,8 @@ Contract:
 
 * Adding the address of an existing account attaches that account directly,
   whether it belongs to another organization or to none: it becomes a member
-  at once, with no invite to accept. Only an instance administrator's account
-  still joins by accepting an invite.
+  at once, with no invite to accept. An instance administrator's account can
+  only be added by another instance administrator, and then joins directly too.
 * Adding by account id instead of address follows the same rule.
 * Member lists show a person's chat identities for the listing organization
   only.
@@ -126,7 +126,7 @@ def test_org_admin_cannot_add_an_instance_administrator(test_client, instance_ad
     assert run(get_user_row(o["admin_id"])) == before
 
 
-def test_instance_administrator_is_invited_not_attached_even_by_another_instance_administrator(
+def test_instance_administrator_added_by_another_instance_administrator_joins_directly(
     test_client, instance_admin, multi_org_flag,
 ):
     o = instance_admin
@@ -134,8 +134,8 @@ def test_instance_administrator_is_invited_not_attached_even_by_another_instance
 
     added = invite(test_client, admin_token=o["b_token"], org_id=o["b_org"], email=o["admin_email"])
 
-    assert added["user_id"] is None
-    assert not is_member(test_client, o["admin_token"], o["b_org"])
+    assert added["user_id"] == o["admin_id"]
+    assert is_member(test_client, o["admin_token"], o["b_org"])
 
 
 def test_deactivated_instance_administrator_is_not_reactivated_by_being_added(
