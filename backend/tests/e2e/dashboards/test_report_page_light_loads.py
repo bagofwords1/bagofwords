@@ -98,10 +98,12 @@ def test_open_state_reads_no_step_rows(corpus, corpus_rows, test_client):
     assert body["newest_here"]["version_id"] == corpus.ids[f"{DASH}/v1"]
     assert reads.statements == []
 
-    # Someone else's conversation is still not found.
+    # An editor of the dashboard asking about someone else's conversation is
+    # still not found: the owner check on the light report load runs.
+    _grant_editor(test_client, corpus, aid, "member")
     other = test_client.get(f"/api/artifacts/{aid}/open-state", params={"report_id": report_id},
                             headers=as_(corpus, "member"))
-    assert other.status_code in (403, 404)
+    assert other.status_code == 404, other.text
 
 
 @pytest.mark.e2e
