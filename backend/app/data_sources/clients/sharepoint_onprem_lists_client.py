@@ -53,7 +53,7 @@ import textwrap
 import time
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote, urlsplit
 
 import pandas as pd
@@ -551,19 +551,30 @@ class SharepointOnpremListsClient(DataSourceClient):
         names = ", ".join(sorted(str(item.get("Title") or "?") for item in candidates))
         raise ValueError(f"SharePoint list '{ref}' not found. Available lists: {names}")
 
-    def _request_parts(self, cols: List[_ListColumn], expand_ok: bool) -> Tuple[List[str], List[str], set]:
-        """$select / $expand for these columns, and which lookups are expanded."""
+    def _request_parts(self, cols: List[_ListColumn], mode: str,
+                       required: frozenset) -> Tuple[List[str], List[str], set]:
+        """$select / $expand for these columns, and which lookups are expanded.
+
+        `mode` is "all" (expand up to MAX_EXPANSIONS person/lookup columns),
+        "required" (only those the filter or sort reads) or "none". Columns in
+        `required` are always expanded first: a filter or sort compares names,
+        so those must never be the ones that fall back to IDs.
+        """
         select = ["ID", "FileSystemObjectType"]
         expand: List[str] = []
         expanded: set = set()
+        lookups = sorted((c for c in cols if c.is_lookup), key=lambda c: c.internal not in required)
+        for c in lookups:
+            wanted = mode == "all" or (mode == "required" and c.internal in required)
+            if wanted and len(expanded) < MAX_EXPANSIONS:
+                expanded.add(c.internal)
         for c in cols:
             if c.internal == "ID":
                 continue
             if c.is_lookup:
-                if expand_ok and len(expanded) < MAX_EXPANSIONS:
+                if c.internal in expanded:
                     select.append(f"{c.entity}/{c.lookup_field}")
                     expand.append(c.entity)
-                    expanded.add(c.internal)
                 else:
                     select.append(f"{c.entity}Id")
             elif c.text_entity:
@@ -632,20 +643,44 @@ class SharepointOnpremListsClient(DataSourceClient):
             return _html_to_text(html.unescape(value) if "&lt;" in value[:40] else value)
         return value
 
-    def _iter_items(self, item: dict, cols: List[_ListColumn], id_only: List[str]) -> Iterator[Dict[str, Any]]:
-        """Every non-folder item, in ID order, as {internal name: value}.
+    def _scan(self, item: dict, cols: List[_ListColumn], *, keep, stop_at: Optional[int],
+              required: frozenset = frozenset()) -> _ScanResult:
+        """Read the list in ID order, keeping the rows `keep` accepts.
 
-        Pages are requested from the last ID seen, never by following a link the
-        server returned. A page too large for the response bound is retried at
-        half the size; a refused lookup expansion is retried with IDs only.
+        Every list item counts against `max_items` — folders included, since
+        they cost the server the same — and no page asks for more than the
+        allowance left, so a query never reads past it. Whether more items
+        remain comes from the response itself (a next link, unread items on the
+        page, or a full page from a server that sends no links); nothing is
+        fetched just to find out.
+
+        Pages are requested from the last ID seen, never by following a link
+        the server returned. A page too large for the response bound is retried
+        at half the size. A refused lookup expansion is retried with only the
+        filter/sort columns expanded, then with none; a filter or sort column
+        that cannot be expanded is an error, never a silent ID comparison.
         """
         path = self._list_path(item) + "/items"
-        page = self.page_size
-        expand_ok = True
-        saw_next = False
+        page_cap = self.page_size
+        mode = "all"
+        saw_links = False
         last_id = 0
+        rows: List[Dict[str, Any]] = []
+        scanned = 0
+        id_only: List[str] = []
         while True:
-            select, expand, expanded = self._request_parts(cols, expand_ok)
+            allowance = self.max_items - scanned
+            if allowance <= 0:
+                return _ScanResult(rows=rows, scanned=scanned, exhausted=False, id_only=id_only)
+            page = min(page_cap, allowance)
+            select, expand, expanded = self._request_parts(cols, mode, required)
+            if required - expanded:
+                names = ", ".join(c.display for c in cols if c.internal in required - expanded)
+                raise ValueError(
+                    f"SharePoint would not return names for {names}, which the filter or sort uses "
+                    "(the server limits person/lookup columns per query). Filter or sort on fewer "
+                    "person/lookup columns, or filter on their IDs."
+                )
             params: Dict[str, Any] = {"$select": ",".join(select), "$top": page}
             if expand:
                 params["$expand"] = ",".join(expand)
@@ -654,13 +689,19 @@ class SharepointOnpremListsClient(DataSourceClient):
             try:
                 data = self._get(path, params)
             except _ResponseTooLarge:
-                if page <= MIN_PAGE_SIZE:
+                if page_cap <= MIN_PAGE_SIZE:
                     raise ValueError("SharePoint list items are too large to read; select fewer columns.")
-                page = max(MIN_PAGE_SIZE, page // 2)
+                page_cap = max(MIN_PAGE_SIZE, page_cap // 2)
                 continue
             except (ListThresholdError, _FieldRejected) as exc:
                 if expand and (isinstance(exc, _FieldRejected) or exc.lookup):
-                    expand_ok = False
+                    if mode == "required":
+                        raise ValueError(
+                            "SharePoint refused to return names for the person/lookup columns the "
+                            "filter or sort uses. Filter or sort on fewer of them, or on their IDs."
+                        ) from exc
+                    # Keep the filter/sort columns as names if dropping the rest is enough.
+                    mode = "required" if required and len(expanded) > len(required) else "none"
                     continue
                 if isinstance(exc, ListThresholdError) and exc.lookup:
                     raise ValueError(
@@ -673,54 +714,43 @@ class SharepointOnpremListsClient(DataSourceClient):
                         "Ask a SharePoint administrator to check the list's throttling settings."
                     ) from exc
                 raise ValueError("SharePoint rejected the requested columns for this list.") from exc
-            if not expand_ok:
-                for c in cols:
-                    if c.is_lookup and c.display not in id_only:
-                        id_only.append(c.display)
-            elif expand and len(expanded) < sum(1 for c in cols if c.is_lookup):
-                for c in cols:
-                    if c.is_lookup and c.internal not in expanded and c.display not in id_only:
-                        id_only.append(c.display)
+            for c in cols:
+                if c.is_lookup and c.internal not in expanded and c.display not in id_only:
+                    id_only.append(c.display)
+
             results = _results(data.get("results", data.get("value"))) or []
-            progressed = False
-            for raw in results:
-                item_id = raw.get("ID", raw.get("Id"))
-                try:
-                    item_id = int(item_id)
-                except (TypeError, ValueError):
-                    continue
-                if item_id <= last_id:
-                    continue
-                last_id, progressed = item_id, True
-                if raw.get("FileSystemObjectType") == 1:
-                    continue  # a folder, not a row
-                yield {c.internal: self._value(raw, c, expanded) for c in cols}
-            more = bool(data.get("__next") or data.get("odata.nextLink") or data.get("@odata.nextLink"))
-            saw_next = saw_next or more
+            linked = bool(data.get("__next") or data.get("odata.nextLink") or data.get("@odata.nextLink"))
+            saw_links = saw_links or linked
             # A server that links pages says when there is no next one; without
             # links, only a short page proves the end.
-            if not progressed or not (more or (not saw_next and len(results) >= page)):
-                return
-
-    def _scan(self, item: dict, cols: List[_ListColumn], *, keep, stop_at: Optional[int]) -> _ScanResult:
-        rows: List[Dict[str, Any]] = []
-        scanned = 0
-        id_only: List[str] = []
-        iterator = self._iter_items(item, cols, id_only)
-        exhausted = True
-        for raw in iterator:
-            if scanned >= self.max_items:
-                exhausted = False
-                break
-            scanned += 1
-            if keep(raw):
-                rows.append(raw)
+            more_pages = linked or (not saw_links and len(results) >= page)
+            fresh = []
+            for raw in results:
+                try:
+                    item_id = int(raw.get("ID", raw.get("Id")))
+                except (TypeError, ValueError):
+                    continue
+                if item_id > (fresh[-1][0] if fresh else last_id):
+                    fresh.append((item_id, raw))
+            if not fresh:
+                return _ScanResult(rows=rows, scanned=scanned, exhausted=True, id_only=id_only)
+            for index, (item_id, raw) in enumerate(fresh):
+                if scanned >= self.max_items:
+                    return _ScanResult(rows=rows, scanned=scanned, exhausted=False, id_only=id_only)
+                last_id = item_id
+                scanned += 1
+                if raw.get("FileSystemObjectType") == 1:
+                    continue  # a folder, not a row
+                row = {c.internal: self._value(raw, c, expanded) for c in cols}
+                if not keep(row):
+                    continue
+                rows.append(row)
                 if stop_at is not None and len(rows) >= stop_at:
-                    # Only say "there is more" when there is: look one item ahead.
-                    exhausted = next(iterator, None) is None
-                    break
-        iterator.close()
-        return _ScanResult(rows=rows, scanned=scanned, exhausted=exhausted, id_only=id_only)
+                    rest = any(r.get("FileSystemObjectType") != 1 for _, r in fresh[index + 1:])
+                    return _ScanResult(rows=rows, scanned=scanned, exhausted=not (rest or more_pages),
+                                       id_only=id_only)
+            if not more_pages:
+                return _ScanResult(rows=rows, scanned=scanned, exhausted=True, id_only=id_only)
 
     def execute_query(self, query: Optional[str] = None, table_name: Optional[str] = None, **kwargs) -> pd.DataFrame:
         """Run a list query spec and return a DataFrame.
@@ -759,16 +789,24 @@ class SharepointOnpremListsClient(DataSourceClient):
             known = ", ".join(c.display for c in cols)
             raise ValueError(f"{exc} Columns on list '{title}': {known}") from exc
 
-        needed = {c.internal for c in selected}
-        needed |= set(flt.keys) if flt else set()
-        needed |= {c.key for c, _ in order}
+        compared = set(flt.keys) if flt else set()
+        compared |= {c.key for c, _ in order}
+        needed = {c.internal for c in selected} | compared
         fetch = [c for c in cols if c.internal in needed or c.internal == "ID"]
+        # Person/lookup columns the filter or sort reads must arrive as names.
+        required = frozenset(c.internal for c in fetch if c.is_lookup and c.internal in compared)
+        if len(required) > MAX_EXPANSIONS:
+            raise ValueError(
+                f"The filter and sort use {len(required)} person/lookup columns; SharePoint can "
+                f"return names for at most {MAX_EXPANSIONS} per query. Use fewer of them."
+            )
 
         started = time.perf_counter()
         result = self._scan(
             target, fetch,
             keep=flt.matches if flt else (lambda _row: True),
             stop_at=None if (flt or order) else limit,
+            required=required,
         )
         rows = sort_rows(result.rows, order) if order else result.rows
         cut_by_limit = len(rows) > limit
