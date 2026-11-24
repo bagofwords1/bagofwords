@@ -201,12 +201,32 @@ export const DELIVERABLE_TOOLS = new Set<string>([
   'create_agent',
   'create_demo_dataset',
   'send_email',
+  // Actions the user approved or asked to undo: their outcome ("deleted 12
+  // rows", "cancelled") must stay in view after the run folds.
+  'delete_list_rows',
+  'set_report_agents',
+  'cancel_wait',
+  'cancel_scheduled_task',
+  'stop_eval_run',
+  'stop_sub_agent',
 ])
 
 const CODE_TOOLS = new Set(['create_and_execute_code', 'execute_code', 'execute_sql'])
 
 function isDeliverableTool(name: string): boolean {
   return DELIVERABLE_TOOLS.has(name) || (name.startsWith('submit_') && name !== 'submit_list')
+}
+
+/** A `wait` call that is still armed: scheduled, not cancelled, and its wake
+    time not yet passed. Its card carries the countdown and the only Cancel for
+    the pending resume, so the run fold must keep it in view (like a running
+    eval's Stop). `now` is injectable for tests. */
+export function isPendingWait(te: any, now: number = Date.now()): boolean {
+  if (String(te?.tool_name || '') !== 'wait') return false
+  const rj = te?.result_json || {}
+  if (rj.status !== 'scheduled') return false
+  const wakeAt = toMs(rj.wake_at)
+  return wakeAt === null || wakeAt > now
 }
 
 /** Identity of the thing a block delivered. Two blocks with the same key are
