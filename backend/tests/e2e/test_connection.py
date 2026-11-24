@@ -767,3 +767,88 @@ def test_unified_athena_connection_indexes_bare_tables_with_tenant_db(
     assert [entry["name"] for entry in unreadable] == ["locked_db"], unreadable
     assert "AccessDenied" in unreadable[0]["reason"]
     assert final["stats"]["unreadable_dataset_count"] == 1
+
+
+def _unified_branches(sql):
+    import sqlglot
+    from sqlglot import exp
+
+    tree = sqlglot.parse_one(sql, read="athena")
+    (subquery,) = [s for s in tree.find_all(exp.Subquery) if s.alias_or_name == "assets"]
+    branches = []
+    stack = [subquery.this]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, exp.Union):
+            assert not node.args.get("distinct"), sql
+            stack.extend([node.expression, node.this])
+        else:
+            branches.append(node)
+    return branches
+
+
+@pytest.mark.e2e
+def test_unified_athena_query_through_the_api_sends_one_branch_per_tenant(
+    athena_glue, create_connection, test_client, create_user, login_user, whoami,
+):
+    from sqlglot import exp
+
+    from app.data_sources.clients import aws_athena_client as athena_module
+    from tests.e2e.test_connection_indexing import _poll_until_terminal
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    connection = create_connection(
+        name="Athena unified query", type="aws_athena",
+        config=_athena_config("acme_db, globex_db", unify_tables=True),
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    assert _poll_until_terminal(test_client, connection["id"], token, org_id)["status"] == "completed"
+
+    agent = test_client.post(
+        "/api/data_sources", json={"name": "Unified agent", "connection_ids": [connection["id"]]}, headers=headers,
+    )
+    assert agent.status_code == 200, agent.text
+    agent_id = agent.json()["id"]
+    selected = test_client.put(
+        f"/api/data_sources/{agent_id}/update_tables_status",
+        json={"activate": ["assets"], "deactivate": ["alerts", "users"]},
+        headers=headers,
+    )
+    assert selected.status_code == 200, selected.text
+
+    def preview(sql):
+        code = (
+            "def generate_df(ds_clients, excel_files):\n"
+            f"    return next(iter(ds_clients.values())).execute_query({sql!r})\n"
+        )
+        response = test_client.post(
+            "/api/entities/preview", json={"code": code, "data_source_ids": [agent_id]}, headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    wrangler = athena_module.wr
+    ran = preview("SELECT id FROM assets")
+    assert not ran.get("error"), ran
+    sql = wrangler.calls[-1]["sql"]
+    assert wrangler.calls[-1]["database"] is None
+
+    branches = _unified_branches(sql)
+    tenants = []
+    for branch in branches:
+        first = branch.expressions[0]
+        assert isinstance(first, exp.Alias) and first.alias == "tenant_db", sql
+        assert isinstance(first.this, exp.Literal) and first.this.is_string, sql
+        tenants.append(first.this.this)
+        source = branch.args["from"].this
+        assert (source.catalog.lower(), source.db, source.name) == ("awsdatacatalog", first.this.this, "assets")
+    assert sorted(tenants) == ["acme_db", "globex_db"]
+
+    calls = len(wrangler.calls)
+    refused = preview("SELECT * FROM alerts")
+    assert refused.get("error"), refused
+    assert len(wrangler.calls) == calls
