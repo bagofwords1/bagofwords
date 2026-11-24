@@ -561,3 +561,46 @@ def test_unreadable_sql_is_refused_with_unified_guidance(wrangler):
     assert "<database>.<table>" not in str(raised.value)
     assert "unified" in str(raised.value)
     assert wrangler.calls == []
+
+
+NARROWED = {
+    "acme_db": ["assets", "users"],
+    "globex_db": ["assets", "alerts", "orders"],
+    "initech_db": ["orders"],
+    "umbrella_db": ["orders"],
+    "broken_db": _glue_error("AccessDeniedException"),
+}
+NARROWED_COLUMNS = {
+    ("globex_db", "orders"): [{"Name": "total", "Type": "boolean"}],
+    ("initech_db", "orders"): [{"Name": "total", "Type": "int"}],
+    ("umbrella_db", "orders"): [{"Name": "total", "Type": "int"}],
+}
+
+
+@pytest.mark.parametrize("database", ["*_db, !globex_db, !broken_db", "ACME_DB, INITECH_DB, UMBRELLA_DB"])
+def test_stored_tenants_outside_the_database_setting_are_not_queried_or_named(wrangler, database):
+    rows = stored_rows(unified_client("*_db", FakeGlue(NARROWED, columns=NARROWED_COLUMNS)))
+    client = unified_client(database, FakeGlue(NARROWED, columns=NARROWED_COLUMNS))
+    client.attach_table_metadata(rows)
+
+    client.execute_query("SELECT id FROM assets")
+    assert branch_tenants(wrangler.calls[-1]) == ["acme_db"]
+    client.execute_query("SELECT total FROM orders")
+    assert branch_tenants(wrangler.calls[-1]) == ["initech_db", "umbrella_db"]
+    calls = len(wrangler.calls)
+    with pytest.raises(ValueError):
+        client.execute_query("SELECT * FROM alerts")
+    assert len(wrangler.calls) == calls
+    assert "globex_db" not in client.description
+    assert "broken_db" not in client.description
+
+
+def test_single_database_unified_client_reads_only_its_database_from_stored_rows(wrangler):
+    rows = stored_rows(unified_client("*_db", FakeGlue(NARROWED, columns=NARROWED_COLUMNS)))
+    client = unified_client("globex_db", FakeGlue(NARROWED, columns=NARROWED_COLUMNS))
+    client.attach_table_metadata(rows)
+    client.execute_query("SELECT * FROM assets")
+    assert branch_tenants(wrangler.calls[-1]) == ["globex_db"]
+    with pytest.raises(ValueError):
+        client.execute_query("SELECT * FROM users")
+    assert "acme_db" not in client.description

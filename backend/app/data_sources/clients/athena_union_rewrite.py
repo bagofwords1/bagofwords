@@ -1,5 +1,5 @@
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
 
 import sqlglot
 from sqlglot import exp
@@ -39,6 +39,17 @@ class UnifiedTable:
             tenants=tuple(tenants),
             casts={t: dict(c) for t, c in (metadata.get(TENANT_CASTS_KEY) or {}).items()},
             missing={t: frozenset(c) for t, c in (metadata.get(TENANT_MISSING_KEY) or {}).items()},
+        )
+
+    def restricted_to(self, keep: Callable[[str], bool]) -> "UnifiedTable | None":
+        tenants = tuple(t for t in self.tenants if keep(t))
+        if not tenants:
+            return None
+        return replace(
+            self,
+            tenants=tenants,
+            casts={t: c for t, c in self.casts.items() if t in tenants},
+            missing={t: c for t, c in self.missing.items() if t in tenants},
         )
 
 

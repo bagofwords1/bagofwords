@@ -16,7 +16,9 @@ from datetime import datetime, timedelta, timezone
 import os
 from botocore.config import Config as BotoConfig
 from app.utils.safe_regex import compile_bounded, pattern_cost_problem
-from app.data_sources.clients.athena_unified_catalog import UNREADABLE_TENANTS_KEY, unify_glue_catalogs
+from app.data_sources.clients.athena_unified_catalog import (
+    EXCLUDED_TENANTS_KEY, UNREADABLE_TENANTS_KEY, unify_glue_catalogs,
+)
 from app.data_sources.clients.athena_union_rewrite import Rewrite, UnifiedTable, rewrite_unified
 from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN
 from sqlglot import exp
@@ -798,11 +800,16 @@ class AwsAthenaClient(DataSourceClient):
                 if not isinstance(meta, dict):
                     continue
                 table = UnifiedTable.from_metadata(t["name"], meta)
+                table = table.restricted_to(self._spec_matches) if table is not None else None
                 if table is None:
                     continue
                 learned[table.name] = table
-                unreadable.update(x for x in meta.get(UNREADABLE_TENANTS_KEY) or [] if isinstance(x, str))
-                dropped = [x for x in meta.get("excluded_tenants") or [] if isinstance(x, str)]
+                unreadable.update(
+                    x for x in meta.get(UNREADABLE_TENANTS_KEY) or [] if isinstance(x, str) and self._spec_matches(x)
+                )
+                dropped = [
+                    x for x in meta.get(EXCLUDED_TENANTS_KEY) or [] if isinstance(x, str) and self._spec_matches(x)
+                ]
                 if dropped:
                     excluded[table.name] = dropped
             self._unified_tables = learned
