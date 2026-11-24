@@ -199,6 +199,27 @@ def test_an_integer_past_64_bits_falls_back_with_a_log_line_and_a_correct_body(m
     assert "north" not in message and "1180591620717411303424" not in message
 
 
+def test_the_fallback_log_line_carries_orjsons_reason(module_logs):
+    """orjson's error is always a TypeError; its message says why."""
+    json_response({"rows": [{"total": 2 ** 70, "name": "north"}]})
+    records = [r for r in module_logs.records if r.name == "app.core.json_response"]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert "64-bit" in message
+    assert "north" not in message and "1180591620717411303424" not in message
+
+
+def test_a_payload_with_an_sa_key_logs_one_line_with_the_size(module_logs):
+    """The "_sa" path walks the payload again; ops see why the response is slow."""
+    body = json_response({"rows": [{"_sales": 5, "region": "north"}]}).body
+    records = [r for r in module_logs.records if r.name == "app.core.json_response"]
+    assert len(records) == 1
+    assert records[0].levelno == logging.INFO
+    message = records[0].getMessage()
+    assert str(len(body)) in message
+    assert "north" not in message and "5" not in message.replace(str(len(body)), "")
+
+
 def test_an_integer_past_64_bits_next_to_an_sa_key_parses_like_the_default_path():
     payload = {"rows": [{"total": 2 ** 70, "_sales": 3}]}
     assert json.loads(json_response(payload).body) == _old_body(payload) == {"rows": [{"total": 2 ** 70}]}
