@@ -134,6 +134,32 @@ stub fixes *what* is asked; the data path (planner tool call → create_data →
 codegen → sandboxed `generate_df` → connector → NTLM → mock) is the product's.
 A real model's choice of filter is **not** verified here.
 
+## Review fixes ([bagofwords1/bagofwords#1910](https://github.com/bagofwords1/bagofwords/pull/1910))
+
+Two findings, both reproduced on `7d0324f` with the simulated provider before
+fixing:
+
+1. **Selecting more columns could drop matching rows.** `Rota` filtered by
+   `Person 14 eq 'Noa Cohen'` returned 1 row with `select: ["Title"]` and 0 with
+   all columns: the first 10 person/lookup columns took the expansion budget,
+   so the filter compared Person 14's numeric ID with a name. Now
+   `_request_parts` expands the columns the filter or sort reads first; if the
+   server refuses, it retries with only those expanded; a filter/sort column
+   that still cannot be named is an error, never an ID-vs-name comparison.
+2. **Folder-heavy lists could read past Max items per query.** With 20
+   folders, page size 2 and `max_items=2`, a sort made 12 item requests: folders
+   were skipped before the counter saw them, and a look-ahead fetched another
+   page. `_scan` now counts every list item (folders too), asks no page for
+   more than the remaining allowance, and decides "more remain" from the
+   response (next link, unread items on the page) instead of fetching.
+
+| Check | Before (`7d0324f`) | After |
+|---|---|---|
+| Reviewer repro: person filter, narrow vs wide select | 1 vs 0 rows | 1 vs 1 |
+| Reviewer repro: folders, page 2, `max_items=2` | 12 requests, IDs 21, 22 | 1 request, truncation notice |
+| New invariant tests (person filter × 14 columns × 2 names; scan allowance × 5 shapes × 2 specs; lower/zero server join limit; page-boundary limit) | 19 failed | all pass (88 in the file) |
+| Live, real NTLM: 2,500-item allowance on the 12,000-item list | — | pages of 1,000 + 1,000 + 500, notice "Read the first 2,500 items" |
+
 ## Against a real farm (Loop C, credentials required)
 
 ```bash

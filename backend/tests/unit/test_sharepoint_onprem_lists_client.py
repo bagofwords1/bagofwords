@@ -364,3 +364,81 @@ def test_http_errors_are_mapped_without_provider_text(sp_lists, status):
     with pytest.raises(ValueError) as e:
         query(client(), list="Projects")
     assert "secret.config" not in str(e.value) and str(status) in str(e.value)
+
+
+# ------------------------------------------- review #1910: filter correctness
+
+ROTA_PEOPLE = [f"Person {i}" for i in range(1, 15)]
+
+
+@pytest.mark.parametrize("person", ROTA_PEOPLE)
+@pytest.mark.parametrize("name", ["Dana Levi", "noa cohen"])
+def test_a_person_filter_matches_the_same_rows_whatever_is_selected(sp_lists, person, name):
+    """Filtering on any person column compares names, however many other
+    person columns the query also returns."""
+    expr = f"{person} eq '{name}'"
+    narrow = query(client(), list="Rota", filter=expr, select=["Title"])
+    wide = query(client(), list="Rota", filter=expr)
+    rota = next(l for l in sp_lists.lists if l.title == "Rota")
+    uid = {"dana levi": 7, "noa cohen": 8}[name.lower()]
+    field = person.replace(" ", "")
+    expected = [it["ID"] for it in rota.items if it.get(field) == uid]
+    assert list(narrow["id"]) == list(wide["id"]) == expected
+
+
+def test_orderby_on_a_person_column_sorts_by_name_not_id(sp_lists):
+    df = query(client(), list="Rota", orderby="Person 14 desc, Title")
+    assert list(df["id"]) == [1]
+    df = query(client(), list="Expenses", filter="Approver ne null", orderby="Approver, Title",
+               select=["Title", "Reviewers", "Project", "Created By", "Modified By"])
+    approvers = {r["ID"]: r["Approver"] for r in truth(sp_lists, "Expenses", lambda it: it.get("Approver"))}
+    names = [{7: "Dana Levi", 8: "Noa Cohen", 9: "Avi Mizrahi"}[approvers[i]] for i in df["id"]]
+    assert names == sorted(names, key=str.casefold)
+
+
+def test_when_the_server_allows_few_joins_filter_columns_keep_their_names(sp_lists):
+    sp_lists.lookup_threshold = 1
+    df = query(client(), list="Expenses", filter="Approver eq 'Noa Cohen'",
+               select=["Title", "Reviewers", "Project", "Created By"])
+    assert list(df["Title"]) == ["O'Brien taxi"]
+    # The other person/lookup columns fell back to IDs, and the result says so.
+    assert "Reviewers" in df.attrs["bow_notice"]
+
+
+def test_a_filter_column_the_server_will_not_name_is_an_error_not_a_wrong_answer(sp_lists):
+    sp_lists.lookup_threshold = 0
+    with pytest.raises(ValueError) as e:
+        query(client(), list="Expenses", filter="Approver eq 'Noa Cohen'")
+    assert "Approver" in str(e.value) or "filter or sort" in str(e.value)
+    # Without a person filter the same list still reads, with IDs and a notice.
+    df = query(client(), list="Expenses", select=["Title", "Approver"])
+    assert len(df) == 6 and "Approver" in df.attrs["bow_notice"]
+
+
+# --------------------------------------------- review #1910: scan allowance
+
+@pytest.mark.parametrize("folders,page_size,max_items", [
+    (20, 2, 2), (20, 7, 15), (0, 3, 10), (5, 1000, 4), (30, 4, 30),
+])
+@pytest.mark.parametrize("spec", [{"orderby": "Title"}, {"filter": "Status eq 'Open'"}])
+def test_a_scan_never_reads_past_max_items_folders_included(sp_lists, folders, page_size, max_items, spec):
+    tickets = next(l for l in sp_lists.lists if l.title == "Tickets")
+    for it in tickets.items[:folders]:
+        it["FileSystemObjectType"] = 1
+    c = client(max_items=max_items)
+    c.page_size = page_size
+    df = query(c, list="Tickets", **spec)
+    asked = [int(r["params"]["$top"]) for r in item_requests(sp_lists)]
+    assert sum(asked) <= max_items
+    assert len(asked) <= math.ceil(max_items / page_size)
+    # Only items within the allowance can appear, and the cut is reported.
+    assert all(i <= max_items for i in df["id"])
+    assert df.attrs["truncated"] is True and f"{max_items:,} items" in df.attrs["bow_notice"]
+
+
+def test_a_limit_on_a_page_boundary_does_not_fetch_another_page(sp_lists):
+    c = client()
+    c.page_size = 100
+    df = query(c, list="Tickets", limit=100)
+    assert len(df) == 100 and len(item_requests(sp_lists)) == 1
+    assert df.attrs["truncated"] is True     # the server's next link says more exist
