@@ -47,9 +47,11 @@ class _Paginator:
 class FakeGlue:
     """`databases` maps a name to table names, or to an exception raised while reading it."""
 
-    def __init__(self, databases, fail_database_page=None, forbid_database_listing=False, columns=None):
+    def __init__(self, databases, fail_database_page=None, forbid_database_listing=False, columns=None, locations=None):
         self.databases = databases
         self.columns = columns or {}
+        self.locations = locations or {}
+        self.get_table_calls = []
         self.fail_database_page = fail_database_page
         self.forbid_database_listing = forbid_database_listing
 
@@ -75,10 +77,24 @@ class FakeGlue:
 
         return _Tables()
 
+    def get_table(self, DatabaseName, Name):
+        self.get_table_calls.append((DatabaseName, Name))
+        value = self.databases.get(DatabaseName)
+        if isinstance(value, Exception):
+            raise value
+        if value is None or Name not in value:
+            raise _glue_error("EntityNotFoundException")
+        table = _glue_table(Name, self.columns.get((DatabaseName, Name)))
+        location = self.locations.get((DatabaseName, Name))
+        if location:
+            table["StorageDescriptor"]["Location"] = location
+        return {"Table": table}
+
 
 class FakeWrangler:
     def __init__(self):
         self.calls = []
+        self.outcomes = []
 
     class _Athena:
         def __init__(self, outer):
@@ -87,6 +103,10 @@ class FakeWrangler:
         def read_sql_query(self, **kwargs):
             inspect.signature(real_wr.athena.read_sql_query).bind(**kwargs)
             self.outer.calls.append(kwargs)
+            if self.outer.outcomes:
+                outcome = self.outer.outcomes.pop(0)
+                if outcome is not None:
+                    raise outcome
             import pandas as pd
             return pd.DataFrame({"n": [1]})
 

@@ -257,3 +257,156 @@ def test_fresh_client_names_excluded_tenants_from_stored_metadata_alone(wrangler
     fresh = unified_client("*_db", FakeGlue({}))
     fresh.attach_table_metadata(rows)
     assert "orders leaves out c_db" in fresh.description
+
+
+def query_failed(text):
+    from awswrangler.exceptions import QueryFailed
+
+    return QueryFailed(text)
+
+
+def branch_tenants(call):
+    import sqlglot
+
+    return sorted({t.db for t in sqlglot.parse_one(call["sql"], read="athena").find_all(sqlglot.exp.Table)})
+
+
+OWNER_COLUMNS = {
+    ("acme_db", "assets"): [{"Name": "id", "Type": "int"}, {"Name": "owner", "Type": "varchar"}],
+    ("globex_db", "assets"): [{"Name": "id", "Type": "int"}, {"Name": "owner", "Type": "varchar"}],
+}
+
+
+def test_missing_tenant_table_is_dropped_and_the_query_retried(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    wrangler.outcomes = [
+        query_failed("TABLE_NOT_FOUND: line 1:15: Table 'awsdatacatalog.globex_db.assets' does not exist")
+    ]
+    df = client.execute_query("SELECT id FROM assets")
+    assert len(df) == 1
+    assert len(wrangler.calls) == 2
+    assert branch_tenants(wrangler.calls[0]) == ["acme_db", "globex_db"]
+    assert branch_tenants(wrangler.calls[1]) == ["acme_db"]
+    assert "assets leaves out globex_db" in client.description
+
+
+def test_table_name_match_is_case_insensitive_and_ignores_tables_not_in_the_query(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    wrangler.outcomes = [
+        query_failed("TABLE_NOT_FOUND: line 1:15: Table 'AwsDataCatalog.GLOBEX_DB.Assets' does not exist"),
+        query_failed("TABLE_NOT_FOUND: line 1:15: Table 'awsdatacatalog.globex_db.alerts' does not exist"),
+    ]
+    with pytest.raises(Exception, match="Query execution failed"):
+        client.execute_query("SELECT id FROM assets")
+    assert len(wrangler.calls) == 2
+    assert client._query_left_out == {"assets": {"globex_db": "table vanished"}}
+
+
+@pytest.mark.parametrize("message", [
+    "COLUMN_NOT_FOUND: line 1:8: Column 'owner' cannot be resolved",
+    "COLUMN_NOT_FOUND: line 1:8: Column 'owner' cannot be resolved or requester is not authorized "
+    "to access requested resources",
+])
+def test_missing_column_is_traced_to_the_tenant_through_glue(wrangler, message):
+    glue = FakeGlue(DATABASES, columns=dict(OWNER_COLUMNS))
+    client = indexed_client(glue)
+    glue.columns[("globex_db", "assets")] = [{"Name": "id", "Type": "int"}]
+    wrangler.outcomes = [query_failed(message)]
+    client.execute_query("SELECT owner FROM assets")
+    assert branch_tenants(wrangler.calls[1]) == ["acme_db"]
+    assert client._query_left_out == {"assets": {"globex_db": "column missing"}}
+
+
+def test_column_missing_everywhere_is_the_users_error_and_drops_nothing(wrangler):
+    glue = FakeGlue(DATABASES, columns=dict(OWNER_COLUMNS))
+    client = indexed_client(glue)
+    glue.columns = {k: [{"Name": "id", "Type": "int"}] for k in OWNER_COLUMNS}
+    wrangler.outcomes = [query_failed("COLUMN_NOT_FOUND: line 1:8: Column 'owner' cannot be resolved")]
+    with pytest.raises(Exception, match="Query execution failed"):
+        client.execute_query("SELECT owner FROM assets")
+    assert len(wrangler.calls) == 1
+    assert client._query_left_out == {}
+
+
+def test_glue_failure_while_diagnosing_drops_nothing(wrangler):
+    glue = FakeGlue({**DATABASES, "globex_db": _glue_error("AccessDeniedException")}, columns=dict(OWNER_COLUMNS))
+    client = indexed_client(FakeGlue(DATABASES, columns=dict(OWNER_COLUMNS)))
+    client.glue_client = glue
+    wrangler.outcomes = [query_failed("COLUMN_NOT_FOUND: line 1:8: Column 'owner' cannot be resolved")]
+    with pytest.raises(Exception, match="Query execution failed"):
+        client.execute_query("SELECT owner FROM assets")
+    assert client._query_left_out == {}
+
+
+@pytest.mark.parametrize("message", [
+    "Permission denied on S3 path: s3://lake/globex/assets/dt=1/part-0.parquet",
+    "HIVE_CANNOT_OPEN_SPLIT: Error opening Hive split s3://lake/globex/assets/part-0.parquet: "
+    "Access Denied (Service: Amazon S3; Status Code: 403)",
+])
+def test_s3_access_denied_is_traced_by_table_location(wrangler, message):
+    glue = FakeGlue(
+        DATABASES,
+        locations={("acme_db", "assets"): "s3://lake/acme/assets", ("globex_db", "assets"): "s3://lake/globex/assets/"},
+    )
+    client = indexed_client(glue)
+    wrangler.outcomes = [query_failed(message)]
+    client.execute_query("SELECT id FROM assets")
+    assert branch_tenants(wrangler.calls[1]) == ["acme_db"]
+    assert client._query_left_out == {"assets": {"globex_db": "access denied"}}
+
+
+def test_glue_access_denied_on_a_table_arn_drops_that_tenant(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    wrangler.outcomes = [query_failed(
+        "AccessDeniedException: User is not authorized to perform glue:GetTable on resource: "
+        "arn:aws:glue:eu-west-1:123456789012:table/globex_db/assets"
+    )]
+    client.execute_query("SELECT id FROM assets")
+    assert branch_tenants(wrangler.calls[1]) == ["acme_db"]
+    assert client._query_left_out == {"assets": {"globex_db": "access denied"}}
+
+
+def test_unrecognized_error_is_raised_with_a_reindex_hint_and_drops_nothing(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    wrangler.outcomes = [query_failed("SYNTAX_ERROR: line 1:8: mismatched input")]
+    with pytest.raises(Exception, match="Query execution failed: .*SYNTAX_ERROR.*re-index"):
+        client.execute_query("SELECT id FROM assets")
+    assert len(wrangler.calls) == 1
+    assert client._query_left_out == {}
+
+
+def test_retry_stops_at_the_drop_cap_and_names_every_dropped_tenant(wrangler):
+    cap = athena_module.MAX_DROPPED_TENANTS_PER_QUERY
+    tenants = [f"t{i:02d}_db" for i in range(cap + 2)]
+    client = indexed_client(FakeGlue({t: ["assets"] for t in tenants}))
+    wrangler.outcomes = [
+        query_failed(f"TABLE_NOT_FOUND: line 1:15: Table 'awsdatacatalog.{t}.assets' does not exist")
+        for t in tenants
+    ]
+    with pytest.raises(Exception) as raised:
+        client.execute_query("SELECT id FROM assets")
+    message = str(raised.value)
+    assert len(wrangler.calls) == cap + 1
+    for tenant in tenants[:cap]:
+        assert tenant in message
+    assert f"Table 'awsdatacatalog.{tenants[cap]}.assets' does not exist" in message
+
+
+def test_dropped_tenants_stay_out_for_the_client_lifetime(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    wrangler.outcomes = [
+        query_failed("TABLE_NOT_FOUND: line 1:15: Table 'awsdatacatalog.globex_db.assets' does not exist")
+    ]
+    client.execute_query("SELECT id FROM assets")
+    client.execute_query("SELECT id FROM assets")
+    assert len(wrangler.calls) == 3
+    assert branch_tenants(wrangler.calls[2]) == ["acme_db"]
+
+
+def test_per_database_mode_failure_is_raised_without_diagnosis(wrangler):
+    client = make_client("*_db", FakeGlue(DATABASES))
+    wrangler.outcomes = [query_failed("TABLE_NOT_FOUND: Table 'awsdatacatalog.globex_db.assets' does not exist")]
+    with pytest.raises(Exception, match="Query execution failed") as raised:
+        client.execute_query("SELECT * FROM globex_db.assets")
+    assert "re-index" not in str(raised.value)
+    assert len(wrangler.calls) == 1

@@ -7,6 +7,7 @@ import pandas as pd
 from typing import List, Optional
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 import logging
+import re
 import awswrangler as wr
 import boto3
 from tenacity import retry, stop_after_attempt, wait_fixed
@@ -16,7 +17,7 @@ import os
 from botocore.config import Config as BotoConfig
 from app.utils.safe_regex import compile_bounded, pattern_cost_problem
 from app.data_sources.clients.athena_unified_catalog import UNREADABLE_TENANTS_KEY, unify_glue_catalogs
-from app.data_sources.clients.athena_union_rewrite import UnifiedTable, rewrite_unified
+from app.data_sources.clients.athena_union_rewrite import Rewrite, UnifiedTable, rewrite_unified
 from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN
 from sqlglot.errors import SqlglotError
 from app.data_sources.clients.database_spec import parse_database_spec, is_glob, is_excluded, spec_matches
@@ -98,6 +99,17 @@ def log_before_retry(retry_state) -> None:
 # the rest are rolled into a single "+N more" entry, so a database full of
 # dotted names cannot bloat the indexing job's stats.
 MAX_SKIPPED_TABLE_ENTRIES = 50
+
+
+MAX_DROPPED_TENANTS_PER_QUERY = 5
+
+TABLE_NOT_FOUND_PATTERN = re.compile(r"Table '([^']+)' does not exist", re.IGNORECASE)
+COLUMN_NOT_FOUND_PATTERN = re.compile(r"Column '([^']+)' cannot be resolved", re.IGNORECASE)
+GLUE_TABLE_ARN_PATTERN = re.compile(r"arn:aws[a-z-]*:glue:[^:\s]*:[^:\s]*:table/([^/\s]+)/([^/\s'\",.]+)", re.IGNORECASE)
+S3_PATH_PATTERN = re.compile(r"s3://[^\s'\"<>,)]+", re.IGNORECASE)
+ACCESS_DENIED_PATTERN = re.compile(r"access\s*denied|permission denied|not authorized", re.IGNORECASE)
+
+REINDEX_HINT = "If a tenant database changed, re-index this connection."
 
 
 class ExcludePatternTimeout(RuntimeError):
@@ -234,43 +246,147 @@ class AwsAthenaClient(DataSourceClient):
             pd.DataFrame: Query result as a Pandas DataFrame.
         """
         if self._unified:
-            sql = self._unified_sql(sql)
-        elif self._multi:
+            return self._execute_unified(sql)
+        if self._multi:
             self._check_multi_table_refs(sql)
         try:
-            logger.info("Executing query: %s", sql)
-            
-            # Common wrangler params
-            wrangler_params = {
-                'sql': sql,
-                'database': None if self._multi or self._unified else self.database,
-                'ctas_approach': False,
-                'workgroup': self.workgroup,
-                'data_source': self.data_source,
-            }
-            if self.s3_output_location:
-                wrangler_params['s3_output'] = self.s3_output_location
-            
-            # Add optional parameters
-            if self.encryption_option:
-                wrangler_params['encryption'] = self.encryption_option
-            if self.kms_key:
-                wrangler_params['kms_key'] = self.kms_key
-            if self.result_reuse_enable:
-                wrangler_params['cache_seconds'] = self.result_reuse_minutes * 60
-            
-            # Use session manager if available, otherwise use regular session
-            if hasattr(self, 'session_manager'):
-                with self.session_manager as session:
-                    df = wr.athena.read_sql_query(**wrangler_params, boto3_session=session)
-            else:
-                df = wr.athena.read_sql_query(**wrangler_params, boto3_session=self.boto3_session)
-            
-            logger.info("Query executed successfully, returned %d rows", len(df))
-            return df
+            return self._read_sql(sql)
         except Exception as e:
-            logger.error("Error executing SQL query: %s", str(e), exc_info=True)
-            raise Exception(f"Query execution failed: {str(e)}")
+            raise self._query_failure(e) from e
+
+    def _read_sql(self, sql: str) -> pd.DataFrame:
+        logger.info("Executing query: %s", sql)
+        wrangler_params = {
+            'sql': sql,
+            'database': None if self._multi or self._unified else self.database,
+            'ctas_approach': False,
+            'workgroup': self.workgroup,
+            'data_source': self.data_source,
+        }
+        if self.s3_output_location:
+            wrangler_params['s3_output'] = self.s3_output_location
+        if self.encryption_option:
+            wrangler_params['encryption'] = self.encryption_option
+        if self.kms_key:
+            wrangler_params['kms_key'] = self.kms_key
+        if self.result_reuse_enable:
+            wrangler_params['cache_seconds'] = self.result_reuse_minutes * 60
+
+        if hasattr(self, 'session_manager'):
+            with self.session_manager as session:
+                df = wr.athena.read_sql_query(**wrangler_params, boto3_session=session)
+        else:
+            df = wr.athena.read_sql_query(**wrangler_params, boto3_session=self.boto3_session)
+
+        logger.info("Query executed successfully, returned %d rows", len(df))
+        return df
+
+    def _query_failure(self, error: Exception, note: str = "") -> Exception:
+        logger.error("Error executing SQL query: %s", str(error), exc_info=True)
+        return Exception(f"Query execution failed: {str(error)}{note}")
+
+    def _execute_unified(self, sql: str) -> pd.DataFrame:
+        dropped: list[tuple[str, str]] = []
+        while True:
+            rewrite = self._unified_rewrite(sql)
+            try:
+                return self._read_sql(rewrite.sql)
+            except Exception as e:
+                found = self._diagnose_unified_failure(e, rewrite.branches)
+                if not found:
+                    raise self._query_failure(e, f" {REINDEX_HINT}") from e
+                if len(dropped) + len(found) > MAX_DROPPED_TENANTS_PER_QUERY:
+                    names = ", ".join(f"{tenant} ({table})" for table, tenant in dropped)
+                    raise self._query_failure(
+                        e,
+                        f" (stopped after leaving out {names or 'no tenants'}; more tenants failed in this query). "
+                        f"{REINDEX_HINT}",
+                    ) from e
+                for table, tenant, reason in found:
+                    logger.warning(
+                        "Leaving tenant out of unified table: table=%s tenant=%s reason=%s", table, tenant, reason
+                    )
+                    self._query_left_out.setdefault(table, {})[tenant] = reason
+                    dropped.append((table, tenant))
+
+    def _diagnose_unified_failure(
+        self, error: Exception, branches: dict[str, tuple[str, ...]]
+    ) -> list[tuple[str, str, str]]:
+        text = str(error)
+        found: dict[tuple[str, str], str] = {}
+
+        def emitted(table: str, tenant: str):
+            for name, tenants in branches.items():
+                if name.lower() == table.lower():
+                    for candidate in tenants:
+                        if candidate.lower() == tenant.lower():
+                            return name, candidate
+            return None
+
+        def blame(table: str, tenant: str, reason: str) -> None:
+            hit = emitted(table, tenant)
+            if hit:
+                found.setdefault(hit, reason)
+
+        match = TABLE_NOT_FOUND_PATTERN.search(text)
+        if match:
+            parts = match.group(1).split(".")
+            if len(parts) >= 2:
+                blame(parts[-1], parts[-2], "table vanished")
+        arn = GLUE_TABLE_ARN_PATTERN.search(text)
+        if arn and ACCESS_DENIED_PATTERN.search(text):
+            blame(arn.group(2), arn.group(1), "access denied")
+
+        if not found:
+            column = COLUMN_NOT_FOUND_PATTERN.search(text)
+            if column:
+                self._blame_tenants_lacking_column(column.group(1).lower(), branches, found)
+        if not found and ACCESS_DENIED_PATTERN.search(text):
+            paths = [p.lower() for p in S3_PATH_PATTERN.findall(text)]
+            if paths:
+                self._blame_tenants_by_location(paths, branches, found)
+        return [(table, tenant, reason) for (table, tenant), reason in found.items()]
+
+    def _glue_table_of(self, tenant: str, table: str) -> Optional[dict]:
+        try:
+            return self.glue_client.get_table(DatabaseName=tenant, Name=table)["Table"]
+        except Exception as e:
+            logger.warning("Could not read Glue table while diagnosing query failure: %s", _failure_reason(e))
+            return None
+
+    def _blame_tenants_lacking_column(self, column: str, branches, found: dict) -> None:
+        for name, tenants in branches.items():
+            unified = self._unified_tables.get(name)
+            if unified is None or column not in {c.lower() for c, _ in unified.columns}:
+                continue
+            lacking = []
+            for tenant in tenants:
+                if column in {c.lower() for c in unified.missing.get(tenant, frozenset())}:
+                    continue
+                glue_table = self._glue_table_of(tenant, name)
+                if glue_table is None:
+                    continue
+                present = {
+                    c["Name"].lower()
+                    for c in (glue_table.get("StorageDescriptor") or {}).get("Columns", [])
+                    + glue_table.get("PartitionKeys", [])
+                }
+                if column not in present:
+                    lacking.append(tenant)
+            if lacking and len(lacking) < len(tenants):
+                for tenant in lacking:
+                    found.setdefault((name, tenant), "column missing")
+
+    def _blame_tenants_by_location(self, paths: list[str], branches, found: dict) -> None:
+        for name, tenants in branches.items():
+            for tenant in tenants:
+                glue_table = self._glue_table_of(tenant, name)
+                location = ((glue_table or {}).get("StorageDescriptor") or {}).get("Location")
+                if not location:
+                    continue
+                prefix = location.lower().rstrip("/")
+                if any(path == prefix or path.startswith(prefix + "/") for path in paths):
+                    found.setdefault((name, tenant), "access denied")
 
     def test_connection(self) -> dict:
         """
@@ -359,7 +475,7 @@ class AwsAthenaClient(DataSourceClient):
             "```\n"
         )
 
-    def _unified_sql(self, sql: str) -> str:
+    def _unified_rewrite(self, sql: str) -> Rewrite:
         from app.ai.code_execution.table_scope import parse_for_refs, refuse_unchecked_reads_of
         if not self._unified_tables:
             raise ValueError(
@@ -368,7 +484,7 @@ class AwsAthenaClient(DataSourceClient):
         try:
             refuse_unchecked_reads_of(parse_for_refs(sql, "athena"))
             left_out = {table: frozenset(tenants) for table, tenants in self._query_left_out.items()}
-            return rewrite_unified(sql, self._unified_tables, self.data_source, left_out).sql
+            return rewrite_unified(sql, self._unified_tables, self.data_source, left_out)
         except SqlglotError as e:
             raise ValueError(f"Could not read this query, so it was not run: {e}") from e
 
