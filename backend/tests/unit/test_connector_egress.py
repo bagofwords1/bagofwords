@@ -105,6 +105,7 @@ CASES = [
     # Windows auth, no ambient environment, a session per thread.
     ("mecm", lambda u: _client("mecm_client", "MecmClient")(server_url=_https(u), username="u", password="p"), None, NAME),
     ("sharepoint_onprem", lambda u: _client("sharepoint_onprem_client", "SharepointOnpremClient")(site_url=u, username="u", password="p", allow_http=True)),
+    ("sharepoint_onprem_lists", lambda u: _client("sharepoint_onprem_lists_client", "SharepointOnpremListsClient")(site_url=u, username="u", password="p", allow_http=True)),
     ("exchange_onprem", lambda u: _client("exchange_onprem_client", "ExchangeOnpremClient")(ews_url=u, username="u", password="p", allow_http=True)),
     ("powerbi_report_server", lambda u: _client("powerbi_report_server_client", "PowerBIReportServerClient")(server_url=u, username="u", password="p")),
     # Deployment-owned trust, no ambient environment.

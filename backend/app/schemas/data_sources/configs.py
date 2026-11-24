@@ -3211,6 +3211,51 @@ class SharePointOnpremKerberosCredentials(BaseModel):
         return self
 
 
+# SharePoint Server lists — read-only tables over the on-premises REST API.
+class SharePointOnpremListsConfig(BaseModel):
+    site_url: str = Field(
+        ..., title="Site URL",
+        description="SharePoint Server site URL, including /sites/name (e.g. https://sharepoint.example.com/sites/finance). Not the Central Administration URL.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    lists: Optional[str] = Field(
+        "*", title="Lists",
+        description=(
+            "Lists to expose as tables: '*' (default) for every list on the site, or a "
+            "comma-separated set of list names (e.g. 'Expenses, Vendors'). Document "
+            "libraries are never included — use SharePoint Server (on-prem) for those."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    include_hidden: bool = Field(
+        False, title="Include Hidden Lists",
+        description="Also expose lists SharePoint marks as hidden (site plumbing). Usually off.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_items: int = Field(
+        20000, ge=1, le=100000, title="Max items per query",
+        description=(
+            "How many list items one query may read. SharePoint Server cannot filter "
+            "unindexed columns on lists over 5,000 items, so filters run after reading; "
+            "on a larger list, a filtered query covers this many items and says so."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_http: bool = Field(
+        False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+    @field_validator("site_url")
+    @classmethod
+    def _site_url(cls, value: str) -> str:
+        value = (value or "").strip().rstrip("/")
+        if not value.lower().startswith(("https://", "http://")):
+            raise ValueError("Site URL must start with https://")
+        return value
+
+
 # Exchange Server (on-premises) mail — read-only, over Exchange Web Services.
 class ExchangeOnpremConfig(BaseModel):
     ews_url: str = Field(
