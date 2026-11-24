@@ -86,6 +86,10 @@ class ErrorCode(str, Enum):
 
     # Resources (common CRUD)
     REPORT_NOT_FOUND = "report.not_found"
+    # Rewind (POST /api/reports/{id}/rewind)
+    REWIND_TARGET_NOT_FOUND = "rewind.target_not_found"
+    REWIND_INVALID_TARGET = "rewind.invalid_target"
+    REWIND_RUN_IN_PROGRESS = "rewind.run_in_progress"
     REVIEW_ITEM_NOT_FOUND = "review_item.not_found"
     ENTITY_NOT_FOUND = "entity.not_found"
     ARTIFACT_NOT_FOUND = "artifact.not_found"
