@@ -4774,7 +4774,16 @@
         "LOCATION": "Lugar",
         "ORGANIZATION": "Organización",
         "NRP": "Nacionalidad, grupo religioso o político"
-      }
+      },
+      "agentsTitle": "Políticas por agente",
+      "agentsDesc": "Elige la política que añade cada agente. La política de un agente se aplica a toda solicitud que incluya al agente, incluidos los datos de los demás agentes del mismo chat, incluso con un proveedor exento. Cuando se aplican varias políticas, gana la opción más estricta de cada regla.",
+      "defaultAgentPolicy": "Predeterminada para agentes",
+      "defaultAgentPolicyDesc": "Los agentes sin una política propia usan esta.",
+      "noAgents": "Aún no hay agentes.",
+      "agentPolicyFor": "Política de PII para {name}",
+      "noAgentPolicy": "Sin política de agente",
+      "inheritAgentPolicy": "Predeterminada de la organización: {policy}",
+      "usedByAgents": "{n} agente | {n} agentes"
     },
     "piiTab": "Protección de datos",
     "adminPages": {
@@ -8815,6 +8824,13 @@
       "none": "Sin límite",
       "ask": "Preguntar",
       "auto": "Automático"
+    },
+    "pii": {
+      "title": "Política de PII",
+      "hint": "Se aplica a toda solicitud que incluya este agente, además de la política del modelo. Gana la opción más estricta de cada regla.",
+      "disabled": "La protección de PII está desactivada en esta organización.",
+      "saved": "Política de PII guardada",
+      "saveError": "No se pudo guardar la política de PII"
     }
   },
   "productUpdates": {

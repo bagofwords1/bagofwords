@@ -1,6 +1,7 @@
 # PII policies per agent — strictest wins
 
-Status: **proposal, not built.** 2026-11-24.
+Status: **built** (phase 1 + UI), 2026-11-24. Verified in
+`docs/feedback-loops/pii-agent-policies.md`.
 Builds on `docs/design/pii-policies.md` (named policies, provider assignments,
 detectors, pseudonymize). Enterprise only (`pii_protection`).
 
@@ -42,7 +43,8 @@ loose provider policy applies to every agent.
 
 | Concept | What it is |
 |---|---|
-| **Agent assignment** | Agent (data source) → policy. Optional. An agent with no assignment adds nothing to a call. |
+| **Agent assignment** | Agent (data source) → policy, or `none` (no agent policy). Optional: an agent with no assignment uses the **default agent policy**. |
+| **Default agent policy** | `default_agent_policy`: the policy unassigned agents use. `none` (the default) means unassigned agents add nothing. |
 | **Agent scope** of a call | The set of agents whose data or context can be in that call's prompt. |
 | **Effective policy** | The merge of the provider's policy and the policies of every agent in scope. It is compiled into a single `PiiRedactor`, so the engine itself doesn't change. |
 
@@ -60,7 +62,8 @@ policies: {default: {...}, strict: {...}, hr: {...}}
 provider_policies: {<provider_id>: strict, <provider_id>: exempt}
 agent_policies:                   # new; optional
   <data_source_id>: hr
-  <data_source_id>: strict
+  <data_source_id>: none          # explicitly no agent policy (overrides the default)
+default_agent_policy: none        # new; or a policy id
 display_policy: default
 ```
 
@@ -69,9 +72,10 @@ display_policy: default
 - Agent ids are checked against this org's live data sources. Unknown ids are
   dropped.
 - Values must be an existing policy id other than `exempt`.
-- Deleting a policy removes its agent assignments. They are not moved to
-  Default, because the agent had chosen a specific policy and an admin should
-  decide again. This is audited.
+- Deleting a policy removes its agent assignments, so those agents inherit the
+  default agent policy again; a default agent policy pointing at it falls back
+  to `none`. This is audited.
+- `none` is reserved and can't be used as a policy id.
 - Deleting an agent drops its assignment the next time the config is normalized.
 
 An org with no `agent_policies` produces exactly the same redaction as today.
@@ -205,11 +209,15 @@ Strings go into every locale catalog, including RTL checks for `he`.
 | `pii_protection.prompt_blocked` (extended) | A call is blocked | Adds `agent_ids` in scope, `policy_ids` merged, and `scope: known \| unknown` |
 | `pii_protection.detector_failed` (extended) | Same | Same additions |
 
-## Permissions
+## Permissions (decided)
 
-Agent assignments are part of the org PII config, so `manage_settings` is
-required, the same as editing policies. *Open question 3* asks whether agent
-owners should be able to tighten their own agent.
+- **Org admins** (`manage_settings`) edit everything in Settings → PII,
+  including the default agent policy and every agent's assignment.
+- **Agent managers** (`manage` on the agent) set their own agent's policy from
+  the agent's settings: `GET`/`PUT /api/data_sources/{id}/pii_policy`, with a
+  policy id or `inherit`. Setting `none` would loosen what the org default
+  imposes, so it needs `manage_settings` (403 otherwise). Exempt is never
+  allowed for an agent.
 
 ## Testing
 
@@ -230,13 +238,17 @@ owners should be able to tighten their own agent.
 
 ## Phases
 
-1. **Core:** `agent_policies` config, `merge`, loader resolution,
-   `data_source_ids` in attribution from AgentV2 (attached agents only),
-   unknown-scope fallback, audit. API only.
-2. **Coverage:** sticky agent set, the other entry points from the table, the
-   call-site guard test.
-3. **UI:** settings section, agent badge, "Test your rules" with agents, docs
-   (docs-update skill), changelog (release-notes skill).
+1. **Core — built:** `agent_policies` + `default_agent_policy` config,
+   `merge_policies`, `for_call` resolution, `data_source_ids` in attribution
+   from AgentV2 (working set + sign-in candidates + report agents, growing
+   mid-run), unknown-scope fallback, audit, agent endpoint.
+2. **Coverage — not built:** sticky agent set, stamping the other entry points
+   (artifact resources, indexing, MCP), the call-site guard test. Until then
+   those paths take the unknown-scope fallback (every agent policy).
+3. **UI — built:** Settings → PII "Agent policies" section (default for agents
+   + one row per agent) and the PII policy control in the agent's settings.
+   Not built: "Test your rules" with agents, docs (docs-update skill),
+   changelog (release-notes skill).
 
 Phase 1 is safe to ship alone: the fallback makes every uncovered path stricter,
 never looser.
@@ -251,9 +263,8 @@ never looser.
    many agents? It over-redacts calls that touch no data at all. The opt-out
    marking covers known-safe sites, but the scale is unknown until phase 2 has
    audited the entry points.
-3. **Who can assign:** org admins only, or agent owners too? Tightening is
-   harmless, but a policy with `block` rules can make an agent unusable in
-   shared chats, so it's an org-level decision by default.
+3. ~~Who can assign~~ — decided: org admins and agent managers (see
+   Permissions); only org admins can set `none`.
 4. **Display policy:** should the display masking for an agent's data follow
    its policy too? Out of scope here, because display uses one org-wide policy
    and restore follows the report's sharing settings.

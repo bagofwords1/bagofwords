@@ -4221,7 +4221,16 @@
         "LOCATION": "Lieu",
         "ORGANIZATION": "Organisation",
         "NRP": "Nationalité, groupe religieux ou politique"
-      }
+      },
+      "agentsTitle": "Politiques par agent",
+      "agentsDesc": "Choisissez la politique ajoutée par chaque agent. La politique d'un agent s'applique à toute requête qui inclut l'agent, y compris les données des autres agents de la même conversation, même avec un fournisseur exempté. Quand plusieurs politiques s'appliquent, l'option la plus stricte de chaque règle l'emporte.",
+      "defaultAgentPolicy": "Par défaut pour les agents",
+      "defaultAgentPolicyDesc": "Les agents sans choix propre utilisent cette politique.",
+      "noAgents": "Aucun agent pour l'instant.",
+      "agentPolicyFor": "Politique PII pour {name}",
+      "noAgentPolicy": "Aucune politique d'agent",
+      "inheritAgentPolicy": "Par défaut de l'organisation : {policy}",
+      "usedByAgents": "{n} agent | {n} agents"
     },
     "piiTab": "Données personnelles",
     "frameAncestors": {
@@ -7882,6 +7891,13 @@
       "none": "Aucun plafond",
       "ask": "Demander",
       "auto": "Auto"
+    },
+    "pii": {
+      "title": "Politique PII",
+      "hint": "S'applique à toute requête qui inclut cet agent, en plus de la politique du modèle. L'option la plus stricte de chaque règle l'emporte.",
+      "disabled": "La protection PII est désactivée pour cette organisation.",
+      "saved": "Politique PII enregistrée",
+      "saveError": "Impossible d'enregistrer la politique PII"
     }
   },
   "productUpdates": {

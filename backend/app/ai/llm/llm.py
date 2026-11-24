@@ -5,7 +5,7 @@ import random
 import re
 import time
 import types
-from typing import AsyncGenerator, Optional, Callable
+from typing import Any, AsyncGenerator, Optional, Callable
 
 from .clients.openai_client import OpenAi
 from .clients.openai_responses_client import OpenAIResponsesClient
@@ -34,7 +34,7 @@ from .types import (
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
 from app.ai.llm import trace as llm_trace
 from app.core.url_safety import check_admin_url
-from app.ai.llm.pii.loader import load_redactor_for_org
+from app.ai.llm.pii.loader import load_redactor_for_call
 from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.ai.llm.pii.context import strip_markers
 from app.ai.llm.pii.vault import MODEL_HINT, PiiVault, StreamRestorer, vault_for
@@ -58,6 +58,8 @@ tracer = get_tracer(__name__)
 # later calls from worker threads (e.g. asyncio.to_thread(llm.inference))
 # can still schedule usage recording via run_coroutine_threadsafe.
 _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
+# Marks an LLM instance whose PII redactor hasn't been resolved for any scope.
+_PII_SCOPE_UNSET = object()
 
 
 def bind_usage_loop(loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
@@ -411,6 +413,9 @@ class LLM:
         self._pii_redactor_override = pii_redactor
         self._pii_redactor: Optional[PiiRedactor] = pii_redactor
         self._pii_loaded = pii_redactor is not None
+        # The agent scope the cached redactor was resolved for: an instance
+        # reused under another scope resolves again.
+        self._pii_scope: Any = _PII_SCOPE_UNSET
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -790,17 +795,42 @@ class LLM:
             provider_id = getattr(getattr(self.model, "provider", None), "id", None)
         return str(provider_id) if provider_id else None
 
+    @staticmethod
+    def _pii_agent_scope() -> Optional[tuple]:
+        """The agents this call is made for, from the run's usage attribution
+        (sorted ids). None when the caller didn't say: an unknown scope, which
+        applies every agent policy (fail closed)."""
+        try:
+            ids = get_usage_attribution().get("data_source_ids")
+        except Exception:  # pragma: no cover - defensive
+            return None
+        if ids is None:
+            return None
+        return tuple(sorted({str(i) for i in ids if i}))
+
+    def _pii_cache_valid(self, scope) -> bool:
+        if not self._pii_loaded:
+            return False
+        # An explicit redactor, or an instance built without __init__ (some
+        # tests set _pii_loaded/_pii_redactor by hand), keeps what it was given.
+        if getattr(self, "_pii_redactor_override", None) is not None or not hasattr(self, "_pii_scope"):
+            return True
+        return self._pii_scope == scope
+
     async def _aget_pii_redactor(self) -> Optional[PiiRedactor]:
-        """Async resolution of this org's PII redactor (cached)."""
+        """Async resolution of this call's PII redactor: the provider's policy
+        merged with the policies of the agents in scope (cached per scope)."""
         # Tolerate objects built via object.__new__(LLM) that bypass __init__
         # (some tests do this) — no pii state means no redaction.
         if not hasattr(self, "_pii_loaded"):
             return None
-        if self._pii_loaded:
+        scope = self._pii_agent_scope()
+        if self._pii_cache_valid(scope):
             return self._pii_redactor
+        self._pii_scope = scope
         try:
-            self._pii_redactor = await load_redactor_for_org(
-                self._organization_id, self._usage_session_maker, self._pii_provider_id()
+            self._pii_redactor = await load_redactor_for_call(
+                self._organization_id, self._usage_session_maker, self._pii_provider_id(), scope
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("PII redactor resolution failed: %s", exc)
@@ -816,7 +846,10 @@ class LLM:
         # Tolerate objects built via object.__new__(LLM) that bypass __init__.
         if not hasattr(self, "_pii_loaded"):
             return None
-        if self._pii_loaded:
+        # Read here, in the caller's context: the coroutine below runs on the
+        # main loop, which doesn't see this thread's context variables.
+        scope = self._pii_agent_scope()
+        if self._pii_cache_valid(scope):
             return self._pii_redactor
 
         # If a loop is running on THIS thread we were (unexpectedly) called on
@@ -835,9 +868,10 @@ class LLM:
         if loop is None or not loop.is_running():
             return None  # no loop reachable yet; retry on a later call
         try:
+            self._pii_scope = scope
             fut = asyncio.run_coroutine_threadsafe(
-                load_redactor_for_org(
-                    self._organization_id, self._usage_session_maker, self._pii_provider_id()
+                load_redactor_for_call(
+                    self._organization_id, self._usage_session_maker, self._pii_provider_id(), scope
                 ),
                 loop,
             )

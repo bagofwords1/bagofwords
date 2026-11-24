@@ -240,6 +240,9 @@
                 <p class="text-2xs text-ink-muted mt-2">{{ t('agentAccess.permissionCap.hint') }}</p>
             </div>
 
+            <!-- PII policy for this agent (enterprise; agent managers) -->
+            <AgentPiiPolicyControl v-if="canManageDs && hasFeature('pii_protection')" :agent-id="agentId" />
+
             <!-- Channels (MCP / Slack / …) — moved to the bottom -->
             <div v-if="connectedChannels.length > 0" class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
                 <div class="text-2xs font-semibold uppercase tracking-wider text-ink-muted mb-2">Channels</div>
@@ -405,6 +408,7 @@ import { useEnterprise } from '~/ee/composables/useEnterprise'
 import Spinner from '~/components/Spinner.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 import AgentIconPicker from '~/components/AgentIconPicker.vue'
+import AgentPiiPolicyControl from '~/components/datasources/AgentPiiPolicyControl.vue'
 
 const props = defineProps<{ agentId: string }>()
 const emit = defineEmits(['updated', 'deleted'])

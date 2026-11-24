@@ -159,6 +159,10 @@ class PiiProtectionConfig(BaseModel):
     exempt_provider_ids: List[str] = []
     policies: Dict[str, PiiPolicyConfig] = {}
     provider_policies: Dict[str, str] = {}
+    # Agent (data source) -> policy id or "none"; unassigned agents use
+    # default_agent_policy. See docs/design/pii-agent-policies.md.
+    agent_policies: Dict[str, str] = {}
+    default_agent_policy: str = "none"
     display_policy: str = "default"
 
     @model_validator(mode="before")

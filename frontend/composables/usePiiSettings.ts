@@ -5,6 +5,10 @@ import { reactive, ref, computed } from 'vue'
 
 export const PII_DEFAULT = 'default'
 export const PII_EXEMPT = 'exempt'
+// Agent assignment: "no agent policy" (only the provider's policy applies).
+export const PII_NONE = 'none'
+// Agent assignment: use the org's default agent policy (stored as no entry).
+export const PII_INHERIT = 'inherit'
 export const PII_DEFAULT_MIN_SCORE = 0.7
 
 export type PiiRuleKind = 'builtin' | 'custom' | 'detector'
@@ -30,16 +34,22 @@ const pii = reactive<{
     custom_rules: PiiCustomRule[]
     policies: Record<string, PiiPolicy>
     provider_policies: Record<string, string>
+    agent_policies: Record<string, string>
+    default_agent_policy: string
 }>({
     enabled: false,
     custom_rules: [],
     policies: { [PII_DEFAULT]: emptyPolicy('Default') },
     provider_policies: {},
+    agent_policies: {},
+    default_agent_policy: PII_NONE,
 })
 const loading = ref(true)
 const loaded = ref(false)
 const providers = ref<Array<{ id: string; name: string; provider_type: string }>>([])
 const providersLoaded = ref(false)
+const agents = ref<Array<{ id: string; name: string; type: string }>>([])
+const agentsLoaded = ref(false)
 const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number }>>([])
 // The detector (Presidio) on this instance, if any: names, locations, organizations.
 const detector = ref<{ available: boolean; name: string | null; entities: Array<{ id: string; name: string; replacement: string }> }>(
@@ -68,6 +78,26 @@ export function usePiiSettings() {
     }
     const providersOf = (policyId: string) =>
         providers.value.filter(p => providerPolicy(p.id) === policyId)
+
+    // --- per-agent policies (docs/design/pii-agent-policies.md) ---
+    // The agent's own choice: a policy id, PII_NONE, or PII_INHERIT.
+    const agentPolicy = (agentId: string) => {
+        const p = pii.agent_policies[agentId]
+        return p && (p === PII_NONE || pii.policies[p]) ? p : PII_INHERIT
+    }
+    const setAgentPolicy = (agentId: string, policyId: string) => {
+        const next = { ...pii.agent_policies }
+        if (!policyId || policyId === PII_INHERIT) delete next[agentId]
+        else next[agentId] = policyId
+        pii.agent_policies = next
+    }
+    // The policy the agent ends up with (PII_NONE when none).
+    const effectiveAgentPolicy = (agentId: string) => {
+        const own = agentPolicy(agentId)
+        return own === PII_INHERIT ? pii.default_agent_policy : own
+    }
+    const agentsOf = (policyId: string) =>
+        agents.value.filter(a => effectiveAgentPolicy(a.id) === policyId)
 
     // --- per-policy rule options (missing = rule default) ---
     const overridesOf = (policy: PiiPolicy, kind: PiiRuleKind) =>
@@ -109,6 +139,11 @@ export function usePiiSettings() {
         pii.provider_policies = Object.fromEntries(
             Object.entries(pii.provider_policies).filter(([, p]) => p !== id)
         )
+        // Its agents go back to the default agent policy.
+        pii.agent_policies = Object.fromEntries(
+            Object.entries(pii.agent_policies).filter(([, p]) => p !== id)
+        )
+        if (pii.default_agent_policy === id) pii.default_agent_policy = PII_NONE
     }
     const deleteCustomRule = (ruleId: string) => {
         pii.custom_rules = pii.custom_rules.filter(r => r.id !== ruleId)
@@ -132,6 +167,9 @@ export function usePiiSettings() {
         // Without the provider list the assignments are not resent, so a failed
         // load can never wipe them.
         if (providersLoaded.value) config.provider_policies = pii.provider_policies
+        // Same for agents.
+        if (agentsLoaded.value) config.agent_policies = pii.agent_policies
+        config.default_agent_policy = pii.default_agent_policy
         return config
     }
 
@@ -139,10 +177,11 @@ export function usePiiSettings() {
         // A second page of the same settings shows what is already loaded while it refreshes.
         loading.value = !loaded.value
         try {
-            const [settingsRes, rulesRes, providersRes] = await Promise.all([
+            const [settingsRes, rulesRes, providersRes, agentsRes] = await Promise.all([
                 useMyFetch('/api/organization/settings'),
                 useMyFetch('/api/organization/pii/builtin-rules'),
                 useMyFetch('/api/llm/providers'),
+                useMyFetch('/api/data_sources?show_all=true'),
             ])
             const cfg = (settingsRes.data.value as any)?.config?.pii_protection
             if (cfg) {
@@ -168,6 +207,16 @@ export function usePiiSettings() {
                 if (!policies[PII_DEFAULT]) policies[PII_DEFAULT] = emptyPolicy('Default')
                 pii.policies = policies
                 pii.provider_policies = { ...(cfg.provider_policies || {}) }
+                pii.agent_policies = { ...(cfg.agent_policies || {}) }
+                pii.default_agent_policy = cfg.default_agent_policy || PII_NONE
+            }
+            if (agentsRes.status.value === 'success') {
+                const rows = (agentsRes.data.value as any)
+                const list = Array.isArray(rows) ? rows : (rows?.items || rows?.data_sources || [])
+                agents.value = list
+                    .map((a: any) => ({ id: String(a.id), name: a.name, type: a.type }))
+                    .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''))
+                agentsLoaded.value = true
             }
             if (providersRes.status.value === 'success') {
                 providers.value = ((providersRes.data.value as any[]) || [])
@@ -226,8 +275,9 @@ export function usePiiSettings() {
     const policyIds = computed(() => Object.keys(pii.policies))
 
     return {
-        pii, loading, loaded, providers, builtinRules, detector, policyIds,
+        pii, loading, loaded, providers, agents, builtinRules, detector, policyIds,
         policyLabel, providerPolicy, setProviderPolicy, providersOf,
+        agentPolicy, setAgentPolicy, effectiveAgentPolicy, agentsOf,
         ruleOption, ruleEnabled, ruleAction, setRuleOption, enabledRuleCount,
         createPolicy, deletePolicy, deleteCustomRule,
         load, save, preview,

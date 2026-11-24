@@ -1658,6 +1658,17 @@ class AgentV2:
             except Exception:
                 pass
 
+    def _extend_pii_agent_scope(self, data_sources) -> None:
+        """Add agents to this run's PII agent scope (in place: the list is
+        shared with the usage attribution every LLM call reads)."""
+        scope = getattr(self, "_pii_agent_scope", None)
+        if scope is None:
+            return
+        for ds in data_sources or []:
+            ds_id = str(getattr(ds, "id", "") or "")
+            if ds_id and ds_id not in scope:
+                scope.append(ds_id)
+
     async def _ensure_clients_for_attached(self) -> None:
         """Build query clients for agents attached AFTER run start (approved
         set_report_agents expansion) — without this create_data against the new
@@ -1685,6 +1696,7 @@ class AgentV2:
                     if built or not (getattr(ds, "connections", None) or []):
                         self.clients.update(built or {})
                         self.data_sources.append(ds)
+                        self._extend_pii_agent_scope([ds])
                         await self._record_exposure()
                         self._mlog(f"mid-run client built for {ds.name}")
                 except Exception:
@@ -5958,12 +5970,23 @@ class AgentV2:
         # cost console can compute realized savings (see app.ai.model_router).
         _attr_routed = bool(self._routing_meta.get("routed"))
         _attr_baseline = self._routing_meta.get("baseline_model_id") if _attr_routed else None
+        # Per-agent PII policies (app.ai.llm.pii.policy, for_call): every agent
+        # whose data or context can reach this run's prompts. One list object,
+        # shared by every snapshot of this attribution, that only grows:
+        # agents attached mid-run are added (_extend_pii_agent_scope), never
+        # removed, so a policy can't fall away while its data is in context.
+        self._pii_agent_scope: list = []
+        self._extend_pii_agent_scope(
+            [*(self.data_sources or []), *(getattr(self, "_signin_candidates", None) or []),
+             *((getattr(self.report, "data_sources", None) or []) if self.report else [])]
+        )
         _attribution_token = set_usage_attribution(
             {
                 "organization_id": _attr_org,
                 "user_id": _attr_user,
                 "report_id": _attr_report,
                 "data_source_id": _attr_ds,
+                "data_source_ids": self._pii_agent_scope,
                 "routed": _attr_routed,
                 "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
             }
