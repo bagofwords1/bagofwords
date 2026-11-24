@@ -65,7 +65,7 @@ const dataWatcher = ast.statements.find((s) => ts.isExpressionStatement(s)
 assert.ok(dataWatcher, 'the frame re-sends its data when it changes (watcher)')
 
 const FUNCTIONS = ['fetchData', 'runParamQueries', 'sendDataToIframe', 'paramSubsetForQuery', 'queriesWithIdentityParams', 'replaceVisualizationsData']
-const DECLARED = ['useMyFetch', 'visualizationsData', 'srcdocSeed']
+const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'srcdocSeed']
 const present = FUNCTIONS.filter(fn)
 const frameCode = "'use strict';\n" + transpile([
   ...DECLARED.map(declaration),
@@ -257,6 +257,67 @@ test('a filter run and an in-place refresh replace frozen data; the watcher send
   assert.equal(own.srcdocSeed.value, seed, 'the frame is not rebuilt (same seed)')
   assert.ok(received.main.length >= 1, 'the frame is sent the refreshed data')
   assert.deepEqual(received.main.at(-1).payload.visualizations[0].rows, [{ region: 'LATAM', amount: 7 }])
+})
+
+// A filter run over two queries (q1 feeds viz-1 and viz-2, q2 feeds viz-3) whose
+// answers land one at a time (the test resolves them).
+const RUN_Q2 = '/api/queries/q2/run'
+const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r }); return { promise, resolve } }
+const bothFiltered = () => { const r = queriesResponse(); r[1].parameters = [{ name: 'region', source: 'input' }]; return r }
+const answer = (rows) => ({ status: 'success', data: { rows, columns: Object.keys(rows[0]).map((field) => ({ field })) } })
+
+test('a filter run writes each query as it lands and sends the frame its data once per run', async () => {
+  const responses = { [QUERIES]: bothFiltered(), '/api/reports/rep-1': report }
+  const { own, state, received } = frame({ responses })
+  await own.fetchData('art-1')
+  state.iframeReady.value = true
+  await flush()
+  received.main.length = 0
+
+  const a = deferred(); const b = deferred()
+  responses[RUN_Q1] = a.promise
+  responses[RUN_Q2] = b.promise
+  const run = own.runParamQueries({ region: 'EMEA' })
+  a.resolve(answer([{ region: 'EMEA', amount: 9 }]))
+  await flush()
+  assert.deepEqual(own.visualizationsData.value.map((v) => v.rows), [[{ region: 'EMEA', amount: 9 }], [{ region: 'EMEA', amount: 9 }], [{ n: 1 }]],
+    'q1\'s filtered rows are in the data as soon as q1 lands')
+  assert.equal(received.main.length, 0, 'a landed query alone is not sent to the frame')
+  b.resolve(answer([{ n: 4 }]))
+  await run
+  await flush()
+  assert.deepEqual(own.visualizationsData.value.map((v) => v.rows), [[{ region: 'EMEA', amount: 9 }], [{ region: 'EMEA', amount: 9 }], [{ n: 4 }]])
+  assert.equal(received.main.length, 1, 'the run sends the frame its data once')
+  assert.deepEqual(received.main[0].payload.visualizations.map((v) => v.rows), [[{ region: 'EMEA', amount: 9 }], [{ region: 'EMEA', amount: 9 }], [{ n: 4 }]])
+})
+
+test('a reload during a filter run is not overwritten by a query that landed before it', async () => {
+  const responses = { [QUERIES]: bothFiltered(), '/api/reports/rep-1': report }
+  const { own, state, received } = frame({ responses })
+  await own.fetchData('art-1')
+  state.iframeReady.value = true
+  await flush()
+
+  const a = deferred(); const b = deferred()
+  responses[RUN_Q1] = a.promise
+  responses[RUN_Q2] = b.promise
+  const run = own.runParamQueries({ region: 'EMEA' })
+  a.resolve(answer([{ region: 'EMEA', amount: 9 }]))  // q1 lands
+  await flush()
+  // A reload (the viewer's Run, Refresh): the list is rebuilt from the server.
+  const reloaded = bothFiltered()
+  reloaded[0].default_step.data.rows = [{ region: 'LATAM', amount: 7 }]
+  responses[QUERIES] = reloaded
+  await own.fetchData('art-1')
+  b.resolve(answer([{ n: 4 }]))  // q2 lands after the reload
+  await run
+  await flush()
+  const data = own.visualizationsData.value
+  assert.deepEqual(data.slice(0, 2).map((v) => v.rows), [[{ region: 'LATAM', amount: 7 }], [{ region: 'LATAM', amount: 7 }]],
+    'q1 landed before the reload: the reloaded rows stay')
+  // As before this change: a query landing after the reload is written into the reloaded list.
+  assert.deepEqual(data[2].rows, [{ n: 4 }])
+  assert.deepEqual(received.main.at(-1).payload.visualizations.map((v) => v.rows), data.map((v) => v.rows), 'the frame gets the same data')
 })
 
 test('the verification preview does not send the clone opt-out to its broker', async () => {

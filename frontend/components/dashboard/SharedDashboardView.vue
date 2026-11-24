@@ -1723,12 +1723,22 @@ function queriesWithIdentityParams(): string[] {
 }
 
 // jsonFallback (the data push): a message the browser refuses to copy is sent
-// as a JSON copy instead (utils/artifactFramePayload).
+// as a JSON copy instead (utils/artifactFramePayload). When even that copy
+// fails, the failure is logged and shown on the dashboard's status line.
 function postToArtifactIframe(msg: any, jsonFallback = false) {
     const target = artifactIframeRef.value?.contentWindow;
+    if (target && jsonFallback) {
+        try {
+            postWithJsonFallback(target, msg);
+        } catch (err: any) {
+            console.error('[PublicArtifact] Failed to send data to the dashboard:', err);
+            postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: {
+                loading: false, error: err?.message || 'Failed to send data to the dashboard' } });
+        }
+        return;
+    }
     try {
-        if (target && jsonFallback) postWithJsonFallback(target, msg);
-        else target?.postMessage(msg, '*');
+        target?.postMessage(msg, '*');
     } catch { /* iframe not ready */ }
 }
 

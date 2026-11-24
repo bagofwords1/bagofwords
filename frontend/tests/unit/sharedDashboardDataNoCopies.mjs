@@ -99,12 +99,13 @@ function page({ responses = {}, hostContext = null, viewer = { id: 'u-1', name: 
   const fetched = []
   const received = []
   const warnings = []
+  const errors = []
   const frame = {
     // What the browser does with a posted message: copies it, or throws.
     postMessage(message) { received.push(structuredClone(message)) },
   }
   const state = {
-    console: { ...console, warn: (...args) => warnings.push(args), error: () => {} },
+    console: { ...console, warn: (...args) => warnings.push(args), error: (...args) => errors.push(args) },
     computed, ref, shallowRef, toRaw, nextTick,
     useMyFetch: realUseMyFetch(responses, fetched),
     artifactRowCounts, awaitsViewerInput, isOwnSuccess,
@@ -145,7 +146,7 @@ function page({ responses = {}, hostContext = null, viewer = { id: 'u-1', name: 
   const own = new Function(...Object.keys(state), pageCode)(...Object.values(state))
   const context = { ...state, ...own }
   const get = (name) => own[name]
-  return { context, get, fetched, received, warnings, frame }
+  return { context, get, fetched, received, warnings, errors, frame }
 }
 
 // The dashboard response: two charts over one query (q1), one legacy chart
@@ -288,6 +289,26 @@ test('a payload postMessage refuses falls back to the JSON copy, with one warnin
   assert.equal(received.length, 2, 'both pushes reach the frame')
   assert.deepStrictEqual(received[0].payload.visualizations[0].rows, [{ region: 'EMEA', amount: 3 }], 'as the JSON copy (the function dropped)')
   assert.equal(warnings.length, 1, 'one console warning for the fallback')
+})
+
+// ── 5b. a payload neither copy can send is an error, not silence ─────────────
+test('a payload that neither postMessage nor its JSON copy can send is logged and shown as an error', async () => {
+  const { get, context, received, errors } = page({ responses: { [QWS]: dashboardResponse() } })
+  await context.loadVisualizationData('art-1')
+  const data = get('visualizationsData')
+  // A function (postMessage refuses it) and a BigInt (JSON.stringify refuses it).
+  data.value = data.value.map((v, i) => (i === 0 ? { ...v, rows: [{ region: 'EMEA', amount: 3n, format: () => 'x' }] } : v))
+  const warn = console.warn
+  console.warn = () => {}
+  try {
+    context.pushArtifactData()
+  } finally { console.warn = warn }
+  assert.equal(errors.length, 1, 'console.error is called')
+  const status = received.filter((m) => m.type === 'ARTIFACT_PARAMS_STATUS')
+  assert.equal(status.length, 1, 'the frame is told')
+  assert.equal(status[0].payload.loading, false)
+  assert.ok(status[0].payload.error, 'with an error')
+  assert.equal(received.filter((m) => m.type === 'ARTIFACT_DATA').length, 0)
 })
 
 // ── 6. useMyFetch still clones for every caller without the opt-out ──────────

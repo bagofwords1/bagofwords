@@ -1486,7 +1486,6 @@ async function runParamQueries(
 
   postParamsStatus(true);
   let firstError: string | null = null;
-  const landed = new Map<string, any>();  // qid -> this run's result
   const runAs = (viewAsMode.value !== 'you' && viewAsMode.value !== 'anonymous')
     ? viewAsMode.value : undefined;
   await Promise.all(affected.map(async (qid) => {
@@ -1517,26 +1516,26 @@ async function runParamQueries(
       logRun('ok', { rows: Array.isArray(res.data?.rows) ? res.data.rows.length : undefined });
       if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
       if (props.verificationPreview && res.verification_request_id) verificationRequests.set(qid, res.verification_request_id);
-      landed.set(qid, res);
+      // Written as it lands, into the list as it is now (a reload since this
+      // query landed keeps its own rows), with a new chart object for each
+      // chart of this query. Not sent yet: the run sends once, at its end.
+      replaceVisualizationsData(visualizationsData.value.map((chart: any) => {
+        if (chart.queryId !== qid) return chart;
+        const viz = { ...chart };
+        viz.rows = res.data?.rows || [];
+        Object.assign(viz, artifactRowCounts(res.data));
+        viz.columns = res.data?.columns || [];
+        viz.stepStatus = 'success';
+        return viz;
+      }), { send: false });
     } catch (e: any) {
       if (!firstError) firstError = e?.message || 'Query run failed';
       logRun('error', { message: String(e?.message || 'Query run failed').slice(0, 300) });
     }
   }));
-  // One new list, always (so the watcher sends the data, with this run's
-  // ack, to the iframe once), with a new chart object for each chart a landed
-  // query feeds: the data is replaced, never edited in place. A query a newer
-  // run took over since it landed keeps the newer run's rows.
-  replaceVisualizationsData(visualizationsData.value.map((chart: any) => {
-    const res = landed.get(chart.queryId);
-    if (!res || latestParamRunForQid[chart.queryId] !== myRun) return chart;
-    const viz = { ...chart };
-    viz.rows = res.data?.rows || [];
-    Object.assign(viz, artifactRowCounts(res.data));
-    viz.columns = res.data?.columns || [];
-    viz.stepStatus = 'success';
-    return viz;
-  }));
+  // New list identity so the watcher fires and the fresh rows reach the
+  // iframe (once per run, with this run's ack).
+  replaceVisualizationsData([...visualizationsData.value]);
   // A fully superseded run stays quiet: the newer run owns the status line
   // and will push its own (fresher) data.
   if (myRun === paramRunCounter) {
@@ -1578,7 +1577,11 @@ const iframeReady = ref(false);
 // edited in place (a chart or row changed inside it reaches neither the frame
 // nor the page). Every write goes through replaceVisualizationsData.
 const visualizationsData = shallowRef<any[]>([]);
-function replaceVisualizationsData(next: any[]) {
+// send: false (a filter run's query as it lands) keeps the data watcher from
+// sending this list to the frame; the run sends once, at its end.
+let visualizationsSendDue = false;
+function replaceVisualizationsData(next: any[], { send = true }: { send?: boolean } = {}) {
+  if (send) visualizationsSendDue = true;
   visualizationsData.value = next;
 }
 const filesData = ref<any[]>([]);
@@ -3629,8 +3632,11 @@ function frameIframeOptions(seed: any, artifactCode: string) {
   };
 }
 
-// Re-send data when it changes
-watch([visualizationsData, filesData, iframeReady], () => {
+// Re-send data when it changes (not for a list written with send: false alone)
+watch([visualizationsData, filesData, iframeReady], ([, files, ready], [, prevFiles, prevReady]) => {
+  const due = visualizationsSendDue || files !== prevFiles || ready !== prevReady;
+  visualizationsSendDue = false;
+  if (!due) return;
   if (iframeReady.value && (visualizationsData.value.length > 0 || filesData.value.length > 0)) {
     sendDataToIframe();
   }
