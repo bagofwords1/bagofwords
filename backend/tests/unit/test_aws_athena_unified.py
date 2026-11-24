@@ -116,3 +116,115 @@ def test_per_database_mode_output_is_unchanged(wrangler, unify_tables):
     assert names(tables) == ["acme_db.assets", "acme_db.users", "globex_db.alerts", "globex_db.assets"]
     assert all(t.metadata_json == {"database": t.name.split(".")[0]} for t in tables)
     assert client.unindexed_table_prefixes() == []
+
+
+def indexed_client(glue, database="*_db"):
+    client = unified_client(database, glue)
+    client.attach_table_metadata(
+        [{"name": t.name, "metadata_json": t.metadata_json} for t in client.get_tables()]
+    )
+    return client
+
+
+def test_query_sends_the_union_to_athena_with_no_default_database(wrangler):
+    import sqlglot
+
+    client = indexed_client(FakeGlue(DATABASES))
+    client.execute_query("SELECT id FROM assets")
+    call = wrangler.calls[-1]
+    assert call["database"] is None
+    union = sqlglot.parse_one(call["sql"], read="athena").find(sqlglot.exp.Union)
+    sources = sorted(t.db for t in union.find_all(sqlglot.exp.Table))
+    assert sources == ["acme_db", "globex_db"]
+
+
+def test_query_before_indexing_asks_to_index_first(wrangler):
+    client = unified_client("*_db", FakeGlue(DATABASES))
+    with pytest.raises(ValueError, match="Index this connection first"):
+        client.execute_query("SELECT * FROM assets")
+    assert wrangler.calls == []
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM acme_db.assets",
+    "SELECT * FROM awsdatacatalog.acme_db.assets",
+    "SELECT * FROM missing_table",
+    "SELECT FROM FROM (",
+    "SELECT * FROM assets TABLESAMPLE BERNOULLI (10)",
+])
+def test_unusable_queries_are_refused_before_athena(wrangler, sql):
+    client = indexed_client(FakeGlue(DATABASES))
+    with pytest.raises(ValueError):
+        client.execute_query(sql)
+    assert wrangler.calls == []
+
+
+def test_qualified_table_is_refused_in_unified_mode(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    with pytest.raises(ValueError, match="names a tenant database directly"):
+        client.execute_query("SELECT * FROM acme_db.assets")
+    assert wrangler.calls == []
+
+
+def test_single_database_unified_client_also_sends_no_default_database(wrangler):
+    client = indexed_client(FakeGlue(DATABASES), database="acme_db")
+    client.execute_query("SELECT * FROM users")
+    assert wrangler.calls[-1]["database"] is None
+
+
+def test_attach_replaces_the_learned_set_and_ignores_entries_without_tenants(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    client.attach_table_metadata([
+        {"name": "users", "metadata_json": {"tenants": ["acme_db"], "column_types": {"id": "int"}}},
+        {"name": "legacy", "metadata_json": {"database": "acme_db"}},
+        {"name": "bare", "metadata_json": None},
+    ])
+    assert sorted(client._unified_tables) == ["users"]
+
+
+def test_description_explains_tenant_db_and_joins_and_names_left_out_tenants(wrangler):
+    glue = FakeGlue(
+        {
+            "a_db": ["orders"], "b_db": ["orders"], "c_db": ["orders"],
+            "broken_db": _glue_error("AccessDeniedException"),
+        },
+        columns={
+            ("a_db", "orders"): [{"Name": "total", "Type": "int"}],
+            ("b_db", "orders"): [{"Name": "total", "Type": "int"}],
+            ("c_db", "orders"): [{"Name": "total", "Type": "boolean"}],
+        },
+    )
+    client = indexed_client(glue)
+    client._query_left_out = {"orders": {"b_db": "table vanished"}}
+    text = client.description
+    assert "tenant_db" in text
+    assert "a.tenant_db = b.tenant_db" in text
+    assert "c_db" in text
+    assert "broken_db" in text
+    assert "b_db" in text.split("Tenants left out of single tables")[1]
+    assert text.count("Tell the user results") == 2
+
+
+def test_description_of_clean_unified_connection_names_nobody(wrangler):
+    text = indexed_client(FakeGlue(DATABASES)).description
+    assert "Not readable" not in text
+    assert "left out" not in text
+
+
+def test_per_database_mode_queries_are_unchanged(wrangler):
+    client = make_client("*_db", FakeGlue(DATABASES))
+    client.execute_query("SELECT * FROM acme_db.assets")
+    assert wrangler.calls[-1]["sql"] == "SELECT * FROM acme_db.assets"
+    assert wrangler.calls[-1]["database"] is None
+    with pytest.raises(ValueError):
+        client.execute_query("SELECT * FROM assets")
+
+
+def test_agent_scope_allows_selected_unified_table_and_refuses_unselected(wrangler):
+    from app.ai.code_execution.table_scope import TableScope, TableScopeViolation, check_table_scope
+
+    client = indexed_client(FakeGlue(DATABASES))
+    scope = TableScope.from_names(["assets"], ["alerts", "users"])
+    check_table_scope("SELECT * FROM assets", "athena", scope, client.exact_table_scope_catalogs)
+    with pytest.raises(TableScopeViolation):
+        check_table_scope("SELECT * FROM alerts", "athena", scope, client.exact_table_scope_catalogs)

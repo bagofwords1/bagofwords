@@ -16,6 +16,9 @@ import os
 from botocore.config import Config as BotoConfig
 from app.utils.safe_regex import compile_bounded, pattern_cost_problem
 from app.data_sources.clients.athena_unified_catalog import unify_glue_catalogs
+from app.data_sources.clients.athena_union_rewrite import UnifiedTable, rewrite_unified
+from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN
+from sqlglot.errors import SqlglotError
 from app.data_sources.clients.database_spec import parse_database_spec, is_glob, is_excluded, spec_matches
 
 # Configure logging
@@ -197,6 +200,9 @@ class AwsAthenaClient(DataSourceClient):
         self._unread_dbs: List[str] = []
         self._diagnostics: List[dict] = []
         self._attached_dbs: List[str] = []
+        self._unified_tables: dict[str, UnifiedTable] = {}
+        self._excluded_tenants: dict[str, List[str]] = {}
+        self._query_left_out: dict[str, dict[str, str]] = {}
         self._count_cache: Optional[tuple] = None
         self._skipped_tables = 0
         self._counted_dbs = 0
@@ -226,7 +232,9 @@ class AwsAthenaClient(DataSourceClient):
         Returns:
             pd.DataFrame: Query result as a Pandas DataFrame.
         """
-        if self._multi:
+        if self._unified:
+            sql = self._unified_sql(sql)
+        elif self._multi:
             self._check_multi_table_refs(sql)
         try:
             logger.info("Executing query: %s", sql)
@@ -234,7 +242,7 @@ class AwsAthenaClient(DataSourceClient):
             # Common wrangler params
             wrangler_params = {
                 'sql': sql,
-                'database': None if self._multi else self.database,
+                'database': None if self._multi or self._unified else self.database,
                 'ctas_approach': False,
                 'workgroup': self.workgroup,
                 'data_source': self.data_source,
@@ -315,6 +323,8 @@ class AwsAthenaClient(DataSourceClient):
             "Double-quote any database or table name that is not made of lowercase letters, "
             'digits and underscores starting with a letter or underscore, e.g. "globex_db"."my-table".\n'
         )
+        if self._unified:
+            return self._unified_description()
         if not self._multi:
             system_prompt = f"""
         You can call the execute_query method to run SQL queries.
@@ -345,6 +355,64 @@ class AwsAthenaClient(DataSourceClient):
             "Examples:\n"
             "```python\n"
             'df = client.execute_query("SELECT * FROM globex_db.assets LIMIT 10")\n'
+            "```\n"
+        )
+
+    def _unified_sql(self, sql: str) -> str:
+        from app.ai.code_execution.table_scope import parse_for_refs, refuse_unchecked_reads_of
+        if not self._unified_tables:
+            raise ValueError(
+                "No unified tables are known for this connection yet. Index this connection first."
+            )
+        try:
+            refuse_unchecked_reads_of(parse_for_refs(sql, "athena"))
+            left_out = {table: frozenset(tenants) for table, tenants in self._query_left_out.items()}
+            return rewrite_unified(sql, self._unified_tables, self.data_source, left_out).sql
+        except SqlglotError as e:
+            raise ValueError(f"Could not read this query, so it was not run: {e}") from e
+
+    def _unified_description(self) -> str:
+        tenants = sorted({t for table in self._unified_tables.values() for t in table.tenants})
+        listed = f"({len(tenants)}): {format_name_list(tenants, 50)}" if tenants else "(none indexed yet)"
+        text_ = (
+            f"AWS Athena tenant databases {listed}\n\n"
+            "You can call the execute_query method to run SQL queries.\n"
+            "Every table is the union of that table across the tenant databases, named by its bare "
+            f"table name (for example assets). Its first column, {TENANT_COLUMN}, holds the name of the "
+            "database each row comes from.\n"
+            f"For one tenant, filter on it: WHERE {TENANT_COLUMN} = '<database>'.\n"
+            f"Every join between two tables must include a.{TENANT_COLUMN} = b.{TENANT_COLUMN}: each tenant "
+            "has its own id space, so a join on ids alone matches rows of different tenants.\n"
+            "Queries that name a database (<database>.<table>) are refused. "
+            "SHOW and DESCRIBE are not available.\n"
+        )
+        unreadable = sorted(self._unread_dbs)
+        if unreadable:
+            text_ += (
+                f"Not readable, so missing from every table and every result: {format_name_list(unreadable, 50)}. "
+                "Tell the user results exclude them.\n"
+            )
+        notes = [
+            f"{table} leaves out {tenant} (column type conflict)"
+            for table, tenants in sorted(self._excluded_tenants.items())
+            for tenant in tenants
+        ]
+        notes += [
+            f"{table} leaves out {tenant} (its table could not be read at query time)"
+            for table, tenants in sorted(self._query_left_out.items())
+            for tenant in sorted(tenants)
+        ]
+        if notes:
+            text_ += (
+                "Tenants left out of single tables: " + "; ".join(notes) + ". "
+                "Tell the user results from those tables exclude them.\n"
+            )
+        return text_ + (
+            "\nExamples:\n"
+            "```python\n"
+            f'df = client.execute_query("SELECT {TENANT_COLUMN}, count(*) FROM assets GROUP BY {TENANT_COLUMN}")\n'
+            'df = client.execute_query("SELECT a.id, u.name FROM assets a JOIN users u '
+            f'ON a.{TENANT_COLUMN} = u.{TENANT_COLUMN} AND a.user_id = u.id")\n'
             "```\n"
         )
 
@@ -575,6 +643,25 @@ class AwsAthenaClient(DataSourceClient):
         }
 
     def attach_table_metadata(self, tables: List[dict]) -> None:
+        if self._unified:
+            learned: dict[str, UnifiedTable] = {}
+            excluded: dict[str, List[str]] = {}
+            for t in tables or []:
+                if not isinstance(t, dict) or not t.get("name"):
+                    continue
+                meta = t.get("metadata_json") or {}
+                if not isinstance(meta, dict):
+                    continue
+                table = UnifiedTable.from_metadata(t["name"], meta)
+                if table is None:
+                    continue
+                learned[table.name] = table
+                dropped = [x for x in meta.get("excluded_tenants") or [] if isinstance(x, str)]
+                if dropped:
+                    excluded[table.name] = dropped
+            self._unified_tables = learned
+            self._excluded_tenants = excluded
+            return
         if not self._multi:
             return
         learned = set(self._attached_dbs)
