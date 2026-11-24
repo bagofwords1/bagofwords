@@ -48,9 +48,10 @@ def json_response(content: Any) -> Response:
     try:
         body = orjson.dumps(data)
     except orjson.JSONEncodeError as exc:
-        body = _stdlib_dumps(data)
+        body = _stdlib_dumps(jsonable_encoder(data))
         logger.info("json_response: orjson refused the payload (%s); stdlib writer used, %d bytes",
                     exc, len(body))
+        return Response(body, media_type="application/json")
     if b'"_sa' in body:
         # FastAPI's default path, which drops the keys starting with "_sa".
         body = _stdlib_dumps(jsonable_encoder(data))
