@@ -1611,7 +1611,7 @@
     "rewindConfirmBody": "This removes 1 message (this prompt) from the conversation and from the agent's context. | This removes {n} messages (this prompt and everything after it) from the conversation and from the agent's context.",
     "rewindConfirmKeeps": "Widgets, queries and dashboards built in those messages are kept.",
     "rewindConfirmMemories": "1 memory saved from these messages is kept. You can manage your memories in your profile. | {n} memories saved from these messages are kept. You can manage your memories in your profile.",
-    "rewindConfirmPrefill": "The prompt goes back into the prompt box so you can edit and resend it.",
+    "rewindConfirmPrefill": "The prompt's text goes back into the prompt box so you can edit and resend it. Mentions and attached files aren't restored.",
     "rewindConfirmAction": "Rewind",
     "rewindDone": "Rewound. Edit the prompt and send it again.",
     "rewindFailed": "Could not rewind the conversation",

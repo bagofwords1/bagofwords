@@ -6412,8 +6412,11 @@ function canRewindPrompt(m: ChatMessage) {
 const showRewindConfirm = ref(false)
 const rewinding = ref(false)
 const rewindTarget = ref<ChatMessage | null>(null)
-// What the confirmation counts: the prompt and every later message shown.
+// What the confirmation counts: the server's count of transcript rows that go
+// (dry run), or until it answers, the prompt and every later message shown.
+const rewindServerCount = ref<number | null>(null)
 const rewindCount = computed(() => {
+	if (rewindServerCount.value != null) return rewindServerCount.value
 	const target = rewindTarget.value
 	if (!target) return 0
 	const idx = messages.value.findIndex(m => m.id === target.id)
@@ -6427,6 +6430,7 @@ async function askRewind(m: ChatMessage) {
 	if (!canRewindPrompt(m) || isRunBusy.value) return
 	rewindTarget.value = m
 	rewindMemoriesCount.value = 0
+	rewindServerCount.value = null
 	showRewindConfirm.value = true
 	// Dry run: how many memories came from the turns that would go (they are
 	// kept; the dialog says so). Best effort — the dialog works without it.
@@ -6435,7 +6439,11 @@ async function askRewind(m: ChatMessage) {
 			method: 'POST',
 			body: { completion_id: m.id, dry_run: true },
 		})
-		if (rewindTarget.value?.id === m.id) rewindMemoriesCount.value = Number((data.value as any)?.memories_kept || 0)
+		const preview = data.value as any
+		if (preview && rewindTarget.value?.id === m.id) {
+			rewindMemoriesCount.value = Number(preview.memories_kept || 0)
+			if (typeof preview.visible_removed_count === 'number') rewindServerCount.value = preview.visible_removed_count
+		}
 	} catch { /* preview only */ }
 }
 
