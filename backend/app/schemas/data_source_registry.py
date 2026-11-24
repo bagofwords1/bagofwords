@@ -54,6 +54,7 @@ from app.schemas.data_sources.configs import (
     BrocadeConfig,
     BrocadeCredentials,
     SharePointOnpremConfig,
+    SharePointOnpremListsConfig,
     SharePointOnpremNtlmCredentials,
     DocumentumConfig,
     DocumentumUserPassCredentials,
@@ -2410,6 +2411,28 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",
+        requires_license="enterprise",
+    ),
+    "sharepoint_onprem_lists": DataSourceRegistryEntry(
+        type="sharepoint_onprem_lists",
+        category="files",
+        title="SharePoint Server Lists (on-prem)",
+        description="Query SharePoint Server lists as tables using NTLM or Kerberos — every list on a site becomes a table with typed columns. No Microsoft Graph or Entra app required.",
+        config_schema=SharePointOnpremListsConfig,
+        # Same Windows sign-in as the on-prem files connector: a service
+        # account for the whole organization, or each user's own domain login
+        # so SharePoint's list permissions apply per person.
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=SharePointOnpremNtlmCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=SharePointOnpremKerberosCredentials, scopes=["system"]),
+        }),
+        client_path="app.data_sources.clients.sharepoint_onprem_lists_client.SharepointOnpremListsClient",
+        # Tables shape, like `sharepoint_lists`: lists carry typed columns and
+        # are queried with execute_query specs. The site's lists are one
+        # universe; per-user overlays are permission-filtered subsets.
+        data_shape="tables",
+        catalog_ownership="shared",
+        catalog_nouns=("list", "lists"),
         requires_license="enterprise",
     ),
     "sharepoint": DataSourceRegistryEntry(
