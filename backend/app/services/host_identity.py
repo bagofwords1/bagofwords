@@ -211,12 +211,9 @@ async def resolve_user(db, host, subject: str, claims: Dict[str, Any]) -> User:
 
     intent = workspace_access.SignupIntent(host.public_id, host_id, org_id,
                                            role if role in (APP_USER_ROLE, "member") else APP_USER_ROLE, started)
-    token = workspace_access._signup_intent.set(intent)
     try:
-        try:
+        async with workspace_access.signup_intent_scope(intent):
             user_id = await _admit(db, host, subject, claims)
-        finally:
-            workspace_access._signup_intent.reset(token)
         await apply_new_user_role(db, host_id, org_id, role, user_id, since=started)
     except AppError:
         raise

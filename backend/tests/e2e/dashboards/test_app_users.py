@@ -31,7 +31,7 @@ import pytest
 
 from tests.e2e.dashboards.dashboard_setup import as_, own, publish, share
 from tests.e2e.dashboards.test_embed_identity_sources import (  # noqa: F401  (provider is a fixture)
-    _domain_signup, _host, _invite, _link, _session, provider,
+    _count, _domain_signup, _host, _invite, _link, _session, provider,
 )
 
 pytestmark = pytest.mark.e2e
@@ -152,9 +152,22 @@ def _pkce():
     return verifier, base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
 
 
-def _sign_up(client, email, password="Password123!"):
+def _intent(client, host):
+    """What the sign-up form does as it submits inside ``host``'s sign-in
+    window: asks for an intent, to send with that one request."""
+    r = client.post(f"/api/embed/{host['public_id']}/sso/intent")
+    assert r.status_code == 200, r.text
+    return {"X-Embed-Signup": r.json()["token"]}
+
+
+def _register(client, email, intent=None, password="Password123!"):
+    return client.post("/api/auth/register", headers=intent or {},
+                       json={"name": f"Person {email.split('@')[0]}", "email": email, "password": password})
+
+
+def _sign_up(client, email, intent=None, password="Password123!"):
     """BOW's ordinary sign-up and sign-in, as the SSO popup runs them."""
-    r = client.post("/api/auth/register", json={"name": f"Person {email.split('@')[0]}", "email": email, "password": password})
+    r = _register(client, email, intent, password)
     assert r.status_code == 201, r.text
     login = client.post("/api/auth/jwt/login", data={"username": email, "password": password})
     assert login.status_code == 200, login.text
@@ -357,8 +370,7 @@ def test_someone_who_already_has_an_account_keeps_their_role(provider, people, c
 def test_the_sso_popup_gives_an_account_it_creates_the_hosts_role(people, corpus, corpus_rows, test_client):
     _domain_signup(corpus_rows, corpus, "popup.example")
     host = _host_app(test_client, corpus)
-    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
-    headers, user_id = _sign_up(test_client, "ada@popup.example")
+    headers, user_id = _sign_up(test_client, "ada@popup.example", _intent(test_client, host))
     headers["X-Organization-Id"] = people.org
     _, challenge = _pkce()
     code = test_client.post(f"/api/embed/{host['public_id']}/sso/code", json={"code_challenge": challenge},
@@ -387,11 +399,15 @@ def test_signing_up_to_bow_itself_makes_a_member(people, corpus, corpus_rows, te
 
 def test_the_popup_never_changes_an_existing_members_role(people, corpus, test_client):
     host = _host_app(test_client, corpus)
-    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    intent = _intent(test_client, host)
     _, challenge = _pkce()
     for person in ("member", "admin"):
+        # Signing in again inside the window, intent attached, then its code.
+        again = test_client.post("/api/auth/jwt/login", headers=intent, data={
+            "username": corpus.cast.people[person].email, "password": "Password123!"})
+        assert again.status_code in (200, 400), again.text
         r = test_client.post(f"/api/embed/{host['public_id']}/sso/code", json={"code_challenge": challenge},
-                             headers=as_(corpus, person))
+                             headers={**as_(corpus, person), **intent})
         assert r.status_code == 200, r.text
     assert people.member(corpus.cast.id("member"))["role"] == "member"
     assert people.member(corpus.cast.id("admin"))["role"] == "admin"
@@ -401,8 +417,7 @@ def test_the_role_is_the_application_s_whose_window_they_signed_up_in(people, co
     _domain_signup(corpus_rows, corpus, "other.example")
     started_in = _host_app(test_client, corpus)
     signed_into = _host_app(test_client, corpus, new_user_role="member")
-    assert test_client.post(f"/api/embed/{started_in['public_id']}/sso/intent").status_code == 204
-    headers, user_id = _sign_up(test_client, "cy@other.example")
+    headers, user_id = _sign_up(test_client, "cy@other.example", _intent(test_client, started_in))
     headers["X-Organization-Id"] = people.org
     _, challenge = _pkce()
     assert test_client.post(f"/api/embed/{signed_into['public_id']}/sso/code", json={"code_challenge": challenge},
@@ -420,8 +435,7 @@ def test_a_sign_up_window_that_never_finishes_still_makes_an_app_user(people, co
     was theirs."""
     _domain_signup(corpus_rows, corpus, "closed.example")
     host = _host_app(test_client, corpus)
-    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
-    headers, user_id = _sign_up(test_client, "eve@closed.example")
+    headers, user_id = _sign_up(test_client, "eve@closed.example", _intent(test_client, host))
     headers["X-Organization-Id"] = people.org
 
     first = test_client.get(first_request, headers=headers)
@@ -437,36 +451,54 @@ def test_the_role_is_stored_when_the_account_is_registered(people, corpus, corpu
     first, and no later request, is needed for it to be an app user."""
     _domain_signup(corpus_rows, corpus, "atonce.example")
     host = _host_app(test_client, corpus)
-    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
-    r = test_client.post("/api/auth/register", json={"name": "Person gal", "email": "gal@atonce.example",
-                                                     "password": "Password123!"})
+    r = _register(test_client, "gal@atonce.example", _intent(test_client, host))
     assert r.status_code == 201, r.text
-    test_client.cookies.clear()  # the admin reads the list without the window's cookie
     member = people.member(r.json()["id"])
     assert member["role"] == "app_user" and member["created_via_host_application"] == host["name"]
+    assert [role["name"] for role in member["roles"]] == ["app_user"]
+    # Recorded once, for that account and that application.
+    assert _count(corpus_rows, "select count(*) from audit_logs where action = 'embed.user_created' "
+                               "and user_id = :u and resource_id = :h", u=r.json()["id"], h=host["id"]) == 1
+    # Using the account does not record it again.
+    login = test_client.post("/api/auth/jwt/login", data={"username": "gal@atonce.example",
+                                                          "password": "Password123!"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}", "X-Organization-Id": people.org}
+    assert test_client.get("/api/apps", headers=headers).status_code == 200
+    assert _count(corpus_rows, "select count(*) from audit_logs where action = 'embed.user_created' "
+                               "and user_id = :u", u=r.json()["id"]) == 1
 
 
-def test_a_slow_sign_up_is_still_an_app_user_because_the_form_renews_the_intent(people, corpus, corpus_rows,
-                                                                               test_client, monkeypatch):
-    """The window sat open past the intent's lifetime. The sign-up form asks
-    for a new one as it submits, so the account is an app user; an expired
-    intent alone is an ordinary sign-up (the organization's own policy)."""
+def test_an_abandoned_window_does_not_follow_the_browser(people, corpus, corpus_rows, test_client):
+    """Someone opens an app's sign-in window, leaves it, and signs up to BOW
+    itself in the same browser. Nothing of the window travels with them: an
+    intent is sent with one request, it is not a cookie."""
+    _domain_signup(corpus_rows, corpus, "tabs.example")
+    host = _host_app(test_client, corpus)
+    opened = test_client.post(f"/api/embed/{host['public_id']}/sso/intent")
+    assert opened.status_code == 200 and not opened.cookies and "set-cookie" not in opened.headers
+    headers, user_id = _sign_up(test_client, "kai@tabs.example")  # the other tab: no intent
+    headers["X-Organization-Id"] = people.org
+    member = people.member(user_id)
+    assert member["role"] == "member" and member["created_via_host_application"] is None
+    assert people.has_workspace(headers)
+
+
+def test_an_expired_intent_is_an_ordinary_sign_up_and_the_form_asks_at_submit(people, corpus, corpus_rows,
+                                                                             test_client, monkeypatch):
+    """An intent lives minutes, and the form asks for it as it submits, so
+    how long the window sat open does not matter. One that did expire is not
+    honoured: the account is then an ordinary sign-up, by the organization's
+    own policy."""
     from app.core import workspace_access
 
     _domain_signup(corpus_rows, corpus, "slow.example")
     host = _host_app(test_client, corpus)
     monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", -10)  # issued already expired
-    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
-    stale = test_client.post("/api/auth/register", json={"name": "Person hal", "email": "hal@slow.example",
-                                                         "password": "Password123!"})
+    stale = _register(test_client, "hal@slow.example", _intent(test_client, host))
     assert stale.status_code == 201, stale.text
-    monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", 3600)
-    # What frontend/composables/useEmbedSignupIntent.ts does on submit:
-    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
-    fresh = test_client.post("/api/auth/register", json={"name": "Person ivy", "email": "ivy@slow.example",
-                                                         "password": "Password123!"})
+    monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", 600)
+    fresh = _register(test_client, "ivy@slow.example", _intent(test_client, host))
     assert fresh.status_code == 201, fresh.text
-    test_client.cookies.clear()
     assert people.member(stale.json()["id"])["role"] == "member"
     assert people.member(fresh.json()["id"])["role"] == "app_user"
 
@@ -489,19 +521,17 @@ def test_no_workspace_membership_survives_a_failed_role_write(people, corpus, co
 
     _domain_signup(corpus_rows, corpus, "broken.example")
     host = _host_app(test_client, corpus)
-    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    intent = _intent(test_client, host)
 
     def refuse(*args, **kwargs):
         raise RuntimeError("the role could not be written")
 
     monkeypatch.setattr(workspace_access, "stamp_membership", refuse)
     try:
-        test_client.post("/api/auth/register", json={"name": "Person jo", "email": "jo@broken.example",
-                                                     "password": "Password123!"})
+        _register(test_client, "jo@broken.example", intent)
     except RuntimeError:
         pass  # the test client re-raises what the server would answer 500 for
     monkeypatch.undo()
-    test_client.cookies.clear()
 
     held = [m for m in people.members() if ((m.get("user") or {}).get("email") or m.get("email")) == "jo@broken.example"]
     assert all(m["role"] != "member" and not m.get("user_id") for m in held), held
