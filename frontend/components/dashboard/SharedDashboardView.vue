@@ -341,6 +341,7 @@
 </template>
 
 <script setup lang="ts">
+import { shallowRef, toRaw } from 'vue';
 import type { ExportFormat } from '~/composables/useArtifactExports'
 import { handleTableLayoutMessage, loadTableLayouts } from '~/utils/artifactTableLayout';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
@@ -349,6 +350,7 @@ import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { artifactRowCounts } from '~/utils/artifactRowCounts';
+import { artifactFramePayload, postWithJsonFallback } from '~/utils/artifactFramePayload';
 import { artifactSandbox } from '~/utils/artifactSandbox';
 import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
@@ -454,7 +456,15 @@ async function fetchViewerContext() {
         viewerContext.value = null;
     }
 }
-const visualizationsData = ref<any[]>([]);
+// The dashboard's data: every chart with its rows. Shallow on purpose: Vue
+// tracks the list, not the values inside it, so a large dashboard is not
+// wrapped row by row. The rule that comes with it: the list is replaced, never
+// edited in place (a chart or row changed inside it refreshes nothing on the
+// page). Every write goes through replaceVisualizationsData.
+const visualizationsData = shallowRef<any[]>([]);
+function replaceVisualizationsData(next: any[]) {
+    visualizationsData.value = next;
+}
 const filesData = ref<any[]>([]);
 const hasArtifacts = ref(false);
 const artifactLoadFailed = ref(false);
@@ -1309,13 +1319,15 @@ async function loadArtifact() {
 // The artifact's queries, each with the default step this viewer may see, in
 // ONE request (api.queriesWithSteps). Null on failure — callers then fall
 // back to the list + per-query step endpoints.
+// The answer is used as it came (noClone, toRaw): no copy of the rows, and
+// nothing on this page writes into it.
 async function fetchQueriesWithSteps(artifactId?: string): Promise<any[] | null> {
     try {
         const sent = apiAuthorization.value;
-        const { data, error } = await useMyFetch(api.queriesWithSteps(artifactId));
+        const { data, error } = await useMyFetch(api.queriesWithSteps(artifactId), { noClone: true } as any);
         if (embedSessionEndedOn(error.value, sent)) return [];
         if (error.value || !Array.isArray(data.value)) return null;
-        return data.value as any[];
+        return toRaw(data.value) as any[];
     } catch {
         return null;
     }
@@ -1475,9 +1487,9 @@ async function loadVisualizationData(artifactId?: string) {
             for (const v of vizData) {
                 if (!orderedIds.has(v.id)) ordered.push(v);
             }
-            visualizationsData.value = ordered;
+            replaceVisualizationsData(ordered);
         } else {
-            visualizationsData.value = vizData;
+            replaceVisualizationsData(vizData);
         }
         await resolveParamOptions(rowsByQuery, titleToId, appliedByQuery);
         viewerLastRunAt.value = newestViewerRun;
@@ -1573,7 +1585,8 @@ let paramAckSeq = 0;
 let paramRunCounter = 0;
 const latestParamRunForQid: Record<string, number> = {};
 // Frozen at dataReady so live updates never recompute srcdoc (iframe reload).
-const srcdocSeed = ref<any>(null);
+// Shallow: plain data (artifactDataPayload), set once, never edited.
+const srcdocSeed = shallowRef<any>(null);
 
 function artifactRuntime() {
     const v = Number(artifact.value?.content?.runtime_version || 0);
@@ -1709,10 +1722,33 @@ function queriesWithIdentityParams(): string[] {
         .map(([qid]) => qid);
 }
 
-function postToArtifactIframe(msg: any) {
+// jsonFallback (the data push): a message the browser refuses to copy is sent
+// as a JSON copy instead (utils/artifactFramePayload).
+function postToArtifactIframe(msg: any, jsonFallback = false) {
+    const target = artifactIframeRef.value?.contentWindow;
     try {
-        artifactIframeRef.value?.contentWindow?.postMessage(msg, '*');
+        if (target && jsonFallback) postWithJsonFallback(target, msg);
+        else target?.postMessage(msg, '*');
     } catch { /* iframe not ready */ }
+}
+
+// What the frame receives: ARTIFACT_DATA and the srcdoc seed, without a copy
+// of the rows (utils/artifactFramePayload).
+function artifactDataPayload(extra: Record<string, any> = {}, separateRows = false) {
+    return artifactFramePayload({
+        report: {
+            id: report.value.id,
+            title: report.value.title,
+            theme: report.value.theme_name || report.value.report_theme_name
+        },
+        visualizations: visualizationsData.value,
+        files: filesData.value,
+        current_user: viewerContext.value,
+        host_context: props.hostContext ?? null,
+        params: paramsPayload(),
+        runtime: artifactRuntime(),
+        ...extra,
+    }, { separateRows });
 }
 
 // Get the rows just loaded into the artifact that is already on screen.
@@ -1743,22 +1779,11 @@ function onArtifactIframeLoad() {
 function pushArtifactData() {
     postToArtifactIframe({
         type: 'ARTIFACT_DATA',
-        payload: JSON.parse(JSON.stringify({
-            report: {
-                id: report.value.id,
-                title: report.value.title,
-                theme: report.value.theme_name || report.value.report_theme_name
-            },
-            visualizations: visualizationsData.value,
-            files: filesData.value,
-            current_user: viewerContext.value,
-            host_context: props.hostContext ?? null,
-            params: paramsPayload(),
-            runtime: artifactRuntime(),
+        payload: artifactDataPayload({
             // This viewer's DataTable layouts — hand-set widths, column order (utils/artifactTableLayout).
             table_layouts: loadTableLayouts(artifact.value?.artifact_id)
-        }))
-    });
+        }, true)
+    }, true);
 }
 
 async function runParamQueries(
@@ -1819,25 +1844,27 @@ async function runParamQueries(
             const sent = apiAuthorization.value;
             const { data: runRes, error } = await useMyFetch(api.paramRun(qid), { method: 'POST', body });
             if (embedSessionEndedOn(error.value, sent)) return;
-            const res: any = runRes.value;
+            const res: any = toRaw(runRes.value);
             if (error.value || !res || res.status !== 'success') {
                 const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
                 if (!firstError) firstError = String(msg);
                 return;
             }
             if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
-            for (const viz of visualizationsData.value as any[]) {
-                if (viz.queryId === qid) {
-                    viz.rows = res.data?.rows || [];
-                    Object.assign(viz, artifactRowCounts(res.data));
-                    viz.columns = res.data?.columns || [];
-                }
-            }
+            // A new chart object for each chart of this query, in a new list:
+            // the data is replaced, never edited in place.
+            replaceVisualizationsData(visualizationsData.value.map((current: any) => {
+                if (current.queryId !== qid) return current;
+                const viz = { ...current };
+                viz.rows = res.data?.rows || [];
+                Object.assign(viz, artifactRowCounts(res.data));
+                viz.columns = res.data?.columns || [];
+                return viz;
+            }));
         } catch (e: any) {
             if (!firstError) firstError = e?.message || 'Query run failed';
         }
     }));
-    visualizationsData.value = [...visualizationsData.value];
     // A fully superseded run stays quiet: the newer run owns the status line
     // and pushes its own (fresher) data.
     if (myRun === paramRunCounter) {
@@ -2157,19 +2184,7 @@ onMounted(async () => {
 
     // Freeze the srcdoc seed so later param runs update via postMessage
     // without reloading the iframe.
-    srcdocSeed.value = JSON.parse(JSON.stringify({
-        report: {
-            id: report.value.id,
-            title: report.value.title,
-            theme: report.value.theme_name || report.value.report_theme_name
-        },
-        visualizations: visualizationsData.value,
-        files: filesData.value,
-        current_user: viewerContext.value,
-        host_context: props.hostContext ?? null,
-        params: paramsPayload(),
-        runtime: artifactRuntime()
-    }));
+    srcdocSeed.value = artifactDataPayload();
 
     // The iframe libraries were requested after identity, in parallel with the data
     // above; usually they are already here. Waiting before flipping the flags

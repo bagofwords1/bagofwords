@@ -661,7 +661,7 @@
 import type { ExportFormat } from '~/composables/useArtifactExports'
 import { handleTableLayoutMessage, loadTableLayouts } from '~/utils/artifactTableLayout';
 import type { ActivityEvent } from '~/composables/useArtifactRuntime'
-import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick, provide } from 'vue';
+import { ref, shallowRef, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick, provide } from 'vue';
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
 import { artifactSandbox } from '~/utils/artifactSandbox'
 import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
@@ -686,6 +686,7 @@ import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from 
 import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt } from '~/utils/polishPrompt';
 import { newestVersionOf } from '~/utils/artifactVersionLatest';
 import { artifactRowCounts } from '~/utils/artifactRowCounts';
+import { artifactFramePayload, postWithJsonFallback } from '~/utils/artifactFramePayload';
 import { viewingPath } from '~/utils/dashboardViewing';
 
 // A dashboard keeps its own dense chart and grid sizes even when it sits
@@ -769,8 +770,10 @@ const props = defineProps<{
 const useMyFetch: typeof useApplicationFetch = (async (request: any, options: any = {}) => {
   if (!props.verificationPreview) return useApplicationFetch(request, options);
   const path = String(request).startsWith('/api/') ? String(request) : `/api${request}`;
+  // noClone is useMyFetch's own option (the broker's answer is never shared).
+  const { noClone: _noClone, ...fetchOptions } = options || {};
   try {
-    const value = await $fetch(path, options);
+    const value = await $fetch(path, fetchOptions);
     return { data: ref(value), error: ref(null), pending: ref(false), status: ref('success'), refresh: () => {} };
   } catch (error) {
     return { data: ref(null), error: ref(error), pending: ref(false), status: ref('error'), refresh: () => {} };
@@ -1274,7 +1277,8 @@ let paramRunCounter = 0;
 const latestParamRunForQid: Record<string, number> = {};
 // Snapshot embedded in the iframe's srcdoc; frozen per data load so live
 // param/view-as updates (postMessage) never trigger an iframe reload.
-const srcdocSeed = ref<any>(null);
+// Shallow: plain data (artifactFramePayload), set once per load, never edited.
+const srcdocSeed = shallowRef<any>(null);
 
 // Which sandbox runtime generation the selected artifact was authored for.
 // Read from content.runtime_version so a legacy row keeps its legacy look.
@@ -1482,6 +1486,7 @@ async function runParamQueries(
 
   postParamsStatus(true);
   let firstError: string | null = null;
+  const landed = new Map<string, any>();  // qid -> this run's result
   const runAs = (viewAsMode.value !== 'you' && viewAsMode.value !== 'anonymous')
     ? viewAsMode.value : undefined;
   await Promise.all(affected.map(async (qid) => {
@@ -1502,7 +1507,7 @@ async function runParamQueries(
           ...(runAs ? { run_as_user_id: runAs } : {}),
         },
       });
-      const res: any = runRes.value;
+      const res: any = toRaw(runRes.value);
       if (error.value || !res || res.status !== 'success') {
         const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
         if (!firstError) firstError = String(msg);
@@ -1512,21 +1517,26 @@ async function runParamQueries(
       logRun('ok', { rows: Array.isArray(res.data?.rows) ? res.data.rows.length : undefined });
       if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
       if (props.verificationPreview && res.verification_request_id) verificationRequests.set(qid, res.verification_request_id);
-      for (const viz of visualizationsData.value) {
-        if (viz.queryId === qid) {
-          viz.rows = res.data?.rows || [];
-          Object.assign(viz, artifactRowCounts(res.data));
-          viz.columns = res.data?.columns || [];
-          viz.stepStatus = 'success';
-        }
-      }
+      landed.set(qid, res);
     } catch (e: any) {
       if (!firstError) firstError = e?.message || 'Query run failed';
       logRun('error', { message: String(e?.message || 'Query run failed').slice(0, 300) });
     }
   }));
-  // New array identity so watchers fire and the fresh rows reach the iframe.
-  visualizationsData.value = [...visualizationsData.value];
+  // One new list, always (so the watcher sends the data, with this run's
+  // ack, to the iframe once), with a new chart object for each chart a landed
+  // query feeds: the data is replaced, never edited in place. A query a newer
+  // run took over since it landed keeps the newer run's rows.
+  replaceVisualizationsData(visualizationsData.value.map((chart: any) => {
+    const res = landed.get(chart.queryId);
+    if (!res || latestParamRunForQid[chart.queryId] !== myRun) return chart;
+    const viz = { ...chart };
+    viz.rows = res.data?.rows || [];
+    Object.assign(viz, artifactRowCounts(res.data));
+    viz.columns = res.data?.columns || [];
+    viz.stepStatus = 'success';
+    return viz;
+  }));
   // A fully superseded run stays quiet: the newer run owns the status line
   // and will push its own (fresher) data.
   if (myRun === paramRunCounter) {
@@ -1562,7 +1572,15 @@ function readParamsFromUrl(): Record<string, any> {
   return out;
 }
 const iframeReady = ref(false);
-const visualizationsData = ref<any[]>([]);
+// The dashboard's data: every chart with its rows. Shallow on purpose: Vue
+// tracks the list, not the values inside it, so a large dashboard is not
+// wrapped row by row. The rule that comes with it: the list is replaced, never
+// edited in place (a chart or row changed inside it reaches neither the frame
+// nor the page). Every write goes through replaceVisualizationsData.
+const visualizationsData = shallowRef<any[]>([]);
+function replaceVisualizationsData(next: any[]) {
+  visualizationsData.value = next;
+}
 const filesData = ref<any[]>([]);
 const reportData = ref<any>(null);
 
@@ -2937,9 +2955,11 @@ function sendDataToIframe() {
   ].filter((w): w is Window => !!w);
   if (!targets.length) return;
 
-  const payload = JSON.parse(JSON.stringify({
+  // Without a copy of the rows; each frame's postMessage makes its own
+  // (utils/artifactFramePayload).
+  const payload = artifactFramePayload({
     report: toRaw(reportData.value),
-    visualizations: toRaw(visualizationsData.value),
+    visualizations: visualizationsData.value,
     files: toRaw(filesData.value),
     current_user: toRaw(effectiveViewerContext.value),
     params: paramsPayload(),
@@ -2949,14 +2969,14 @@ function sendDataToIframe() {
     ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {}),
     // Each push replaces the app's data: keep the preview's real policy in it.
     ...(props.verificationPreview && previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
-  }));
+  }, { separateRows: true });
 
   verificationEvent('data_sent', {
     data_revision: verificationRevision,
     request_ids: [...new Set(visualizationsData.value.map(v => verificationRequests.get(v.queryId)).filter(Boolean))],
   });
   try {
-    for (const target of targets) target.postMessage({ type: 'ARTIFACT_DATA', payload }, '*');
+    for (const target of targets) postWithJsonFallback(target, { type: 'ARTIFACT_DATA', payload });
   } catch (err: any) {
     console.error('[ArtifactFrame] Failed to send data to iframe:', err);
     iframeError.value = err?.message || 'Failed to send data to dashboard iframe';
@@ -3014,9 +3034,11 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       prefetched = await pf.queries;
       if (prefetched?.error?.value || !Array.isArray(prefetched?.data?.value)) prefetched = null;
     }
-    const { data: queriesRes } = prefetched || await useMyFetch(`/api/queries${queryParams}`);
+    // The rows are used as they came (noClone, toRaw): no copy, and nothing
+    // here writes into the answer.
+    const { data: queriesRes } = prefetched || await useMyFetch(`/api/queries${queryParams}`, { noClone: true } as any);
     if (artifactId !== selectedArtifactId.value) return;
-    const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
+    const queries = Array.isArray(queriesRes.value) ? toRaw(queriesRes.value) : [];
 
     // Build visualization data array
     const vizData: any[] = [];
@@ -3160,9 +3182,9 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       for (const v of vizData) {
         if (!orderedIds.has(v.id)) ordered.push(v);
       }
-      visualizationsData.value = ordered;
+      replaceVisualizationsData(ordered);
     } else {
-      visualizationsData.value = vizData;
+      replaceVisualizationsData(vizData);
     }
     snapshotWithheld.value = anyWithheld;
     withheldCharts.value = nextWithheldCharts;
@@ -3216,15 +3238,15 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       const { data } = await useMyFetch(`/api/artifacts/${selectedArtifact.value.artifact_id}/runtime/conversations/policy`);
       previewConversationPolicy = data.value || null;
     }
-    if (!inPlace) srcdocSeed.value = JSON.parse(JSON.stringify({
+    if (!inPlace) srcdocSeed.value = artifactFramePayload({
       ...(previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
       report: toRaw(reportData.value),
-      visualizations: toRaw(visualizationsData.value),
+      visualizations: visualizationsData.value,
       files: toRaw(filesData.value),
       current_user: toRaw(effectiveViewerContext.value),
       params: paramsPayload(),
       runtime: artifactRuntime(),
-    }));
+    });
 
     // The iframe libraries were requested at mount, in parallel with the data
     // above — usually they are here already. Waiting keeps the loading
