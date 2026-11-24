@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import lazyload, selectinload
 
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission, requires_resource_permission
@@ -775,9 +775,13 @@ async def session_tool_summary(
     report = None
     if body.report_id:
         await _require_report_viewer(db, body.report_id, current_user, organization, "session_tool_summary")
+        # Only what resolve_run_agents and the catalog read: the attached
+        # agents (with connections) and the folders, not the conversation's
+        # graph (its steps' rows).
         report = (await db.execute(
             select(Report)
-            .options(selectinload(Report.data_sources).selectinload(DataSource.connections))
+            .options(lazyload("*"), selectinload(Report.data_sources).selectinload(DataSource.connections),
+                     selectinload(Report.additional_folders))
             .where(Report.id == str(body.report_id), Report.organization_id == str(organization.id))
         )).scalar_one_or_none()
     try:

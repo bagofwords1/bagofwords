@@ -2315,8 +2315,10 @@ class ReportService:
         """
         from app.models.report_view import ReportView
 
+        # Only whether it is one: its id, not the conversation's graph (its
+        # steps' rows).
         result = await db.execute(
-            select(Report).filter(
+            select(Report.id).filter(
                 Report.id == report_id,
                 Report.organization_id == organization.id,
                 # Conversations held through an outside app list with the
@@ -2326,8 +2328,7 @@ class ReportService:
                          Report.user_id == str(current_user.id))),
             )
         )
-        report = result.scalar_one_or_none()
-        if not report:
+        if result.scalar_one_or_none() is None:
             raise HTTPException(status_code=404, detail="Report not found")
 
         now = datetime.utcnow()
