@@ -107,6 +107,7 @@ MAX_SKIPPED_TABLE_ENTRIES = 50
 MAX_DROPPED_TENANTS_PER_QUERY = 5
 
 TABLE_NOT_FOUND_PATTERN = re.compile(r"Table '([^']+)' does not exist", re.IGNORECASE)
+SCHEMA_NOT_FOUND_PATTERN = re.compile(r"Schema '([^']+)' does not exist", re.IGNORECASE)
 COLUMN_NOT_FOUND_PATTERN = re.compile(r"Column '([^']+)' cannot be resolved", re.IGNORECASE)
 GLUE_TABLE_ARN_PATTERN = re.compile(r"arn:aws[a-z-]*:glue:[^:\s]*:[^:\s]*:table/([^/\s]+)/([^/\s'\",.]+)", re.IGNORECASE)
 S3_PATH_PATTERN = re.compile(r"s3://[^\s'\"<>,)]+", re.IGNORECASE)
@@ -301,7 +302,7 @@ class AwsAthenaClient(DataSourceClient):
                 found = self._diagnose_unified_failure(e, rewrite.branches, rewrite.columns)
                 if not found:
                     raise self._query_failure(e, f" {REINDEX_HINT}") from e
-                if len(dropped) + len(found) > MAX_DROPPED_TENANTS_PER_QUERY:
+                if len({t for _, t in dropped} | {t for _, t, _ in found}) > MAX_DROPPED_TENANTS_PER_QUERY:
                     names = ", ".join(f"{tenant} ({table})" for table, tenant in dropped)
                     raise self._query_failure(
                         e,
@@ -342,6 +343,13 @@ class AwsAthenaClient(DataSourceClient):
             parts = match.group(1).split(".")
             if len(parts) >= 2:
                 blame(parts[-1], parts[-2], "table vanished")
+        schema = SCHEMA_NOT_FOUND_PATTERN.search(text)
+        if schema:
+            missing_db = schema.group(1).split(".")[-1].lower()
+            for name, tenants in branches.items():
+                for tenant in tenants:
+                    if tenant.lower() == missing_db:
+                        found.setdefault((name, tenant), "database missing")
         arn = GLUE_TABLE_ARN_PATTERN.search(text)
         if arn and ACCESS_DENIED_PATTERN.search(text):
             blame(arn.group(2), arn.group(1), "access denied")

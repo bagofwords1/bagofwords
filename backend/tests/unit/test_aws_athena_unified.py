@@ -604,3 +604,29 @@ def test_single_database_unified_client_reads_only_its_database_from_stored_rows
     with pytest.raises(ValueError):
         client.execute_query("SELECT * FROM users")
     assert "acme_db" not in client.description
+
+
+THREE_TENANTS = {t: ["assets", "users"] for t in ("acme_db", "globex_db", "initech_db")}
+
+
+@pytest.mark.parametrize("schema", ["globex_db", "GLOBEX_DB", "awsdatacatalog.globex_db"])
+def test_missing_tenant_database_is_dropped_from_every_table_and_retried(wrangler, schema):
+    client = indexed_client(FakeGlue(THREE_TENANTS))
+    wrangler.outcomes = [query_failed(f"SCHEMA_NOT_FOUND: line 1:15: Schema '{schema}' does not exist")]
+    client.execute_query("SELECT a.id FROM assets a JOIN users u ON a.tenant_db = u.tenant_db AND a.id = u.id")
+    assert len(wrangler.calls) == 2
+    assert branch_tenants(wrangler.calls[1]) == ["acme_db", "initech_db"]
+    assert client._query_left_out == {
+        "assets": {"globex_db": "database missing"},
+        "users": {"globex_db": "database missing"},
+    }
+
+
+def test_one_missing_database_counts_once_against_the_drop_cap(wrangler):
+    names_ = [f"t{i}" for i in range(athena_module.MAX_DROPPED_TENANTS_PER_QUERY + 1)]
+    client = indexed_client(FakeGlue({tenant: list(names_) for tenant in ("acme_db", "globex_db")}))
+    wrangler.outcomes = [query_failed("SCHEMA_NOT_FOUND: line 1:15: Schema 'globex_db' does not exist")]
+    sql = " UNION ALL ".join(f"SELECT tenant_db, id FROM {n}" for n in names_)
+    client.execute_query(sql)
+    assert len(wrangler.calls) == 2
+    assert branch_tenants(wrangler.calls[1]) == ["acme_db"]
