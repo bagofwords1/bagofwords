@@ -1209,3 +1209,5 @@ from app.ee.audit import context as _audit_context
 app.add_middleware(BaseHTTPMiddleware, dispatch=_audit_context.middleware)
 # Outermost: reject control characters in the URL before any routing.
 app.add_middleware(ControlCharGuardMiddleware)
+from app.core.workspace_access import SignupIntentMiddleware
+app.add_middleware(SignupIntentMiddleware)

@@ -45,7 +45,7 @@
           <h1 class="text-2xl font-semibold tracking-tight text-ink">{{ t('apps.title') }}</h1>
           <p v-if="state === 'ready' && apps.length" class="mt-1 text-sm text-ink-muted">{{ t('apps.subtitle') }}</p>
         </div>
-        <UInput v-if="apps.length > SEARCH_FROM" v-model="search" icon="i-heroicons-magnifying-glass" size="sm"
+        <UInput v-if="searchable" v-model="search" icon="i-heroicons-magnifying-glass" size="sm"
                 class="ms-auto w-full sm:w-64" :placeholder="t('apps.search')" data-testid="app-launcher-search" />
       </div>
 
@@ -64,7 +64,7 @@
       </div>
 
       <!-- Nothing shared yet -->
-      <div v-else-if="!apps.length" class="mt-16 flex flex-col items-center text-center" data-testid="app-launcher-empty">
+      <div v-else-if="!apps.length && !searched" class="mt-16 flex flex-col items-center text-center" data-testid="app-launcher-empty">
         <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-muted">
           <UIcon name="i-heroicons-squares-2x2" class="h-7 w-7 text-ink-muted" aria-hidden="true" />
         </div>
@@ -73,11 +73,11 @@
       </div>
 
       <template v-else>
-        <p v-if="!shown.length" class="mt-16 text-center text-sm text-ink-muted" data-testid="app-launcher-no-matches">
-          {{ t('apps.noMatches', { query: search.trim() }) }}
+        <p v-if="!apps.length" class="mt-16 text-center text-sm text-ink-muted" data-testid="app-launcher-no-matches">
+          {{ t('apps.noMatches', { query: searched }) }}
         </p>
         <ul v-else class="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3" data-testid="app-launcher-grid">
-          <li v-for="app in shown" :key="app.id">
+          <li v-for="app in apps" :key="app.id">
             <NuxtLink :to="`/d/${app.ref}`" data-testid="app-card" :data-app-id="app.id"
                       class="group block overflow-hidden rounded-xl bg-surface shadow-sm ring-1 ring-black/5 transition hover:-translate-y-0.5 hover:shadow-md dark:ring-white/10">
               <div class="relative aspect-[16/10] overflow-hidden" :class="thumbnailOf(app) ? 'bg-surface-muted' : tileOf(app).bg">
@@ -96,6 +96,13 @@
             </NuxtLink>
           </li>
         </ul>
+        <!-- The list is paged on the server: every app the reader may open is
+             reachable, by this button or by searching. -->
+        <div v-if="nextAfter !== null" class="mt-8 flex justify-center">
+          <UButton color="white" size="sm" :loading="loadingMore" data-testid="app-launcher-more" @click="loadMore">
+            {{ t('apps.showMore') }}
+          </UButton>
+        </div>
       </template>
 
       <!-- An app user's way to ask for the workspace. -->
@@ -140,7 +147,7 @@ const { t, locale } = useI18n()
 const { locale: globalLocale } = useI18n({ useScope: 'global' })
 const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 const { data: session, signOut } = useAuth()
-const { organization, ensureOrganization } = useOrganization()
+const { organization, ensureOrganization, setOrganization } = useOrganization()
 const toast = useToast()
 const nuxtApp = useNuxtApp() as any
 
@@ -187,29 +194,69 @@ function tileOf(app: AppCard) {
   return TILES[hash % TILES.length]!
 }
 
-const shown = computed(() => {
-  const q = search.value.trim().toLocaleLowerCase(locale.value)
-  if (!q) return apps.value
-  return apps.value.filter(app =>
-    [titleOf(app), app.description || '', ...(app.applications || [])]
-      .some(text => text.toLocaleLowerCase(locale.value).includes(q)))
-})
+// The search runs on the server (titles and descriptions), so it finds an
+// app on a page not loaded yet. `searched` is the query the list answers.
+const searched = ref('')
+const nextAfter = ref<number | null>(null)
+const loadingMore = ref(false)
+const everSearchable = ref(false)
+const searchable = computed(() => everSearchable.value || !!searched.value)
+let request = 0
 
-async function load() {
-  state.value = 'loading'
+async function fetchPage(after: number) {
+  const q = search.value.trim()
+  const { data, error } = await useMyFetch('/apps', { query: { ...(q ? { q } : {}), ...(after ? { after } : {}) } })
+  if (error.value || !data.value) throw error.value || new Error('empty')
+  return { body: data.value as any, q }
+}
+
+async function load(initial = true) {
+  const mine = ++request
+  if (initial) state.value = 'loading'
   try {
     await ensureOrganization()
-    const { data, error } = await useMyFetch('/apps')
-    if (error.value || !data.value) throw error.value || new Error('empty')
-    const body = data.value as any
+    const { body, q } = await fetchPage(0)
+    if (mine !== request) return  // a newer search answered first
     apps.value = body.apps || []
+    nextAfter.value = body.next ?? null
+    searched.value = q
+    if (!q && (apps.value.length > SEARCH_FROM || nextAfter.value !== null)) everSearchable.value = true
     workspaceAccess.value = !!body.workspace_access
     accessRequested.value = !!body.access_requested
     state.value = 'ready'
   } catch {
-    state.value = 'failed'
+    if (mine === request) state.value = 'failed'
   }
 }
+
+async function loadMore() {
+  if (nextAfter.value === null || loadingMore.value) return
+  const mine = request
+  loadingMore.value = true
+  try {
+    const { body } = await fetchPage(nextAfter.value)
+    if (mine !== request) return
+    const seen = new Set(apps.value.map(app => app.id))
+    apps.value = [...apps.value, ...(body.apps || []).filter((app: AppCard) => !seen.has(app.id))]
+    nextAfter.value = body.next ?? null
+  } catch {
+    toast.add({ title: t('apps.loadFailed'), color: 'red' })
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+watch(search, () => {
+  // The input changed: whatever is in flight answers a query the box no
+  // longer shows, so drop it now (not only once the debounce fires), then
+  // always ask again for what the box holds.
+  ++request
+  loadingMore.value = false
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => { load(false) }, 250)
+})
+onBeforeUnmount(() => { if (searchTimer) clearTimeout(searchTimer) })
 
 async function requestAccess() {
   requesting.value = true
@@ -274,8 +321,16 @@ async function signOff() {
   window.location.href = '/users/sign-in'
 }
 
+// Someone who belongs to several organizations may have the workspace in
+// another one: without the switcher here they could never reach it.
+const organizations = computed<any[]>(() => (session.value as any)?.organizations || [])
 const accountItems = computed(() => [
   [{ label: userName.value, slot: 'account', disabled: true }],
+  ...(organizations.value.length > 1 ? [organizations.value.map(org => ({
+    label: org.name,
+    icon: org.id === organization.value?.id ? 'i-heroicons-check' : 'i-heroicons-building-office',
+    click: () => { if (org.id !== organization.value?.id) setOrganization(org.id) },
+  }))] : []),
   [{ label: t('apps.signOut'), icon: 'i-heroicons-arrow-right-on-rectangle', click: signOff }],
 ])
 

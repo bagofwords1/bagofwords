@@ -36,7 +36,8 @@ def _isolated_typing_state(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _principal_belongs_to_org():
-    with patch("app.core.permission_resolver.principal_belongs_to_org", new=AsyncMock(return_value=True)):
+    with patch("app.core.permission_resolver.principal_belongs_to_org", new=AsyncMock(return_value=True)), \
+         patch("app.core.workspace_access.has_workspace_access", new=AsyncMock(return_value=True)):
         yield
 
 

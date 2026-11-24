@@ -29,7 +29,7 @@ async def metadata(provider: str):
 
 
 @router.get("/{provider}/authorize")
-async def authorize(provider: str, db: AsyncSession = Depends(get_async_db)):
+async def authorize(provider: str, request: Request, db: AsyncSession = Depends(get_async_db)):
     cfg = saml.provider_config(provider)
     try:
         url, browser = await saml.start_login(cfg, db)
@@ -51,6 +51,11 @@ async def authorize(provider: str, db: AsyncSession = Depends(get_async_db)):
         samesite="none",
         path=f"/api/auth/saml/{provider}",
     )
+    # As for OIDC (routes/auth.py). The assertion comes back in a cross-site
+    # POST, which does not carry this Lax cookie: for SAML the role is applied
+    # by current_user on the account's first request instead of at the write.
+    from app.core.workspace_access import bind_signup_intent
+    await bind_signup_intent(request, response)
     return response
 
 

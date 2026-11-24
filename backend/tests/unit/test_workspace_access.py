@@ -14,6 +14,8 @@ OPEN = [
     ("POST", "/api/artifacts/a1/access_requests"), ("GET", "/api/files/f1/embed"),
     ("POST", "/api/embed/host_ab12cd34/sso/code"), ("GET", "/api/thumbnails/release-1.png"),
     ("GET", "/api/users/me/viewer_context"), ("POST", "/api/invites/accept"),
+    # A dashboard may be called "draft"; only the draft *routes* are closed.
+    ("GET", "/api/d/draft"), ("GET", "/api/d/drafts-2026/content"), ("GET", "/api/d/sales/forked"),
 ]
 CLOSED = [
     ("GET", "/api/reports"), ("POST", "/api/reports"), ("GET", "/api/artifacts"), ("GET", "/api/artifacts/a1"),
@@ -22,6 +24,7 @@ CLOSED = [
     ("GET", "/api/organization/members"), ("GET", "/api/organizations/o1/members"), ("GET", "/api/files/f1/content"),
     ("GET", "/api/notifications"), ("GET", "/api/users/me/default_model"), ("GET", "/api/users/u1/viewer_context"),
     ("POST", "/api/api_keys"), ("GET", "/api/mcp/tools"), ("GET", "/api/host_applications"),
+    ("GET", "/api/d/sales/draft"), ("GET", "/api/d/sales/draft/content"), ("POST", "/api/d/sales/fork"),
     ("GET", "/api/apps-admin"), ("GET", "/api/dashboards"), ("GET", "/api/r/x/chat"), ("GET", "/api/something/new"),
 ]
 

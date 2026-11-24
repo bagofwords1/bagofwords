@@ -66,8 +66,13 @@ def _has_column(conn, table: str, column: str) -> bool:
 def upgrade() -> None:
     conn = op.get_bind()
 
-    # 1. Every existing non-admin role keeps the workspace.
-    for role_id, raw in conn.execute(sa.text("SELECT id, permissions FROM roles")).fetchall():
+    # 1. Every existing non-admin role keeps the workspace -- except the
+    #    app_user system role itself, which a replay of this revision (the
+    #    role exists from the first run) must not turn into a workspace role.
+    for role_id, raw, name, organization_id in conn.execute(
+            sa.text("SELECT id, permissions, name, organization_id FROM roles")).fetchall():
+        if name == APP_USER_ROLE and organization_id is None:
+            continue
         perms = _load(raw)
         if FULL_ADMIN in perms or WORKSPACE_ACCESS in perms:
             continue

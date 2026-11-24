@@ -120,7 +120,7 @@ SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "host
 # that round-trips connapps01 on its own, on a head database, gets those tables
 # back at connapps01's shape; it replays these afterwards (their upgrade() is
 # idempotent) so head code finds the columns it reads.
-AFTER_CONNECTED_APPLICATIONS = ("folder10",)
+AFTER_CONNECTED_APPLICATIONS = ("folder10", "appuser01")
 
 
 def replay_after_connected_applications() -> None:

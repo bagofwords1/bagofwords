@@ -680,6 +680,7 @@ async def test_only_personal_chat_questions_open_a_bubble(teams, channel_type, c
     mapping = SimpleNamespace(app_user_id="u1", organization_id="org1", external_user_id="ext-1",
                               platform_type="teams", platform_id="plat-1")
     with patch("app.core.permission_resolver.principal_belongs_to_org", new=AsyncMock(return_value=True)), \
+         patch("app.core.workspace_access.has_workspace_access", new=AsyncMock(return_value=True)), \
          patch.object(m, "_find_recent_platform_report", new=AsyncMock(return_value=report)), \
          patch.object(m, "_find_report_by_thread_ts", new=AsyncMock(return_value=report)), \
          patch("app.services.report_service.ReportService") as RS:
@@ -704,6 +705,7 @@ async def test_the_run_starts_without_waiting_for_teams(teams):
                               platform_type="teams", platform_id="plat-1")
     teams.gate = asyncio.Event()      # Teams is slow to answer the bubble request
     with patch("app.core.permission_resolver.principal_belongs_to_org", new=AsyncMock(return_value=True)), \
+         patch("app.core.workspace_access.has_workspace_access", new=AsyncMock(return_value=True)), \
          patch.object(m, "_find_recent_platform_report", new=AsyncMock(return_value=report)), \
          patch("app.services.report_service.ReportService") as RS:
         RS.return_value.set_data_sources_for_report = AsyncMock()
@@ -731,6 +733,7 @@ async def test_failed_run_creation_does_not_leave_a_bubble(teams):
     mapping = SimpleNamespace(app_user_id="u1", organization_id="org1", external_user_id="ext-1",
                               platform_type="teams", platform_id="plat-1")
     with patch("app.core.permission_resolver.principal_belongs_to_org", new=AsyncMock(return_value=True)), \
+         patch("app.core.workspace_access.has_workspace_access", new=AsyncMock(return_value=True)), \
          patch.object(m, "_find_recent_platform_report", new=AsyncMock(return_value=report)), \
          patch("app.services.report_service.ReportService") as RS:
         RS.return_value.set_data_sources_for_report = AsyncMock()

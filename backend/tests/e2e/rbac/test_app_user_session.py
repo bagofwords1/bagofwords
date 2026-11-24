@@ -113,3 +113,32 @@ def test_an_api_key_is_its_owner(test_client, org, invite_user_to_org):
     assert refused.status_code == 403 and refused.json()["error_code"] == REFUSED
     assert test_client.post("/api/api_keys", json={"name": "k2"},
                             headers=_h(person["token"], org["id"])).status_code == 403
+
+
+@pytest.mark.e2e
+def test_another_organizations_workspace_opens_nothing_here(test_client, org, invite_user_to_org, whoami):
+    """Routes that take a report id and no organization (shared-report pages,
+    their chat) cannot be reached through the workspace of a *different*
+    organization: an app user here is a signed-out visitor to this
+    organization's reports."""
+    person = invite_user_to_org(org_id=org["id"], admin_token=org["token"])
+    own = test_client.post("/api/organizations", json={"name": "Their own"}, headers=_h(person["token"]))
+    assert own.status_code == 200, own.text
+    report = test_client.post("/api/reports", json={"title": "Internal"}, headers=_h(org["token"], org["id"]))
+    assert report.status_code == 200, report.text
+    rid = report.json()["id"]
+    shared = test_client.put(f"/api/reports/{rid}/visibility/artifact", headers=_h(org["token"], org["id"]),
+                             json={"visibility": "internal"})
+    assert shared.status_code == 200, shared.text
+
+    paths = [f"/api/r/{rid}", f"/api/r/{rid}/queries", f"/api/r/{rid}/chat"]
+    # Their own organization's header, on purpose: it is not this report's.
+    as_them = _h(person["token"], own.json()["id"])
+    opened = test_client.get(paths[0], headers=as_them)
+    assert opened.status_code == 200, opened.text
+
+    _set_role(test_client, org, person, "app_user")
+    assert _org_of(whoami, person["token"], own.json()["id"])["role"] == "admin"
+    for path in paths:
+        r = test_client.get(path, headers=as_them)
+        assert r.status_code in (401, 403, 404), (path, r.status_code, r.text[:200])

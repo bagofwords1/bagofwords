@@ -13,7 +13,7 @@ managers for the workspace.
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import List, Optional, Tuple
 
 from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +26,9 @@ from app.models.notification import SOURCE_SHARE, Notification
 
 logger = logging.getLogger(__name__)
 
-MAX_APPS = 200
+PAGE_SIZE = 60
+MAX_PAGE_SIZE = 200
+_BATCH = 100
 ACCESS_REQUEST_TYPE = "workspace_access_request"
 
 
@@ -68,66 +70,93 @@ async def _thumbnail_withheld(db, artifact, release, user) -> bool:
     return await any_copy_tainted(db, release)
 
 
-async def list_apps(db: AsyncSession, user, organization) -> List[dict]:
+async def list_apps(db: AsyncSession, user, organization, *, search: Optional[str] = None,
+                    after: int = 0, limit: int = PAGE_SIZE) -> Tuple[List[dict], Optional[int]]:
+    """One page of the reader's apps, by title: ``(cards, next)``.
+
+    Candidates are filtered in SQL (published, an app, mine or shared, and
+    the search) and then admitted one by one, so the page is filled from as
+    many candidates as it takes: an app the reader may open is never hidden
+    behind a cap on rows they may not. ``next`` is the candidate offset to
+    pass as ``after`` for the following page, or None at the end.
+    """
     from app.services.dashboard_access import admit_reader, is_live
     from app.services.dashboard_list import (
-        _thumbnail_url, not_an_older_legacy_version, not_only_failed, reader_scope,
+        _like, _thumbnail_url, not_an_older_legacy_version, not_only_failed, reader_scope,
     )
 
+    limit = max(1, min(int(limit or PAGE_SIZE), MAX_PAGE_SIZE))
+    after = max(0, int(after or 0))
     scope = await reader_scope(db, user, organization)
-    artifacts = (await db.execute(
-        select(Artifact).where(
-            Artifact.organization_id == str(organization.id), Artifact.deleted_at.is_(None),
-            Artifact.owner_id.isnot(None), Artifact.published_release_id.isnot(None),
-            not_an_older_legacy_version(), not_only_failed(), is_app(),
-            or_(Artifact.owner_id == str(user.id), scope.shared_with),
-        ).order_by(Artifact.title.asc(), Artifact.id).limit(MAX_APPS)
-    )).scalars().all()
-    if not artifacts:
-        return []
+    where = [
+        Artifact.organization_id == str(organization.id), Artifact.deleted_at.is_(None),
+        Artifact.owner_id.isnot(None), Artifact.published_release_id.isnot(None),
+        not_an_older_legacy_version(), not_only_failed(), is_app(),
+        or_(Artifact.owner_id == str(user.id), scope.shared_with),
+    ]
+    if search and search.strip():
+        like = _like(search.strip())
+        where.append(or_(Artifact.title.ilike(like, escape="\\"), Artifact.description.ilike(like, escape="\\")))
 
-    ids = [str(a.id) for a in artifacts]
-    releases = {str(r.id): r for r in (await db.execute(
-        select(ArtifactRelease).where(ArtifactRelease.id.in_([a.published_release_id for a in artifacts]))
-    )).scalars().all()}
-    names: dict[str, list[str]] = {}
+    apps: List[dict] = []
+    position = after
+    while True:
+        batch = (await db.execute(
+            select(Artifact).where(*where).order_by(Artifact.title.asc(), Artifact.id)
+            .offset(position).limit(_BATCH)
+        )).scalars().all()
+        if not batch:
+            return apps, None
+        releases = {str(r.id): r for r in (await db.execute(
+            select(ArtifactRelease).where(ArtifactRelease.id.in_([a.published_release_id for a in batch]))
+        )).scalars().all()}
+        names = await _application_names(db, [str(a.id) for a in batch])
+        for artifact in batch:
+            position += 1
+            release = releases.get(str(artifact.published_release_id))
+            if release is None or not is_live(release):
+                continue
+            try:
+                await admit_reader(db, artifact, user)
+            except Exception:  # AppError, or an HTTPException from a deeper check: not theirs to open
+                continue
+            thumbnail = None
+            if release.thumbnail_path:
+                try:
+                    if not await _thumbnail_withheld(db, artifact, release, user):
+                        thumbnail = _thumbnail_url(release.thumbnail_path, artifact_id=str(artifact.id))
+                except Exception:
+                    logger.debug("app thumbnail check failed for %s", artifact.id, exc_info=True)
+            apps.append({
+                "id": str(artifact.id),
+                "ref": artifact.slug or str(artifact.id),
+                "title": (artifact.title or "").strip() or None,
+                "description": (artifact.description or "").strip() or None,
+                "mode": artifact.mode,
+                "thumbnail_url": thumbnail,
+                "applications": names.get(str(artifact.id), []),
+            })
+            if len(apps) >= limit:
+                # More only if a candidate is left after this one.
+                more = (await db.execute(
+                    select(Artifact.id).where(*where).order_by(Artifact.title.asc(), Artifact.id)
+                    .offset(position).limit(1))).first() is not None
+                return apps, (position if more else None)
+        if len(batch) < _BATCH:
+            return apps, None
+
+
+async def _application_names(db: AsyncSession, artifact_ids: List[str]) -> dict:
+    names: dict = {}
     for artifact_id, name in (await db.execute(
         select(ArtifactHostApplication.artifact_id, HostApplication.name).join(
             HostApplication, HostApplication.id == ArtifactHostApplication.host_application_id,
-        ).where(ArtifactHostApplication.artifact_id.in_(ids), ArtifactHostApplication.deleted_at.is_(None),
+        ).where(ArtifactHostApplication.artifact_id.in_(artifact_ids), ArtifactHostApplication.deleted_at.is_(None),
                 HostApplication.enabled.is_(True), HostApplication.deleted_at.is_(None))
         .order_by(HostApplication.name)
     )).all():
         names.setdefault(str(artifact_id), []).append(name)
-
-    apps = []
-    for artifact in artifacts:
-        release = releases.get(str(artifact.published_release_id))
-        if release is None or not is_live(release):
-            continue
-        try:
-            await admit_reader(db, artifact, user)
-        except AppError:
-            continue
-        except Exception:  # an HTTPException from a deeper check: not theirs to open
-            continue
-        thumbnail = None
-        if release.thumbnail_path:
-            try:
-                if not await _thumbnail_withheld(db, artifact, release, user):
-                    thumbnail = _thumbnail_url(release.thumbnail_path, artifact_id=str(artifact.id))
-            except Exception:
-                logger.debug("app thumbnail check failed for %s", artifact.id, exc_info=True)
-        apps.append({
-            "id": str(artifact.id),
-            "ref": artifact.slug or str(artifact.id),
-            "title": (artifact.title or "").strip() or None,
-            "description": (artifact.description or "").strip() or None,
-            "mode": artifact.mode,
-            "thumbnail_url": thumbnail,
-            "applications": names.get(str(artifact.id), []),
-        })
-    return apps
+    return names
 
 
 # ── Request full access ────────────────────────────────────────────────────

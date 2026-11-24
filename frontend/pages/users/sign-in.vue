@@ -361,6 +361,7 @@
   }
 
   async function signInWithCredentials() {
+    await renewEmbedSignupIntent(useRoute().query.redirect)
     isSubmitting.value = true
     error_message.value = ''
     const route = useRoute();
@@ -416,8 +417,10 @@
     try {
       loadingProvider.value = 'google'
       persistRedirectForOAuth()
+      const embedHost = embedHostOfRedirect(route.query.redirect)
       const response = await $fetch('/api/auth/google/authorize', {
         method: 'GET',
+        query: embedHost ? { embed_host: embedHost } : undefined,
       });
 
       if (response.authorization_url) {
@@ -435,9 +438,13 @@
       persistRedirectForOAuth()
       const provider = oidcProviders.value.find((p) => p.name === name)
       const path = provider?.protocol === 'saml' ? `saml/${name}` : name
+      const embedHost = embedHostOfRedirect(route.query.redirect)
       const response = await $fetch(`/api/auth/${path}/authorize`, {
         method: 'GET',
-        query: loginHint.value ? { login_hint: loginHint.value } : undefined,
+        query: {
+          ...(loginHint.value ? { login_hint: loginHint.value } : {}),
+          ...(embedHost ? { embed_host: embedHost } : {}),
+        },
       })
       if ((response as any)?.authorization_url) {
         window.location.href = (response as any).authorization_url

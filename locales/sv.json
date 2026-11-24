@@ -8342,7 +8342,8 @@
       "button": "Begär full åtkomst",
       "sent": "Begäran skickad. En administratör granskar den.",
       "failed": "Det gick inte att skicka begäran. Försök igen."
-    }
+    },
+    "showMore": "Visa fler"
   },
   "hostApps": {
     "newUserRole": "Nya personer går med som",

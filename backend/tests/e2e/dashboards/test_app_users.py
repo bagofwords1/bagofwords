@@ -136,6 +136,17 @@ def _apps(client, headers):
     return r.json()
 
 
+def _all_apps(client, headers, **query):
+    """Every page of the launcher, as the page's "Show more" walks them."""
+    cards, after = [], 0
+    while after is not None:
+        r = client.get("/api/apps", headers=headers, params={**query, "after": after})
+        assert r.status_code == 200, r.text
+        cards += r.json()["apps"]
+        after = r.json()["next"]
+    return cards
+
+
 def _pkce():
     verifier = secrets.token_urlsafe(48)
     return verifier, base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -349,7 +360,6 @@ def test_the_sso_popup_gives_an_account_it_creates_the_hosts_role(people, corpus
     assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
     headers, user_id = _sign_up(test_client, "ada@popup.example")
     headers["X-Organization-Id"] = people.org
-    assert people.member(user_id)["role"] == "member"  # the ordinary sign-up, so far
     _, challenge = _pkce()
     code = test_client.post(f"/api/embed/{host['public_id']}/sso/code", json={"code_challenge": challenge},
                             headers=headers)
@@ -387,16 +397,118 @@ def test_the_popup_never_changes_an_existing_members_role(people, corpus, test_c
     assert people.member(corpus.cast.id("admin"))["role"] == "admin"
 
 
-def test_a_popup_started_for_another_application_does_not_count(people, corpus, corpus_rows, test_client):
+def test_the_role_is_the_application_s_whose_window_they_signed_up_in(people, corpus, corpus_rows, test_client):
     _domain_signup(corpus_rows, corpus, "other.example")
-    started_in, signed_into = _host_app(test_client, corpus), _host_app(test_client, corpus)
+    started_in = _host_app(test_client, corpus)
+    signed_into = _host_app(test_client, corpus, new_user_role="member")
     assert test_client.post(f"/api/embed/{started_in['public_id']}/sso/intent").status_code == 204
     headers, user_id = _sign_up(test_client, "cy@other.example")
     headers["X-Organization-Id"] = people.org
     _, challenge = _pkce()
     assert test_client.post(f"/api/embed/{signed_into['public_id']}/sso/code", json={"code_challenge": challenge},
                             headers=headers).status_code == 200
+    member = people.member(user_id)
+    assert member["role"] == "app_user" and member["created_via_host_application"] == started_in["name"]
+
+
+@pytest.mark.parametrize("first_request", ["/api/reports", "/api/users/me/viewer_context", "/api/apps"])
+def test_a_sign_up_window_that_never_finishes_still_makes_an_app_user(people, corpus, corpus_rows, test_client,
+                                                                      first_request):
+    """They registered in the window and closed it (or wandered off): the
+    window never asked for its code. Whatever they do next with that session,
+    they do it as an app user -- there is no request on which the workspace
+    was theirs."""
+    _domain_signup(corpus_rows, corpus, "closed.example")
+    host = _host_app(test_client, corpus)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    headers, user_id = _sign_up(test_client, "eve@closed.example")
+    headers["X-Organization-Id"] = people.org
+
+    first = test_client.get(first_request, headers=headers)
+    assert first.status_code == (403 if first_request == "/api/reports" else 200), first.text
+    refused = test_client.get("/api/reports", headers=headers)
+    assert refused.status_code == 403 and refused.json()["error_code"] == REFUSED
+    member = people.member(user_id)
+    assert member["role"] == "app_user" and member["created_via_host_application"] == host["name"]
+
+
+def test_the_role_is_stored_when_the_account_is_registered(people, corpus, corpus_rows, test_client):
+    """Before the new account has a session at all: nothing it could do
+    first, and no later request, is needed for it to be an app user."""
+    _domain_signup(corpus_rows, corpus, "atonce.example")
+    host = _host_app(test_client, corpus)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    r = test_client.post("/api/auth/register", json={"name": "Person gal", "email": "gal@atonce.example",
+                                                     "password": "Password123!"})
+    assert r.status_code == 201, r.text
+    test_client.cookies.clear()  # the admin reads the list without the window's cookie
+    member = people.member(r.json()["id"])
+    assert member["role"] == "app_user" and member["created_via_host_application"] == host["name"]
+
+
+def test_a_slow_sign_up_is_still_an_app_user_because_the_form_renews_the_intent(people, corpus, corpus_rows,
+                                                                               test_client, monkeypatch):
+    """The window sat open past the intent's lifetime. The sign-up form asks
+    for a new one as it submits, so the account is an app user; an expired
+    intent alone is an ordinary sign-up (the organization's own policy)."""
+    from app.core import workspace_access
+
+    _domain_signup(corpus_rows, corpus, "slow.example")
+    host = _host_app(test_client, corpus)
+    monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", -10)  # issued already expired
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    stale = test_client.post("/api/auth/register", json={"name": "Person hal", "email": "hal@slow.example",
+                                                         "password": "Password123!"})
+    assert stale.status_code == 201, stale.text
+    monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", 3600)
+    # What frontend/composables/useEmbedSignupIntent.ts does on submit:
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    fresh = test_client.post("/api/auth/register", json={"name": "Person ivy", "email": "ivy@slow.example",
+                                                         "password": "Password123!"})
+    assert fresh.status_code == 201, fresh.text
+    test_client.cookies.clear()
+    assert people.member(stale.json()["id"])["role"] == "member"
+    assert people.member(fresh.json()["id"])["role"] == "app_user"
+
+
+def test_a_disabled_application_opens_no_sign_up_window(people, corpus, corpus_rows, test_client):
+    _domain_signup(corpus_rows, corpus, "late.example")
+    host = _host_app(test_client, corpus, enabled=False)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 403
+    headers, user_id = _sign_up(test_client, "flo@late.example")
+    headers["X-Organization-Id"] = people.org
+    assert people.has_workspace(headers)
     assert people.member(user_id)["role"] == "member"
+
+
+def test_no_workspace_membership_survives_a_failed_role_write(people, corpus, corpus_rows, test_client, monkeypatch):
+    """The role is part of the write that creates the membership. If it
+    cannot be set, there is no membership at all — never a member's one that
+    a later sign-in without the window's cookie would find."""
+    from app.core import workspace_access
+
+    _domain_signup(corpus_rows, corpus, "broken.example")
+    host = _host_app(test_client, corpus)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError("the role could not be written")
+
+    monkeypatch.setattr(workspace_access, "stamp_membership", refuse)
+    try:
+        test_client.post("/api/auth/register", json={"name": "Person jo", "email": "jo@broken.example",
+                                                     "password": "Password123!"})
+    except RuntimeError:
+        pass  # the test client re-raises what the server would answer 500 for
+    monkeypatch.undo()
+    test_client.cookies.clear()
+
+    held = [m for m in people.members() if ((m.get("user") or {}).get("email") or m.get("email")) == "jo@broken.example"]
+    assert all(m["role"] != "member" and not m.get("user_id") for m in held), held
+    login = test_client.post("/api/auth/jwt/login", data={"username": "jo@broken.example", "password": "Password123!"})
+    if login.status_code == 200:  # the account may exist; it belongs to nothing here
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}", "X-Organization-Id": people.org}
+        assert test_client.get("/api/reports", headers=headers).status_code in (401, 403)
 
 
 def test_more_apps_never_change_the_role(people, app_user, test_client, corpus, corpus_rows):
@@ -480,8 +592,8 @@ def test_an_app_user_asks_the_member_managers_for_the_workspace(people, app_user
     assert _inbox(test_client, as_(corpus, "owner")) == []  # a peer manages nobody
 
     people.set_role("member", "member")
-    assert _apps(test_client, app_user) | {"apps": []} == {"apps": [], "workspace_access": True,
-                                                           "access_requested": False}
+    after = _apps(test_client, app_user)
+    assert after["workspace_access"] is True and after["access_requested"] is False
     assert all(n.get("resolved_at") for n in _inbox(test_client, people.admin))
 
 
@@ -515,3 +627,143 @@ def test_a_card_pictures_the_app_only_for_those_who_may_see_the_publishers_data(
     monkeypatch.setattr(viewer_data_policy, "_any_user_scoped_connection", yes)
     assert card(app_user)["thumbnail_url"] is None          # still listed, without the picture
     assert card(as_(corpus, "owner"))["thumbnail_url"] == live  # their own run
+
+
+# ── an app user is a reader, never an editor ──────────────────────────────
+
+def test_an_app_user_reads_what_is_published_not_the_draft_of_what_they_own(people, test_client, corpus,
+                                                                            corpus_rows):
+    """Demoted while owning a dashboard with unpublished changes: the draft,
+    and anything else an editor gets, is the workspace."""
+    host = _host_app(test_client, corpus)
+    aid = _app(test_client, corpus, corpus_rows, DASH, host, "internal")
+    private = own(corpus_rows, corpus, ONE)
+    publish(private)  # published, shared with nobody: only its owner's
+    owner = as_(corpus, "owner")
+    draft_paths = [f"/api/d/{aid}/draft", f"/api/d/{aid}/draft/content"]
+    assert test_client.get(draft_paths[0], headers=owner).status_code == 200
+    assert test_client.get(f"/api/d/{private}", headers=owner).status_code == 200
+
+    people.set_role("owner", "app_user")
+    for path in draft_paths:
+        assert test_client.get(path, headers=owner).status_code in (401, 403, 404), path
+    assert test_client.post(f"/api/d/{aid}/fork", headers=owner, json={}).status_code in (401, 403, 404)
+    published = test_client.get(f"/api/d/{aid}", headers=owner)
+    assert published.status_code == 200
+    # Owning it is no longer a way in: sharing is.
+    assert test_client.get(f"/api/d/{private}", headers=owner).status_code in (403, 404)
+    assert [a["id"] for a in _all_apps(test_client, owner)] == [aid]
+
+    people.set_role("owner", "member")
+    assert test_client.get(draft_paths[0], headers=owner).status_code == 200
+    assert test_client.get(f"/api/d/{private}", headers=owner).status_code == 200
+
+
+# ── every app is reachable ────────────────────────────────────────────────
+
+def test_the_launcher_pages_and_searches_past_what_the_reader_may_not_open(people, app_user, test_client, corpus,
+                                                                           corpus_rows):
+    """Three apps sort before the reader's, and are not theirs. A page of one
+    still finds theirs, the pages add up to the whole list, and search runs
+    over all of it."""
+    host = _host_app(test_client, corpus)
+    theirs = [_app(test_client, corpus, corpus_rows, key, host, "shared", users=["member"])
+              for key in (DASH, ONE)]
+    others = [_app(test_client, corpus, corpus_rows, key, host, "shared", users=["direct_share"])
+              for key in (DECK, "thumbnail/dash", "conv_three_dash/dash_stock")]
+    for index, aid in enumerate(others):
+        corpus_rows.update("artifacts", aid, title=f"AAA {index}")
+    corpus_rows.update("artifacts", theirs[0], title="Zebra crossing")
+    corpus_rows.update("artifacts", theirs[1], title="Yak shaving")
+
+    first = test_client.get("/api/apps", headers=app_user, params={"limit": 1}).json()
+    assert [a["title"] for a in first["apps"]] == ["Yak shaving"] and first["next"] is not None
+    assert [a["title"] for a in _all_apps(test_client, app_user, limit=1)] == ["Yak shaving", "Zebra crossing"]
+    assert test_client.get("/api/apps", headers=app_user).json()["next"] is None
+
+    found = test_client.get("/api/apps", headers=app_user, params={"q": "zebra", "limit": 1}).json()
+    assert [a["id"] for a in found["apps"]] == [theirs[0]] and found["next"] is None
+    assert test_client.get("/api/apps", headers=app_user, params={"q": "AAA"}).json()["apps"] == []
+    assert test_client.get("/api/apps", headers=app_user, params={"q": "%"}).json()["apps"] == []
+
+
+# ── the migration ─────────────────────────────────────────────────────────
+
+def test_replaying_the_migration_leaves_app_user_without_the_workspace(people, corpus_rows):
+    """The dashboard corpus (and a half-applied upgrade) runs appuser01 more
+    than once. The second run must not backfill the role the first one made."""
+    from alembic.operations import Operations
+    from alembic.runtime.migration import MigrationContext
+    from sqlalchemy import create_engine
+
+    from tests.fixtures.dashboard_corpus.alembic_at import script_directory
+    from tests.fixtures.dashboard_corpus.rows import sync_test_url
+
+    engine = create_engine(sync_test_url())
+    try:
+        for _ in range(2):
+            with engine.begin() as conn:
+                with Operations.context(MigrationContext.configure(conn)):
+                    script_directory().get_revision("appuser01").module.upgrade()
+    finally:
+        engine.dispose()
+    roles = people.roles()
+    assert roles["app_user"]["permissions"] == []
+    assert "access_workspace" in roles["member"]["permissions"]
+    assert len([r for r in people.client.get(f"/api/organizations/{people.org}/roles", headers=people.admin).json()
+                if r["name"] == "app_user"]) == 1
+
+
+# ── acting in an organization takes its workspace ─────────────────────────
+
+def test_a_custom_role_cannot_fork_without_the_workspace(people, app_user, test_client, corpus, corpus_rows,
+                                                         enterprise_license):
+    """A fork is a new report. `create_reports` in a role that withholds the
+    workspace is not enough, in the page's answer and in the write alike."""
+    host = _host_app(test_client, corpus)
+    aid = _app(test_client, corpus, corpus_rows, DASH, host, "internal")
+    created = people.client.post(f"/api/organizations/{people.org}/roles", headers=people.admin,
+                                 json={"name": f"Forker {uuid.uuid4().hex[:6]}", "permissions": ["create_reports"]})
+    assert created.status_code in (200, 201), created.text
+    people.assign(created.json()["id"], user="member")
+    assert not people.has_workspace(app_user)
+
+    page = test_client.get(f"/api/d/{aid}", headers=app_user)
+    assert page.status_code == 200
+    assert page.json()["fork_eligibility"]["can_fork"] is False
+    before = people.client.get("/api/reports", headers=people.admin).json()
+    refused = test_client.post(f"/api/d/{aid}/fork", headers=app_user, json={})
+    assert refused.status_code in (401, 403, 404), refused.text
+    assert people.client.get("/api/reports", headers=people.admin).json() == before
+
+
+def test_fork_eligibility_needs_the_workspace_of_the_dashboards_organization(people, corpus, corpus_rows,
+                                                                            test_client, enterprise_license):
+    """The fork route names no organization, so the account-level gate lets
+    through anyone with a workspace *somewhere*. The rule is asked of the
+    dashboard's own organization (dashboard_lifecycle.fork_eligibility)."""
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.artifact import Artifact
+    from app.models.user import User
+    from app.services.dashboard_access import published_release
+    from app.services.dashboard_lifecycle import fork_eligibility
+
+    host = _host_app(test_client, corpus)
+    aid = _app(test_client, corpus, corpus_rows, DASH, host, "internal")
+    created = people.client.post(f"/api/organizations/{people.org}/roles", headers=people.admin,
+                                 json={"name": f"Forker {uuid.uuid4().hex[:6]}", "permissions": ["create_reports"]})
+    assert created.status_code in (200, 201), created.text
+
+    async def eligibility():
+        async with async_session_maker() as db:
+            artifact = await db.get(Artifact, aid)
+            release = await published_release(db, artifact)
+            return await fork_eligibility(db, artifact, release, await db.get(User, corpus.cast.id("member")))
+
+    reason_as_member = asyncio.run(eligibility()).get("reason")
+    assert reason_as_member != "no_permission"
+    people.set_role("member", "app_user")
+    people.assign(created.json()["id"], user="member")
+    assert asyncio.run(eligibility()) == {"can_fork": False, "reason": "no_permission"}

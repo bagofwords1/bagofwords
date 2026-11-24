@@ -409,6 +409,10 @@ def test_downgrade_restores_main_exactly_and_upgrade_again_keeps_every_row(corpu
     assert current_revisions(url) == (MAIN_BASE_REVISION,)
     assert _schema(url) == main_schema
     down_counts = _counts(url)
+    # appuser01 seeds one row, the `app_user` system role, and its downgrade
+    # removes it again: the one table whose count the round trip changes.
+    assert head_counts["roles"] == down_counts["roles"] + 1
+    head_counts = {**head_counts, "roles": down_counts["roles"]}
     assert ({t: n for t, n in head_counts.items() if t in down_counts}
             == {t: n for t, n in down_counts.items() if t not in LATER_REPLACED_TABLES})
 

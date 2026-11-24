@@ -199,6 +199,52 @@ def test_a_member_rule_does_not_give_an_app_user_the_workspace(test_client, monk
     assert _roles(test_client, lead) == {org: "admin"}
 
 
+@pytest.mark.parametrize("in_window", [True, False])
+def test_a_provider_sign_in_started_in_an_applications_window_makes_an_app_user(test_client, monkeypatch, multi_org,
+                                                                               in_window):
+    """The sign-in page's provider button, inside an embedded artifact's
+    sign-in window: the authorization itself names the host application
+    (`?embed_host=`), so the account the callback creates is that
+    application's kind of account. No earlier cookie is needed, so it does
+    not matter how long the page sat open. The same sign-in outside a window
+    makes a member."""
+    from urllib.parse import parse_qs, urlparse
+
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    idp = FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[f"{G_FINANCE}:{org}:member"])])
+    host = test_client.post("/api/host_applications", headers=hdr(admin["token"], org), json={
+        "name": "Portal", "allowed_origins": ["https://portal.example.com"], "identity_mode": "sso"})
+    assert host.status_code == 201, host.text
+    test_client.cookies.clear()
+
+    started = test_client.get("/api/auth/corp/authorize",
+                              params={"embed_host": host.json()["public_id"]} if in_window else None)
+    assert started.status_code == 200, started.text
+    intent = started.cookies.get("bow_embed_signup")
+    assert bool(intent) is in_window
+    test_client.cookies.clear()
+
+    email = unique_email("button")
+    idp.claims = {"sub": f"sub-{email}", "email": email, "groups": [G_FINANCE]}
+    state = uuid.uuid4().hex
+    cookie = f"oidc_corp_state={state}; oidc_corp_verifier=verifier" + (f"; bow_embed_signup={intent}" if intent else "")
+    back = test_client.get("/api/auth/corp/callback", params={"code": "auth-code", "state": state},
+                           headers={"Cookie": cookie}, follow_redirects=False)
+    assert back.status_code == 303, back.text
+    code = parse_qs(urlparse(back.headers["location"]).query)["login_code"][0]
+    session = test_client.post("/api/auth/exchange", json={"login_code": code}).json()["access_token"]
+
+    # Read by the admin, without any cookie: the role is what was stored.
+    members = test_client.get(f"/api/organizations/{org}/members", headers=hdr(admin["token"], org)).json()
+    member = next(m for m in members if (m.get("user") or {}).get("email") == email)
+    assert member["role"] == ("app_user" if in_window else "member")
+    assert member["created_via_host_application"] == ("Portal" if in_window else None)
+    assert [r["name"] for r in member["roles"]] == ["app_user" if in_window else "member"]
+    reports = test_client.get("/api/reports", headers=hdr(session, org))
+    assert reports.status_code == (403 if in_window else 200)
+
+
 def test_rule_for_an_unknown_organization_is_skipped(test_client, monkeypatch, multi_org):
     admin = bootstrap_admin(test_client)
     idp = FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[

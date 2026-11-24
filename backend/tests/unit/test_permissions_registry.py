@@ -21,6 +21,7 @@ EXPECTED_ORG_PERMS = {
     "manage_instructions",
     "manage_entities",
     "manage_evals",
+    "access_workspace",
     "view_code", "run_custom_code",
     "view_members", "manage_members", "manage_service_accounts",
     "manage_settings", "manage_llm",

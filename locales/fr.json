@@ -8342,7 +8342,8 @@
       "button": "Demander un accès complet",
       "sent": "Demande envoyée. Un administrateur l'examinera.",
       "failed": "Impossible d'envoyer la demande. Réessayez."
-    }
+    },
+    "showMore": "Afficher plus"
   },
   "hostApps": {
     "newUserRole": "Les nouvelles personnes rejoignent en tant que",
