@@ -4702,6 +4702,24 @@
           "title": "Exporter le certificat du SMS Provider",
           "body": "Par défaut, le site utilise un certificat auto-signé. Exécutez ceci dans PowerShell sur le SMS Provider et collez le résultat dans SMS Provider certificate (PEM). Ignorez cette étape si le certificat provient d'une autorité de certification déjà approuvée par ce serveur."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Enregistrez une application dans Microsoft Entra",
+          "body": "Dans le centre d'administration Microsoft Entra, allez dans App registrations > New registration. Choisissez \"Accounts in this organizational directory only\". Dans la page Overview de l'application, copiez Directory (tenant) ID et Application (client) ID dans les champs ci-dessous."
+        },
+        {
+          "title": "Ajoutez l'URI de redirection",
+          "body": "Dans l'application, allez dans Authentication > Add a platform > Web et collez cet URI de redirection."
+        },
+        {
+          "title": "Accordez les autorisations Microsoft Graph",
+          "body": "Dans API permissions > Add a permission > Microsoft Graph > Delegated permissions, ajoutez Mail.Read, User.Read, offline_access, openid et profile. Pour permettre aux agents de déplacer, rédiger ou envoyer des e-mails, ajoutez aussi Mail.ReadWrite et Mail.Send. Cliquez ensuite sur \"Grant admin consent\" pour que les utilisateurs n'aient pas à approuver l'application. Utilisez uniquement des autorisations Delegated, pas Application : le connecteur ne lit que la boîte aux lettres de l'utilisateur connecté."
+        },
+        {
+          "title": "Créez un secret client",
+          "body": "Dans Certificates & secrets > New client secret, créez un secret et copiez sa Value (pas le Secret ID) dans Client Secret ci-dessous. Vous ne pourrez plus voir cette valeur ensuite."
+        }
       ]
     },
     "setupGuideCopyFailed": "Échec de la copie — sélectionnez le texte",

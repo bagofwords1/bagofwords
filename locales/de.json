@@ -4702,6 +4702,24 @@
           "title": "Zertifikat des SMS Providers exportieren",
           "body": "Standardmäßig verwendet der Standort ein selbstsigniertes Zertifikat. Führen Sie dies in PowerShell auf dem SMS Provider aus und fügen Sie die Ausgabe in SMS Provider certificate (PEM) ein. Überspringen Sie den Schritt, wenn das Zertifikat von einer Zertifizierungsstelle stammt, der dieser Server bereits vertraut."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "App in Microsoft Entra registrieren",
+          "body": "Gehen Sie im Microsoft Entra Admin Center zu App registrations > New registration. Wählen Sie \"Accounts in this organizational directory only\". Kopieren Sie auf der Seite Overview der App die Directory (tenant) ID und die Application (client) ID in die Felder unten."
+        },
+        {
+          "title": "Umleitungs-URI hinzufügen",
+          "body": "Gehen Sie in der App zu Authentication > Add a platform > Web und fügen Sie diese Umleitungs-URI ein."
+        },
+        {
+          "title": "Microsoft Graph-Berechtigungen erteilen",
+          "body": "Fügen Sie unter API permissions > Add a permission > Microsoft Graph > Delegated permissions Mail.Read, User.Read, offline_access, openid und profile hinzu. Damit Agenten E-Mails verschieben, entwerfen oder senden können, fügen Sie auch Mail.ReadWrite und Mail.Send hinzu. Klicken Sie dann auf \"Grant admin consent\", damit Benutzer die App nicht selbst genehmigen müssen. Verwenden Sie nur Delegated-Berechtigungen, keine Application-Berechtigungen: Der Connector liest nur das Postfach des angemeldeten Benutzers."
+        },
+        {
+          "title": "Geheimen Clientschlüssel erstellen",
+          "body": "Erstellen Sie unter Certificates & secrets > New client secret einen geheimen Schlüssel und kopieren Sie dessen Value (nicht die Secret ID) unten in Client Secret. Der Wert kann später nicht mehr angezeigt werden."
+        }
       ]
     },
     "setupGuideCopyFailed": "Kopieren fehlgeschlagen — Text markieren",

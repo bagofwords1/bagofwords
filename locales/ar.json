@@ -4702,6 +4702,24 @@
           "title": "صدّر شهادة SMS Provider",
           "body": "يستخدم الموقع افتراضيًا شهادة موقّعة ذاتيًا. شغّل هذا الأمر في PowerShell على SMS Provider والصق الناتج في SMS Provider certificate (PEM). تخطَّ هذه الخطوة إذا كانت الشهادة صادرة عن مرجع شهادات يثق به هذا الخادم بالفعل."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "سجّل تطبيقًا في Microsoft Entra",
+          "body": "في مركز إدارة Microsoft Entra انتقل إلى App registrations > New registration. اختر \"Accounts in this organizational directory only\". من صفحة Overview للتطبيق، انسخ Directory (tenant) ID و Application (client) ID إلى الحقول أدناه."
+        },
+        {
+          "title": "أضف عنوان URI لإعادة التوجيه",
+          "body": "في التطبيق انتقل إلى Authentication > Add a platform > Web والصق عنوان URI لإعادة التوجيه هذا."
+        },
+        {
+          "title": "امنح أذونات Microsoft Graph",
+          "body": "في API permissions > Add a permission > Microsoft Graph > Delegated permissions، أضف Mail.Read و User.Read و offline_access و openid و profile. للسماح للوكلاء بنقل البريد أو صياغته أو إرساله، أضف أيضًا Mail.ReadWrite و Mail.Send. ثم انقر على \"Grant admin consent\" حتى لا يُطلب من المستخدمين الموافقة على التطبيق. استخدم أذونات Delegated فقط وليس أذونات Application: يقرأ الموصل صندوق بريد المستخدم الذي سجّل الدخول فقط."
+        },
+        {
+          "title": "أنشئ سر العميل",
+          "body": "في Certificates & secrets > New client secret، أنشئ سرًا وانسخ قيمته Value (وليس Secret ID) إلى حقل Client Secret أدناه. لن تتمكن من رؤية القيمة مرة أخرى لاحقًا."
+        }
       ]
     },
     "setupGuideCopyFailed": "فشل النسخ — حدد النص",

@@ -89,3 +89,8 @@ def derive_mcp_base_url(request: Request) -> str:
     if configured:
         return configured
     return derive_base_url(request)
+
+
+def connection_oauth_redirect_uri() -> str:
+    from app.settings.config import settings
+    return f"{settings.bow_config.base_url}/api/connections/oauth/callback"

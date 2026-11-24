@@ -406,6 +406,20 @@ class SetupStep(BaseModel):
     language: str = "bash"
 
 
+SETUP_GUIDE_REDIRECT_URI = "{oauth_redirect_uri}"
+
+
+def resolve_setup_guide(steps: list[SetupStep] | None) -> list[dict] | None:
+    if not steps:
+        return None
+    from app.core.base_url import connection_oauth_redirect_uri
+    redirect_uri = connection_oauth_redirect_uri()
+    return [
+        {**s.model_dump(), "code": s.code.replace(SETUP_GUIDE_REDIRECT_URI, redirect_uri) if s.code else s.code}
+        for s in steps
+    ]
+
+
 class DataSourceRegistryEntry(BaseModel):
     type: str
     title: str
@@ -2604,6 +2618,26 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         category="services",
         title="Outlook Mail",
         description="Read and search your Outlook / Microsoft 365 email — messages become available to the agent to search and read.",
+        setup_guide=[
+            SetupStep(
+                title="Register an app in Microsoft Entra",
+                body="In the Microsoft Entra admin center go to App registrations > New registration. Choose \"Accounts in this organizational directory only\". From the app's Overview, copy the Directory (tenant) ID and the Application (client) ID into the fields below.",
+            ),
+            SetupStep(
+                title="Add the redirect URI",
+                body="In the app go to Authentication > Add a platform > Web and paste this redirect URI.",
+                code=SETUP_GUIDE_REDIRECT_URI,
+                language="text",
+            ),
+            SetupStep(
+                title="Grant Microsoft Graph permissions",
+                body="In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app. Use Delegated permissions only, not Application permissions: the connector reads only the signed-in user's mailbox.",
+            ),
+            SetupStep(
+                title="Create a client secret",
+                body="In Certificates & secrets > New client secret, create a secret and copy its Value (not the Secret ID) into Client Secret below. You can't view the value again later.",
+            ),
+        ],
         config_schema=OutlookMailConfig,
         credentials_auth=AuthOptions(
             default="service_principal",
@@ -3421,7 +3455,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "ui_form": e.ui_form,
             "personal_connector": e.personal_connector,
             "category": e.category,
-            "setup_guide": [s.model_dump() for s in e.setup_guide] if e.setup_guide else None,
+            "setup_guide": resolve_setup_guide(e.setup_guide),
         }
         for e in REGISTRY.values()
         if (

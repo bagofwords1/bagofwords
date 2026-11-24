@@ -4702,6 +4702,24 @@
           "title": "Экспортируйте сертификат SMS Provider",
           "body": "По умолчанию сайт использует самозаверяющий сертификат. Выполните это в PowerShell на SMS Provider и вставьте результат в поле SMS Provider certificate (PEM). Пропустите шаг, если сертификат выдан центром сертификации, которому этот сервер уже доверяет."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Зарегистрируйте приложение в Microsoft Entra",
+          "body": "В центре администрирования Microsoft Entra откройте App registrations > New registration. Выберите \"Accounts in this organizational directory only\". На странице Overview приложения скопируйте Directory (tenant) ID и Application (client) ID в поля ниже."
+        },
+        {
+          "title": "Добавьте URI перенаправления",
+          "body": "В приложении откройте Authentication > Add a platform > Web и вставьте этот URI перенаправления."
+        },
+        {
+          "title": "Предоставьте разрешения Microsoft Graph",
+          "body": "В API permissions > Add a permission > Microsoft Graph > Delegated permissions добавьте Mail.Read, User.Read, offline_access, openid и profile. Чтобы агенты могли перемещать, создавать черновики и отправлять письма, добавьте также Mail.ReadWrite и Mail.Send. Затем нажмите \"Grant admin consent\", чтобы пользователям не приходилось одобрять приложение. Используйте только разрешения Delegated, а не Application: коннектор читает только почтовый ящик вошедшего пользователя."
+        },
+        {
+          "title": "Создайте секрет клиента",
+          "body": "В Certificates & secrets > New client secret создайте секрет и скопируйте его Value (не Secret ID) в поле Client Secret ниже. Позже это значение нельзя будет посмотреть снова."
+        }
       ]
     },
     "setupGuideCopyFailed": "Не удалось скопировать — выделите текст",
