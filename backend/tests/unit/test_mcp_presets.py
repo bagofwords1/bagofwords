@@ -11,16 +11,24 @@ from app.services.connection_service import (
 
 def test_presets_include_default_dcr_set():
     keys = {p["key"] for p in mcp_presets()}
-    assert {"monday", "notion", "atlassian", "linear", "sentry"} <= keys
+    assert {"monday", "notion", "atlassian", "linear", "sentry", "fathom"} <= keys
 
 
 def test_dcr_presets_are_oauth():
     # The zero-setup (DCR) set connects via per-user OAuth.
-    for key in ("monday", "notion", "atlassian", "linear", "sentry"):
+    for key in ("monday", "notion", "atlassian", "linear", "sentry", "fathom"):
         assert mcp_preset(key).auth == "oauth"
     # GitHub needs an OAuth app.
     assert mcp_preset("github").auth == "oauth_app"
 
+
+def test_fathom_preset():
+    f = mcp_preset("fathom")
+    assert f.server_url == "https://api.fathom.ai/mcp"
+    assert f.transport == "streamable_http"
+    assert f.allowed_auth == ["dcr"]
+    assert f.title == "Fathom"
+    assert f.sample_tools
 
 def test_x_preset_is_bearer():
     # X has no DCR — it connects with an app-only bearer token from the
@@ -72,7 +80,7 @@ def test_x_oauth_defaults_are_correct():
 
 def test_dcr_presets_have_no_oauth_defaults():
     # DCR discovers its endpoints — no admin-entered constants needed.
-    for key in ("monday", "notion", "atlassian", "linear", "sentry"):
+    for key in ("monday", "notion", "atlassian", "linear", "sentry", "fathom"):
         assert mcp_preset(key).oauth_defaults is None
 
 

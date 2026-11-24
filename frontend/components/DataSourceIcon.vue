@@ -95,6 +95,7 @@ const CONNECTOR_ICON_FILE: Record<string, string> = {
     atlassian: 'jira.png',
     linear: 'linear.png',
     sentry: 'sentry.png',
+    fathom: 'fathom.png',
     github: 'github.svg',
     gitlab: 'gitlab.svg',
     bitbucket: 'bitbucket.svg',
