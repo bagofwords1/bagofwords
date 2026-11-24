@@ -112,3 +112,28 @@ def test_rewind_is_owner_only(create_user, login_user, whoami, test_client, crea
         headers=_headers(owner, org_id),
     )
     assert resp.status_code in (403, 404)
+
+
+@pytest.mark.e2e
+def test_console_metrics_still_count_rewound_messages(create_user, login_user, whoami, test_client, create_report):
+    """The console reports on runs that happened; a rewind does not erase them."""
+    owner, _, org_id = _owner_and_member(create_user, login_user, whoami, test_client)
+    user_id = whoami(owner)["id"]
+    report = create_report(title="Rewind console", user_token=owner, org_id=org_id, data_sources=[])
+    ids = _run(_seed_turns(report["id"], user_id, n=6))
+
+    def total_messages():
+        resp = test_client.get("/api/console/metrics", headers=_headers(owner, org_id))
+        assert resp.status_code == 200, resp.json()
+        return resp.json()["total_messages"]
+
+    before = total_messages()
+    assert before >= 6
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/rewind",
+        json={"completion_id": ids[2]},
+        headers=_headers(owner, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    assert _transcript_ids(test_client, report["id"], owner, org_id) == ids[:2]
+    assert total_messages() == before

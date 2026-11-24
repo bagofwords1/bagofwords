@@ -194,6 +194,12 @@ def _row_total_tokens_expr():
     )
 
 
+from app.models.completion import sees_rewound_completions
+
+
+# The console reports on runs that really happened: messages, feedback, judge
+# scores and traces of turns a user later rewound still count and still open.
+@sees_rewound_completions
 class ConsoleService:
 
     def _parse_data_source_ids(self, data_source_ids: Optional[str]) -> List[str]:

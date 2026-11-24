@@ -255,3 +255,200 @@ async def test_memories_saved_in_removed_turns_are_kept_and_counted(db):
         )
     )
     assert active == 3
+
+
+# ---------------------------------------------------------------- review fixes
+
+
+@pytest.mark.asyncio
+async def test_a_legacy_clear_boundary_before_the_rewind_point_survives(db):
+    """Boundaries stored before completion_created_at existed are judged by
+    their row, not dropped for lacking a timestamp."""
+    org, report, user = await _seed_report(db)
+    old = await _add_turns(db, report, user, 4, content="Old topic ask {i}")
+    await _svc().clear(db, report)
+    state = await _state(db, report.id)
+    legacy = dict(state.clear_boundaries[0])
+    legacy.pop("completion_created_at", None)
+    state.clear_boundaries = [legacy]
+    await db.commit()
+    mid = await _add_turns(db, report, user, 4, start=100, content="Mid topic ask {i}")
+
+    await rewind_report(db, report, str(mid[2].id))
+
+    state = await _state(db, report.id)
+    assert [b["completion_id"] for b in state.clear_boundaries] == [str(old[-1].id)]
+    _, rendered, text = await _render(db, org, report)
+    assert "Old topic" not in rendered and "Old topic" not in text
+    assert "Mid topic ask 100" in rendered
+
+
+@pytest.mark.asyncio
+async def test_rewinding_a_prompt_that_was_queued_keeps_the_earlier_runs_late_rows(db):
+    """A queued prompt keeps its queue-time created_at when dispatched; rows
+    the earlier run wrote while it waited belong to the earlier turn."""
+    org, report, user = await _seed_report(db)
+    t0 = datetime(2026, 3, 1, 9, 0)
+
+    def row(role, minutes, **kw):
+        c = Completion(
+            prompt={"content": kw.pop("ask", "")} if role == "user" else {},
+            completion={"content": kw.pop("answer", "")} if role == "system" else {},
+            status="success", model="test", role=role, report_id=str(report.id),
+            message_type=kw.pop("message_type", "ai_completion"),
+            user_id=str(user.id) if role == "user" else None, **kw,
+        )
+        c.created_at = t0 + timedelta(minutes=minutes)
+        db.add(c)
+        return c
+
+    a_user = row("user", 0, ask="Run A ask")
+    await db.flush()
+    a_sys = row("system", 0.01, answer="Answer A", parent_id=a_user.id)
+    await db.flush()
+    b_user = row("user", 1, ask="Queued B ask")                       # queued while A ran
+    await db.flush()
+    steer = row("user", 2, ask="Steer A", message_type="steering", parent_id=a_sys.id)
+    child = row("user", 3, ask="A child", trigger_source="sub_agent")
+    c_user = row("user", 4, ask="Queued C ask")                       # queued after B
+    await db.flush()
+    b_sys = row("system", 10, answer="Answer B", parent_id=b_user.id)  # dispatched after A
+    c_sys = row("system", 20, answer="Answer C", parent_id=c_user.id)
+    await db.commit()
+
+    result = await rewind_report(db, report, str(b_user.id))
+
+    removed = set(result["removed_ids"])
+    assert removed == {str(b_user.id), str(b_sys.id), str(c_user.id), str(c_sys.id)}
+    kept = {str(r.id) for r in (await db.execute(
+        select(Completion).where(Completion.report_id == str(report.id))
+    )).scalars().all()}
+    assert {str(a_user.id), str(a_sys.id), str(steer.id), str(child.id)} <= kept
+
+
+@pytest.mark.asyncio
+async def test_the_token_anchor_is_reset_even_without_compaction(db):
+    org, report, user = await _seed_report(db)
+    rows = await _add_turns(db, report, user, 10)
+    await _svc().record_prompt_anchor(db, str(report.id), 12345, 10000)
+    assert (await _state(db, report.id)).last_prompt_tokens == 12345
+
+    await rewind_report(db, report, str(rows[4].id))
+
+    state = await _state(db, report.id)
+    assert state.last_prompt_tokens is None and state.last_prompt_estimate is None
+
+
+@pytest.mark.asyncio
+async def test_planned_checkins_of_removed_turns_are_cancelled_and_others_kept(db):
+    from app.models.agent_checkin import AgentCheckin, STATUS_PLANNED, STATUS_CANCELLED
+    org, report, user = await _seed_report(db)
+    rows = await _add_turns(db, report, user, 8)
+
+    def checkin(source):
+        c = AgentCheckin(
+            organization_id=str(org.id), user_id=str(user.id), report_id=str(report.id),
+            source_completion_id=str(source.id), status=STATUS_PLANNED,
+        )
+        db.add(c)
+        return c
+
+    early, late = checkin(rows[1]), checkin(rows[5])
+    await db.commit()
+
+    result = await rewind_report(db, report, str(rows[4].id))
+    assert result["checkins_cancelled"] == 1
+    await db.refresh(early)
+    await db.refresh(late)
+    assert early.status == STATUS_PLANNED
+    assert late.status == STATUS_CANCELLED and late.status_reason == "rewound"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["pending", "waiting", "running"])
+async def test_rewind_is_refused_while_a_sub_agent_run_is_unfinished(db, status):
+    from app.models.sub_agent import SubAgentRun, SubAgentWave
+    org, report, user = await _seed_report(db)
+    rows = await _add_turns(db, report, user, 4)
+    wave = SubAgentWave(organization_id=str(org.id), report_id=str(report.id))
+    db.add(wave)
+    await db.flush()
+    db.add(SubAgentRun(wave_id=wave.id, organization_id=str(org.id), report_id=str(report.id), status=status))
+    await db.commit()
+
+    with pytest.raises(AppError) as exc:
+        await rewind_report(db, report, str(rows[2].id))
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_a_parent_added_in_this_session_does_not_lazy_load_rewound_rows(db):
+    org, report, user = await _seed_report(db)
+    rows = await _add_turns(db, report, user, 6)
+    await rewind_report(db, report, str(rows[2].id))
+    # `report` was added in this session (never loaded through a filtered
+    # SELECT); its relationship load must still apply the rule.
+    db.expire(report, ["completions"])
+    await db.refresh(report, ["completions"])
+    assert {str(c.id) for c in report.completions} == {str(rows[0].id), str(rows[1].id)}
+
+
+@pytest.mark.asyncio
+async def test_opt_outs_see_rewound_rows(db):
+    from app.models.completion import rewound_completions_visible, sees_rewound_completions
+    org, report, user = await _seed_report(db)
+    rows = await _add_turns(db, report, user, 6)
+    await rewind_report(db, report, str(rows[2].id))
+    stmt = select(func.count(Completion.id)).where(Completion.report_id == str(report.id))
+
+    assert await db.scalar(stmt) == 2
+    with rewound_completions_visible():
+        assert await db.scalar(stmt) == 6
+
+    @sees_rewound_completions
+    class Reader:
+        async def count(self):
+            return await db.scalar(stmt)
+
+    assert await Reader().count() == 6
+    assert await db.scalar(stmt) == 2  # the opt-out does not leak out
+
+
+@pytest.mark.asyncio
+async def test_dry_run_counts_transcript_rows(db):
+    org, report, user = await _seed_report(db)
+    rows = await _add_turns(db, report, user, 8)
+    preview = await rewind_report(db, report, str(rows[2].id), dry_run=True)
+    assert preview["visible_removed_count"] == 6
+
+
+@pytest.mark.asyncio
+async def test_the_report_summary_still_lists_what_rewound_turns_built(db):
+    """Rewind keeps instructions/queries/lists; the Summary keeps showing them."""
+    from app.models.completion_block import CompletionBlock
+    from app.models.tool_execution import ToolExecution
+    from app.services.report_service import ReportService
+    org, report, user = await _seed_report(db)
+    rows = await _add_turns(db, report, user, 6)
+    answer = rows[3]  # a system row of the turn that will be rewound
+    ae = AgentExecution(completion_id=str(answer.id), organization_id=str(org.id),
+                        user_id=str(user.id), report_id=str(report.id), status="success")
+    db.add(ae)
+    await db.flush()
+    te = ToolExecution(agent_execution_id=ae.id, tool_name="create_instruction",
+                       arguments_json={"text": "Use net revenue"}, status="success", success=True,
+                       result_json={"success": True, "instruction_id": "instr-1", "text": "Use net revenue"})
+    db.add(te)
+    await db.flush()
+    db.add(CompletionBlock(completion_id=str(answer.id), source_type="tool", title="t",
+                           status="completed", tool_execution_id=te.id))
+    await db.commit()
+
+    async def instruction_items():
+        summary = await ReportService().get_report_summary(db, str(report.id), org)
+        return summary.get("instructions") if isinstance(summary, dict) else summary.instructions
+
+    before = await instruction_items()
+    assert before, "seeded instruction tool run should be on the Summary"
+    await rewind_report(db, report, str(rows[2].id))
+    assert len(await instruction_items()) == len(before)

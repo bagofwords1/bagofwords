@@ -295,7 +295,7 @@ event.listen(Completion, 'after_update', after_update_completion)
 
 
 # ---------------------------------------------------------------------------
-# Rewound completions are invisible to every ORM read.
+# Rewound completions are invisible to ORM reads.
 #
 # Rewind (POST /api/reports/{id}/rewind) soft-deletes the turns after a prompt
 # by setting ``deleted_at``. Completions are read in dozens of places — the
@@ -308,9 +308,56 @@ event.listen(Completion, 'after_update', after_update_completion)
 # hygiene (e.g. ``update(Completion).where(step_id IN ...).values(step_id=None)``
 # before steps are deleted) keeps working for them.
 #
-# Opt out with ``.execution_options(include_rewound=True)``.
+# Not covered: an object a session already holds in its identity map is
+# returned by ``session.get`` without a SELECT. Sessions are per request, and a
+# rewind is refused while anything runs on the report, so no live session
+# holds rows that are rewound under it.
+#
+# Opting out — for code that reports on runs that really happened (the console,
+# usage, the report Summary of what was built):
+#   - one statement: ``.execution_options(include_rewound=True)``
+#   - a block / call tree: ``with rewound_completions_visible(): ...``
+#   - every method of a service class: ``@sees_rewound_completions``
 # ---------------------------------------------------------------------------
+import contextlib as _contextlib
+import functools as _functools
+import inspect as _inspect
+from contextvars import ContextVar as _ContextVar
+
 from sqlalchemy.orm import Session as _OrmSession, with_loader_criteria as _with_loader_criteria
+
+_REWOUND_VISIBLE: _ContextVar[bool] = _ContextVar("bow_rewound_completions_visible", default=False)
+
+
+@_contextlib.contextmanager
+def rewound_completions_visible():
+    """ORM reads inside this block (and the coroutines it awaits) see
+    rewound completions."""
+    token = _REWOUND_VISIBLE.set(True)
+    try:
+        yield
+    finally:
+        _REWOUND_VISIBLE.reset(token)
+
+
+def sees_rewound_completions(cls):
+    """Class decorator: every public async method runs with rewound
+    completions visible."""
+    for name, fn in list(vars(cls).items()):
+        # Plain async functions only: a staticmethod/classmethod rebound as a
+        # plain function would lose its binding.
+        if name.startswith("_") or not _inspect.isfunction(fn) or not _inspect.iscoroutinefunction(fn):
+            continue
+
+        def _wrap(f):
+            @_functools.wraps(f)
+            async def wrapper(*args, **kwargs):
+                with rewound_completions_visible():
+                    return await f(*args, **kwargs)
+            return wrapper
+
+        setattr(cls, name, _wrap(fn))
+    return cls
 
 
 @event.listens_for(_OrmSession, "do_orm_execute")
@@ -318,10 +365,12 @@ def _hide_rewound_completions(execute_state):
     if (
         not execute_state.is_select
         or execute_state.is_column_load
-        or execute_state.is_relationship_load
         or execute_state.execution_options.get("include_rewound", False)
+        or _REWOUND_VISIBLE.get()
     ):
         return
+    # Relationship loads too: a parent loaded outside this listener's reach
+    # (e.g. an object added in this session) must not lazy-load rewound rows.
     execute_state.statement = execute_state.statement.options(
         _with_loader_criteria(
             Completion,
