@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 import os
 from botocore.config import Config as BotoConfig
 from app.utils.safe_regex import compile_bounded, pattern_cost_problem
-from app.data_sources.clients.athena_unified_catalog import unify_glue_catalogs
+from app.data_sources.clients.athena_unified_catalog import UNREADABLE_TENANTS_KEY, unify_glue_catalogs
 from app.data_sources.clients.athena_union_rewrite import UnifiedTable, rewrite_unified
 from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN
 from sqlglot.errors import SqlglotError
@@ -202,6 +202,7 @@ class AwsAthenaClient(DataSourceClient):
         self._attached_dbs: List[str] = []
         self._unified_tables: dict[str, UnifiedTable] = {}
         self._excluded_tenants: dict[str, List[str]] = {}
+        self._learned_unreadable: List[str] = []
         self._query_left_out: dict[str, dict[str, str]] = {}
         self._count_cache: Optional[tuple] = None
         self._skipped_tables = 0
@@ -386,7 +387,7 @@ class AwsAthenaClient(DataSourceClient):
             "Queries that name a database (<database>.<table>) are refused. "
             "SHOW and DESCRIBE are not available.\n"
         )
-        unreadable = sorted(self._unread_dbs)
+        unreadable = sorted(set(self._learned_unreadable) | set(self._unread_dbs))
         if unreadable:
             text_ += (
                 f"Not readable, so missing from every table and every result: {format_name_list(unreadable, 50)}. "
@@ -572,6 +573,8 @@ class AwsAthenaClient(DataSourceClient):
             if self._unified:
                 catalog = unify_glue_catalogs(per_tenant)
                 self._unify_exclusions = catalog.excluded
+                for table in catalog.tables:
+                    table.metadata_json[UNREADABLE_TENANTS_KEY] = list(self._unread_dbs)
                 return catalog.tables
             return list(tables.values())
             
@@ -646,6 +649,7 @@ class AwsAthenaClient(DataSourceClient):
         if self._unified:
             learned: dict[str, UnifiedTable] = {}
             excluded: dict[str, List[str]] = {}
+            unreadable: set = set()
             for t in tables or []:
                 if not isinstance(t, dict) or not t.get("name"):
                     continue
@@ -656,11 +660,13 @@ class AwsAthenaClient(DataSourceClient):
                 if table is None:
                     continue
                 learned[table.name] = table
+                unreadable.update(x for x in meta.get(UNREADABLE_TENANTS_KEY) or [] if isinstance(x, str))
                 dropped = [x for x in meta.get("excluded_tenants") or [] if isinstance(x, str)]
                 if dropped:
                     excluded[table.name] = dropped
             self._unified_tables = learned
             self._excluded_tenants = excluded
+            self._learned_unreadable = sorted(unreadable)
             return
         if not self._multi:
             return

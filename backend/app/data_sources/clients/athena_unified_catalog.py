@@ -11,6 +11,7 @@ from app.data_sources.clients.postgresql_multi_catalog import (
 TENANTS_KEY = "tenants"
 TENANT_CASTS_KEY = "tenant_casts"
 TENANT_MISSING_KEY = "tenant_missing"
+UNREADABLE_TENANTS_KEY = "unreadable_tenants"
 
 _INTEGER_RANKS = {"tinyint": 0, "smallint": 1, "int": 2, "integer": 2, "bigint": 3}
 _FLOAT_RANKS = {"float": 0, "real": 0, "double": 1}

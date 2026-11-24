@@ -228,3 +228,32 @@ def test_agent_scope_allows_selected_unified_table_and_refuses_unselected(wrangl
     check_table_scope("SELECT * FROM assets", "athena", scope, client.exact_table_scope_catalogs)
     with pytest.raises(TableScopeViolation):
         check_table_scope("SELECT * FROM alerts", "athena", scope, client.exact_table_scope_catalogs)
+
+
+def stored_rows(client):
+    return [{"name": t.name, "metadata_json": t.metadata_json} for t in client.get_tables()]
+
+
+def test_fresh_client_names_unreadable_tenants_from_stored_metadata_alone(wrangler):
+    glue = FakeGlue({**DATABASES, "broken_db": _glue_error("AccessDeniedException")})
+    rows = stored_rows(unified_client("*_db", glue))
+    fresh = unified_client("*_db", FakeGlue(DATABASES))
+    fresh.attach_table_metadata(rows)
+    text = fresh.description
+    assert "broken_db" in text
+    assert "Tell the user results exclude them" in text
+
+
+def test_fresh_client_names_excluded_tenants_from_stored_metadata_alone(wrangler):
+    glue = FakeGlue(
+        {"a_db": ["orders"], "b_db": ["orders"], "c_db": ["orders"]},
+        columns={
+            ("a_db", "orders"): [{"Name": "total", "Type": "int"}],
+            ("b_db", "orders"): [{"Name": "total", "Type": "int"}],
+            ("c_db", "orders"): [{"Name": "total", "Type": "boolean"}],
+        },
+    )
+    rows = stored_rows(unified_client("*_db", glue))
+    fresh = unified_client("*_db", FakeGlue({}))
+    fresh.attach_table_metadata(rows)
+    assert "orders leaves out c_db" in fresh.description
