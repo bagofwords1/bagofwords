@@ -1,15 +1,12 @@
 # Release Notes
 
 ## Version 0.0.636 (November 24, 2026)
-- Added a Fathom connector preset, with each user signing in to their own Fathom account (#1905)
+- Added a Fathom connector for meetings, summaries and transcripts, with each user signing in to their own account (#1905)
 - Added sending requested files back to the user over WhatsApp (#1903)
 - Added removing a report from a project on the project page (#1902)
 - Added a per-user on/off toggle for personal connectors in the chat composer, remembered across chats (#1901)
 - Changed the command palette's All tab to show only reports and dashboards (#1900)
 - Fixed result cards in chat opening collapsed, and a pending wait's Cancel button scrolling out of view (#1897)
-
-## Version 0.0.636 (November 24, 2026)
-- Added a Fathom connector for meetings, summaries and transcripts (#1905)
 
 ## Version 0.0.635 (November 23, 2026)
 - Added agents with no data connection, built from instructions, files and a description only (#1895)
