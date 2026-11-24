@@ -11,6 +11,7 @@ import math
 import fastapi.routing
 import pytest
 
+from app.core import json_response as json_response_module
 from app.routes import dashboard as dashboard_routes
 from tests.e2e.dashboards.dashboard_setup import as_, own, publish, share
 
@@ -122,9 +123,56 @@ def test_step_rows_are_not_walked_by_jsonable_encoder(corpus, corpus_rows, test_
         return wrapper
 
     monkeypatch.setattr(fastapi.routing, "jsonable_encoder", spy(fastapi.routing.jsonable_encoder))
-    if hasattr(dashboard_routes, "jsonable_encoder"):
-        monkeypatch.setattr(dashboard_routes, "jsonable_encoder", spy(dashboard_routes.jsonable_encoder))
+    for module in (dashboard_routes, json_response_module):
+        if hasattr(module, "jsonable_encoder"):
+            monkeypatch.setattr(module, "jsonable_encoder", spy(module.jsonable_encoder))
     served = _routes(test_client, corpus, aid)
     assert all(resp.status_code == 200 for resp, _ in served)
     assert all(s["data"]["rows"][0]["name"] == MARKER for _, steps in served for s in steps)
     assert walked == []
+
+
+# A chart view whose series style has a gradient: GradientConfig's fields are
+# named start/end in Python and from/to (aliases) in the JSON the page reads.
+GRADIENT_VIEW = {
+    "version": "v2",
+    "view": {
+        "type": "bar_chart", "x": "name", "y": "total",
+        "seriesStyles": [{"key": "total", "gradient": {"from": "#93c5fd", "to": "#1d4ed8"}}],
+    },
+}
+
+
+@pytest.mark.e2e
+def test_the_bundled_queries_are_what_the_list_route_serves(corpus, corpus_rows, test_client):
+    """Each bundled query (all but default_step) is the list route's query,
+    which FastAPI's default path encodes -- a gradient keeps from/to."""
+    aid = _setup(corpus, corpus_rows, test_client, STORED)
+    headers = as_(corpus, "owner")
+    for base in (f"/api/d/{aid}", f"/api/d/{aid}/draft"):
+        for q in test_client.get(f"{base}/queries", headers=headers).json():
+            for viz in q["visualizations"]:
+                corpus_rows.update("visualizations", viz["id"], view=GRADIENT_VIEW)
+    for base in (f"/api/d/{aid}", f"/api/d/{aid}/draft"):
+        listed = test_client.get(f"{base}/queries", headers=headers)
+        bundle = test_client.get(f"{base}/queries_with_steps", headers=headers)
+        assert listed.status_code == bundle.status_code == 200, bundle.text
+        vizs = [v for q in listed.json() for v in q["visualizations"]]
+        assert vizs, "the corpus dashboard has no chart to style"
+        assert all(v["view"]["view"]["seriesStyles"][0]["gradient"] == {"from": "#93c5fd", "to": "#1d4ed8",
+                                                                            "opacity": None} for v in vizs)
+        assert [{k: v for k, v in q.items() if k != "default_step"} for q in bundle.json()] == listed.json(), base
+
+
+@pytest.mark.e2e
+def test_a_column_starting_with_sa_is_dropped_as_before(corpus, corpus_rows, test_client):
+    """FastAPI's default path (jsonable_encoder) drops any key starting with
+    "_sa"; the step routes keep that output exactly."""
+    stored = {"rows": [{"name": MARKER, "_sales": 12, "nested": {"_sa_state": 1, "kept": 2}}],
+              "columns": [{"field": "_sales"}]}
+    aid = _setup(corpus, corpus_rows, test_client, stored)
+    for resp, steps in _routes(test_client, corpus, aid):
+        assert resp.status_code == 200, (resp.request.url, resp.text)
+        assert all(s["data"]["rows"] == [{"name": MARKER, "nested": {"kept": 2}}] for s in steps), resp.request.url
+        # Values are kept: only keys are dropped.
+        assert all(s["data"]["columns"] == [{"field": "_sales"}] for s in steps)
