@@ -3165,8 +3165,10 @@ _TOOLS_SENTRY = [
     "get_doc",
 ]
 _TOOLS_FATHOM = [
-    "list_meetings", "find_person", "find_relevant_meetings", "get_meeting_summary",
-    "scan_meeting_summaries",
+    "get_identity", "list_teams", "list_meetings", "get_meeting_summary",
+    "get_meeting_transcript", "find_person", "find_relevant_meetings",
+    "get_relevant_meetings_result", "scan_meeting_summaries", "search_meetings",
+    "get_recording_by_call_id", "get_recording_by_url",
 ]
 _TOOLS_GOOGLE_DRIVE = [
     "search_files", "list_recent_files", "read_file_content", "download_file_content",
