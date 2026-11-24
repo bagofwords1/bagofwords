@@ -14,7 +14,6 @@ from app.core.permissions_registry import (
 
 
 EXPECTED_ORG_PERMS = {
-    "access_workspace",
     "view_reports", "create_reports", "update_reports", "delete_reports", "publish_reports",
     "manage_files",
     "create_data_source", "create_connections", "manage_connections",
