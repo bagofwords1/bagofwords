@@ -65,6 +65,7 @@
     "nanotar": ">=0.2.1",
     "node-forge": ">=1.4.3",
     "open": ">=11.0.0 <12",
+    "parse5": ">=8.1.1 <9",
     "picomatch": ">=4.0.4",
     "playwright": "1.56.0",
     "postcss": ">=8.5.18",
