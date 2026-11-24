@@ -24,10 +24,10 @@ def _glue_error(code):
     return ClientError({"Error": {"Code": code, "Message": f"{code} happened"}}, "GetTables")
 
 
-def _glue_table(name):
+def _glue_table(name, columns=None):
     return {
         "Name": name,
-        "StorageDescriptor": {"Columns": [{"Name": "id", "Type": "int"}]},
+        "StorageDescriptor": {"Columns": columns or [{"Name": "id", "Type": "int"}]},
         "PartitionKeys": [{"Name": "dt", "Type": "string"}],
     }
 
@@ -47,8 +47,9 @@ class _Paginator:
 class FakeGlue:
     """`databases` maps a name to table names, or to an exception raised while reading it."""
 
-    def __init__(self, databases, fail_database_page=None, forbid_database_listing=False):
+    def __init__(self, databases, fail_database_page=None, forbid_database_listing=False, columns=None):
         self.databases = databases
+        self.columns = columns or {}
         self.fail_database_page = fail_database_page
         self.forbid_database_listing = forbid_database_listing
 
@@ -68,7 +69,9 @@ class FakeGlue:
                 if isinstance(value, Exception):
                     raise value
                 for i in range(0, max(len(value), 1), 2):
-                    yield {"TableList": [_glue_table(n) for n in value[i:i + 2]]}
+                    yield {"TableList": [
+                        _glue_table(n, glue.columns.get((DatabaseName, n))) for n in value[i:i + 2]
+                    ]}
 
         return _Tables()
 

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 import os
 from botocore.config import Config as BotoConfig
 from app.utils.safe_regex import compile_bounded, pattern_cost_problem
+from app.data_sources.clients.athena_unified_catalog import unify_glue_catalogs
 from app.data_sources.clients.database_spec import parse_database_spec, is_glob, is_excluded, spec_matches
 
 # Configure logging
@@ -111,6 +112,15 @@ def _failure_reason(exc: Exception) -> str:
     return _error_code(exc) or type(exc).__name__
 
 
+def _exclusion_entry(entry: dict) -> dict:
+    if entry.get("column"):
+        return {
+            "name": f"{entry['table']} ({entry['tenant']})",
+            "reason": f"column type conflict on {entry['column']}",
+        }
+    return {"name": entry["table"], "reason": entry["reason"]}
+
+
 class AwsAthenaClient(DataSourceClient):
     unindexed_table_prefix_separator = "."
 
@@ -182,7 +192,8 @@ class AwsAthenaClient(DataSourceClient):
             raise ValueError("Invalid table_exclude_pattern")
         self._includes, self._excludes, self._multi = parse_database_spec(database)
         self._unified = bool(unify_tables)
-        self.exact_table_scope_catalogs = ("awsdatacatalog",) if self._multi else None
+        self.exact_table_scope_catalogs = ("awsdatacatalog",) if self._multi and not self._unified else None
+        self._unify_exclusions: List[dict] = []
         self._unread_dbs: List[str] = []
         self._diagnostics: List[dict] = []
         self._attached_dbs: List[str] = []
@@ -420,10 +431,11 @@ class AwsAthenaClient(DataSourceClient):
             self._diagnostics.append({"name": full_name, "reason": SKIPPED_NAME_REASON})
 
     def _reported_diagnostics(self) -> List[dict]:
+        diagnostics = [*self._diagnostics, *map(_exclusion_entry, self._unify_exclusions)]
         extra = self._skipped_tables - MAX_SKIPPED_TABLE_ENTRIES
         if extra <= 0:
-            return list(self._diagnostics)
-        return [*self._diagnostics, {"name": f"+{extra} more tables", "reason": SKIPPED_NAME_REASON}]
+            return diagnostics
+        return [*diagnostics, {"name": f"+{extra} more tables", "reason": SKIPPED_NAME_REASON}]
 
     def _reset_run_state(self) -> None:
         self._unread_dbs = []
@@ -446,7 +458,7 @@ class AwsAthenaClient(DataSourceClient):
         columns += [
             TableColumn(name=p['Name'], dtype=p['Type']) for p in table.get('PartitionKeys', [])
         ]
-        if not self._multi:
+        if self._unified or not self._multi:
             return Table(name=table['Name'], columns=columns, pks=None, fks=None)
         return Table(
             name=f"{database}.{table['Name']}",
@@ -458,6 +470,7 @@ class AwsAthenaClient(DataSourceClient):
 
     def get_tables(self) -> List[Table]:
         self._reset_run_state()
+        self._unify_exclusions = []
         self._count_cache = None
         try:
             matcher = self._exclude_matcher()
@@ -469,6 +482,7 @@ class AwsAthenaClient(DataSourceClient):
                 databases = discovery_items(databases, 'databases', label=lambda d: d)
 
             tables = {}
+            per_tenant: dict = {}
             for database in databases:
                 found = []
                 try:
@@ -481,9 +495,16 @@ class AwsAthenaClient(DataSourceClient):
                         raise
                     self._record_database_failure(database, e)
                     continue
+                if self._unified:
+                    per_tenant[database] = found
+                    continue
                 for built in found:
                     tables[built.name] = built
 
+            if self._unified:
+                catalog = unify_glue_catalogs(per_tenant)
+                self._unify_exclusions = catalog.excluded
+                return catalog.tables
             return list(tables.values())
             
         except IndexingCancelled:
@@ -513,9 +534,14 @@ class AwsAthenaClient(DataSourceClient):
             raise RuntimeError(f"No Glue databases match '{self.database}'")
         total = 0
         readable = 0
+        unified_names: set = set()
         for database in databases:
             try:
-                count = sum(1 for _ in self._glue_tables(database, matcher))
+                if self._unified:
+                    unified_names.update(t['Name'] for t in self._glue_tables(database, matcher))
+                    count = 0
+                else:
+                    count = sum(1 for _ in self._glue_tables(database, matcher))
             except (IndexingCancelled, ExcludePatternTimeout):
                 raise
             except Exception as e:
@@ -528,6 +554,8 @@ class AwsAthenaClient(DataSourceClient):
         if readable == 0:
             reasons = "; ".join(f"{d['name']}: {d['reason']}" for d in self._diagnostics[:5])
             raise RuntimeError(f"None of the Glue databases could be read. {reasons}")
+        if self._unified:
+            total = len(unified_names)
         self._counted_dbs = readable
         self._count_cache = (
             total, readable, list(self._diagnostics), list(self._unread_dbs), self._skipped_tables,
@@ -535,7 +563,7 @@ class AwsAthenaClient(DataSourceClient):
         return total
 
     def unindexed_table_prefixes(self) -> List[str]:
-        return list(self._unread_dbs)
+        return [] if self._unified else list(self._unread_dbs)
 
     def index_stats(self) -> dict:
         diagnostics = self._reported_diagnostics()
