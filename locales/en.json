@@ -8613,7 +8613,8 @@
     "signin": {
       "working": "Signing you in…",
       "done": "Signed in. You can close this window.",
-      "invalid": "This sign-in link is incomplete. Close this window and try again."
+      "invalid": "This sign-in link is incomplete. Close this window and try again.",
+      "intentFailed": "Couldn't confirm the app you're signing in to. Nothing was sent. Try again."
     },
     "tab": {
       "title": "Embed",

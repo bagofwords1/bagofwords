@@ -7726,6 +7726,9 @@
       "denied": "Você não tem acesso a isto. Peça ao proprietário que compartilhe com você.",
       "notAllowed": "Isto não está habilitado para este aplicativo. Um editor pode permitir isso nas configurações de incorporação no BOW.",
       "failed": "Não foi possível carregar. Tente novamente em instantes."
+    },
+    "signin": {
+      "intentFailed": "Não foi possível confirmar o aplicativo em que você está entrando. Nada foi enviado. Tente novamente."
     }
   },
   "connectedApps": {

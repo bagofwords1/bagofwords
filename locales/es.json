@@ -8584,7 +8584,8 @@
     "signin": {
       "working": "Iniciando sesión…",
       "done": "Sesión iniciada. Puedes cerrar esta ventana.",
-      "invalid": "Este enlace de inicio de sesión está incompleto. Cierra esta ventana e inténtalo de nuevo."
+      "invalid": "Este enlace de inicio de sesión está incompleto. Cierra esta ventana e inténtalo de nuevo.",
+      "intentFailed": "No se pudo confirmar la aplicación en la que inicias sesión. No se envió nada. Inténtalo de nuevo."
     },
     "tab": {
       "title": "Insertar",

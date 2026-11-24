@@ -7726,6 +7726,9 @@
       "denied": "Non hai accesso a questo contenuto. Chiedi al proprietario di condividerlo con te.",
       "notAllowed": "Questo contenuto non è abilitato per questa applicazione. Un editor può consentirlo nelle impostazioni di incorporamento in BOW.",
       "failed": "Impossibile caricare questo contenuto. Riprova tra un momento."
+    },
+    "signin": {
+      "intentFailed": "Impossibile confermare l'app a cui stai accedendo. Non è stato inviato nulla. Riprova."
     }
   },
   "connectedApps": {

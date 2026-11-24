@@ -201,6 +201,11 @@ async def host_of_request(request: Request):
         return host
 
 
+def unbound_window() -> AppError:
+    return AppError.forbidden(ErrorCode.EMBED_NOT_ALLOWED,
+                              "This sign-in could not be tied to its application. Try again.")
+
+
 def oidc_intent_cookie(provider: str) -> str:
     return f"oidc_{provider}_embed"
 
@@ -224,7 +229,12 @@ async def bind_oidc_authorization(provider: str, request: Request, response) -> 
             state = (parse_qs(urlparse(url).query).get("state") or [None])[0]
         except Exception:
             state = None
-    if host is None or not state:
+    if request.query_params.get("embed_host") and (host is None or not state):
+        # Fail closed: a sign-in that says it belongs to a host application
+        # either is bound to it or does not start. Starting it unbound would
+        # create an ordinary member where the application says app user.
+        raise unbound_window()
+    if host is None:
         response.delete_cookie(name, path=path)
         return
     response.set_cookie(name, issue_signup_intent(host, state), max_age=INTENT_LIFETIME, httponly=True,

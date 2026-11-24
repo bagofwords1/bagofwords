@@ -265,16 +265,14 @@ if (productUpdatesPrompt.value) {
 }
 
 try {
-  const response = await $fetch('/api/auth/register', {
+  // Inside a host application's sign-in window this registration, and only
+  // this one, is that application's: it is sent with the host's intent or not
+  // at all (utils/embedSignupIntent.ts).
+  const response = await submitWithEmbedIntent(route.query.redirect, headers => $fetch('/api/auth/register', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // Inside a host application's sign-in window: this registration, and
-      // only this one, is that application's (useEmbedSignupIntent.ts).
-      ...(await embedSignupHeaders(route.query.redirect)),
-    },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(payload),
-  });
+  }));
 
   if (!response) {
     error_message.value = t('auth.registrationError')
@@ -289,6 +287,12 @@ try {
   await signInWithCredentials(email.value, password.value)
 
 } catch (error: any) {
+  if (error instanceof EmbedIntentError) {
+    // Nothing was sent: no account exists. Submitting again retries.
+    error_message.value = t('embed.signin.intentFailed')
+    isSubmitting.value = false
+    return
+  }
   console.error('Error fetching data:', error);
   error_message.value = extractErrorMessage(error, t('auth.registrationError'))
   isSubmitting.value = false

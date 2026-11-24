@@ -57,6 +57,8 @@ async def authorize(provider: str, request: Request, db: AsyncSession = Depends(
     from app.core import workspace_access
 
     host = await workspace_access.host_of_request(request)
+    if request.query_params.get("embed_host") and host is None:
+        raise workspace_access.unbound_window()  # fail closed, as for OIDC
     if host is not None:
         response.set_cookie(
             _intent_cookie(provider), workspace_access.issue_signup_intent(host, saml.digest(browser)),
