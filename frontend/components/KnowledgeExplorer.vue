@@ -4414,6 +4414,9 @@ const InstrLeaf = defineComponent({
     // this scope ('global' | agentId). Only passed inside directory-aware groups.
     dragScope: { type: String, default: '' },
     draggable: Boolean,
+    // Replaces the default click (open in the agent's detail pane). The folder
+    // tree passes one so a click still opens the folder pane around the row.
+    onOpen: Function,
     // Render a one-line body snippet under the title. The Instructions pane
     // sets it: a search matches the body, so the row should show why it hit.
     snippet: Boolean,
@@ -4444,8 +4447,8 @@ const InstrLeaf = defineComponent({
         // (especially one with user-select: none) unless it is asked to treat
         // the element itself as the drag source. No effect in Chrome/Firefox.
         style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px', ...(props.draggable ? { WebkitUserDrag: 'element' } : {}) },
-        onClick: () => openInstruction(ins),
-        onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openInstruction(ins) } },
+        onClick: () => props.onOpen ? props.onOpen(ins) : openInstruction(ins),
+        onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); props.onOpen ? props.onOpen(ins) : openInstruction(ins) } },
         onDragstart: props.draggable ? (e: DragEvent) => startDragInstr(props.dragScope, ins.id, e) : undefined,
         onDragend: props.draggable ? endDrag : undefined,
       }, [
@@ -4470,6 +4473,11 @@ const InstrLeaf = defineComponent({
 // A folder in the tree: header row (rename/delete/new-subfolder on hover, drag
 // to re-parent, drop target for instructions and folders) + its contents when
 // open (child folders, then instructions filed directly in it). Recursive.
+// Folder trees (AgentFolders → FolderKnowledgeTree) draw their instruction
+// rows with this same leaf, so a folder's list carries the status dot, pending
+// badge, icons and load-mode chip an agent's list does.
+provide('knowledgeInstrLeaf', InstrLeaf)
+
 const DirNode = defineComponent({
   props: {
     dir: { type: Object as () => Dir, required: true },

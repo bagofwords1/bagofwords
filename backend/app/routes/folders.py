@@ -647,6 +647,15 @@ async def knowledge_items(
             db, org, user, data_source_ids=[], folder_id=folder_id, mode="chat", channel="app"
         )
         visible_rule_ids = {item.id for item in await builder.load_instructions_by_ids(ids, load_mode_filter=None)}
+    visible_agent = None
+    if kind == "instructions" and not candidates:
+        # Agent names on a row only for agents the viewer can see: a folder
+        # instruction may also be attached to a private agent.
+        from app.core.permission_resolver import get_accessible_data_source_ids
+
+        is_admin, accessible = await get_accessible_data_source_ids(db, str(user.id), str(org.id))
+        accessible = set(accessible)
+        visible_agent = lambda ds: is_admin or ds.is_public or str(ds.id) in accessible  # noqa: E731
     result = []
     for item in await db.scalars(stmt):
         if visible_rule_ids is not None and item.id not in visible_rule_ids:
@@ -664,8 +673,23 @@ async def knowledge_items(
                 continue
             title = title or item.text[:80]
         row = {"id": item.id, "name": title, "owned": getattr(item, "owner_folder_id", None) == folder_id}
-        if kind == "instructions" and details and not candidates:
-            row.update(title=title, text=item.text, status=item.status, category=item.category, load_mode=item.load_mode)
+        if kind == "instructions" and not candidates:
+            # The fields the explorer's instruction row draws (status dot,
+            # pending badge, category/source icons, load-mode chip, agent
+            # count), so a folder's list reads like an agent's. No body here:
+            # the tree loads this for every expanded folder.
+            row.update(
+                title=title,
+                status=item.status,
+                category=item.category,
+                load_mode=item.load_mode,
+                source_type=item.source_type,
+                source_metadata_resource_id=item.source_metadata_resource_id,
+                data_sources=[{"id": ds.id, "name": ds.name} for ds in item.data_sources if visible_agent(ds)],
+                can_manage_scope=manages,
+            )
+            if details:
+                row.update(text=item.text)
         result.append(row)
     return sorted(result, key=lambda r: (r["name"] or "").casefold())
 
