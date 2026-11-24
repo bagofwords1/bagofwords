@@ -204,8 +204,19 @@ async def resolve_user(db, host, subject: str, claims: Dict[str, Any]) -> User:
         raise _unmapped()
     # Read before admitting: a refusal rolls the session back and expires the row.
     started, host_id, role = datetime.utcnow(), str(host.id), host.new_user_role
+    # The membership is stamped with the host's role as it is written
+    # (core/workspace_access); apply_new_user_role afterwards is the backstop.
+    from app.core import workspace_access
+    from app.core.permissions_registry import APP_USER_ROLE
+
+    intent = workspace_access.SignupIntent(host.public_id, host_id, org_id,
+                                           role if role in (APP_USER_ROLE, "member") else APP_USER_ROLE, started)
+    token = workspace_access._signup_intent.set(intent)
     try:
-        user_id = await _admit(db, host, subject, claims)
+        try:
+            user_id = await _admit(db, host, subject, claims)
+        finally:
+            workspace_access._signup_intent.reset(token)
         await apply_new_user_role(db, host_id, org_id, role, user_id, since=started)
     except AppError:
         raise

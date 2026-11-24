@@ -18,7 +18,12 @@ class LoginCodeExchange(BaseModel):
 
 @router.get("/auth/{provider}/authorize")
 async def authorize(provider: str, request: Request) -> JSONResponse:
-    return await build_authorize_url(provider, request)
+    response = await build_authorize_url(provider, request)
+    # Started inside a host application's sign-in window: bind that to this
+    # authorization, so an account the callback creates gets the host's role.
+    from app.core.workspace_access import bind_signup_intent
+    await bind_signup_intent(request, response)
+    return response
 
 
 @router.get("/auth/{provider}/callback")

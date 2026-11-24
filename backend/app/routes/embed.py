@@ -189,14 +189,15 @@ async def start_sso_sign_in(public_id: str, request: Request, db: AsyncSession =
     """Called by the sign-in popup before it sends a signed-out visitor to
     BOW's sign-in. Public, like the bootstrap: it reveals nothing and grants
     nothing."""
-    from app.core.workspace_access import INTENT_COOKIE, INTENT_LIFETIME, INTENT_PATH, issue_signup_intent
-    from app.services.auth_providers import _cookie_secure
+    from app.core.workspace_access import set_signup_intent_cookie
 
     host = await _host(db, public_id)
+    if not host.enabled:
+        raise AppError.forbidden(ErrorCode.HOST_APP_DISABLED, "This host application is disabled")
     await admit(db, ["embed-sso-intent", str(host.id), _client(request)], SESSION_LIMIT_PER_CLIENT)
+    host = await _host(db, public_id)  # admit() committed
     response = Response(status_code=204)
-    response.set_cookie(INTENT_COOKIE, issue_signup_intent(host.public_id), max_age=INTENT_LIFETIME, httponly=True,
-                        secure=_cookie_secure(), samesite="lax", path=INTENT_PATH)
+    set_signup_intent_cookie(response, host)
     return response
 
 

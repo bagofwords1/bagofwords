@@ -471,17 +471,44 @@ def test_a_slow_sign_up_is_still_an_app_user_because_the_form_renews_the_intent(
     assert people.member(fresh.json()["id"])["role"] == "app_user"
 
 
-def test_a_sign_up_window_of_a_disabled_application_changes_nothing(people, corpus, corpus_rows, test_client):
+def test_a_disabled_application_opens_no_sign_up_window(people, corpus, corpus_rows, test_client):
     _domain_signup(corpus_rows, corpus, "late.example")
-    host = _host_app(test_client, corpus)
-    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
-    disabled = test_client.patch(f"/api/host_applications/{host['id']}", headers=people.admin,
-                                 json={"revision": host["revision"], "enabled": False})
-    assert disabled.status_code == 200, disabled.text
+    host = _host_app(test_client, corpus, enabled=False)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 403
     headers, user_id = _sign_up(test_client, "flo@late.example")
     headers["X-Organization-Id"] = people.org
     assert people.has_workspace(headers)
     assert people.member(user_id)["role"] == "member"
+
+
+def test_no_workspace_membership_survives_a_failed_role_write(people, corpus, corpus_rows, test_client, monkeypatch):
+    """The role is part of the write that creates the membership. If it
+    cannot be set, there is no membership at all — never a member's one that
+    a later sign-in without the window's cookie would find."""
+    from app.core import workspace_access
+
+    _domain_signup(corpus_rows, corpus, "broken.example")
+    host = _host_app(test_client, corpus)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError("the role could not be written")
+
+    monkeypatch.setattr(workspace_access, "stamp_membership", refuse)
+    try:
+        test_client.post("/api/auth/register", json={"name": "Person jo", "email": "jo@broken.example",
+                                                     "password": "Password123!"})
+    except RuntimeError:
+        pass  # the test client re-raises what the server would answer 500 for
+    monkeypatch.undo()
+    test_client.cookies.clear()
+
+    held = [m for m in people.members() if ((m.get("user") or {}).get("email") or m.get("email")) == "jo@broken.example"]
+    assert all(m["role"] != "member" and not m.get("user_id") for m in held), held
+    login = test_client.post("/api/auth/jwt/login", data={"username": "jo@broken.example", "password": "Password123!"})
+    if login.status_code == 200:  # the account may exist; it belongs to nothing here
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}", "X-Organization-Id": people.org}
+        assert test_client.get("/api/reports", headers=headers).status_code in (401, 403)
 
 
 def test_more_apps_never_change_the_role(people, app_user, test_client, corpus, corpus_rows):

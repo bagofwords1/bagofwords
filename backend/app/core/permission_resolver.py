@@ -304,6 +304,20 @@ async def ensure_system_role_assignment(
     """
     from app.models.role_assignment import RoleAssignment
 
+    if role_name == "member":
+        # Provisioning paths ask for `member` by name. A membership that was
+        # created as an app user's (a host application's sign-in, see
+        # core/workspace_access) gets the role it says, not the workspace.
+        from app.core.permissions_registry import APP_USER_ROLE
+        from app.models.membership import Membership
+
+        stated = (await db.execute(
+            select(Membership.role).where(
+                Membership.user_id == user_id, Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None)).limit(1)
+        )).scalar_one_or_none()
+        if stated == APP_USER_ROLE:
+            role_name = APP_USER_ROLE
     role = await resolve_assignable_system_role(db, org_id, role_name)
     if not role:
         return
@@ -345,6 +359,7 @@ async def lift_app_user(db: AsyncSession, org_id: str, user_id: str, role_name: 
     if membership is None or (membership.role or "").lower() != APP_USER_ROLE:
         return False
     membership.role = role_name
+    await db.flush()  # ensure_system_role_assignment below reads the stated role
     app_role = await resolve_assignable_system_role(db, org_id, APP_USER_ROLE)
     if app_role is not None:
         for row in (await db.execute(

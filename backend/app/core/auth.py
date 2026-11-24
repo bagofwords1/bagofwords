@@ -206,8 +206,6 @@ class UserManager(BaseUserManager[User, str]):
         request: Optional[Request] = None,
         json_body: Optional[dict] = None
     ) -> None:
-        from app.core.workspace_access import apply_signup_intent_now
-        await apply_signup_intent_now(request, user)
         try:
             from app.dependencies import async_session_maker
             async with async_session_maker() as session:
@@ -397,13 +395,6 @@ class UserManager(BaseUserManager[User, str]):
         await materialize_pending_rbac(session, membership, user_id)
 
     async def on_after_register(self, user: User, request: Optional[Request] = None):
-        await self._on_after_register(user, request)
-        # Registered in a host application's sign-in window: its new-user
-        # role is stored now, before this account has a session at all.
-        from app.core.workspace_access import apply_signup_intent_now
-        await apply_signup_intent_now(request, user)
-
-    async def _on_after_register(self, user: User, request: Optional[Request] = None):
         print(f"User {user.id} has registered.")
 
         # Get open memberships and attach user
