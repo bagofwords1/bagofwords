@@ -606,6 +606,18 @@ def test_single_database_unified_client_reads_only_its_database_from_stored_rows
     assert "acme_db" not in client.description
 
 
+@pytest.mark.parametrize("value, unified", [
+    (True, True), ("true", True), ("TRUE", True), ("1", True),
+    (False, False), ("false", False), ("False", False), ("0", False), ("", False), ("no", False), (None, False),
+])
+def test_unify_tables_is_parsed_strictly(wrangler, value, unified):
+    client = make_client("*_db", FakeGlue(DATABASES), unify_tables=value)
+    expected = ["alerts", "assets", "users"] if unified else [
+        "acme_db.assets", "acme_db.users", "globex_db.alerts", "globex_db.assets",
+    ]
+    assert names(client.get_tables()) == expected
+
+
 THREE_TENANTS = {t: ["assets", "users"] for t in ("acme_db", "globex_db", "initech_db")}
 
 

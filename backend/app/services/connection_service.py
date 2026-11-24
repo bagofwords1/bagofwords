@@ -458,9 +458,12 @@ def _unread_prefixes(client) -> tuple[str, ...]:
 
 
 def _athena_config_mode(config) -> tuple[bool, bool]:
-    from app.schemas.data_sources.configs import parse_athena_database_spec
+    from app.schemas.data_sources.configs import athena_unify_tables_enabled, parse_athena_database_spec
     config = config or {}
-    return parse_athena_database_spec(config.get("database"))[2], bool(config.get("unify_tables"))
+    return (
+        parse_athena_database_spec(config.get("database"))[2],
+        athena_unify_tables_enabled(config.get("unify_tables")),
+    )
 
 
 def _validate_connection_config(connection_type: str, config) -> None:

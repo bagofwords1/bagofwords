@@ -1760,6 +1760,12 @@ def parse_athena_database_spec(spec) -> tuple[list[str], list[str], bool]:
     return includes, excludes, multi
 
 
+def athena_unify_tables_enabled(value) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1")
+    return value is True
+
+
 def validate_table_exclude_pattern(value):
     from app.utils.safe_regex import compile_bounded, pattern_cost_problem
     if value is not None and value.strip():

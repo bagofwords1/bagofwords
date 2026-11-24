@@ -24,6 +24,7 @@ from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 from app.data_sources.clients.database_spec import parse_database_spec, is_glob, is_excluded, spec_matches
+from app.schemas.data_sources.configs import athena_unify_tables_enabled
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -213,7 +214,7 @@ class AwsAthenaClient(DataSourceClient):
         ):
             raise ValueError("Invalid table_exclude_pattern")
         self._includes, self._excludes, self._multi = parse_database_spec(database)
-        self._unified = bool(unify_tables)
+        self._unified = athena_unify_tables_enabled(unify_tables)
         self.exact_table_scope_catalogs = ("awsdatacatalog",) if self._multi and not self._unified else None
         self._unify_exclusions: List[dict] = []
         self._unread_dbs: List[str] = []

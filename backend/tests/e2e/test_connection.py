@@ -698,6 +698,28 @@ def test_athena_mode_switch_is_a_typed_400_and_the_same_mode_update_succeeds(
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("stored_flag, target_flag", [("false", False), ("False", None), ("true", True), ("1", "TRUE")])
+def test_athena_unify_flag_spellings_count_as_the_same_mode(
+    athena_glue, create_connection, update_connection, create_user, login_user, whoami, stored_flag, target_flag,
+):
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    connection = create_connection(
+        name="Athena flag spelling", type="aws_athena",
+        config=_athena_config("acme_db, globex_db", unify_tables=stored_flag),
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    target = _athena_config("globex_db, acme_db")
+    if target_flag is not None:
+        target["unify_tables"] = target_flag
+    kept = update_connection(
+        connection_id=connection["id"], payload={"config": target}, user_token=token, org_id=org_id,
+    )
+    assert kept["id"] == connection["id"]
+
+
+@pytest.mark.e2e
 def test_unified_athena_connection_indexes_bare_tables_with_tenant_db(
     athena_glue, create_connection, test_client, create_user, login_user, whoami,
 ):
