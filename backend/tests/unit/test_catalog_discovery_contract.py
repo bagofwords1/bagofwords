@@ -115,3 +115,20 @@ def test_unreadable_models_are_named_in_the_error():
     client = SimpleNamespace(discovery_diagnostics=[{"datasetName": "Sales model", "reason": "no Build"}])
     with pytest.raises(IncompleteDiscoveryError, match="Sales model"):
         require_complete_discovery(client, ["Workspace/Other/t"])
+
+
+def test_models_reported_as_unread_parts_do_not_block_publication():
+    """A model the client both names and scopes as an unread part keeps its
+    existing entries, so only the unscoped ones are a discovery failure."""
+    from app.data_sources.clients.discovery import require_complete_discovery
+    diagnostics = [{"datasetName": "Empty model", "reason": "no tables"},
+                   {"datasetName": "Denied model", "reason": "no Build"}]
+    scoped = SimpleNamespace(discovery_diagnostics=diagnostics,
+                             unindexed_table_prefixes=lambda: ["Empty model", "Denied model"])
+    assert require_complete_discovery(scoped, ["Workspace/Other/t"]) == ["Workspace/Other/t"]
+
+    partly = SimpleNamespace(discovery_diagnostics=diagnostics,
+                             unindexed_table_prefixes=lambda: ["Empty model"])
+    with pytest.raises(IncompleteDiscoveryError) as error:
+        require_complete_discovery(partly, ["Workspace/Other/t"])
+    assert "Denied model" in str(error.value) and "Empty model" not in str(error.value)
