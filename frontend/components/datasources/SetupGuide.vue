@@ -25,15 +25,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   type: string
   steps?: any[] | null
-}>()
+  defaultOpen?: boolean
+}>(), { defaultOpen: true })
 
 const { t, te } = useI18n()
 
 const guideSteps = computed<any[]>(() => Array.isArray(props.steps) ? props.steps : [])
-const open = ref(true)
+const open = ref(props.defaultOpen)
 const copiedStep = ref<number | null>(null)
 const copyFailedStep = ref<number | null>(null)
 

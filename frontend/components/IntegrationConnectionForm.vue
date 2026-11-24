@@ -16,7 +16,7 @@
 
       <div v-if="loadingFields" class="text-xs text-ink-muted">{{ $t('common.loading') }}</div>
       <template v-else>
-        <SetupGuide :type="props.integrationType" :steps="setupGuide" />
+        <SetupGuide :type="props.integrationType" :steps="setupGuide" :default-open="!isEditMode" />
         <!-- Only when the registry offers more than one admin option (e.g.
              Google Drive: OAuth client vs. shared service account). Fixed in
              edit mode: switching changes who the connection runs as. -->
