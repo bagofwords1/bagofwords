@@ -136,6 +136,17 @@ def _apps(client, headers):
     return r.json()
 
 
+def _all_apps(client, headers, **query):
+    """Every page of the launcher, as the page's "Show more" walks them."""
+    cards, after = [], 0
+    while after is not None:
+        r = client.get("/api/apps", headers=headers, params={**query, "after": after})
+        assert r.status_code == 200, r.text
+        cards += r.json()["apps"]
+        after = r.json()["next"]
+    return cards
+
+
 def _pkce():
     verifier = secrets.token_urlsafe(48)
     return verifier, base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -387,15 +398,51 @@ def test_the_popup_never_changes_an_existing_members_role(people, corpus, test_c
     assert people.member(corpus.cast.id("admin"))["role"] == "admin"
 
 
-def test_a_popup_started_for_another_application_does_not_count(people, corpus, corpus_rows, test_client):
+def test_the_role_is_the_application_s_whose_window_they_signed_up_in(people, corpus, corpus_rows, test_client):
     _domain_signup(corpus_rows, corpus, "other.example")
-    started_in, signed_into = _host_app(test_client, corpus), _host_app(test_client, corpus)
+    started_in = _host_app(test_client, corpus)
+    signed_into = _host_app(test_client, corpus, new_user_role="member")
     assert test_client.post(f"/api/embed/{started_in['public_id']}/sso/intent").status_code == 204
     headers, user_id = _sign_up(test_client, "cy@other.example")
     headers["X-Organization-Id"] = people.org
     _, challenge = _pkce()
     assert test_client.post(f"/api/embed/{signed_into['public_id']}/sso/code", json={"code_challenge": challenge},
                             headers=headers).status_code == 200
+    member = people.member(user_id)
+    assert member["role"] == "app_user" and member["created_via_host_application"] == started_in["name"]
+
+
+@pytest.mark.parametrize("first_request", ["/api/reports", "/api/users/me/viewer_context", "/api/apps"])
+def test_a_sign_up_window_that_never_finishes_still_makes_an_app_user(people, corpus, corpus_rows, test_client,
+                                                                      first_request):
+    """They registered in the window and closed it (or wandered off): the
+    window never asked for its code. Whatever they do next with that session,
+    they do it as an app user -- there is no request on which the workspace
+    was theirs."""
+    _domain_signup(corpus_rows, corpus, "closed.example")
+    host = _host_app(test_client, corpus)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    headers, user_id = _sign_up(test_client, "eve@closed.example")
+    headers["X-Organization-Id"] = people.org
+
+    first = test_client.get(first_request, headers=headers)
+    assert first.status_code == (403 if first_request == "/api/reports" else 200), first.text
+    refused = test_client.get("/api/reports", headers=headers)
+    assert refused.status_code == 403 and refused.json()["error_code"] == REFUSED
+    member = people.member(user_id)
+    assert member["role"] == "app_user" and member["created_via_host_application"] == host["name"]
+
+
+def test_a_sign_up_window_of_a_disabled_application_changes_nothing(people, corpus, corpus_rows, test_client):
+    _domain_signup(corpus_rows, corpus, "late.example")
+    host = _host_app(test_client, corpus)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    disabled = test_client.patch(f"/api/host_applications/{host['id']}", headers=people.admin,
+                                 json={"revision": host["revision"], "enabled": False})
+    assert disabled.status_code == 200, disabled.text
+    headers, user_id = _sign_up(test_client, "flo@late.example")
+    headers["X-Organization-Id"] = people.org
+    assert people.has_workspace(headers)
     assert people.member(user_id)["role"] == "member"
 
 
@@ -515,3 +562,88 @@ def test_a_card_pictures_the_app_only_for_those_who_may_see_the_publishers_data(
     monkeypatch.setattr(viewer_data_policy, "_any_user_scoped_connection", yes)
     assert card(app_user)["thumbnail_url"] is None          # still listed, without the picture
     assert card(as_(corpus, "owner"))["thumbnail_url"] == live  # their own run
+
+
+# ── an app user is a reader, never an editor ──────────────────────────────
+
+def test_an_app_user_reads_what_is_published_not_the_draft_of_what_they_own(people, test_client, corpus,
+                                                                            corpus_rows):
+    """Demoted while owning a dashboard with unpublished changes: the draft,
+    and anything else an editor gets, is the workspace."""
+    host = _host_app(test_client, corpus)
+    aid = _app(test_client, corpus, corpus_rows, DASH, host, "internal")
+    private = own(corpus_rows, corpus, ONE)
+    publish(private)  # published, shared with nobody: only its owner's
+    owner = as_(corpus, "owner")
+    draft_paths = [f"/api/d/{aid}/draft", f"/api/d/{aid}/draft/content"]
+    assert test_client.get(draft_paths[0], headers=owner).status_code == 200
+    assert test_client.get(f"/api/d/{private}", headers=owner).status_code == 200
+
+    people.set_role("owner", "app_user")
+    for path in draft_paths:
+        assert test_client.get(path, headers=owner).status_code in (401, 403, 404), path
+    assert test_client.post(f"/api/d/{aid}/fork", headers=owner, json={}).status_code in (401, 403, 404)
+    published = test_client.get(f"/api/d/{aid}", headers=owner)
+    assert published.status_code == 200
+    # Owning it is no longer a way in: sharing is.
+    assert test_client.get(f"/api/d/{private}", headers=owner).status_code in (403, 404)
+    assert [a["id"] for a in _all_apps(test_client, owner)] == [aid]
+
+    people.set_role("owner", "member")
+    assert test_client.get(draft_paths[0], headers=owner).status_code == 200
+    assert test_client.get(f"/api/d/{private}", headers=owner).status_code == 200
+
+
+# ── every app is reachable ────────────────────────────────────────────────
+
+def test_the_launcher_pages_and_searches_past_what_the_reader_may_not_open(people, app_user, test_client, corpus,
+                                                                           corpus_rows):
+    """Three apps sort before the reader's, and are not theirs. A page of one
+    still finds theirs, the pages add up to the whole list, and search runs
+    over all of it."""
+    host = _host_app(test_client, corpus)
+    theirs = [_app(test_client, corpus, corpus_rows, key, host, "shared", users=["member"])
+              for key in (DASH, ONE)]
+    others = [_app(test_client, corpus, corpus_rows, key, host, "shared", users=["direct_share"])
+              for key in (DECK, "thumbnail/dash", "conv_three_dash/dash_stock")]
+    for index, aid in enumerate(others):
+        corpus_rows.update("artifacts", aid, title=f"AAA {index}")
+    corpus_rows.update("artifacts", theirs[0], title="Zebra crossing")
+    corpus_rows.update("artifacts", theirs[1], title="Yak shaving")
+
+    first = test_client.get("/api/apps", headers=app_user, params={"limit": 1}).json()
+    assert [a["title"] for a in first["apps"]] == ["Yak shaving"] and first["next"] is not None
+    assert [a["title"] for a in _all_apps(test_client, app_user, limit=1)] == ["Yak shaving", "Zebra crossing"]
+    assert test_client.get("/api/apps", headers=app_user).json()["next"] is None
+
+    found = test_client.get("/api/apps", headers=app_user, params={"q": "zebra", "limit": 1}).json()
+    assert [a["id"] for a in found["apps"]] == [theirs[0]] and found["next"] is None
+    assert test_client.get("/api/apps", headers=app_user, params={"q": "AAA"}).json()["apps"] == []
+    assert test_client.get("/api/apps", headers=app_user, params={"q": "%"}).json()["apps"] == []
+
+
+# ── the migration ─────────────────────────────────────────────────────────
+
+def test_replaying_the_migration_leaves_app_user_without_the_workspace(people, corpus_rows):
+    """The dashboard corpus (and a half-applied upgrade) runs appuser01 more
+    than once. The second run must not backfill the role the first one made."""
+    from alembic.operations import Operations
+    from alembic.runtime.migration import MigrationContext
+    from sqlalchemy import create_engine
+
+    from tests.fixtures.dashboard_corpus.alembic_at import script_directory
+    from tests.fixtures.dashboard_corpus.rows import sync_test_url
+
+    engine = create_engine(sync_test_url())
+    try:
+        for _ in range(2):
+            with engine.begin() as conn:
+                with Operations.context(MigrationContext.configure(conn)):
+                    script_directory().get_revision("appuser01").module.upgrade()
+    finally:
+        engine.dispose()
+    roles = people.roles()
+    assert roles["app_user"]["permissions"] == []
+    assert "access_workspace" in roles["member"]["permissions"]
+    assert len([r for r in people.client.get(f"/api/organizations/{people.org}/roles", headers=people.admin).json()
+                if r["name"] == "app_user"]) == 1

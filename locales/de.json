@@ -8301,7 +8301,8 @@
       "button": "Vollzugriff anfordern",
       "sent": "Anfrage gesendet. Ein Administrator prüft sie.",
       "failed": "Die Anfrage konnte nicht gesendet werden. Versuchen Sie es erneut."
-    }
+    },
+    "showMore": "Mehr anzeigen"
   },
   "hostApps": {
     "newUserRole": "Neue Personen treten bei als",

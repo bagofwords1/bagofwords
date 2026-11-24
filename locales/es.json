@@ -9254,6 +9254,7 @@
       "button": "Solicitar acceso completo",
       "sent": "Solicitud enviada. Un administrador la revisará.",
       "failed": "No se pudo enviar la solicitud. Inténtalo de nuevo."
-    }
+    },
+    "showMore": "Mostrar más"
   }
 }

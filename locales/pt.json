@@ -8301,7 +8301,8 @@
       "button": "Solicitar acesso completo",
       "sent": "Solicitação enviada. Um administrador irá analisá-la.",
       "failed": "Não foi possível enviar a solicitação. Tente novamente."
-    }
+    },
+    "showMore": "Mostrar mais"
   },
   "hostApps": {
     "newUserRole": "Novas pessoas entram como",

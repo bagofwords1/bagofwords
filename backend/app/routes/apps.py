@@ -6,7 +6,7 @@ page of BOW an app user has (see core/workspace_access).
 """
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,8 @@ class AppCard(BaseModel):
 
 class AppLauncherSchema(BaseModel):
     apps: List[AppCard]
+    # Pass as ``after`` for the next page; None when this is the last one.
+    next: Optional[int] = None
     # Whether this member may also use the workspace (the "Open BOW" link).
     workspace_access: bool
     # An app user's pending ask for the workspace.
@@ -47,6 +49,9 @@ class AccessRequestSchema(BaseModel):
 
 @router.get("/apps", response_model=AppLauncherSchema)
 async def list_apps(
+    q: Optional[str] = Query(None, max_length=200, description="Search titles and descriptions"),
+    after: int = Query(0, ge=0),
+    limit: int = Query(app_launcher.PAGE_SIZE, ge=1, le=app_launcher.MAX_PAGE_SIZE),
     user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
@@ -55,8 +60,8 @@ async def list_apps(
 
     workspace = await has_workspace_access(db, user, str(organization.id))
     requested = False if workspace else await app_launcher.access_requested(db, user, organization)
-    apps = await app_launcher.list_apps(db, user, organization)
-    return AppLauncherSchema(apps=[AppCard(**a) for a in apps], workspace_access=workspace,
+    apps, following = await app_launcher.list_apps(db, user, organization, search=q, after=after, limit=limit)
+    return AppLauncherSchema(apps=[AppCard(**a) for a in apps], next=following, workspace_access=workspace,
                              access_requested=requested)
 
 

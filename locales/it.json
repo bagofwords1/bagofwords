@@ -8301,7 +8301,8 @@
       "button": "Richiedi accesso completo",
       "sent": "Richiesta inviata. Un amministratore la esaminerà.",
       "failed": "Impossibile inviare la richiesta. Riprova."
-    }
+    },
+    "showMore": "Mostra altro"
   },
   "hostApps": {
     "newUserRole": "Le nuove persone entrano come",

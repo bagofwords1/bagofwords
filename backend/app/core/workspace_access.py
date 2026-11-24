@@ -58,7 +58,9 @@ _OPEN: Tuple[Tuple[re.Pattern, Iterable[str]], ...] = tuple(
         (r"^/thumbnails/", _READ),
         # The apps themselves: the published artifact, its runtime (resources,
         # conversations), asking its owner for access, and files it embeds.
-        (r"^/d/", _ANY),
+        # The published artifact only: its draft and forking it are the
+        # workspace (dashboard_access.can_edit refuses an app user as well).
+        (r"^/d/[^/]+(?:/(?!draft(?:/|$)|fork(?:/|$)).*)?$", _ANY),
         (r"^/artifacts/[^/]+/runtime(/|$)", _ANY),
         (r"^/artifacts/[^/]+/access_requests?$", _ANY),
         (r"^/files/[^/]+/embed$", _READ),
@@ -77,6 +79,96 @@ def is_open(path: str, method: str) -> bool:
         path = "/"
     method = (method or "GET").upper()
     return any(pattern.match(path) and method in methods for pattern, methods in _OPEN)
+
+
+# ── signing up through a host application ──────────────────────────────────
+#
+# An embedded artifact's sign-in window runs BOW's ordinary sign-in and
+# sign-up, which know nothing of the host application. So the window first
+# gets an *intent*: a signed, httpOnly cookie naming the host application and
+# the moment the window opened (routes/embed.py). ``current_user`` then calls
+# :func:`apply_signup_intent` on every request that carries it, BEFORE the
+# gate: a membership created since that moment was created by that window,
+# and gets the host application's new-user role there and then. The account
+# therefore never makes a workspace request as a member, whether or not the
+# window ever finishes (closed after sign-up, or left open).
+#
+# Tampering buys nothing: without the cookie the account is an ordinary
+# sign-up, governed by the organization's own sign-up policy; forging one
+# needs the signing key and could only lower its bearer's access.
+
+INTENT_COOKIE = "bow_embed_signup"
+INTENT_PATH = "/api"
+INTENT_LIFETIME = 60 * 60
+_INTENT_AUDIENCE = "bow:embed-signup"
+
+
+def issue_signup_intent(host_public_id: str) -> str:
+    import time
+
+    import jwt
+
+    from app.core.auth import SECRET
+
+    now = int(time.time())
+    # One second of slack: the membership's created_at is this clock too, but
+    # the cookie's timestamp is whole seconds.
+    return jwt.encode({"host": host_public_id, "started": now - 1, "aud": _INTENT_AUDIENCE,
+                       "exp": now + INTENT_LIFETIME}, SECRET, algorithm="HS256")
+
+
+def read_signup_intent(request: Request):
+    """(host public id, started) of a valid intent cookie, else None."""
+    from datetime import datetime
+
+    import jwt
+
+    from app.core.auth import SECRET
+
+    raw = request.cookies.get(INTENT_COOKIE)
+    if not raw:
+        return None
+    try:
+        claims = jwt.decode(raw, SECRET, algorithms=["HS256"], audience=_INTENT_AUDIENCE)
+        return str(claims["host"]), datetime.utcfromtimestamp(float(claims["started"]))
+    except Exception:
+        return None
+
+
+async def apply_signup_intent(request: Request, db: AsyncSession, user) -> None:
+    """Give an account created through a host application's sign-in window
+    that application's new-user role. Cheap and idempotent: nothing is read
+    without the cookie, and a membership is only ever changed once."""
+    if not _gated(user) or getattr(request.state, "_signup_intent_done", False):
+        return
+    request.state._signup_intent_done = True
+    intent = read_signup_intent(request)
+    if intent is None:
+        return
+    public_id, started = intent
+    try:
+        from app.services.host_application_service import host_application_service
+        from app.services.host_identity import apply_new_user_role
+
+        host = await host_application_service.by_public_id(db, public_id)
+        if host is None or not host.enabled:
+            return
+        host_id, organization_id, role, user_id = str(host.id), str(host.organization_id), host.new_user_role, str(user.id)
+        if await apply_new_user_role(db, host_id, organization_id, role, user_id, since=started):
+            from app.routes.host_applications import audit
+
+            await audit(db, organization_id, "embed.user_created", user_id=user_id, resource_id=host_id,
+                        request=request, details={"role": role, "identity_mode": host.identity_mode})
+    except Exception:
+        # Never a reason to fail the request; the next one tries again.
+        request.state._signup_intent_done = False
+        import logging
+
+        logging.getLogger(__name__).warning("applying a sign-up intent failed", exc_info=True)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
 
 def _refuse() -> AppError:
