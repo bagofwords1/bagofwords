@@ -292,7 +292,7 @@ class AwsAthenaClient(DataSourceClient):
             try:
                 return self._read_sql(rewrite.sql)
             except Exception as e:
-                found = self._diagnose_unified_failure(e, rewrite.branches)
+                found = self._diagnose_unified_failure(e, rewrite.branches, rewrite.columns)
                 if not found:
                     raise self._query_failure(e, f" {REINDEX_HINT}") from e
                 if len(dropped) + len(found) > MAX_DROPPED_TENANTS_PER_QUERY:
@@ -310,7 +310,10 @@ class AwsAthenaClient(DataSourceClient):
                     dropped.append((table, tenant))
 
     def _diagnose_unified_failure(
-        self, error: Exception, branches: dict[str, tuple[str, ...]]
+        self,
+        error: Exception,
+        branches: dict[str, tuple[str, ...]],
+        columns: Optional[dict[str, tuple[str, ...]]] = None,
     ) -> list[tuple[str, str, str]]:
         text = str(error)
         found: dict[tuple[str, str], str] = {}
@@ -340,7 +343,7 @@ class AwsAthenaClient(DataSourceClient):
         if not found:
             column = COLUMN_NOT_FOUND_PATTERN.search(text)
             if column:
-                self._blame_tenants_lacking_column(column.group(1).lower(), branches, found)
+                self._blame_tenants_lacking_column(column.group(1).lower(), branches, columns or {}, found)
         if not found and ACCESS_DENIED_PATTERN.search(text):
             paths = [p.lower() for p in S3_PATH_PATTERN.findall(text)]
             if paths:
@@ -354,10 +357,10 @@ class AwsAthenaClient(DataSourceClient):
             logger.warning("Could not read Glue table while diagnosing query failure: %s", _failure_reason(e))
             return None
 
-    def _blame_tenants_lacking_column(self, column: str, branches, found: dict) -> None:
+    def _blame_tenants_lacking_column(self, column: str, branches, columns, found: dict) -> None:
         for name, tenants in branches.items():
             unified = self._unified_tables.get(name)
-            if unified is None or column not in {c.lower() for c, _ in unified.columns}:
+            if unified is None or column not in {c.lower() for c in columns.get(name, ())}:
                 continue
             lacking = []
             for tenant in tenants:
@@ -378,15 +381,24 @@ class AwsAthenaClient(DataSourceClient):
                     found.setdefault((name, tenant), "column missing")
 
     def _blame_tenants_by_location(self, paths: list[str], branches, found: dict) -> None:
+        candidates: list[tuple[str, str, str]] = []
         for name, tenants in branches.items():
             for tenant in tenants:
                 glue_table = self._glue_table_of(tenant, name)
-                location = ((glue_table or {}).get("StorageDescriptor") or {}).get("Location")
-                if not location:
-                    continue
-                prefix = location.lower().rstrip("/")
-                if any(path == prefix or path.startswith(prefix + "/") for path in paths):
-                    found.setdefault((name, tenant), "access denied")
+                if glue_table is None:
+                    return
+                location = (glue_table.get("StorageDescriptor") or {}).get("Location")
+                if location:
+                    candidates.append((name, tenant, location.lower().rstrip("/")))
+        for path in paths:
+            path = path.rstrip("/")
+            matches = [c for c in candidates if path == c[2] or path.startswith(c[2] + "/")]
+            if not matches:
+                continue
+            longest = max(len(c[2]) for c in matches)
+            best = [c for c in matches if len(c[2]) == longest]
+            if len(best) == 1:
+                found.setdefault((best[0][0], best[0][1]), "access denied")
 
     def test_connection(self) -> dict:
         """

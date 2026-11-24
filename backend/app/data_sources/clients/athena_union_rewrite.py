@@ -47,6 +47,7 @@ class UnifiedTable:
 class Rewrite:
     sql: str
     branches: dict[str, tuple[str, ...]]
+    columns: dict[str, tuple[str, ...]]
 
 
 class UnknownUnifiedTable(ValueError):
@@ -75,6 +76,7 @@ def rewrite_unified(
     statements = [s for s in sqlglot.parse(sql, read=_DIALECT) if s is not None]
 
     emitted: dict[str, set[str]] = {}
+    emitted_columns: dict[str, dict[str, None]] = {}
     subqueries: list[tuple[UnifiedTable, exp.Subquery]] = []
     for statement in statements:
         references = [
@@ -86,6 +88,7 @@ def rewrite_unified(
             ref.node.replace(subquery)
             subqueries.append((ref.table, subquery))
             emitted.setdefault(ref.table.name, set()).update(ref.tenants)
+            emitted_columns.setdefault(ref.table.name, {}).update(dict.fromkeys(c for c, _ in ref.columns))
 
     final = ";\n".join(s.sql(dialect=_DIALECT) for s in statements)
     size = len(final.encode("utf-8"))
@@ -96,7 +99,8 @@ def rewrite_unified(
         table.name: tuple(t for t in table.tenants if t in emitted[table.name])
         for table, _ in subqueries
     }
-    return Rewrite(sql=final, branches=branches)
+    columns = {table.name: tuple(emitted_columns[table.name]) for table, _ in subqueries}
+    return Rewrite(sql=final, branches=branches, columns=columns)
 
 
 def _unified_references(statement: exp.Expression, by_name: Mapping[str, UnifiedTable]):

@@ -410,3 +410,69 @@ def test_per_database_mode_failure_is_raised_without_diagnosis(wrangler):
         client.execute_query("SELECT * FROM globex_db.assets")
     assert "re-index" not in str(raised.value)
     assert len(wrangler.calls) == 1
+
+
+def test_column_blame_ignores_tables_whose_branches_did_not_project_the_column(wrangler):
+    glue = FakeGlue(
+        {"acme_db": ["assets", "other"], "globex_db": ["assets", "other"]},
+        columns={
+            ("acme_db", "assets"): [{"Name": "id", "Type": "int"}, {"Name": "owner", "Type": "varchar"}],
+            ("globex_db", "assets"): [{"Name": "id", "Type": "int"}, {"Name": "owner", "Type": "varchar"}],
+            ("acme_db", "other"): [{"Name": "id", "Type": "int"}, {"Name": "owner", "Type": "varchar"}],
+            ("globex_db", "other"): [{"Name": "id", "Type": "int"}, {"Name": "owner", "Type": "varchar"}],
+        },
+    )
+    client = indexed_client(glue)
+    glue.columns[("acme_db", "assets")] = [{"Name": "id", "Type": "int"}]
+    glue.columns[("globex_db", "other")] = [{"Name": "id", "Type": "int"}]
+    wrangler.outcomes = [query_failed("COLUMN_NOT_FOUND: line 1:8: Column 'owner' cannot be resolved")]
+    client.execute_query(
+        "SELECT o.owner FROM assets a JOIN other o ON a.tenant_db = o.tenant_db AND a.id = o.id"
+    )
+    assert client._query_left_out == {"other": {"globex_db": "column missing"}}
+
+
+def test_overlapping_table_locations_blame_only_the_longest_prefix(wrangler):
+    glue = FakeGlue(
+        DATABASES,
+        locations={("acme_db", "assets"): "s3://lake", ("globex_db", "assets"): "s3://lake/globex/assets"},
+    )
+    client = indexed_client(glue)
+    wrangler.outcomes = [query_failed("Permission denied on S3 path: s3://lake/globex/assets/part-0.parquet")]
+    client.execute_query("SELECT id FROM assets")
+    assert client._query_left_out == {"assets": {"globex_db": "access denied"}}
+
+
+def test_s3_path_matches_on_segment_boundaries(wrangler):
+    glue = FakeGlue(
+        DATABASES,
+        locations={("acme_db", "assets"): "s3://lake/acme", ("globex_db", "assets"): "s3://lake/globex"},
+    )
+    client = indexed_client(glue)
+    wrangler.outcomes = [query_failed("Permission denied on S3 path: s3://lake/globex2/assets/part-0.parquet")]
+    with pytest.raises(Exception, match="re-index"):
+        client.execute_query("SELECT id FROM assets")
+    assert client._query_left_out == {}
+
+
+def test_ambiguous_or_partially_unreadable_locations_drop_nothing(wrangler):
+    same = FakeGlue(
+        DATABASES,
+        locations={("acme_db", "assets"): "s3://lake/shared", ("globex_db", "assets"): "s3://lake/shared/"},
+    )
+    client = indexed_client(same)
+    wrangler.outcomes = [query_failed("Permission denied on S3 path: s3://lake/shared/part-0.parquet")]
+    with pytest.raises(Exception, match="re-index"):
+        client.execute_query("SELECT id FROM assets")
+    assert client._query_left_out == {}
+
+    partial = FakeGlue(
+        {**DATABASES, "globex_db": _glue_error("AccessDeniedException")},
+        locations={("acme_db", "assets"): "s3://lake"},
+    )
+    client = indexed_client(FakeGlue(DATABASES))
+    client.glue_client = partial
+    wrangler.outcomes = [query_failed("Permission denied on S3 path: s3://lake/globex/assets/part-0.parquet")]
+    with pytest.raises(Exception, match="re-index"):
+        client.execute_query("SELECT id FROM assets")
+    assert client._query_left_out == {}
