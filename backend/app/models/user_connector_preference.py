@@ -1,5 +1,4 @@
 from sqlalchemy import Column, String, Boolean, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
 
@@ -35,6 +34,6 @@ class UserConnectorPreference(BaseSchema):
         String(36), ForeignKey("data_sources.id", ondelete="CASCADE"), nullable=False, index=True
     )
     enabled = Column(Boolean, nullable=False, default=True)
-
-    user = relationship("User", lazy="selectin")
-    data_source = relationship("DataSource", lazy="selectin")
+    # No ORM relationships on purpose: reads select the columns they need and the
+    # write path loads only this row, so relationships would just add eager
+    # queries to a hot toggle write. FK ON DELETE CASCADE handles cleanup.

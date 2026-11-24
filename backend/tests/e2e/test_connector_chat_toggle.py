@@ -74,6 +74,24 @@ def _make_connector(data_source_id: str):
     asyncio.run(_go())
 
 
+def _make_shared_connector(data_source_id: str):
+    """A connector that is NOT personal: kind=connector but every connection is
+    system_only (an org-wide/shared key, e.g. a shared MCP)."""
+    async def _go():
+        from app.dependencies import async_session_maker
+        from app.models.data_source import DataSource
+        async with async_session_maker() as s:
+            ds = (await s.execute(
+                select(DataSource).options(selectinload(DataSource.connections))
+                .where(DataSource.id == str(data_source_id))
+            )).scalars().first()
+            ds.kind = "connector"
+            for c in ds.connections:
+                c.auth_policy = "system_only"
+            await s.commit()
+    asyncio.run(_go())
+
+
 def _set_pref(user_id, org_id, data_source_id, enabled):
     async def _go():
         from app.dependencies import async_session_maker
@@ -190,3 +208,44 @@ def test_one_users_choice_does_not_affect_another(
     assert connector["id"] not in _working_set(a["org_id"], a["user_id"], report["id"])
     assert connector["id"] in _working_set(a["org_id"], b_id, report["id"]), \
         "B never turned it off, so B still gets it"
+
+
+def test_explicitly_pinned_connector_survives_toggle_off(
+    test_client, create_user, login_user, whoami, create_data_source, create_report
+):
+    """The toggle governs AUTO-JOIN. A connector the user explicitly pinned in a
+    report is an explicit in-scope choice and must stay even when the composer
+    default is OFF — an explicit selection wins over the global default."""
+    a = _bootstrap(create_user, login_user, whoami)
+    connector = _sqlite_ds(create_data_source, a["token"], a["org_id"], name=f"GitHub {uuid.uuid4().hex[:5]}")
+    agent = _sqlite_ds(create_data_source, a["token"], a["org_id"], name=f"Warehouse {uuid.uuid4().hex[:5]}")
+    _make_connector(connector["id"])
+    _set_pref(a["user_id"], a["org_id"], connector["id"], False)  # off for chat
+
+    # Auto-join case: pin only the agent → the disabled connector is dropped.
+    auto = create_report(title="auto", user_token=a["token"], org_id=a["org_id"], data_sources=[agent["id"]])
+    assert connector["id"] not in _working_set(a["org_id"], a["user_id"], auto["id"])
+
+    # Explicit case: pin the connector itself → it is kept despite the OFF toggle.
+    pinned = create_report(title="pinned", user_token=a["token"], org_id=a["org_id"],
+                           data_sources=[agent["id"], connector["id"]])
+    assert connector["id"] in _working_set(a["org_id"], a["user_id"], pinned["id"]), \
+        "an explicitly pinned connector must not be dropped by the composer toggle"
+
+
+def test_shared_connector_has_no_toggle_state_and_rejects_the_pref(
+    test_client, create_user, login_user, whoami, create_data_source
+):
+    """A shared (non-personal) connector is never dropped by the run-time filter,
+    so it must not expose a toggle: the active list reports chat_enabled=None and
+    the PUT is rejected — no dead preference that contradicts behavior."""
+    a = _bootstrap(create_user, login_user, whoami)
+    shared = _sqlite_ds(create_data_source, a["token"], a["org_id"], name=f"Shared MCP {uuid.uuid4().hex[:5]}")
+    _make_shared_connector(shared["id"])
+
+    rows = _active(test_client, a["headers"])
+    assert rows[shared["id"]]["chat_enabled"] is None, "a shared connector carries no toggle state"
+
+    r = test_client.put(f"/api/data_sources/{shared['id']}/chat-preference",
+                        headers=a["headers"], json={"enabled": False})
+    assert r.status_code == 400, r.text

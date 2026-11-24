@@ -102,11 +102,13 @@ async def set_connector_chat_preference(
     """Remember the user's on/off choice for a personal connector in the chat
     composer. Off = the connector contributes no context or tool definitions on
     the next run (see agent_focus_common.resolve_run_agents). Per user and
-    workspace; agents are rejected since the toggle only applies to connectors."""
+    workspace. Only PERSONAL connectors are accepted — the same predicate the
+    run-time filter uses — so a shared/org-wide connector (which the filter
+    never drops) cannot store a preference that would contradict its behavior."""
     from sqlalchemy import select as _select
     from sqlalchemy.orm import selectinload as _selectinload
     from app.services.connector_preference_service import set_connector_enabled
-    from app.services.data_source_kind import is_connector as _ds_kind_is_connector
+    from app.ai.tools.implementations.agent_focus_common import _is_personal_connector
 
     ds = (await db.execute(
         _select(DataSource)
@@ -115,8 +117,8 @@ async def set_connector_chat_preference(
     )).scalars().first()
     if ds is None or str(ds.organization_id) != str(organization.id):
         raise HTTPException(status_code=404, detail="Data source not found")
-    if not _ds_kind_is_connector(ds):
-        raise HTTPException(status_code=400, detail="The chat toggle applies to connectors only")
+    if not _is_personal_connector(ds):
+        raise HTTPException(status_code=400, detail="The chat toggle applies to personal connectors only")
     await set_connector_enabled(
         db, str(current_user.id), str(organization.id), str(ds.id), body.enabled
     )

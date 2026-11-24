@@ -100,11 +100,14 @@ const credsDs = ref<any>(null)
 
 const statusOf = (ds: any) => connectorStatus(ds)
 
-// The chat toggle applies only to the person's OWN connectors — the backend
-// enforces the choice on those alone. A 'shared' connector (admin key, no
-// personal sign-in) shows status only; 'sign_in' shows the Connect button.
+// The chat toggle applies only to the person's OWN connectors. The backend is
+// the single source of truth for "personal": it sends `chat_enabled` (true/false)
+// only for personal connectors and null for everything else, using the same
+// predicate the run-time filter uses. So we show the toggle only when the backend
+// marked it (chat_enabled != null) AND the connector is in a usable state. A
+// 'shared' connector shows status only; 'sign_in' shows the Connect button.
 const TOGGLEABLE = ['connected', 'service_account', 'offline']
-const canToggle = (ds: any) => TOGGLEABLE.includes(statusOf(ds))
+const canToggle = (ds: any) => ds?.chat_enabled != null && TOGGLEABLE.includes(statusOf(ds))
 // True when a toggleable connector is currently switched off (visual dimming).
 const isOff = (ds: any) => canToggle(ds) && ds.chat_enabled === false
 const connectedCount = computed(() => connectors.value.filter((ds) => ['connected', 'shared', 'service_account'].includes(statusOf(ds))).length)

@@ -1880,6 +1880,7 @@ class DataSourceService:
         # The current user's chat on/off choices for connectors, batched: one
         # query for the whole list. Only ids switched OFF come back (default ON).
         disabled_connector_ids: set = set()
+        from app.ai.tools.implementations.agent_focus_common import _is_personal_connector
         if current_user:
             from app.services.connector_preference_service import get_disabled_connector_ids
             disabled_connector_ids = await get_disabled_connector_ids(
@@ -1979,9 +1980,11 @@ class DataSourceService:
                 kind=_ds_kind(d),
                 kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
-                # Connectors only: the chat toggle state (default ON). Agents
-                # leave this None — the toggle does not apply to them.
-                chat_enabled=(str(d.id) not in disabled_connector_ids) if _ds_is_connector(d) else None,
+                # Personal connectors only: the chat toggle state (default ON).
+                # Agents and shared/org-wide connectors leave this None — the
+                # run-time filter only drops personal connectors, so only they
+                # may report a toggle state (same predicate the filter uses).
+                chat_enabled=(str(d.id) not in disabled_connector_ids) if _is_personal_connector(d) else None,
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
