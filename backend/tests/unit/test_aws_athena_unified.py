@@ -476,3 +476,9 @@ def test_ambiguous_or_partially_unreadable_locations_drop_nothing(wrangler):
     with pytest.raises(Exception, match="re-index"):
         client.execute_query("SELECT id FROM assets")
     assert client._query_left_out == {}
+
+
+def test_connection_test_succeeds_before_any_unified_table_is_indexed(wrangler):
+    client = unified_client("acme_db, globex_db", FakeGlue(DATABASES))
+    assert client.test_connection()["success"] is True
+    assert wrangler.calls[-1]["sql"] == "SELECT 1"

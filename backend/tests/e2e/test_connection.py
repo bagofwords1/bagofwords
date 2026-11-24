@@ -695,3 +695,53 @@ def test_athena_mode_switch_is_a_typed_400_and_the_same_mode_update_succeeds(
         user_token=token, org_id=org_id,
     )
     assert kept["id"] == connection["id"]
+
+
+@pytest.mark.e2e
+def test_unified_athena_connection_indexes_bare_tables_with_tenant_db(
+    athena_glue, create_connection, test_client, create_user, login_user, whoami,
+):
+    import asyncio
+
+    from sqlalchemy import select
+
+    from app.dependencies import async_session_maker
+    from app.models.connection_table import ConnectionTable
+    from tests.e2e.test_connection_indexing import _poll_until_terminal
+    from tests.unit.test_aws_athena_client import _glue_error
+
+    athena_glue.databases["locked_db"] = _glue_error("AccessDeniedException")
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    connection = create_connection(
+        name="Athena unified", type="aws_athena",
+        config=_athena_config("acme_db, globex_db, locked_db", unify_tables=True),
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    final = _poll_until_terminal(test_client, connection["id"], token, org_id)
+    assert final["status"] == "completed", final
+
+    listed = test_client.get(f"/api/connections/{connection['id']}/tables", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert sorted(t["name"] for t in listed.json()) == ["alerts", "assets", "users"]
+
+    async def _columns():
+        async with async_session_maker() as db:
+            rows = await db.execute(
+                select(ConnectionTable).where(ConnectionTable.connection_id == connection["id"])
+            )
+            return {t.name: [c["name"] for c in t.columns] for t in rows.scalars()}
+
+    columns = asyncio.run(_columns())
+    assert set(columns) == {"alerts", "assets", "users"}
+    for name, names in columns.items():
+        assert names[0] == "tenant_db", (name, names)
+    assert columns["assets"] == ["tenant_db", "id", "dt"]
+
+    unreadable = final["stats"]["unreadable_datasets"]
+    assert [entry["name"] for entry in unreadable] == ["locked_db"], unreadable
+    assert "AccessDenied" in unreadable[0]["reason"]
+    assert final["stats"]["unreadable_dataset_count"] == 1

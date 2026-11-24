@@ -412,7 +412,10 @@ class AwsAthenaClient(DataSourceClient):
             table_count = self.count_tables()
             logger.info(f"Successfully accessed Glue catalog, found {table_count} tables")
 
-            self.execute_query("SELECT 1")
+            if self._unified:
+                self._read_sql("SELECT 1")
+            else:
+                self.execute_query("SELECT 1")
 
             if not self._multi:
                 message = (
