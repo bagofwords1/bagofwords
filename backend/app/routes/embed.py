@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -181,14 +182,81 @@ async def delete_embed_session(public_id: str, request: Request, db: AsyncSessio
     return Response(status_code=204)
 
 
+# ── SSO popup: who is signing up through this application ─────────────────
+#
+# The popup runs BOW's ordinary sign-in, which knows nothing about the host
+# application. So the popup first asks for an *intent* (a short-lived signed
+# cookie naming the host and the moment it started); when it comes back signed
+# in and asks for its code, a membership created since that moment was created
+# by this popup, and gets the host application's new-user role. Tampering buys
+# nothing: without the cookie the account is an ordinary sign-up, and a forged
+# one can only lower its bearer's own access (and needs the signing key).
+
+INTENT_COOKIE = "bow_embed_signup"
+INTENT_LIFETIME = 15 * 60
+
+
+def _intent_started(request: Request, host: HostApplication) -> Optional[datetime]:
+    import jwt
+
+    from app.core.auth import SECRET
+
+    raw = request.cookies.get(INTENT_COOKIE)
+    if not raw:
+        return None
+    try:
+        claims = jwt.decode(raw, SECRET, algorithms=["HS256"], audience="bow:embed-signup")
+    except Exception:
+        return None
+    if claims.get("host") != host.public_id:
+        return None
+    try:
+        return datetime.utcfromtimestamp(float(claims["started"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+@router.post("/{public_id}/sso/intent", status_code=204)
+async def start_sso_sign_in(public_id: str, request: Request, db: AsyncSession = Depends(get_async_db)):
+    """Called by the sign-in popup before it sends a signed-out visitor to
+    BOW's sign-in. Public, like the bootstrap: it reveals nothing and grants
+    nothing."""
+    import jwt
+
+    from app.core.auth import SECRET
+    from app.services.auth_providers import _cookie_secure
+
+    host = await _host(db, public_id)
+    await admit(db, ["embed-sso-intent", str(host.id), _client(request)], SESSION_LIMIT_PER_CLIENT)
+    now = int(time.time())
+    # One second of slack: the membership's created_at is this clock too, but
+    # the cookie's timestamp is whole seconds.
+    token = jwt.encode({"host": host.public_id, "started": now - 1, "aud": "bow:embed-signup",
+                        "exp": now + INTENT_LIFETIME}, SECRET, algorithm="HS256")
+    response = Response(status_code=204)
+    response.set_cookie(INTENT_COOKIE, token, max_age=INTENT_LIFETIME, httponly=True, secure=_cookie_secure(),
+                        samesite="lax", path="/api/embed")
+    return response
+
+
 @router.post("/{public_id}/sso/code")
-async def create_sso_code(public_id: str, body: SsoCodeRequest, request: Request,
+async def create_sso_code(public_id: str, body: SsoCodeRequest, request: Request, response: Response,
                           user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db)):
     """Called from BOW's own sign-in popup with the app session; the popup
     hands the code to its opener (exact origin) and closes."""
     host = await _host(db, public_id)
     await admit(db, ["embed-sso", host.id, str(user.id)], SESSION_LIMIT_PER_CLIENT)
+    host_id, organization_id, role, user_id = str(host.id), str(host.organization_id), host.new_user_role, str(user.id)
+    started = _intent_started(request, host)
     code = await service.issue_sso_code(db, host, user, body.code_challenge)
+    if started is not None:
+        from app.services.host_identity import apply_new_user_role
+
+        if await apply_new_user_role(db, host_id, organization_id, role, user_id, since=started):
+            await audit(db, organization_id, "embed.user_created", user_id=user_id, resource_id=host_id,
+                        request=request, details={"role": role, "identity_mode": "sso"})
+        response.delete_cookie(INTENT_COOKIE, path="/api/embed")
+    host = await _host(db, public_id)
     return {"code": code, "allowed_origins": list(host.allowed_origins or [])}
 
 

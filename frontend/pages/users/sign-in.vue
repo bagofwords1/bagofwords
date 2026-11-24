@@ -63,7 +63,7 @@
 
       <p v-if="authMode !== 'sso_only'" class="mt-6 text-sm text-center text-gray-500 dark:text-gray-400">
         {{ $t('auth.newToBow') }}
-        <NuxtLink to="/users/sign-up" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
+        <NuxtLink :to="signUpLink" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
           {{ $t('auth.signUp') }}
         </NuxtLink>
       </p>
@@ -192,6 +192,13 @@
   }
 
   const OAUTH_REDIRECT_STORAGE_NAME = 'bow:postSignInRedirect'
+
+  // Sign-up keeps where the visitor was headed (e.g. an embedded artifact's
+  // sign-in popup), as sign-in itself does.
+  const signUpLink = computed(() => {
+    const target = safeRedirectTarget(route.query.redirect)
+    return target ? { path: '/users/sign-up', query: { redirect: target } } : '/users/sign-up'
+  })
 
   // Helper to extract error message from server response
   const { getErrorMessage } = useErrorMessage()

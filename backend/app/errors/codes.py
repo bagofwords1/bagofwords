@@ -36,6 +36,8 @@ class ErrorCode(str, Enum):
     # Authentication / authorization
     UNAUTHORIZED = "unauthorized"
     ACCESS_DENIED = "access.denied"
+    # An app user (a member without access_workspace) reached for the workspace.
+    WORKSPACE_ACCESS_REQUIRED = "workspace.access_required"
     ACCOUNT_DISABLED = "account.disabled"
     API_KEY_INVALID = "api_key.invalid"
     VERIFICATION_INVALID = "verification.invalid"

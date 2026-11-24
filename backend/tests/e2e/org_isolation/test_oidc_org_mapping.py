@@ -173,6 +173,32 @@ def test_higher_mapped_role_is_granted_and_never_lowered(test_client, monkeypatc
     assert _roles(test_client, _sign_in(idp, test_client, email, [G_FINANCE])) == {org: "admin"}
 
 
+def test_a_member_rule_does_not_give_an_app_user_the_workspace(test_client, monkeypatch, multi_org):
+    """An app user (a member whose role withholds the workspace) is not a rank
+    below member that the mapping lifts at the next sign-in: an admin took the
+    workspace away, or a host application never gave it. An admin rule still
+    applies."""
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    idp = FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[
+        f"{G_FINANCE}:{org}:member", f"{G_FINANCE_LEADS}:{org}:admin",
+    ])])
+    email = unique_email("appuser")
+    session = _sign_in(idp, test_client, email, [G_FINANCE])
+    user_id = whoami(test_client, session)["id"]
+    members = test_client.get(f"/api/organizations/{org}/members", headers=hdr(admin["token"], org)).json()
+    membership = next(m for m in members if m.get("user_id") == user_id)
+    demoted = test_client.put(f"/api/organizations/{org}/members/{membership['id']}", json={"role": "app_user"},
+                              headers=hdr(admin["token"], org))
+    assert demoted.status_code == 200, demoted.text
+
+    again = _sign_in(idp, test_client, email, [G_FINANCE])
+    assert _roles(test_client, again) == {org: "app_user"}
+    assert test_client.get("/api/reports", headers=hdr(again, org)).status_code == 403
+    lead = _sign_in(idp, test_client, email, [G_FINANCE, G_FINANCE_LEADS])
+    assert _roles(test_client, lead) == {org: "admin"}
+
+
 def test_rule_for_an_unknown_organization_is_skipped(test_client, monkeypatch, multi_org):
     admin = bootstrap_admin(test_client)
     idp = FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[

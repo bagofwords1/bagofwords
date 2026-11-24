@@ -1,0 +1,517 @@
+"""App users: members who have the apps shared with them, not the workspace.
+
+The contract, through the HTTP surface:
+
+* ``access_workspace`` is what separates a workspace member from an app user.
+  Every role that existed before keeps it (nobody loses the workspace on
+  upgrade); the built-in ``app_user`` role is the one without it, and a custom
+  role without it makes an app user too. Roles add up: any role or group that
+  carries it gives the workspace.
+* An app user's BOW session reaches their account, the launcher and the
+  published artifacts shared with them, and is refused (typed, 403) by the rest
+  of the API. An embedded session keeps working exactly as before.
+* The role is decided where the account is created: a host application gives
+  the people its sign-in creates its new-user role (app user by default), in
+  every identity mode including the SSO popup. Someone who already has an
+  account, or who was invited, keeps the role they have; opening more apps
+  never changes it. Giving or taking the workspace is a role change, effective
+  on the next request.
+* The launcher lists exactly the published artifacts the reader can open that
+  an enabled host application may show, and an app user can ask the people
+  who manage members for the workspace.
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import secrets
+import uuid
+
+import pytest
+
+from tests.e2e.dashboards.dashboard_setup import as_, own, publish, share
+from tests.e2e.dashboards.test_embed_identity_sources import (  # noqa: F401  (provider is a fixture)
+    _domain_signup, _host, _invite, _link, _session, provider,
+)
+
+pytestmark = pytest.mark.e2e
+
+DASH = "conv_three_dash/dash_sales"
+DECK = "conv_three_dash/deck"
+ONE = "conv_one_dash/dash"
+ERP = "https://erp.example.com"
+REFUSED = "workspace.access_required"
+
+# What the workspace is made of (a sample across routers and verbs) ...
+WORKSPACE = [
+    ("GET", "/api/reports"), ("POST", "/api/reports"), ("GET", "/api/artifacts"), ("GET", "/api/data_sources"),
+    ("GET", "/api/notifications/count"), ("GET", "/api/llm/models"), ("GET", "/api/organization/members"),
+    ("PUT", "/api/organization/locale"), ("POST", "/api/organizations"), ("GET", "/api/users/me/default_model"),
+    ("GET", "/api/instructions"), ("GET", "/api/api_keys"),
+]
+# ... and what an app user keeps.
+# (whoami and the organizations list are covered in tests/e2e/rbac/test_app_user_session.py)
+OPEN = ["/api/organization/locale", "/api/organization/settings", "/api/apps", "/api/apps/available",
+        "/api/users/me/viewer_context", "/api/settings"]
+
+
+# ── helpers ───────────────────────────────────────────────────────────────
+
+class People:
+    def __init__(self, client, corpus):
+        self.client, self.corpus = client, corpus
+        self.org = corpus.cast.org_id
+        self.admin = as_(corpus, "admin")
+
+    def members(self):
+        r = self.client.get(f"/api/organizations/{self.org}/members", headers=self.admin)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def member(self, user_id):
+        return next(m for m in self.members() if m.get("user_id") == user_id)
+
+    def set_role(self, person, role):
+        membership = self.member(self.corpus.cast.id(person))
+        r = self.client.put(f"/api/organizations/{self.org}/members/{membership['id']}", json={"role": role},
+                            headers=self.admin)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def roles(self):
+        r = self.client.get(f"/api/organizations/{self.org}/roles", headers=self.admin)
+        assert r.status_code == 200, r.text
+        return {role["name"]: role for role in r.json()}
+
+    def assign(self, role_id, *, user=None, group=None):
+        body = {"role_id": role_id, "principal_type": "user" if user else "group",
+                "principal_id": self.corpus.cast.id(user) if user else group}
+        r = self.client.post(f"/api/organizations/{self.org}/role-assignments", json=body, headers=self.admin)
+        assert r.status_code in (200, 201), r.text
+        return r.json()
+
+    def has_workspace(self, headers):
+        return self.client.get("/api/reports", headers=headers).status_code == 200
+
+
+@pytest.fixture
+def people(test_client, corpus):
+    return People(test_client, corpus)
+
+
+@pytest.fixture
+def app_user(people):
+    """The corpus member, made an app user by an admin."""
+    assert people.set_role("member", "app_user")["role"] == "app_user"
+    return as_(people.corpus, "member")
+
+
+def _host_app(client, corpus, **overrides):
+    body = {"name": f"Portal {uuid.uuid4().hex[:6]}", "allowed_origins": [ERP], "identity_mode": "sso"}
+    body.update(overrides)
+    r = client.post("/api/host_applications", json=body, headers=as_(corpus, "admin"))
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def _allow(client, corpus, artifact_id, *hosts, by="owner"):
+    r = client.put(f"/api/artifacts/{artifact_id}/embedding", json={"host_application_ids": [h["id"] for h in hosts]},
+                   headers=as_(corpus, by))
+    assert r.status_code == 200, r.text
+
+
+def _app(client, corpus, corpus_rows, key, host, visibility="internal", users=None):
+    """A corpus dashboard, published, shared and allowed in ``host``."""
+    aid = own(corpus_rows, corpus, key)
+    publish(aid)
+    assert share(client, corpus, aid, visibility, users=users).status_code == 200
+    if host is not None:
+        _allow(client, corpus, aid, host)
+    return aid
+
+
+def _apps(client, headers):
+    r = client.get("/api/apps", headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _pkce():
+    verifier = secrets.token_urlsafe(48)
+    return verifier, base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+
+
+def _sign_up(client, email, password="Password123!"):
+    """BOW's ordinary sign-up and sign-in, as the SSO popup runs them."""
+    r = client.post("/api/auth/register", json={"name": f"Person {email.split('@')[0]}", "email": email, "password": password})
+    assert r.status_code == 201, r.text
+    login = client.post("/api/auth/jwt/login", data={"username": email, "password": password})
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}, r.json()["id"]
+
+
+# ── the permission ────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("person", ["admin", "owner", "member"])
+def test_everyone_who_had_the_workspace_keeps_it(people, person):
+    assert people.has_workspace(as_(people.corpus, person))
+    assert people.member(people.corpus.cast.id(person))["role"] == ("admin" if person == "admin" else "member")
+
+
+def test_the_built_in_roles_are_admin_member_and_app_user(people):
+    roles = people.roles()
+    assert {"admin", "member", "app_user"} <= set(roles)
+    assert "access_workspace" in roles["member"]["permissions"]
+    assert "access_workspace" not in roles["app_user"]["permissions"]
+    assert "full_admin_access" not in roles["app_user"]["permissions"]
+
+
+def test_the_role_editor_can_grant_the_workspace(people):
+    r = people.client.get("/api/permissions/registry", headers=people.admin)
+    if r.status_code == 404:
+        r = people.client.get(f"/api/organizations/{people.org}/permissions/registry", headers=people.admin)
+    assert r.status_code == 200, r.text
+    offered = [p for group in r.json()["categories"].values() for p in group]
+    assert "access_workspace" in offered
+
+
+# ── the gate ──────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("method,path", WORKSPACE)
+def test_the_workspace_is_closed_to_an_app_user(people, app_user, method, path):
+    r = people.client.request(method, path, headers=app_user, json={} if method != "GET" else None)
+    assert r.status_code == 403, (method, path, r.status_code, r.text)
+    assert r.json()["error_code"] == REFUSED
+
+
+@pytest.mark.parametrize("method,path", WORKSPACE)
+def test_the_workspace_gate_does_not_touch_a_member(people, method, path):
+    """The same calls by a workspace member are answered by the route itself."""
+    r = people.client.request(method, path, headers=as_(people.corpus, "owner"), json={} if method != "GET" else None)
+    assert r.status_code != 401
+    assert not (r.status_code == 403 and r.json().get("error_code") == REFUSED), (method, path, r.text)
+
+
+@pytest.mark.parametrize("path", OPEN)
+def test_an_app_user_keeps_their_account_and_the_launcher(people, app_user, path):
+    r = people.client.get(path, headers=app_user)
+    assert r.status_code == 200, (path, r.status_code, r.text)
+
+
+def test_an_app_user_opens_what_is_shared_with_them_and_nothing_else(people, app_user, test_client, corpus,
+                                                                     corpus_rows):
+    host = _host_app(test_client, corpus)
+    shared = _app(test_client, corpus, corpus_rows, DASH, host, "shared", users=["member"])
+    private = _app(test_client, corpus, corpus_rows, DECK, host, "shared", users=["direct_share"])
+    assert test_client.get(f"/api/d/{shared}", headers=app_user).status_code == 200
+    assert test_client.get(f"/api/d/{private}", headers=app_user).status_code in (403, 404)
+    # The artifact's runtime answers them as it answers any reader.
+    policy = test_client.get(f"/api/artifacts/{shared}/runtime/conversations/policy", headers=app_user)
+    assert policy.status_code == 200, policy.text
+
+
+def test_the_workspace_follows_the_role_on_the_next_request(people):
+    headers = as_(people.corpus, "member")
+    assert people.has_workspace(headers)
+    people.set_role("member", "app_user")
+    assert not people.has_workspace(headers)
+    assert people.set_role("member", "member")["role"] == "member"
+    assert people.has_workspace(headers)
+    assert people.member(people.corpus.cast.id("member"))["role"] == "member"
+
+
+def test_only_someone_who_manages_members_changes_it(people, app_user):
+    """An app user cannot give themselves the workspace, and neither can a peer."""
+    membership = people.member(people.corpus.cast.id("member"))
+    for person in ("member", "owner"):
+        r = people.client.put(f"/api/organizations/{people.org}/members/{membership['id']}", json={"role": "member"},
+                              headers=as_(people.corpus, person))
+        assert r.status_code == 403, (person, r.status_code, r.text)
+    assert not people.has_workspace(app_user)
+
+
+def test_roles_add_up_so_any_workspace_role_gives_the_workspace(people, app_user):
+    roles = people.roles()
+    assignment = people.assign(roles["member"]["id"], user="member")
+    assert people.has_workspace(app_user)
+    member = people.member(people.corpus.cast.id("member"))
+    assert member["role"] == "member"
+    # Taking it away again leaves the app_user role, which carries nothing.
+    r = people.client.delete(f"/api/organizations/{people.org}/role-assignments/{assignment['id']}",
+                             headers=people.admin)
+    assert r.status_code in (200, 204), r.text
+    assert not people.has_workspace(app_user)
+    assert people.member(people.corpus.cast.id("member"))["role"] == "app_user"
+
+
+def test_a_group_role_gives_its_app_users_the_workspace(people, app_user, enterprise_license):
+    """How a directory promotes people: a synced group that carries a workspace role."""
+    org = people.org
+    group = people.client.post(f"/api/organizations/{org}/groups", json={"name": "BOW Full Users"},
+                               headers=people.admin)
+    assert group.status_code in (200, 201), group.text
+    gid = group.json()["id"]
+    people.assign(people.roles()["member"]["id"], group=gid)
+    assert not people.has_workspace(app_user)  # not in the group yet
+    added = people.client.post(f"/api/organizations/{org}/groups/{gid}/members",
+                               json={"user_id": people.corpus.cast.id("member")}, headers=people.admin)
+    assert added.status_code in (200, 201), added.text
+    assert people.has_workspace(app_user)
+    assert people.member(people.corpus.cast.id("member"))["role"] == "member"
+    removed = people.client.delete(
+        f"/api/organizations/{org}/groups/{gid}/members/{people.corpus.cast.id('member')}", headers=people.admin)
+    assert removed.status_code in (200, 204), removed.text
+    assert not people.has_workspace(app_user)
+
+
+@pytest.mark.parametrize("permissions,workspace", [
+    (["manage_instructions"], False),
+    (["access_workspace", "manage_instructions"], True),
+])
+def test_a_custom_role_gives_the_workspace_only_if_it_carries_it(people, app_user, enterprise_license, permissions,
+                                                                workspace):
+    created = people.client.post(f"/api/organizations/{people.org}/roles", headers=people.admin,
+                                 json={"name": f"Custom {uuid.uuid4().hex[:6]}", "permissions": permissions})
+    assert created.status_code in (200, 201), created.text
+    people.assign(created.json()["id"], user="member")
+    assert people.has_workspace(app_user) is workspace
+    assert people.member(people.corpus.cast.id("member"))["role"] == ("member" if workspace else "app_user")
+
+
+def test_an_embedded_session_serves_an_app_user_as_before(people, app_user, test_client, corpus, corpus_rows):
+    """The frame's own session is not the BOW session: it never had the workspace."""
+    from tests.e2e.dashboards.test_embed_host_applications import Embed, bearer
+
+    embed = Embed(test_client, corpus)
+    host = embed.create()
+    aid = _app(test_client, corpus, corpus_rows, DASH, host)
+    embed.attribute("member", "E-1")
+    token = embed.sign_in(host, "E-1")
+    assert test_client.get(f"/api/d/{aid}", headers=bearer(token)).status_code == 200
+    assert test_client.get("/api/reports", headers=bearer(token)).status_code == 401
+
+
+# ── where the role comes from ─────────────────────────────────────────────
+
+def _newcomer(provider, oid="oid-new-1", email="newcomer@fresh.example"):
+    return lambda: provider.token("x", oid=oid, email=email, name="New Comer")
+
+
+@pytest.mark.parametrize("new_user_role,workspace", [(None, False), ("app_user", False), ("member", True)])
+def test_a_host_application_gives_the_people_it_creates_its_role(provider, people, corpus, corpus_rows, test_client,
+                                                                new_user_role, workspace):
+    _domain_signup(corpus_rows, corpus, "fresh.example")
+    body = {"name": "Back office (Entra)", "allowed_origins": [ERP], "identity_mode": "idp_token",
+            "identity_source": "oidc:entra", "audience": "api://chinook-backoffice", "create_users": True}
+    if new_user_role:
+        body["new_user_role"] = new_user_role
+    host = test_client.post("/api/host_applications", json=body, headers=people.admin).json()
+    assert host["new_user_role"] == (new_user_role or "app_user")
+
+    first = _session(test_client, host, _newcomer(provider)())
+    assert first.status_code == 200, first.text
+    member = people.member(first.json()["user"]["id"])
+    assert member["role"] == ("member" if workspace else "app_user")
+    assert member["created_via_host_application"] == host["name"]
+    assert [r["name"] for r in member["roles"]] == ["member" if workspace else "app_user"]
+    # Coming back changes nothing, whatever the application now says.
+    patched = test_client.patch(f"/api/host_applications/{host['id']}", headers=people.admin,
+                                json={"revision": host["revision"], "new_user_role": "member"})
+    assert patched.status_code == 200, patched.text
+    again = _session(test_client, patched.json(), _newcomer(provider)())
+    assert again.status_code == 200 and again.json()["user"]["id"] == first.json()["user"]["id"]
+    assert people.member(first.json()["user"]["id"])["role"] == member["role"]
+
+
+def test_an_invitation_keeps_the_role_it_grants(provider, people, corpus, test_client):
+    """An admin invited them as a member: arriving through an app does not undo that."""
+    host = _host(test_client, corpus, create_users=True)
+    _invite(test_client, corpus, "invited@fresh.example")
+    r = _session(test_client, host, provider.token("x", oid="oid-inv", email="invited@fresh.example", name="In Vited"))
+    assert r.status_code == 200, r.text
+    member = people.member(r.json()["user"]["id"])
+    assert member["role"] == "member" and member["created_via_host_application"] is None
+
+
+def test_someone_who_already_has_an_account_keeps_their_role(provider, people, corpus, corpus_rows, test_client):
+    host = _host(test_client, corpus, create_users=True)
+    _link(corpus_rows, corpus, "member", "oid-member")
+    r = _session(test_client, host, provider.token("x", oid="oid-member"))
+    assert r.status_code == 200 and r.json()["user"]["id"] == corpus.cast.id("member")
+    member = people.member(corpus.cast.id("member"))
+    assert member["role"] == "member" and member["created_via_host_application"] is None
+    assert people.has_workspace(as_(corpus, "member"))
+
+
+def test_the_sso_popup_gives_an_account_it_creates_the_hosts_role(people, corpus, corpus_rows, test_client):
+    _domain_signup(corpus_rows, corpus, "popup.example")
+    host = _host_app(test_client, corpus)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    headers, user_id = _sign_up(test_client, "ada@popup.example")
+    headers["X-Organization-Id"] = people.org
+    assert people.member(user_id)["role"] == "member"  # the ordinary sign-up, so far
+    _, challenge = _pkce()
+    code = test_client.post(f"/api/embed/{host['public_id']}/sso/code", json={"code_challenge": challenge},
+                            headers=headers)
+    assert code.status_code == 200, code.text
+    member = people.member(user_id)
+    assert member["role"] == "app_user" and member["created_via_host_application"] == host["name"]
+    assert not people.has_workspace(headers)
+    assert _apps(test_client, headers)["workspace_access"] is False
+
+
+def test_signing_up_to_bow_itself_makes_a_member(people, corpus, corpus_rows, test_client):
+    """No popup, no host application: the account is an ordinary one, and
+    opening an app afterwards does not take the workspace away."""
+    _domain_signup(corpus_rows, corpus, "direct.example")
+    host = _host_app(test_client, corpus)
+    headers, user_id = _sign_up(test_client, "bo@direct.example")
+    headers["X-Organization-Id"] = people.org
+    _, challenge = _pkce()
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/code", json={"code_challenge": challenge},
+                            headers=headers).status_code == 200
+    member = people.member(user_id)
+    assert member["role"] == "member" and member["created_via_host_application"] is None
+    assert people.has_workspace(headers)
+
+
+def test_the_popup_never_changes_an_existing_members_role(people, corpus, test_client):
+    host = _host_app(test_client, corpus)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    _, challenge = _pkce()
+    for person in ("member", "admin"):
+        r = test_client.post(f"/api/embed/{host['public_id']}/sso/code", json={"code_challenge": challenge},
+                             headers=as_(corpus, person))
+        assert r.status_code == 200, r.text
+    assert people.member(corpus.cast.id("member"))["role"] == "member"
+    assert people.member(corpus.cast.id("admin"))["role"] == "admin"
+
+
+def test_a_popup_started_for_another_application_does_not_count(people, corpus, corpus_rows, test_client):
+    _domain_signup(corpus_rows, corpus, "other.example")
+    started_in, signed_into = _host_app(test_client, corpus), _host_app(test_client, corpus)
+    assert test_client.post(f"/api/embed/{started_in['public_id']}/sso/intent").status_code == 204
+    headers, user_id = _sign_up(test_client, "cy@other.example")
+    headers["X-Organization-Id"] = people.org
+    _, challenge = _pkce()
+    assert test_client.post(f"/api/embed/{signed_into['public_id']}/sso/code", json={"code_challenge": challenge},
+                            headers=headers).status_code == 200
+    assert people.member(user_id)["role"] == "member"
+
+
+def test_more_apps_never_change_the_role(people, app_user, test_client, corpus, corpus_rows):
+    """App 1, then app 2 in another host application: still an app user, both listed."""
+    first, second = _host_app(test_client, corpus), _host_app(test_client, corpus, new_user_role="member")
+    one = _app(test_client, corpus, corpus_rows, DASH, first, "shared", users=["member"])
+    assert [a["id"] for a in _apps(test_client, app_user)["apps"]] == [one]
+    two = _app(test_client, corpus, corpus_rows, ONE, second, "shared", users=["member"])
+    _, challenge = _pkce()
+    assert test_client.post(f"/api/embed/{second['public_id']}/sso/code", json={"code_challenge": challenge},
+                            headers=app_user).status_code == 200
+    listing = _apps(test_client, app_user)
+    assert {a["id"] for a in listing["apps"]} == {one, two}
+    assert listing["workspace_access"] is False
+    assert people.member(corpus.cast.id("member"))["role"] == "app_user"
+
+
+# ── the launcher ──────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("as_app_user", [True, False])
+def test_the_launcher_lists_the_apps_the_reader_can_open(people, test_client, corpus, corpus_rows, as_app_user):
+    host = _host_app(test_client, corpus)
+    retired = _host_app(test_client, corpus, enabled=False)
+    mine = _app(test_client, corpus, corpus_rows, DASH, host, "shared", users=["member"])
+    someone_elses = _app(test_client, corpus, corpus_rows, DECK, host, "shared", users=["direct_share"])
+    not_an_app = _app(test_client, corpus, corpus_rows, ONE, None, "internal")
+    if as_app_user:
+        people.set_role("member", "app_user")
+    reader = as_(corpus, "member")
+
+    listing = _apps(test_client, reader)
+    assert listing["workspace_access"] is (not as_app_user)
+    assert [a["id"] for a in listing["apps"]] == [mine]
+    card = listing["apps"][0]
+    assert card["ref"] and card["applications"] == [host["name"]]
+    # Each card opens; what is not listed is either not theirs or not an app.
+    assert test_client.get(f"/api/d/{card['ref']}", headers=reader).status_code == 200
+    assert test_client.get(f"/api/d/{someone_elses}", headers=reader).status_code in (403, 404)
+    assert test_client.get(f"/api/d/{not_an_app}", headers=reader).status_code == 200
+
+    # Only an enabled host application makes an artifact an app.
+    _allow(test_client, corpus, not_an_app, retired)
+    assert [a["id"] for a in _apps(test_client, reader)["apps"]] == [mine]
+    _allow(test_client, corpus, not_an_app, host)
+    assert {a["id"] for a in _apps(test_client, reader)["apps"]} == {mine, not_an_app}
+    # The publisher and an admin see their own list, by the same rule.
+    assert {a["id"] for a in _apps(test_client, as_(corpus, "owner"))["apps"]} == {mine, someone_elses, not_an_app}
+
+
+def test_an_unpublished_or_unshared_app_leaves_the_launcher(people, app_user, test_client, corpus, corpus_rows):
+    host = _host_app(test_client, corpus)
+    aid = _app(test_client, corpus, corpus_rows, DASH, host, "shared", users=["member"])
+    assert [a["id"] for a in _apps(test_client, app_user)["apps"]] == [aid]
+    assert share(test_client, corpus, aid, "shared", users=[]).status_code == 200
+    assert _apps(test_client, app_user)["apps"] == []
+    assert test_client.get("/api/apps/available", headers=app_user).json() == {"available": True}
+
+
+def test_the_launcher_is_for_members(test_client, corpus):
+    assert test_client.get("/api/apps").status_code == 401
+    listing = _apps(test_client, as_(corpus, "admin"))
+    assert listing["workspace_access"] is True and listing["access_requested"] is False
+
+
+def _inbox(client, headers):
+    r = client.get("/api/notifications", headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    rows = body.get("items", body) if isinstance(body, dict) else body
+    return [n for n in rows if n.get("type") == "workspace_access_request"]
+
+
+def test_an_app_user_asks_the_member_managers_for_the_workspace(people, app_user, test_client, corpus):
+    assert _apps(test_client, app_user)["access_requested"] is False
+    for _ in range(2):  # asking twice is one open ask
+        r = test_client.post("/api/apps/access-request", headers=app_user)
+        assert r.status_code == 200 and r.json() == {"access_requested": True, "workspace_access": False}
+    assert _apps(test_client, app_user)["access_requested"] is True
+    asks = _inbox(test_client, people.admin)
+    assert len(asks) == 1 and asks[0]["link"] == "/settings/members"
+    assert _inbox(test_client, as_(corpus, "owner")) == []  # a peer manages nobody
+
+    people.set_role("member", "member")
+    assert _apps(test_client, app_user) | {"apps": []} == {"apps": [], "workspace_access": True,
+                                                           "access_requested": False}
+    assert all(n.get("resolved_at") for n in _inbox(test_client, people.admin))
+
+
+def test_a_member_with_the_workspace_has_nothing_to_ask_for(people, test_client, corpus):
+    r = test_client.post("/api/apps/access-request", headers=as_(corpus, "member"))
+    assert r.status_code == 200 and r.json() == {"access_requested": False, "workspace_access": True}
+    assert _inbox(test_client, people.admin) == []
+
+
+def test_a_card_pictures_the_app_only_for_those_who_may_see_the_publishers_data(people, app_user, test_client,
+                                                                                corpus, corpus_rows, monkeypatch):
+    """The thumbnail is a picture of the publisher's run. Where each viewer
+    gets their own data (a connection people sign in to), it is theirs only."""
+    from app.services import viewer_data_policy
+
+    host = _host_app(test_client, corpus)
+    aid = own(corpus_rows, corpus, "thumbnail/dash")
+    release = publish(aid)
+    assert share(test_client, corpus, aid, "internal").status_code == 200
+    _allow(test_client, corpus, aid, host)
+    live = f"/thumbnails/release-{release}.png"
+
+    def card(headers):
+        return next(a for a in _apps(test_client, headers)["apps"] if a["id"] == aid)
+
+    assert card(app_user)["thumbnail_url"] == live
+
+    async def yes(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(viewer_data_policy, "_any_user_scoped_connection", yes)
+    assert card(app_user)["thumbnail_url"] is None          # still listed, without the picture
+    assert card(as_(corpus, "owner"))["thumbnail_url"] == live  # their own run

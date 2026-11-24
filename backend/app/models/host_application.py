@@ -48,6 +48,12 @@ class HostApplication(ApplicationConfiguration, Base):
     identity_mode = Column(String(16), nullable=False, default="assertion", server_default="assertion")
     identity_source = Column(String(80), nullable=True)
     create_users = Column(Boolean, nullable=False, default=False, server_default="0")
+    # The system role given to a user this host application creates on their
+    # first sign-in (``create_users``, or the SSO popup): ``app_user`` (the
+    # apps shared with them, not the workspace) or ``member``. Only ever
+    # applied to a membership created by that sign-in: an existing member's
+    # role is never changed by opening an app.
+    new_user_role = Column(String(50), nullable=False, default="app_user", server_default="app_user")
     # assertion mode: the ``iss`` the host puts in every assertion, and the
     # public half of the BOW-generated key pair.
     issuer = Column(String(255), nullable=True)

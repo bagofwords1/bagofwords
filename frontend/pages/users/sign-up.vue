@@ -232,7 +232,13 @@ async function signInWithCredentials(email: string, password: string) {
 
     // Check if the user has an organization (same as sign-in flow)
     const org = await fetchOrganization();
-    if (!org || !org.id) {
+    // Sign-up reached from a page that needed a session (an embedded
+    // artifact's sign-in popup, /embed-signin) returns there, as sign-in
+    // does. Same-origin paths only.
+    const back = route.query.redirect
+    if (org?.id && typeof back === 'string' && back.startsWith('/') && !back.startsWith('//')) {
+      navigateTo(back);
+    } else if (!org || !org.id) {
       navigateTo('/organizations/new');
     } else {
       navigateTo('/');

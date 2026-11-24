@@ -967,9 +967,21 @@
       && (useCanAny('manage_members', 'group') || useCanAny('manage_llm', 'llm_provider'))
   )
 
+  const hasApps = useState<boolean>('organizationHasApps', () => false)
+  onMounted(async () => {
+    try {
+      const { data } = await useMyFetch('/apps/available')
+      hasApps.value = !!(data.value as any)?.available
+    } catch {
+      // non-fatal: the entry stays hidden
+    }
+  })
+
   const mainNavItems: NavItem[] = [
     { href: '/automations', icon: 'heroicons-bolt', label: 'nav.automations' },
     { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
+    // The app launcher, shown once the organization has an app at all.
+    { href: '/apps', icon: 'heroicons-squares-2x2', label: 'nav.apps', canView: () => hasApps.value },
     { href: 'notifications', action: 'notifications', icon: 'heroicons-bell', label: 'nav.notifications' },
     { href: '/agents', icon: 'heroicons-cube', label: 'nav.agents', gapBefore: true },
     { href: '/prompts', icon: 'heroicons-book-open', label: 'nav.prompts' },

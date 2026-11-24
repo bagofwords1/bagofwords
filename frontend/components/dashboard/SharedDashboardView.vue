@@ -77,7 +77,7 @@
             </div>
 
             <!-- Fallback (not eligible / state unknown). -->
-            <UButton v-else to="/" color="white" class="mt-2">{{ t('dashboardCollab.access.goHome') }}</UButton>
+            <UButton v-else :to="homePath" color="white" class="mt-2" data-testid="access-go-home">{{ isAppUser ? t('apps.allApps') : t('dashboardCollab.access.goHome') }}</UButton>
         </div>
     </div>
 
@@ -99,10 +99,11 @@
         <!-- Back to app: a dedicated arrow at the opposite corner, so the most
              used navigation isn't buried in the ⋮. (Flips automatically in RTL.) -->
         <div v-if="showTopBar && reportLoaded" class="absolute top-3 start-3 z-dropdown">
-            <UTooltip :text="t('dashboardCollab.access.backToApp')">
-                <UButton to="/" color="gray" variant="soft" icon="i-heroicons-arrow-left"
+            <!-- An app user's "app" is the launcher: BOW's home is closed to them. -->
+            <UTooltip :text="backLabel">
+                <UButton :to="homePath" color="gray" variant="soft" icon="i-heroicons-arrow-left"
                     :ui="{ rounded: 'rounded-full' }"
-                    :aria-label="t('dashboardCollab.access.backToApp')" data-testid="app-back" />
+                    :aria-label="backLabel" data-testid="app-back" />
             </UTooltip>
         </div>
 
@@ -540,6 +541,12 @@ const ownConversations = computed(() => /\bbow\.conversations\b|\buseConversatio
 const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
 const unavailable = ref(false);
 // Top bar state
+// Where "back" leads: the workspace, or the app launcher for an app user (a
+// member without access_workspace, whom every workspace page turns away).
+const workspaceAccess = useWorkspaceAccess();
+const isAppUser = computed(() => workspaceAccess.value === false);
+const homePath = computed(() => (isAppUser.value ? '/apps' : '/'));
+const backLabel = computed(() => (isAppUser.value ? t('apps.allApps') : t('dashboardCollab.access.backToApp')));
 const showTopBar = ref(!embedded && !inHostApplication.value && (typeof window === 'undefined' || window.self === window.top));
 const showVersionDetails = ref(false);
 const identityResolved = ref(false);

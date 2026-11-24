@@ -24,6 +24,17 @@ connections; creating one grants them ownership of it
 # Used by the frontend RolesManager to group checkboxes.
 
 PERMISSION_CATEGORIES = {
+    # Using the BOW workspace itself (home, reports, agents, settings pages
+    # and the API behind them). A member whose roles do not carry it is an
+    # *app user*: they can open the published artifacts shared with them (at
+    # /d/{ref}, embedded in a host application, or from the /apps launcher)
+    # and nothing else. Granted to `member` by default and backfilled onto
+    # every existing role (migration appuser01), so withholding it is the
+    # admin's deliberate act: the seeded `app_user` system role is the role
+    # without it. See core/workspace_access.py for the gate.
+    "Workspace": [
+        "access_workspace",
+    ],
     "Data & Connections": [
         "create_data_source",
         "create_connections",
@@ -191,6 +202,7 @@ RESOURCE_SCOPED_GROUPS = {
 # must be seeded and backfilled explicitly (see the alembic backfill migration),
 # because a user whose only role is a custom one gets baseline and nothing else.
 DEFAULT_ON_PERMISSIONS = [
+    "access_workspace",
     "view_code",
     "run_custom_code",
 ]
@@ -203,6 +215,14 @@ DEFAULT_ON_PERMISSIONS = [
 # identical until code visibility became withholdable; keeping them equal would
 # have forced `view_code` to be baseline, i.e. ungrantable-and-unwithholdable.
 DEFAULT_MEMBER_PERMISSIONS = sorted(set(BASELINE_PERMISSIONS) | set(DEFAULT_ON_PERMISSIONS))
+
+# The permission that separates a workspace member from an app user, and the
+# system role that lacks it. Baseline permissions are only granted alongside
+# it (see permission_resolver), so an app user holds exactly what their roles
+# carry: by default, nothing.
+WORKSPACE_ACCESS = "access_workspace"
+APP_USER_ROLE = "app_user"
+DEFAULT_APP_USER_PERMISSIONS: list = []
 
 # Admin: gets all org perms via full_admin_access wildcard.
 DEFAULT_ADMIN_PERMISSIONS = ["full_admin_access"]

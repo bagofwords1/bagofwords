@@ -114,6 +114,10 @@ class MembershipSchema(MembershipCreate):
     invite_email_status: Optional[str] = None
     # When the pending invite link expires (pending invites only).
     invite_expires_at: OptionalUTCDatetime = None
+    # The host application whose sign-in created this membership (an app
+    # user's first arrival through an embedded artifact), and its name.
+    created_via_host_application_id: Optional[str] = None
+    created_via_host_application: Optional[str] = None
 
     class Config:
         from_attributes = True
