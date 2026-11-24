@@ -426,8 +426,16 @@ class WhatsAppAdapter(PlatformAdapter):
         title: str,
         thread_ts: str = None,
         channel_id: str = None,
+        filename: str = None,
     ) -> bool:
-        """Upload a file and send it as a document/image message."""
+        """Upload a file and send it as a document/image message.
+
+        ``filename`` is the display name WhatsApp shows on a document bubble.
+        The on-disk basename is a storage-safe name (the uploads store prefixes
+        a uuid, e.g. ``<uuid>_lease.pdf``), which the recipient should never
+        see — so callers pass the clean report filename here; it falls back to
+        the basename only when none is given.
+        """
         to = channel_id or user_id
         media_id = await self._upload_media(file_path)
         if not media_id:
@@ -438,7 +446,7 @@ class WhatsAppAdapter(PlatformAdapter):
         msg_type = "image" if is_image else "document"
         media_obj: Dict[str, Any] = {"id": media_id, "caption": title[:1024]}
         if not is_image:
-            media_obj["filename"] = os.path.basename(file_path)
+            media_obj["filename"] = (filename or os.path.basename(file_path))[:240]
         payload: Dict[str, Any] = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
