@@ -158,6 +158,13 @@ def test_keys_starting_with_sa_are_dropped_as_the_default_path_drops_them():
     assert json.loads(json_response(bundle).body) == [{"id": "q", "default_step": {"data": {"rows": [{"n": 1}]}}}]
 
 
+def test_discarded_fields_can_hold_values_that_cannot_be_written_as_utf8():
+    step = _step(rows=[{"name": "north", "nested": {"_sales": chr(0xD800), "total": 7}}])
+    expected = _old_body(step)
+    assert expected["data"]["rows"] == [{"name": "north", "nested": {"total": 7}}]
+    assert json.loads(json_response(step).body) == expected
+
+
 def test_a_value_starting_with_sa_is_still_served():
     """Only keys are dropped; a text value that starts with "_sa" stays."""
     payload = {"rows": [{"name": "_sample"}], "note": '"_sa'}
