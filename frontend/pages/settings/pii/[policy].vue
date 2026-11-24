@@ -209,6 +209,11 @@ const SAMPLES: Record<string, string> = {
     LOCATION: 'Lisbon',
     ORGANIZATION: 'Acme Corp',
     NRP: 'Canadian',
+    CREDIT_CARD: '4111 1111 1111 1111',
+    IBAN_CODE: 'GB82 WEST 1234 5698 7654 32',
+    ABA_ROUTING_NUMBER: '011000015',
+    UK_NHS: '943 476 5919',
+    ES_NIF: '55555555K',
 }
 
 const groups = computed(() => {
@@ -219,14 +224,22 @@ const groups = computed(() => {
             kind: 'builtin' as const, id: r.id, name: r.name, replacement: r.replacement, sample: SAMPLES[r.id], patternCount: r.pattern_count,
         })),
     }]
+    const detectorRows = (kind: 'ner' | 'pattern') => detector.value.entities
+        .filter(r => (r.kind || 'ner') === kind)
+        .map(r => ({
+            kind: 'detector' as const, id: r.id, name: t(`settings.pii.entities.${r.id}`), replacement: r.replacement, sample: SAMPLES[r.id],
+        }))
     out.push({
         key: 'detector',
         title: t('settings.pii.detectorTitle'),
         note: detector.value.available ? t('settings.pii.detectorNote') : t('settings.pii.detectorUnavailable'),
-        rows: detector.value.available ? detector.value.entities.map(r => ({
-            kind: 'detector' as const, id: r.id, name: t(`settings.pii.entities.${r.id}`), replacement: r.replacement, sample: SAMPLES[r.id],
-        })) : [],
+        rows: detector.value.available ? detectorRows('ner') : [],
     })
+    // Checksum-validated identifiers (credit cards, IBANs, national IDs) from the same detector.
+    const validated = detector.value.available ? detectorRows('pattern') : []
+    if (validated.length) {
+        out.push({ key: 'validated', title: t('settings.pii.validatedTitle'), note: t('settings.pii.validatedNote'), rows: validated })
+    }
     if (pii.custom_rules.length) {
         out.push({
             key: 'custom',

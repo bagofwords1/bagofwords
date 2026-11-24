@@ -280,6 +280,27 @@ BoW-style text; numbers in the loop doc):
 - `tools/agent/presidio_service.py`: the same API serving spaCy or GLiNER, for
   loops and as a reference for a multilingual deployment.
 
+### Phase 5 — validated identifiers from Presidio
+
+- `detectors/catalog.py` now has two kinds of detector entity: `ner` (names,
+  places, organizations, groups) and `pattern`: 21 Presidio recognizers that
+  confirm a match with a **checksum** (credit card/Luhn, IBAN/mod-97, ABA
+  routing, Bitcoin address, US NPI, US DEA, UK NHS, ES NIF/NIE, IT fiscal code,
+  DE tax ID, PL PESEL, FI HETU, SE personnummer, TR national ID, AU
+  TFN/ABN/Medicare, IN Aadhaar, KR RRN, ZA ID). A valid match scores 1.0, a
+  broken checksum is dropped, so the default `min_score` of 0.7 holds.
+  Recognizers without a checksum (US passport, driver's license, bank
+  account…) are left out: they score 0.05–0.5 and pass only with context.
+- Why next to the built-in regex rules: on random 13–16 digit IDs the built-in
+  `credit_card` rule matches every one; Presidio's `CREDIT_CARD` about one in
+  ten (those that pass Luhn). Both can be on; an overlapping built-in match wins.
+- In-process: the pattern recognizers are added to the registry with either
+  engine (no model needed). HTTP: the entities offered are the ones the service
+  lists at `GET /supportedentities` (the official image disables several by
+  default in `default_recognizers.yaml`); a service without the endpoint is
+  treated as NER-only.
+- Settings page: a separate **Validated identifiers** group, off until enabled.
+
 ## Not in scope
 
 - Policies per agent or data source: one prompt mixes several agents' content

@@ -1,4 +1,5 @@
-"""PII detectors (names, locations, organizations) and the registry that picks
+"""PII detectors (names, locations, organizations, checksum-validated
+identifiers such as credit cards) and the registry that picks
 the one this instance uses.
 
 * ``pii.presidio_url`` set in bow-config → the Presidio analyzer service over
@@ -102,7 +103,10 @@ def detector_status() -> dict:
     return {
         "available": True,
         "name": detector.name,
-        "entities": [e for e in DETECTOR_ENTITIES if not supported or e["id"] in supported],
+        "entities": [
+            {k: e[k] for k in ("id", "name", "replacement", "kind")}
+            for e in DETECTOR_ENTITIES if not supported or e["id"] in supported
+        ],
     }
 
 

@@ -53,7 +53,7 @@ const agents = ref<Array<{ id: string; name: string; type: string }>>([])
 const agentsLoaded = ref(false)
 const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number }>>([])
 // The detector (Presidio) on this instance, if any: names, locations, organizations.
-const detector = ref<{ available: boolean; name: string | null; entities: Array<{ id: string; name: string; replacement: string }> }>(
+const detector = ref<{ available: boolean; name: string | null; entities: Array<{ id: string; name: string; replacement: string; kind?: 'ner' | 'pattern' }> }>(
     { available: false, name: null, entities: [] }
 )
 
