@@ -6,8 +6,9 @@ export type PaletteGroupKey = 'inReport' | 'actions' | 'reports' | 'prompts' | '
 export type PaletteFetch = 'inReport' | 'reports' | 'prompts' | 'instructions' | 'dashboards'
 export type PaletteAction = 'newReport' | 'newInstruction'
 
-// "All" first and selected on open: it is today's mixed list, so
-// ⌘K → type → Enter (= New report) keeps working.
+// "All" first and selected on open. It is the short list people open ⌘K
+// for: reports and dashboards (plus "New report", so ⌘K → type → Enter keeps
+// working). Agents, instructions and prompts live behind their own tabs.
 export const PALETTE_TABS: PaletteTab[] = ['all', 'reports', 'agents', 'instructions', 'dashboards']
 
 interface TabContext {
@@ -18,7 +19,7 @@ interface TabContext {
 }
 
 const GROUPS: Record<PaletteTab, PaletteGroupKey[]> = {
-  all: ['inReport', 'actions', 'reports', 'prompts', 'agents', 'instructions', 'dashboards'],
+  all: ['inReport', 'actions', 'reports', 'dashboards'],
   // Saved prompts start reports, so they live with them.
   reports: ['inReport', 'actions', 'reports', 'prompts'],
   agents: ['agents'],
@@ -42,15 +43,14 @@ export function fetchesForTab(tab: PaletteTab, ctx: TabContext): PaletteFetch[] 
 
 // Only the action that fits the tab ("New report" on Reports, …).
 export function actionsForTab(tab: PaletteTab): PaletteAction[] {
-  if (tab === 'all') return ['newReport', 'newInstruction']
-  if (tab === 'reports') return ['newReport']
+  if (tab === 'all' || tab === 'reports') return ['newReport']
   if (tab === 'instructions') return ['newInstruction']
   return []
 }
 
 // A focused tab has the whole list to itself, so it shows more rows.
 const LIMITS = {
-  all: { reports: 3, prompts: 5, instructions: 3, dashboards: 3, agents: 6 },
+  all: { reports: 5, prompts: 5, instructions: 3, dashboards: 5, agents: 6 },
   focused: { reports: 10, prompts: 5, instructions: 10, dashboards: 10, agents: 20 },
 }
 export function limitFor(tab: PaletteTab, group: keyof typeof LIMITS.all): number {
