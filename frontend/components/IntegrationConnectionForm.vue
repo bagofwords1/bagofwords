@@ -16,6 +16,7 @@
 
       <div v-if="loadingFields" class="text-xs text-ink-muted">{{ $t('common.loading') }}</div>
       <template v-else>
+        <SetupGuide :type="props.integrationType" :steps="setupGuide" />
         <!-- Only when the registry offers more than one admin option (e.g.
              Google Drive: OAuth client vs. shared service account). Fixed in
              edit mode: switching changes who the connection runs as. -->
@@ -96,6 +97,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import SetupGuide from '~/components/datasources/SetupGuide.vue'
 
 const props = defineProps<{
   integrationType: string
@@ -129,6 +131,7 @@ const authMeta = ref<Record<string, any>>({})
 const defaultAuth = ref<string>('')
 const selectedAuth = ref<string>('')
 const loadingFields = ref(true)
+const setupGuide = ref<any[] | null>(null)
 const authOptions = computed(() =>
   Object.keys(fieldsByAuth.value).map((k) => ({ label: authMeta.value[k]?.title || k, value: k }))
 )
@@ -236,6 +239,7 @@ async function loadFields() {
     const payload = data.value as any
     fieldsByAuth.value = payload?.credentials_by_auth || {}
     authMeta.value = payload?.auth?.by_auth || {}
+    setupGuide.value = payload?.setup_guide || null
     // Pick the auth variant that isn't the empty "oauth" delegated one. By
     // convention the admin variant is the registry's default.
     defaultAuth.value = payload?.auth?.default || Object.keys(fieldsByAuth.value)[0] || ''

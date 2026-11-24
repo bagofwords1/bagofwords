@@ -4690,6 +4690,24 @@
           "title": "Exportera SMS Providerns certifikat",
           "body": "Platsen använder som standard ett självsignerat certifikat. Kör detta i PowerShell på SMS Providern och klistra in utdata i SMS Provider certificate (PEM). Hoppa över steget om certifikatet kommer från en CA som den här servern redan litar på."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Registrera en app i Microsoft Entra",
+          "body": "Gå till App registrations > New registration i administrationscentret för Microsoft Entra. Välj \"Accounts in this organizational directory only\". Kopiera Directory (tenant) ID och Application (client) ID från appens Overview till fälten nedan."
+        },
+        {
+          "title": "Lägg till omdirigerings-URI:n",
+          "body": "Gå till Authentication > Add a platform > Web i appen och klistra in den här omdirigerings-URI:n."
+        },
+        {
+          "title": "Bevilja Microsoft Graph-behörigheter",
+          "body": "Under API permissions > Add a permission > Microsoft Graph > Delegated permissions lägger du till Mail.Read, User.Read, offline_access, openid och profile. För att låta agenter flytta, skriva utkast till eller skicka e-post lägger du även till Mail.ReadWrite och Mail.Send. Klicka sedan på \"Grant admin consent\" så att användarna inte behöver godkänna appen."
+        },
+        {
+          "title": "Skapa en klienthemlighet",
+          "body": "Under Certificates & secrets > New client secret skapar du en hemlighet och kopierar dess Value (inte Secret ID) till Client Secret nedan. Värdet kan inte visas igen senare."
+        }
       ]
     },
     "setupGuideCopyFailed": "Kopiering misslyckades — markera texten",

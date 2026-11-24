@@ -5427,6 +5427,24 @@
           "title": "Create an API token",
           "body": "In your Atlassian account go to Security > API tokens > Create API token with scopes, pick Bitbucket and grant read:repository:bitbucket. Leave Username empty. For a repository access token, set Username to x-token-auth."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Register an app in Microsoft Entra",
+          "body": "In the Microsoft Entra admin center go to App registrations > New registration. Choose \"Accounts in this organizational directory only\". From the app's Overview, copy the Directory (tenant) ID and the Application (client) ID into the fields below."
+        },
+        {
+          "title": "Add the redirect URI",
+          "body": "In the app go to Authentication > Add a platform > Web and paste this redirect URI."
+        },
+        {
+          "title": "Grant Microsoft Graph permissions",
+          "body": "In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app."
+        },
+        {
+          "title": "Create a client secret",
+          "body": "In Certificates & secrets > New client secret, create a secret and copy its Value (not the Secret ID) into Client Secret below. You can't view the value again later."
+        }
       ]
     },
     "setupGuideCopyFailed": "Copy failed — select the text",
