@@ -28,7 +28,13 @@ def test_fathom_preset():
     assert f.transport == "streamable_http"
     assert f.allowed_auth == ["dcr"]
     assert f.title == "Fathom"
-    assert f.sample_tools
+    assert f.sample_tools == [
+        "get_identity", "list_teams", "list_meetings", "get_meeting_summary",
+        "get_meeting_transcript", "find_person", "find_relevant_meetings",
+        "get_relevant_meetings_result", "scan_meeting_summaries", "search_meetings",
+        "get_recording_by_call_id", "get_recording_by_url",
+    ]
+
 
 def test_x_preset_is_bearer():
     # X has no DCR — it connects with an app-only bearer token from the

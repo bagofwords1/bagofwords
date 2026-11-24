@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.636 (November 24, 2026)
-- Added a Fathom connector for meetings, summaries and transcripts; each user signs in to their own Fathom account
+- Added a Fathom connector for meetings, summaries and transcripts
 
 ## Version 0.0.635 (November 23, 2026)
 - Added agents with no data connection, built from instructions, files and a description only (#1895)
