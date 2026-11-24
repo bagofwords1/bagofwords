@@ -4702,7 +4702,7 @@
         },
         {
           "title": "Concedi le autorizzazioni Microsoft Graph",
-          "body": "In API permissions > Add a permission > Microsoft Graph > Delegated permissions, aggiungi Mail.Read, User.Read, offline_access, openid e profile. Per consentire agli agenti di spostare, preparare o inviare email, aggiungi anche Mail.ReadWrite e Mail.Send. Poi fai clic su \"Grant admin consent\" così agli utenti non verrà chiesto di approvare l'app."
+          "body": "In API permissions > Add a permission > Microsoft Graph > Delegated permissions, aggiungi Mail.Read, User.Read, offline_access, openid e profile. Per consentire agli agenti di spostare, preparare o inviare email, aggiungi anche Mail.ReadWrite e Mail.Send. Poi fai clic su \"Grant admin consent\" così agli utenti non verrà chiesto di approvare l'app. Usa solo autorizzazioni Delegated, non Application: il connettore legge solo la casella di posta dell'utente che ha effettuato l'accesso."
         },
         {
           "title": "Crea un segreto client",

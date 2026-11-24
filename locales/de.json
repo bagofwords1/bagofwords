@@ -4702,7 +4702,7 @@
         },
         {
           "title": "Microsoft Graph-Berechtigungen erteilen",
-          "body": "Fügen Sie unter API permissions > Add a permission > Microsoft Graph > Delegated permissions Mail.Read, User.Read, offline_access, openid und profile hinzu. Damit Agenten E-Mails verschieben, entwerfen oder senden können, fügen Sie auch Mail.ReadWrite und Mail.Send hinzu. Klicken Sie dann auf \"Grant admin consent\", damit Benutzer die App nicht selbst genehmigen müssen."
+          "body": "Fügen Sie unter API permissions > Add a permission > Microsoft Graph > Delegated permissions Mail.Read, User.Read, offline_access, openid und profile hinzu. Damit Agenten E-Mails verschieben, entwerfen oder senden können, fügen Sie auch Mail.ReadWrite und Mail.Send hinzu. Klicken Sie dann auf \"Grant admin consent\", damit Benutzer die App nicht selbst genehmigen müssen. Verwenden Sie nur Delegated-Berechtigungen, keine Application-Berechtigungen: Der Connector liest nur das Postfach des angemeldeten Benutzers."
         },
         {
           "title": "Geheimen Clientschlüssel erstellen",

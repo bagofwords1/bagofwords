@@ -4702,7 +4702,7 @@
         },
         {
           "title": "Bevilja Microsoft Graph-behörigheter",
-          "body": "Under API permissions > Add a permission > Microsoft Graph > Delegated permissions lägger du till Mail.Read, User.Read, offline_access, openid och profile. För att låta agenter flytta, skriva utkast till eller skicka e-post lägger du även till Mail.ReadWrite och Mail.Send. Klicka sedan på \"Grant admin consent\" så att användarna inte behöver godkänna appen."
+          "body": "Under API permissions > Add a permission > Microsoft Graph > Delegated permissions lägger du till Mail.Read, User.Read, offline_access, openid och profile. För att låta agenter flytta, skriva utkast till eller skicka e-post lägger du även till Mail.ReadWrite och Mail.Send. Klicka sedan på \"Grant admin consent\" så att användarna inte behöver godkänna appen. Använd endast Delegated-behörigheter, inte Application-behörigheter: anslutningen läser bara den inloggade användarens postlåda."
         },
         {
           "title": "Skapa en klienthemlighet",

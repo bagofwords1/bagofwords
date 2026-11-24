@@ -21,6 +21,7 @@ from app.dependencies import get_async_db
 from app.models.user import User
 from app.models.connection import Connection
 from app.core.auth import current_user, SECRET
+from app.core.base_url import connection_oauth_redirect_uri
 from app.core.url_safety import is_safe_http_url
 from app.settings.config import settings
 from app.settings.logging_config import get_logger
@@ -229,7 +230,7 @@ async def oauth_authorize(
         return_to=_safe_return_path(return_to),
     )
 
-    redirect_uri = f"{settings.bow_config.base_url}/api/connections/oauth/callback"
+    redirect_uri = connection_oauth_redirect_uri()
 
     # Build authorization URL
     params = {
@@ -367,7 +368,7 @@ async def oauth_callback(
     # Get OAuth params and exchange code
     try:
         oauth_params = get_oauth_params(connection)
-        redirect_uri = f"{settings.bow_config.base_url}/api/connections/oauth/callback"
+        redirect_uri = connection_oauth_redirect_uri()
         tokens = await exchange_code_for_tokens(
             oauth_params, code, redirect_uri, code_verifier
         )

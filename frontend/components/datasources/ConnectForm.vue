@@ -13,9 +13,6 @@
           <input id="connection-name" v-model="name" type="text" :placeholder="$t('data.connectionNamePlaceholder')" class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500" />
         </div>
 
-        <!-- Setup guide: numbered steps the admin runs on the remote system BEFORE
-             filling the fields (Kubernetes token, API keys minted elsewhere…).
-             Served per type by the registry (`setup_guide`); most types have none. -->
         <SetupGuide :type="selectedType" :steps="fields?.setup_guide" />
 
         <template v-for="group in configGroups" :key="group.name">

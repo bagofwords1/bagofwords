@@ -1,11 +1,11 @@
 <template>
-  <div v-if="steps.length" class="p-3 rounded border border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-950/20" data-testid="setup-guide">
+  <div v-if="guideSteps.length" class="p-3 rounded border border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-950/20" data-testid="setup-guide">
     <button type="button" class="flex items-center justify-between w-full text-start" @click="open = !open">
       <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('data.setupGuideTitle') }}</span>
       <UIcon :name="open ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-4 h-4 text-ink-muted" />
     </button>
     <ol v-show="open" class="mt-2 space-y-3">
-      <li v-for="(step, i) in steps" :key="i" class="flex gap-2">
+      <li v-for="(step, i) in guideSteps" :key="i" class="flex gap-2">
         <span class="flex-none w-5 h-5 rounded-full bg-blue-600 text-white text-2xs font-semibold flex items-center justify-center mt-0.5">{{ i + 1 }}</span>
         <div class="min-w-0 flex-1">
           <div class="text-xs font-medium text-gray-800 dark:text-gray-200">{{ stepText(step, i, 'title') }}</div>
@@ -32,7 +32,7 @@ const props = defineProps<{
 
 const { t, te } = useI18n()
 
-const steps = computed<any[]>(() => Array.isArray(props.steps) ? props.steps : [])
+const guideSteps = computed<any[]>(() => Array.isArray(props.steps) ? props.steps : [])
 const open = ref(true)
 const copiedStep = ref<number | null>(null)
 const copyFailedStep = ref<number | null>(null)
@@ -43,9 +43,7 @@ function stepText(step: any, i: number, key: 'title' | 'body'): string {
 }
 
 async function copyStep(code: string, i: number) {
-  // navigator.clipboard exists only in secure contexts (https / localhost). A
-  // dev or on-prem deployment served over plain http has no clipboard API, so
-  // fall back to the legacy execCommand path there, and say so when both fail.
+  // navigator.clipboard is missing over plain http, so fall back to execCommand.
   let ok = false
   try {
     if (navigator.clipboard?.writeText) {

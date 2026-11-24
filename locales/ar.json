@@ -4702,7 +4702,7 @@
         },
         {
           "title": "امنح أذونات Microsoft Graph",
-          "body": "في API permissions > Add a permission > Microsoft Graph > Delegated permissions، أضف Mail.Read و User.Read و offline_access و openid و profile. للسماح للوكلاء بنقل البريد أو صياغته أو إرساله، أضف أيضًا Mail.ReadWrite و Mail.Send. ثم انقر على \"Grant admin consent\" حتى لا يُطلب من المستخدمين الموافقة على التطبيق."
+          "body": "في API permissions > Add a permission > Microsoft Graph > Delegated permissions، أضف Mail.Read و User.Read و offline_access و openid و profile. للسماح للوكلاء بنقل البريد أو صياغته أو إرساله، أضف أيضًا Mail.ReadWrite و Mail.Send. ثم انقر على \"Grant admin consent\" حتى لا يُطلب من المستخدمين الموافقة على التطبيق. استخدم أذونات Delegated فقط وليس أذونات Application: يقرأ الموصل صندوق بريد المستخدم الذي سجّل الدخول فقط."
         },
         {
           "title": "أنشئ سر العميل",

@@ -5362,7 +5362,7 @@
         },
         {
           "title": "הענקת הרשאות Microsoft Graph",
-          "body": "ב-API permissions > Add a permission > Microsoft Graph > Delegated permissions, הוסיפו את Mail.Read, User.Read, offline_access, openid ו-profile. כדי לאפשר לסוכנים להעביר, לנסח או לשלוח דואר, הוסיפו גם את Mail.ReadWrite ואת Mail.Send. לאחר מכן לחצו על \"Grant admin consent\" כדי שהמשתמשים לא יתבקשו לאשר את האפליקציה."
+          "body": "ב-API permissions > Add a permission > Microsoft Graph > Delegated permissions, הוסיפו את Mail.Read, User.Read, offline_access, openid ו-profile. כדי לאפשר לסוכנים להעביר, לנסח או לשלוח דואר, הוסיפו גם את Mail.ReadWrite ואת Mail.Send. לאחר מכן לחצו על \"Grant admin consent\" כדי שהמשתמשים לא יתבקשו לאשר את האפליקציה. השתמשו רק בהרשאות Delegated ולא בהרשאות Application: המחבר קורא רק את תיבת הדואר של המשתמש המחובר."
         },
         {
           "title": "יצירת סוד לקוח",

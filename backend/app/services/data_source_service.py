@@ -6,7 +6,6 @@ import os
 
 from app.models.connection import RUNTIME_CONFIG_KEYS
 from app.models.user import User
-from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
 from app.models.organization import Organization
@@ -19,7 +18,6 @@ from app.schemas.data_source_registry import (
     config_schema_for,
     default_credentials_schema_for,
     resolve_client_class,
-    resolve_setup_guide,
     tool_provider_types,
 )
 
@@ -2199,7 +2197,7 @@ class DataSourceService:
                 "ui_form": entry.ui_form,
                 "personal_connector": entry.personal_connector,
                 # Numbered setup steps rendered above the fields (None for most types).
-                "setup_guide": resolve_setup_guide(meta.get("setup_guide"), (settings.bow_config.base_url or "").rstrip("/")),
+                "setup_guide": meta.get("setup_guide"),
                 "auth": {
                     "default": entry.credentials_auth.default,
                     # scopes + catalog_ownership let a form tell a shared

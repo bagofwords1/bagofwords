@@ -405,14 +405,16 @@ class SetupStep(BaseModel):
     language: str = "bash"
 
 
-SETUP_GUIDE_BASE_URL = "{base_url}"
+SETUP_GUIDE_REDIRECT_URI = "{oauth_redirect_uri}"
 
 
-def resolve_setup_guide(steps: list[dict] | None, base_url: str) -> list[dict] | None:
+def resolve_setup_guide(steps: list[SetupStep] | None) -> list[dict] | None:
     if not steps:
-        return steps
+        return None
+    from app.core.base_url import connection_oauth_redirect_uri
+    redirect_uri = connection_oauth_redirect_uri()
     return [
-        {**s, "code": s["code"].replace(SETUP_GUIDE_BASE_URL, base_url)} if s.get("code") else s
+        {**s.model_dump(), "code": s.code.replace(SETUP_GUIDE_REDIRECT_URI, redirect_uri) if s.code else s.code}
         for s in steps
     ]
 
@@ -2601,12 +2603,12 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             SetupStep(
                 title="Add the redirect URI",
                 body="In the app go to Authentication > Add a platform > Web and paste this redirect URI.",
-                code=f"{SETUP_GUIDE_BASE_URL}/api/connections/oauth/callback",
+                code=SETUP_GUIDE_REDIRECT_URI,
                 language="text",
             ),
             SetupStep(
                 title="Grant Microsoft Graph permissions",
-                body="In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app.",
+                body="In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app. Use Delegated permissions only, not Application permissions: the connector reads only the signed-in user's mailbox.",
             ),
             SetupStep(
                 title="Create a client secret",
@@ -3421,7 +3423,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "ui_form": e.ui_form,
             "personal_connector": e.personal_connector,
             "category": e.category,
-            "setup_guide": [s.model_dump() for s in e.setup_guide] if e.setup_guide else None,
+            "setup_guide": resolve_setup_guide(e.setup_guide),
         }
         for e in REGISTRY.values()
         if (

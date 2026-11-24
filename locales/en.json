@@ -5439,7 +5439,7 @@
         },
         {
           "title": "Grant Microsoft Graph permissions",
-          "body": "In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app."
+          "body": "In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app. Use Delegated permissions only, not Application permissions: the connector reads only the signed-in user's mailbox."
         },
         {
           "title": "Create a client secret",

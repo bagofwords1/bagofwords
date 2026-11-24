@@ -630,9 +630,12 @@ class TestOAuthRegistryIntegration:
         assert "oauth" in auth_by_auth
         assert auth_by_auth["oauth"]["title"] == "Sign in with Google"
 
+    @pytest.mark.parametrize("base_url", ["https://bow.example.test", "https://bow.example.test:8443/"])
     def test_outlook_setup_guide_shows_the_redirect_uri_authorize_sends(
-        self, test_client, login_user, create_connection, create_user, whoami
+        self, base_url, monkeypatch, test_client, login_user, create_connection, create_user, whoami
     ):
+        from app.settings.config import settings
+        monkeypatch.setattr(settings.bow_config, "base_url", base_url)
         user = create_user()
         token = login_user(user["email"], user["password"])
         org_id = whoami(token)["organizations"][0]["id"]
@@ -643,7 +646,7 @@ class TestOAuthRegistryIntegration:
         guide = fields.json()["setup_guide"]
         assert guide and all(step["title"] for step in guide)
         codes = [step["code"] for step in guide if step.get("code")]
-        assert codes and not any("{base_url}" in c for c in codes)
+        assert codes and not any("{" in c for c in codes)
 
         conn = create_connection(
             name="Outlook Guide",
