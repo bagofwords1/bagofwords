@@ -250,6 +250,7 @@ async function signInWithCredentials(email: string, password: string) {
 }
 
 async function submit() {
+  await renewEmbedSignupIntent(route.query.redirect)
 isSubmitting.value = true
 error_message.value = ''
 const payload: Record<string, string | boolean> = {

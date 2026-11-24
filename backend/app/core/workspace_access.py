@@ -171,6 +171,28 @@ async def apply_signup_intent(request: Request, db: AsyncSession, user) -> None:
             pass
 
 
+async def apply_signup_intent_now(request: Optional[Request], user) -> None:
+    """The same, at the moment an account is registered or signs in (the
+    registration hook, the OIDC callback, the login hook), with a session of
+    its own: the role is stored before the account's session is issued.
+    ``current_user`` remains the backstop for any path that does not call
+    this."""
+    if request is None or user is None or read_signup_intent(request) is None:
+        return
+    from app.dependencies import async_session_maker
+
+    try:
+        async with async_session_maker() as db:
+            await apply_signup_intent(request, db, user)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("applying a sign-up intent at sign-in failed", exc_info=True)
+    finally:
+        # Let current_user look again on a later request of this account.
+        request.state._signup_intent_done = False
+
+
 def _refuse() -> AppError:
     return AppError.forbidden(
         ErrorCode.WORKSPACE_ACCESS_REQUIRED,

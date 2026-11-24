@@ -345,6 +345,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
 
         await _record_login(user)
 
+        await _signed_up_through_an_application(request, user)
         return await _login_redirect(user)
 
     # OIDC providers
@@ -561,7 +562,16 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
 
     await _record_login(user)
 
+    await _signed_up_through_an_application(request, user)
     return await _login_redirect(user)
+
+
+async def _signed_up_through_an_application(request: Request, user) -> None:
+    """An account this sign-in created inside a host application's sign-in
+    window gets that application's new-user role before its session exists."""
+    from app.core.workspace_access import apply_signup_intent_now
+
+    await apply_signup_intent_now(request, user)
 
 
 async def _login_redirect(user) -> RedirectResponse:

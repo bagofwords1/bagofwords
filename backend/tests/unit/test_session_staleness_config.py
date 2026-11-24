@@ -23,10 +23,11 @@ def _principal_belongs_to_org():
     """The manager re-checks org membership on every verified message (added
     after these tests were written); the mocked DB would fail that check and
     divert every test into the access-revoked path. Stub it to True."""
+    # ... and that the member has the workspace (app users are refused).
     with patch(
         "app.core.permission_resolver.principal_belongs_to_org",
         new=AsyncMock(return_value=True),
-    ):
+    ), patch("app.core.workspace_access.has_workspace_access", new=AsyncMock(return_value=True)):
         yield
 
 

@@ -361,6 +361,7 @@
   }
 
   async function signInWithCredentials() {
+    await renewEmbedSignupIntent(useRoute().query.redirect)
     isSubmitting.value = true
     error_message.value = ''
     const route = useRoute();
@@ -413,6 +414,7 @@
   // a template ref is still null there, so the auto-start cannot delegate to it.
   // Add new function for Google sign-in
   async function signInWithGoogle() {
+    await renewEmbedSignupIntent(route.query.redirect)
     try {
       loadingProvider.value = 'google'
       persistRedirectForOAuth()
@@ -430,6 +432,7 @@
   }
 
   async function signInWithProvider(name: string) {
+    await renewEmbedSignupIntent(route.query.redirect)
     try {
       loadingProvider.value = name
       persistRedirectForOAuth()

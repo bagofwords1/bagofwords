@@ -360,7 +360,6 @@ def test_the_sso_popup_gives_an_account_it_creates_the_hosts_role(people, corpus
     assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
     headers, user_id = _sign_up(test_client, "ada@popup.example")
     headers["X-Organization-Id"] = people.org
-    assert people.member(user_id)["role"] == "member"  # the ordinary sign-up, so far
     _, challenge = _pkce()
     code = test_client.post(f"/api/embed/{host['public_id']}/sso/code", json={"code_challenge": challenge},
                             headers=headers)
@@ -431,6 +430,45 @@ def test_a_sign_up_window_that_never_finishes_still_makes_an_app_user(people, co
     assert refused.status_code == 403 and refused.json()["error_code"] == REFUSED
     member = people.member(user_id)
     assert member["role"] == "app_user" and member["created_via_host_application"] == host["name"]
+
+
+def test_the_role_is_stored_when_the_account_is_registered(people, corpus, corpus_rows, test_client):
+    """Before the new account has a session at all: nothing it could do
+    first, and no later request, is needed for it to be an app user."""
+    _domain_signup(corpus_rows, corpus, "atonce.example")
+    host = _host_app(test_client, corpus)
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    r = test_client.post("/api/auth/register", json={"name": "Person gal", "email": "gal@atonce.example",
+                                                     "password": "Password123!"})
+    assert r.status_code == 201, r.text
+    test_client.cookies.clear()  # the admin reads the list without the window's cookie
+    member = people.member(r.json()["id"])
+    assert member["role"] == "app_user" and member["created_via_host_application"] == host["name"]
+
+
+def test_a_slow_sign_up_is_still_an_app_user_because_the_form_renews_the_intent(people, corpus, corpus_rows,
+                                                                               test_client, monkeypatch):
+    """The window sat open past the intent's lifetime. The sign-up form asks
+    for a new one as it submits, so the account is an app user; an expired
+    intent alone is an ordinary sign-up (the organization's own policy)."""
+    from app.core import workspace_access
+
+    _domain_signup(corpus_rows, corpus, "slow.example")
+    host = _host_app(test_client, corpus)
+    monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", -10)  # issued already expired
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    stale = test_client.post("/api/auth/register", json={"name": "Person hal", "email": "hal@slow.example",
+                                                         "password": "Password123!"})
+    assert stale.status_code == 201, stale.text
+    monkeypatch.setattr(workspace_access, "INTENT_LIFETIME", 3600)
+    # What frontend/composables/useEmbedSignupIntent.ts does on submit:
+    assert test_client.post(f"/api/embed/{host['public_id']}/sso/intent").status_code == 204
+    fresh = test_client.post("/api/auth/register", json={"name": "Person ivy", "email": "ivy@slow.example",
+                                                         "password": "Password123!"})
+    assert fresh.status_code == 201, fresh.text
+    test_client.cookies.clear()
+    assert people.member(stale.json()["id"])["role"] == "member"
+    assert people.member(fresh.json()["id"])["role"] == "app_user"
 
 
 def test_a_sign_up_window_of_a_disabled_application_changes_nothing(people, corpus, corpus_rows, test_client):
@@ -527,8 +565,8 @@ def test_an_app_user_asks_the_member_managers_for_the_workspace(people, app_user
     assert _inbox(test_client, as_(corpus, "owner")) == []  # a peer manages nobody
 
     people.set_role("member", "member")
-    assert _apps(test_client, app_user) | {"apps": []} == {"apps": [], "workspace_access": True,
-                                                           "access_requested": False}
+    after = _apps(test_client, app_user)
+    assert after["workspace_access"] is True and after["access_requested"] is False
     assert all(n.get("resolved_at") for n in _inbox(test_client, people.admin))
 
 
@@ -647,3 +685,58 @@ def test_replaying_the_migration_leaves_app_user_without_the_workspace(people, c
     assert "access_workspace" in roles["member"]["permissions"]
     assert len([r for r in people.client.get(f"/api/organizations/{people.org}/roles", headers=people.admin).json()
                 if r["name"] == "app_user"]) == 1
+
+
+# ── acting in an organization takes its workspace ─────────────────────────
+
+def test_a_custom_role_cannot_fork_without_the_workspace(people, app_user, test_client, corpus, corpus_rows,
+                                                         enterprise_license):
+    """A fork is a new report. `create_reports` in a role that withholds the
+    workspace is not enough, in the page's answer and in the write alike."""
+    host = _host_app(test_client, corpus)
+    aid = _app(test_client, corpus, corpus_rows, DASH, host, "internal")
+    created = people.client.post(f"/api/organizations/{people.org}/roles", headers=people.admin,
+                                 json={"name": f"Forker {uuid.uuid4().hex[:6]}", "permissions": ["create_reports"]})
+    assert created.status_code in (200, 201), created.text
+    people.assign(created.json()["id"], user="member")
+    assert not people.has_workspace(app_user)
+
+    page = test_client.get(f"/api/d/{aid}", headers=app_user)
+    assert page.status_code == 200
+    assert page.json()["fork_eligibility"]["can_fork"] is False
+    before = people.client.get("/api/reports", headers=people.admin).json()
+    refused = test_client.post(f"/api/d/{aid}/fork", headers=app_user, json={})
+    assert refused.status_code in (401, 403, 404), refused.text
+    assert people.client.get("/api/reports", headers=people.admin).json() == before
+
+
+def test_fork_eligibility_needs_the_workspace_of_the_dashboards_organization(people, corpus, corpus_rows,
+                                                                            test_client, enterprise_license):
+    """The fork route names no organization, so the account-level gate lets
+    through anyone with a workspace *somewhere*. The rule is asked of the
+    dashboard's own organization (dashboard_lifecycle.fork_eligibility)."""
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.artifact import Artifact
+    from app.models.user import User
+    from app.services.dashboard_access import published_release
+    from app.services.dashboard_lifecycle import fork_eligibility
+
+    host = _host_app(test_client, corpus)
+    aid = _app(test_client, corpus, corpus_rows, DASH, host, "internal")
+    created = people.client.post(f"/api/organizations/{people.org}/roles", headers=people.admin,
+                                 json={"name": f"Forker {uuid.uuid4().hex[:6]}", "permissions": ["create_reports"]})
+    assert created.status_code in (200, 201), created.text
+
+    async def eligibility():
+        async with async_session_maker() as db:
+            artifact = await db.get(Artifact, aid)
+            release = await published_release(db, artifact)
+            return await fork_eligibility(db, artifact, release, await db.get(User, corpus.cast.id("member")))
+
+    reason_as_member = asyncio.run(eligibility()).get("reason")
+    assert reason_as_member != "no_permission"
+    people.set_role("member", "app_user")
+    people.assign(created.json()["id"], user="member")
+    assert asyncio.run(eligibility()) == {"can_fork": False, "reason": "no_permission"}

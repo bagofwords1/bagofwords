@@ -55,7 +55,9 @@ class ArtifactChatService:
         if not getattr(report, 'artifact_chat_enabled', False):
             raise HTTPException(status_code=403, detail="Chat is not enabled on this report")
 
-        if not await self._is_org_member(db, user, report.organization_id):
+        from app.core.workspace_access import has_workspace_access
+        if not await self._is_org_member(db, user, report.organization_id) \
+                or not await has_workspace_access(db, user, str(report.organization_id)):
             raise HTTPException(
                 status_code=403,
                 detail="Chat is available to members of this workspace only",

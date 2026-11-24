@@ -137,6 +137,8 @@ async def _ensure_connection_access(
         db, user, connection.organization_id
     ):
         raise HTTPException(status_code=404, detail="Connection not found")
+    from app.core.workspace_access import assert_workspace_access
+    await assert_workspace_access(db, user, str(connection.organization_id))
     org = connection.organization
     is_admin = await _is_org_admin(db, user, org) if org else False
     if is_admin:

@@ -248,8 +248,13 @@ async function loadMore() {
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 watch(search, () => {
+  // The input changed: whatever is in flight answers a query the box no
+  // longer shows, so drop it now (not only once the debounce fires), then
+  // always ask again for what the box holds.
+  ++request
+  loadingMore.value = false
   if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => { if (search.value.trim() !== searched.value) load(false) }, 250)
+  searchTimer = setTimeout(() => { load(false) }, 250)
 })
 onBeforeUnmount(() => { if (searchTimer) clearTimeout(searchTimer) })
 
