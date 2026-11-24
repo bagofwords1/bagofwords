@@ -524,7 +524,8 @@
     "automations": "الأتمتة",
     "agent": "وكيل",
     "agents": "الوكلاء",
-    "viewAllAgents": "عرض كل الوكلاء ←"
+    "viewAllAgents": "عرض كل الوكلاء ←",
+    "apps": "التطبيقات"
   },
   "notifications": {
     "title": "الإشعارات",
@@ -1178,6 +1179,9 @@
     "dropHint": "أفلِت على مشروع",
     "movedTo": "تم النقل إلى {name}",
     "removeFromProject": "إزالة من المشروع",
+    "removedFromProject": "تمت الإزالة من المشروع",
+    "removeImpact": "سيعود هذا التقرير إلى قائمتك الشخصية.",
+    "removeImpactShared": "سيفقد أعضاء هذا المشروع إمكانية الوصول إلى هذا التقرير. ستحتفظ به أنت فقط ومن شاركته معهم مباشرة.",
     "empty": "مشروع جديد",
     "moveNoProjects": "أنشئ مشروعًا لتنظيم تقاريرك في مجلدات.",
     "moveShareDisclosure": "نقل تقرير إلى مشروع مشترك يتيح لأعضائه الاطلاع عليه.",
@@ -2469,7 +2473,8 @@
       "manage_data_sources": "إدارة الوكلاء",
       "manage_service_accounts": "إدارة حسابات الخدمة",
       "view_code": "عرض الشيفرة المُنشأة",
-      "run_custom_code": "تحرير الشيفرة المخصّصة وتشغيلها"
+      "run_custom_code": "تحرير الشيفرة المخصّصة وتشغيلها",
+      "access_workspace": "استخدام مساحة العمل"
     },
     "delete": "حذف",
     "duplicate": "تكرار",
@@ -2489,7 +2494,8 @@
       "knowledge": "معرفة الوكلاء",
       "code": "الشيفرة",
       "admin": "الإدارة",
-      "other": "أخرى"
+      "other": "أخرى",
+      "workspace": "مساحة العمل"
     },
     "permissionHints": {
       "create_data_source": "إنشاء وكلاء على الاتصالات المتاحة لهم",
@@ -2505,7 +2511,8 @@
       "manage_settings": "تغيير إعدادات المؤسسة",
       "manage_llm": "إعداد مزوّدي ونماذج LLM",
       "view_audit_logs": "معرفة من فعل ماذا ومتى",
-      "manage_identity_providers": "إعداد تسجيل الدخول الموحّد"
+      "manage_identity_providers": "إعداد تسجيل الدخول الموحّد",
+      "access_workspace": "فتح مساحة العمل نفسها: الصفحة الرئيسية والتقارير والوكلاء. بدونها، لا يملك العضو سوى التطبيقات المشتركة معه."
     },
     "fullAdminHint": "يمكنه فعل كل شيء في المؤسسة",
     "fullAdminAccessTab": "يشمل الوصول الإداري الكامل جميع الوكلاء والاتصالات والنماذج.",
@@ -3279,7 +3286,9 @@
       "defaultRoleHint": "يملأ الدور مسبقًا عند إضافة عضو أو دعوته.",
       "defaultRoleSaved": "تم حفظ الدور الافتراضي",
       "defaultRoleFailed": "تعذر حفظ الدور الافتراضي",
-      "defaultRoleShort": "الدور الافتراضي"
+      "defaultRoleShort": "الدور الافتراضي",
+      "appUser": "مستخدم تطبيقات",
+      "joinedVia": "انضم عبر {app}"
     },
     "organizationName": "اسم المؤسسة",
     "organizationNameRequired": "لا يمكن أن يكون اسم المؤسسة فارغًا.",
@@ -4221,7 +4230,16 @@
         "LOCATION": "مكان",
         "ORGANIZATION": "مؤسسة",
         "NRP": "الجنسية أو الجماعة الدينية أو السياسية"
-      }
+      },
+      "agentsTitle": "سياسات الوكلاء",
+      "agentsDesc": "اختر السياسة التي يضيفها كل وكيل. تنطبق سياسة الوكيل على كل طلب يتضمن الوكيل، بما في ذلك بيانات الوكلاء الآخرين في المحادثة نفسها، حتى مع مزوّد معفى. عند انطباق عدة سياسات، يُطبَّق الخيار الأكثر صرامة لكل قاعدة.",
+      "defaultAgentPolicy": "الافتراضي للوكلاء",
+      "defaultAgentPolicyDesc": "يستخدم الوكلاء الذين ليس لهم اختيار خاص هذه السياسة.",
+      "noAgents": "لا يوجد وكلاء بعد.",
+      "agentPolicyFor": "سياسة PII لـ {name}",
+      "noAgentPolicy": "بدون سياسة وكيل",
+      "inheritAgentPolicy": "الافتراضي للمؤسسة: {policy}",
+      "usedByAgents": "{n} وكيل | {n} وكلاء"
     },
     "piiTab": "البيانات الشخصية",
     "frameAncestors": {
@@ -4690,6 +4708,24 @@
           "title": "صدّر شهادة SMS Provider",
           "body": "يستخدم الموقع افتراضيًا شهادة موقّعة ذاتيًا. شغّل هذا الأمر في PowerShell على SMS Provider والصق الناتج في SMS Provider certificate (PEM). تخطَّ هذه الخطوة إذا كانت الشهادة صادرة عن مرجع شهادات يثق به هذا الخادم بالفعل."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "سجّل تطبيقًا في Microsoft Entra",
+          "body": "في مركز إدارة Microsoft Entra انتقل إلى App registrations > New registration. اختر \"Accounts in this organizational directory only\". من صفحة Overview للتطبيق، انسخ Directory (tenant) ID و Application (client) ID إلى الحقول أدناه."
+        },
+        {
+          "title": "أضف عنوان URI لإعادة التوجيه",
+          "body": "في التطبيق انتقل إلى Authentication > Add a platform > Web والصق عنوان URI لإعادة التوجيه هذا."
+        },
+        {
+          "title": "امنح أذونات Microsoft Graph",
+          "body": "في API permissions > Add a permission > Microsoft Graph > Delegated permissions، أضف Mail.Read و User.Read و offline_access و openid و profile. للسماح للوكلاء بنقل البريد أو صياغته أو إرساله، أضف أيضًا Mail.ReadWrite و Mail.Send. ثم انقر على \"Grant admin consent\" حتى لا يُطلب من المستخدمين الموافقة على التطبيق. استخدم أذونات Delegated فقط وليس أذونات Application: يقرأ الموصل صندوق بريد المستخدم الذي سجّل الدخول فقط."
+        },
+        {
+          "title": "أنشئ سر العميل",
+          "body": "في Certificates & secrets > New client secret، أنشئ سرًا وانسخ قيمته Value (وليس Secret ID) إلى حقل Client Secret أدناه. لن تتمكن من رؤية القيمة مرة أخرى لاحقًا."
+        }
       ]
     },
     "setupGuideCopyFailed": "فشل النسخ — حدد النص",
@@ -5121,7 +5157,8 @@
     "organization.name_taken": "توجد مؤسسة باسم «{name}» بالفعل.",
     "organization.signup_domains_instance_admin_required": "لا يمكن تعيين نطاقات التسجيل لمؤسسة إلا لمسؤول المثيل.",
     "organization.signup_domain_claimed": "النطاق {domain} معيّن بالفعل لمؤسسة أخرى.",
-    "organization.member_instance_admin": "هذا الحساب لمسؤول النظام. لا يمكن إضافته إلى مؤسسة إلا من قِبل مسؤول النظام."
+    "organization.member_instance_admin": "هذا الحساب لمسؤول النظام. لا يمكن إضافته إلى مؤسسة إلا من قِبل مسؤول النظام.",
+    "workspace.access_required": "يمكن لحسابك استخدام التطبيقات المشتركة معك، لكن ليس مساحة العمل."
   },
   "email": {
     "dashboardShare": {
@@ -7719,6 +7756,9 @@
       "denied": "ليس لديك حق الوصول إلى هذا المحتوى. اطلب من مالكه مشاركته معك.",
       "notAllowed": "هذا المحتوى غير مفعّل لهذا التطبيق. يمكن للمحرر السماح به من إعدادات التضمين الخاصة به في BOW.",
       "failed": "تعذّر تحميل هذا المحتوى. حاول مرة أخرى بعد قليل."
+    },
+    "signin": {
+      "intentFailed": "تعذّر تأكيد التطبيق الذي تسجّل الدخول إليه. لم يُرسل شيء. حاول مرة أخرى."
     }
   },
   "connectedApps": {
@@ -7776,6 +7816,10 @@
     "shareToggleLabel": "إتاحة لكل من في مؤسستك",
     "shareToggleHint": "يضيف “{name}” إلى موصلات الجميع. يسجّل كل شخص الدخول بحسابه — لا يرى أحد بيانات غيره.",
     "useAsAgent": "استخدام كوكيل",
+    "enableForChat": "تفعيل في المحادثة",
+    "disableForChat": "تعطيل في المحادثة",
+    "enabledHint": "مُفعّل — يمكن للذكاء الاصطناعي استخدامه في المحادثة",
+    "disabledHint": "مُعطّل — لن يستخدمه الذكاء الاصطناعي في المحادثة",
     "movedToAgents": "أصبح {name} وكيلًا الآن"
   },
   "tablePreview": {
@@ -7882,6 +7926,13 @@
       "none": "بلا حد",
       "ask": "اسأل",
       "auto": "تلقائي"
+    },
+    "pii": {
+      "title": "سياسة PII",
+      "hint": "تنطبق على كل طلب يتضمن هذا الوكيل، إضافةً إلى سياسة النموذج. يُطبَّق الخيار الأكثر صرامة لكل قاعدة.",
+      "disabled": "حماية PII متوقفة في هذه المؤسسة.",
+      "saved": "تم حفظ سياسة PII",
+      "saveError": "تعذّر حفظ سياسة PII"
     }
   },
   "productUpdates": {
@@ -8270,5 +8321,40 @@
       "key": "معرّف",
       "set_by_admin": "حدّده مسؤول"
     }
+  },
+  "apps": {
+    "title": "تطبيقاتك",
+    "subtitle": "افتح تطبيقًا للبدء.",
+    "openWorkspace": "فتح مساحة العمل",
+    "search": "البحث في التطبيقات",
+    "untitled": "تطبيق بلا عنوان",
+    "inApplication": "في {name}",
+    "allApps": "كل التطبيقات",
+    "language": "اللغة",
+    "account": "الحساب",
+    "signOut": "تسجيل الخروج",
+    "loadFailed": "تعذّر تحميل تطبيقاتك.",
+    "retry": "إعادة المحاولة",
+    "noMatches": "لا توجد تطبيقات تطابق «{query}».",
+    "empty": {
+      "title": "لا توجد تطبيقات بعد",
+      "body": "عندما يشارك أحدهم تطبيقًا معك، سيظهر هنا."
+    },
+    "requestAccess": {
+      "prompt": "هل تحتاج إلى أكثر من هذه التطبيقات؟",
+      "button": "طلب وصول كامل",
+      "sent": "تم إرسال الطلب. سيراجعه أحد المسؤولين.",
+      "failed": "تعذّر إرسال الطلب. حاول مرة أخرى."
+    },
+    "showMore": "عرض المزيد"
+  },
+  "hostApps": {
+    "newUserRole": "ينضم الأشخاص الجدد بصفة",
+    "newUserRoleHelp": "للحسابات التي تُنشأ عند تسجيل الدخول عبر هذا التطبيق. من لديه حساب بالفعل يحتفظ بدوره.",
+    "newUserRoleApp": "مستخدم تطبيقات",
+    "newUserRoleAppHelp": "يمكنه استخدام التطبيقات المشتركة معه، لا مساحة العمل.",
+    "newUserRoleMember": "عضو",
+    "newUserRoleMemberHelp": "يمكنه أيضًا استخدام مساحة العمل: التقارير والوكلاء ولوحات المعلومات.",
+    "newPeopleAs": "ينضم الأشخاص الجدد بصفة {role}"
   }
 }

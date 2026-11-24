@@ -589,7 +589,8 @@
     "admin": "Administración",
     "backToApp": "Volver a la app",
     "notifications": "Notificaciones",
-    "automations": "Automatizaciones"
+    "automations": "Automatizaciones",
+    "apps": "Aplicaciones"
   },
   "notifications": {
     "title": "Notificaciones",
@@ -1257,6 +1258,9 @@
     "dropHint": "Suelta en un proyecto",
     "movedTo": "Movido a {name}",
     "removeFromProject": "Quitar del proyecto",
+    "removedFromProject": "Eliminado del proyecto",
+    "removeImpact": "Este informe vuelve a tu lista personal.",
+    "removeImpactShared": "Los miembros de este proyecto perderán acceso a este informe. Solo tú y las personas con quienes lo compartiste directamente lo conservarán.",
     "empty": "Nuevo proyecto",
     "moveNoProjects": "Crea un proyecto para organizar tus informes en carpetas.",
     "moveShareDisclosure": "Mover un informe a un proyecto compartido permite que sus miembros lo vean.",
@@ -2789,7 +2793,8 @@
       "manage_service_accounts": "Gestionar cuentas de servicio",
       "manage_connection": "Gestionar conexión",
       "create_data_sources": "Crear agentes",
-      "manage_data_sources": "Gestionar agentes"
+      "manage_data_sources": "Gestionar agentes",
+      "access_workspace": "Usar el espacio de trabajo"
     },
     "delete": "Eliminar",
     "duplicate": "Duplicar",
@@ -2809,7 +2814,8 @@
       "knowledge": "Conocimiento de agentes",
       "code": "Código",
       "admin": "Administración",
-      "other": "Otros"
+      "other": "Otros",
+      "workspace": "Espacio de trabajo"
     },
     "permissionHints": {
       "create_data_source": "Crear agentes en las conexiones que pueden usar",
@@ -2825,7 +2831,8 @@
       "manage_settings": "Cambiar la configuración de la organización",
       "manage_llm": "Configurar proveedores y modelos LLM",
       "view_audit_logs": "Ver quién hizo qué y cuándo",
-      "manage_identity_providers": "Configurar el inicio de sesión único"
+      "manage_identity_providers": "Configurar el inicio de sesión único",
+      "access_workspace": "Abrir el propio espacio de trabajo: inicio, informes, agentes. Sin él, un miembro solo tiene las aplicaciones compartidas con él."
     },
     "fullAdminHint": "Puede hacer todo en la organización",
     "fullAdminAccessTab": "El acceso de administrador total incluye todos los agentes, conexiones y modelos.",
@@ -3687,7 +3694,9 @@
       "defaultRoleShort": "Rol predeterminado",
       "importButton": "Importar",
       "colNote": "Nota",
-      "colLastLogin": "Último inicio de sesión"
+      "colLastLogin": "Último inicio de sesión",
+      "appUser": "Usuario de aplicaciones",
+      "joinedVia": "Se unió a través de {app}"
     },
     "organizationName": "Nombre de la organización",
     "organizationNameRequired": "El nombre de la organización no puede estar vacío.",
@@ -4774,7 +4783,16 @@
         "LOCATION": "Lugar",
         "ORGANIZATION": "Organización",
         "NRP": "Nacionalidad, grupo religioso o político"
-      }
+      },
+      "agentsTitle": "Políticas por agente",
+      "agentsDesc": "Elige la política que añade cada agente. La política de un agente se aplica a toda solicitud que incluya al agente, incluidos los datos de los demás agentes del mismo chat, incluso con un proveedor exento. Cuando se aplican varias políticas, gana la opción más estricta de cada regla.",
+      "defaultAgentPolicy": "Predeterminada para agentes",
+      "defaultAgentPolicyDesc": "Los agentes sin una política propia usan esta.",
+      "noAgents": "Aún no hay agentes.",
+      "agentPolicyFor": "Política de PII para {name}",
+      "noAgentPolicy": "Sin política de agente",
+      "inheritAgentPolicy": "Predeterminada de la organización: {policy}",
+      "usedByAgents": "{n} agente | {n} agentes"
     },
     "piiTab": "Protección de datos",
     "adminPages": {
@@ -5350,6 +5368,24 @@
           "title": "Crea un token de API",
           "body": "En tu cuenta de Atlassian ve a Security > API tokens > Create API token with scopes, elige Bitbucket y concede read:repository:bitbucket. Deja Usuario vacío. Para un token de acceso al repositorio, pon x-token-auth en Usuario."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Registra una aplicación en Microsoft Entra",
+          "body": "En el centro de administración de Microsoft Entra ve a App registrations > New registration. Elige \"Accounts in this organizational directory only\". En la página Overview de la aplicación, copia Directory (tenant) ID y Application (client) ID en los campos de abajo."
+        },
+        {
+          "title": "Agrega el URI de redirección",
+          "body": "En la aplicación ve a Authentication > Add a platform > Web y pega este URI de redirección."
+        },
+        {
+          "title": "Concede permisos de Microsoft Graph",
+          "body": "En API permissions > Add a permission > Microsoft Graph > Delegated permissions, agrega Mail.Read, User.Read, offline_access, openid y profile. Para que los agentes puedan mover, redactar o enviar correo, agrega también Mail.ReadWrite y Mail.Send. Después haz clic en \"Grant admin consent\" para que no se pida a los usuarios que aprueben la aplicación. Usa solo permisos Delegated, no Application: el conector solo lee el buzón del usuario que inició sesión."
+        },
+        {
+          "title": "Crea un secreto de cliente",
+          "body": "En Certificates & secrets > New client secret, crea un secreto y copia su Value (no el Secret ID) en Client Secret abajo. Después no podrás volver a ver el valor."
+        }
       ]
     },
     "setupGuideCopyFailed": "Error al copiar — selecciona el texto",
@@ -5804,7 +5840,8 @@
     "organization.name_taken": "Ya existe una organización llamada «{name}».",
     "organization.signup_domains_instance_admin_required": "Solo un administrador de la instancia puede asignar dominios de registro a una organización.",
     "organization.signup_domain_claimed": "El dominio {domain} ya está asignado a otra organización.",
-    "organization.member_instance_admin": "Esta cuenta es de un administrador de la instancia. Solo un administrador de la instancia puede añadirla a una organización."
+    "organization.member_instance_admin": "Esta cuenta es de un administrador de la instancia. Solo un administrador de la instancia puede añadirla a una organización.",
+    "workspace.access_required": "Tu cuenta puede usar las aplicaciones compartidas contigo, pero no el espacio de trabajo."
   },
   "email": {
     "dashboardShare": {
@@ -8577,7 +8614,8 @@
     "signin": {
       "working": "Iniciando sesión…",
       "done": "Sesión iniciada. Puedes cerrar esta ventana.",
-      "invalid": "Este enlace de inicio de sesión está incompleto. Cierra esta ventana e inténtalo de nuevo."
+      "invalid": "Este enlace de inicio de sesión está incompleto. Cierra esta ventana e inténtalo de nuevo.",
+      "intentFailed": "No se pudo confirmar la aplicación en la que inicias sesión. No se envió nada. Inténtalo de nuevo."
     },
     "tab": {
       "title": "Insertar",
@@ -8631,7 +8669,7 @@
     "audience": "Audiencia",
     "audienceHelp": "El aud de los tokens de ID que tu proveedor emite para esta aplicación",
     "createUsers": "Crear personas en el primer inicio de sesión",
-    "createUsersHelp": "Alguien que el directorio conoce pero BOW todavía no se une como miembro. Si no, debe existir de antemano (invitado o aprovisionado).",
+    "createUsersHelp": "Alguien que el directorio conoce pero BOW todavía no obtiene una cuenta en su primer inicio de sesión, con el rol de abajo. Si no, debe existir de antemano (invitado o aprovisionado).",
     "createsUsers": "crea personas",
     "create": "Crear",
     "keyOnce": "Copia la clave privada ahora y guárdala en los secretos del backend de tu aplicación. Solo se muestra una vez; BOW guarda solo la clave pública.",
@@ -8652,7 +8690,14 @@
     "delete": "Eliminar",
     "deleteConfirm": "¿Eliminar {name}? Sus inserciones dejan de funcionar y se cierra la sesión de todos.",
     "backendExample": "Ejemplo de backend",
-    "backendExampleHelp": "Firma una aserción por cada inicio de sesión, para el usuario con sesión en tu aplicación:"
+    "backendExampleHelp": "Firma una aserción por cada inicio de sesión, para el usuario con sesión en tu aplicación:",
+    "newUserRole": "Las personas nuevas se unen como",
+    "newUserRoleHelp": "Para las cuentas creadas al iniciar sesión a través de esta aplicación. Quienes ya tienen una cuenta conservan su rol.",
+    "newUserRoleApp": "Usuario de aplicaciones",
+    "newUserRoleAppHelp": "Puede usar las aplicaciones compartidas con él, no el espacio de trabajo.",
+    "newUserRoleMember": "Miembro",
+    "newUserRoleMemberHelp": "También puede usar el espacio de trabajo: informes, agentes y paneles.",
+    "newPeopleAs": "las personas nuevas se unen como {role}"
   },
   "connectedApps": {
     "title": "Aplicaciones conectadas",
@@ -8709,6 +8754,10 @@
     "shareToggleLabel": "Poner a disposición de toda tu organización",
     "shareToggleHint": "Añade “{name}” a los conectores de todos. Cada persona inicia sesión con su propia cuenta: nadie ve los datos de los demás.",
     "useAsAgent": "Usar como agente",
+    "enableForChat": "Activar para el chat",
+    "disableForChat": "Desactivar para el chat",
+    "enabledHint": "Activado: la IA puede usarlo en el chat",
+    "disabledHint": "Desactivado: la IA no lo usará en el chat",
     "movedToAgents": "{name} ahora es un agente"
   },
   "tablePreview": {
@@ -8815,6 +8864,13 @@
       "none": "Sin límite",
       "ask": "Preguntar",
       "auto": "Automático"
+    },
+    "pii": {
+      "title": "Política de PII",
+      "hint": "Se aplica a toda solicitud que incluya este agente, además de la política del modelo. Gana la opción más estricta de cada regla.",
+      "disabled": "La protección de PII está desactivada en esta organización.",
+      "saved": "Política de PII guardada",
+      "saveError": "No se pudo guardar la política de PII"
     }
   },
   "productUpdates": {
@@ -9216,5 +9272,31 @@
     "deleteKeepsAgents": "Los agentes se conservan. Un agente que solo usa esta conexión se quedará sin conexión de datos hasta que vincules otra.",
     "impactLoadFailed": "No se pudo cargar a qué afecta esta eliminación.",
     "deleteRemovesConnectors": "Se eliminan con ella (conectores que solo usan esta conexión): {names}"
+  },
+  "apps": {
+    "title": "Tus aplicaciones",
+    "subtitle": "Abre una aplicación para empezar.",
+    "openWorkspace": "Abrir el espacio de trabajo",
+    "search": "Buscar aplicaciones",
+    "untitled": "Aplicación sin título",
+    "inApplication": "En {name}",
+    "allApps": "Todas las aplicaciones",
+    "language": "Idioma",
+    "account": "Cuenta",
+    "signOut": "Cerrar sesión",
+    "loadFailed": "No se pudieron cargar tus aplicaciones.",
+    "retry": "Reintentar",
+    "noMatches": "Ninguna aplicación coincide con «{query}».",
+    "empty": {
+      "title": "Aún no hay aplicaciones",
+      "body": "Cuando alguien comparta una aplicación contigo, aparecerá aquí."
+    },
+    "requestAccess": {
+      "prompt": "¿Necesitas algo más que estas aplicaciones?",
+      "button": "Solicitar acceso completo",
+      "sent": "Solicitud enviada. Un administrador la revisará.",
+      "failed": "No se pudo enviar la solicitud. Inténtalo de nuevo."
+    },
+    "showMore": "Mostrar más"
   }
 }

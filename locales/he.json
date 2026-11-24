@@ -589,7 +589,8 @@
     "admin": "ניהול",
     "backToApp": "חזרה לאפליקציה",
     "notifications": "התראות",
-    "automations": "אוטומציות"
+    "automations": "אוטומציות",
+    "apps": "אפליקציות"
   },
   "notifications": {
     "title": "התראות",
@@ -1257,6 +1258,9 @@
     "dropHint": "שחררו על פרויקט",
     "movedTo": "הועבר אל {name}",
     "removeFromProject": "הסרה מהפרויקט",
+    "removedFromProject": "הוסר מהפרויקט",
+    "removeImpact": "הדוח יחזור לרשימה האישית שלך.",
+    "removeImpactShared": "חברי הפרויקט יאבדו גישה לדוח הזה. רק את/ה ומי ששיתפת איתו ישירות תשמרו עליו.",
     "empty": "פרויקט חדש",
     "moveNoProjects": "צרו פרויקט כדי לארגן את הדוחות בתיקיות.",
     "moveShareDisclosure": "העברת דוח לפרויקט משותף מאפשרת לחברי הפרויקט לצפות בו.",
@@ -2789,7 +2793,8 @@
       "manage_service_accounts": "נהל חשבונות שירות",
       "manage_connection": "נהל חיבור",
       "create_data_sources": "צור סוכנים",
-      "manage_data_sources": "נהל סוכנים"
+      "manage_data_sources": "נהל סוכנים",
+      "access_workspace": "שימוש בסביבת העבודה"
     },
     "delete": "מחיקה",
     "duplicate": "שכפול",
@@ -2809,7 +2814,8 @@
       "knowledge": "ידע של סוכנים",
       "code": "קוד",
       "admin": "ניהול",
-      "other": "אחר"
+      "other": "אחר",
+      "workspace": "סביבת עבודה"
     },
     "permissionHints": {
       "create_data_source": "ליצור סוכנים על חיבורים שיש להם גישה אליהם",
@@ -2825,7 +2831,8 @@
       "manage_settings": "לשנות את הגדרות הארגון",
       "manage_llm": "להגדיר ספקי LLM ומודלים",
       "view_audit_logs": "לראות מי עשה מה ומתי",
-      "manage_identity_providers": "להגדיר כניסה יחידה (SSO)"
+      "manage_identity_providers": "להגדיר כניסה יחידה (SSO)",
+      "access_workspace": "פתיחת סביבת העבודה עצמה: דף הבית, דוחות, סוכנים. בלעדיה, לחבר יש רק את האפליקציות ששותפו איתו."
     },
     "fullAdminHint": "יכול לעשות הכול בארגון",
     "fullAdminAccessTab": "גישת אדמין מלאה כוללת את כל הסוכנים, החיבורים והמודלים.",
@@ -3687,7 +3694,9 @@
       "defaultRoleShort": "תפקיד ברירת מחדל",
       "importButton": "ייבוא",
       "colNote": "הערה",
-      "colLastLogin": "כניסה אחרונה"
+      "colLastLogin": "כניסה אחרונה",
+      "appUser": "משתמש אפליקציות",
+      "joinedVia": "הצטרפות דרך {app}"
     },
     "organizationName": "שם הארגון",
     "organizationNameRequired": "שם הארגון לא יכול להיות ריק.",
@@ -4774,7 +4783,16 @@
         "LOCATION": "מקום",
         "ORGANIZATION": "ארגון",
         "NRP": "לאום, קבוצה דתית או פוליטית"
-      }
+      },
+      "agentsTitle": "מדיניות לפי סוכן",
+      "agentsDesc": "בחרו את המדיניות שכל סוכן מוסיף. המדיניות של סוכן חלה על כל בקשה שכוללת את הסוכן, כולל הנתונים של סוכנים אחרים באותה שיחה, וגם אצל ספק פטור. כשחלות כמה מדיניות, האפשרות המחמירה ביותר לכל כלל קובעת.",
+      "defaultAgentPolicy": "ברירת מחדל לסוכנים",
+      "defaultAgentPolicyDesc": "סוכנים בלי בחירה משלהם משתמשים במדיניות הזו.",
+      "noAgents": "אין עדיין סוכנים.",
+      "agentPolicyFor": "מדיניות PII עבור {name}",
+      "noAgentPolicy": "ללא מדיניות סוכן",
+      "inheritAgentPolicy": "ברירת מחדל: {policy}",
+      "usedByAgents": "סוכן אחד | {n} סוכנים"
     },
     "piiTab": "הגנת מידע אישי",
     "adminPages": {
@@ -5350,6 +5368,24 @@
           "title": "יצירת אסימון API",
           "body": "בחשבון Atlassian שלכם עברו אל Security > API tokens > Create API token with scopes, בחרו Bitbucket והעניקו read:repository:bitbucket. השאירו את שם המשתמש ריק. עבור אסימון גישה למאגר, הזינו x-token-auth בשם המשתמש."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "רישום אפליקציה ב-Microsoft Entra",
+          "body": "במרכז הניהול של Microsoft Entra עברו אל App registrations > New registration. בחרו \"Accounts in this organizational directory only\". בדף Overview של האפליקציה, העתיקו את Directory (tenant) ID ואת Application (client) ID לשדות שלמטה."
+        },
+        {
+          "title": "הוספת כתובת ההפניה",
+          "body": "באפליקציה עברו אל Authentication > Add a platform > Web והדביקו את כתובת ההפניה הזו."
+        },
+        {
+          "title": "הענקת הרשאות Microsoft Graph",
+          "body": "ב-API permissions > Add a permission > Microsoft Graph > Delegated permissions, הוסיפו את Mail.Read, User.Read, offline_access, openid ו-profile. כדי לאפשר לסוכנים להעביר, לנסח או לשלוח דואר, הוסיפו גם את Mail.ReadWrite ואת Mail.Send. לאחר מכן לחצו על \"Grant admin consent\" כדי שהמשתמשים לא יתבקשו לאשר את האפליקציה. השתמשו רק בהרשאות Delegated ולא בהרשאות Application: המחבר קורא רק את תיבת הדואר של המשתמש המחובר."
+        },
+        {
+          "title": "יצירת סוד לקוח",
+          "body": "ב-Certificates & secrets > New client secret, צרו סוד והעתיקו את ה-Value שלו (לא את ה-Secret ID) לשדה Client Secret שלמטה. לא תוכלו לראות את הערך שוב בהמשך."
+        }
       ]
     },
     "setupGuideCopyFailed": "ההעתקה נכשלה — סמנו את הטקסט",
@@ -5804,7 +5840,8 @@
     "organization.name_taken": "כבר קיים ארגון בשם ״{name}״.",
     "organization.signup_domains_instance_admin_required": "רק מנהל המופע יכול לשייך דומיינים להרשמה לארגון.",
     "organization.signup_domain_claimed": "הדומיין {domain} כבר משויך לארגון אחר.",
-    "organization.member_instance_admin": "חשבון זה שייך למנהל מערכת. רק מנהל מערכת יכול להוסיף אותו לארגון."
+    "organization.member_instance_admin": "חשבון זה שייך למנהל מערכת. רק מנהל מערכת יכול להוסיף אותו לארגון.",
+    "workspace.access_required": "החשבון שלך יכול להשתמש באפליקציות ששותפו איתך, אבל לא בסביבת העבודה."
   },
   "email": {
     "dashboardShare": {
@@ -8597,7 +8634,8 @@
     "signin": {
       "working": "מתחבר…",
       "done": "התחברת. אפשר לסגור את החלון.",
-      "invalid": "קישור ההתחברות חסר. יש לסגור את החלון ולנסות שוב."
+      "invalid": "קישור ההתחברות חסר. יש לסגור את החלון ולנסות שוב.",
+      "intentFailed": "לא ניתן היה לאמת את האפליקציה שאליה מתחברים. דבר לא נשלח. נסו שוב."
     },
     "tab": {
       "title": "הטמעה",
@@ -8651,7 +8689,7 @@
     "audience": "קהל",
     "audienceHelp": "ה־aud של אסימוני הזהות שהספק מנפיק לאפליקציה הזו",
     "createUsers": "יצירת אנשים בהתחברות הראשונה",
-    "createUsersHelp": "מי שהספרייה מכירה אבל BOW עדיין לא, מצטרף כחבר. אחרת הוא צריך להיות קיים מראש (הוזמן או סונכרן).",
+    "createUsersHelp": "מי שהספרייה מכירה אבל BOW עדיין לא, מקבל חשבון בהתחברות הראשונה, עם התפקיד שלמטה. אחרת הוא צריך להיות קיים מראש (הוזמן או סונכרן).",
     "createsUsers": "יוצרת אנשים",
     "create": "יצירה",
     "keyOnce": "יש להעתיק עכשיו את המפתח הפרטי ולשמור אותו בסודות של שרת האפליקציה. הוא מוצג פעם אחת בלבד; BOW שומר רק את המפתח הציבורי.",
@@ -8672,7 +8710,14 @@
     "delete": "מחיקה",
     "deleteConfirm": "למחוק את {name}? ההטמעות שלה יפסיקו לעבוד וכולם ינותקו.",
     "backendExample": "דוגמה לשרת",
-    "backendExampleHelp": "חותמים על הצהרה אחת לכל התחברות, עבור המשתמש שמחובר לאפליקציה שלך:"
+    "backendExampleHelp": "חותמים על הצהרה אחת לכל התחברות, עבור המשתמש שמחובר לאפליקציה שלך:",
+    "newUserRole": "אנשים חדשים מצטרפים בתור",
+    "newUserRoleHelp": "עבור חשבונות שנוצרים בהתחברות דרך האפליקציה הזו. מי שכבר יש לו חשבון שומר על התפקיד שלו.",
+    "newUserRoleApp": "משתמש אפליקציות",
+    "newUserRoleAppHelp": "יכול להשתמש באפליקציות ששותפו איתו, לא בסביבת העבודה.",
+    "newUserRoleMember": "חבר",
+    "newUserRoleMemberHelp": "יכול להשתמש גם בסביבת העבודה: דוחות, סוכנים ודשבורדים.",
+    "newPeopleAs": "אנשים חדשים מצטרפים בתור {role}"
   },
   "connectedApps": {
     "title": "יישומים מחוברים",
@@ -8729,6 +8774,10 @@
     "shareToggleLabel": "להנגיש לכל הארגון",
     "shareToggleHint": "מוסיף את “{name}” למחברים של כולם. כל אחד מתחבר עם החשבון שלו — אף אחד לא רואה מידע של אחרים.",
     "useAsAgent": "שימוש כסוכן",
+    "enableForChat": "הפעלה בצ'אט",
+    "disableForChat": "כיבוי בצ'אט",
+    "enabledHint": "פעיל — ה-AI יכול להשתמש בו בצ'אט",
+    "disabledHint": "כבוי — ה-AI לא ישתמש בו בצ'אט",
     "movedToAgents": "{name} הוא עכשיו סוכן"
   },
   "tablePreview": {
@@ -8835,6 +8884,13 @@
       "none": "ללא הגבלה",
       "ask": "לשאול",
       "auto": "אוטומטי"
+    },
+    "pii": {
+      "title": "מדיניות PII",
+      "hint": "חלה על כל בקשה שכוללת את הסוכן הזה, בנוסף למדיניות של המודל. האפשרות המחמירה ביותר לכל כלל קובעת.",
+      "disabled": "הגנת PII כבויה בארגון הזה.",
+      "saved": "מדיניות ה-PII נשמרה",
+      "saveError": "לא ניתן לשמור את מדיניות ה-PII"
     }
   },
   "productUpdates": {
@@ -9236,5 +9292,31 @@
     "deleteKeepsAgents": "סוכני הנתונים יישמרו. סוכן שמשתמש רק בחיבור הזה יישאר בלי חיבור נתונים עד שתקשרו חיבור אחר.",
     "impactLoadFailed": "לא ניתן לטעון על מה המחיקה הזו משפיעה.",
     "deleteRemovesConnectors": "יימחקו יחד איתו (מחברים שמשתמשים רק בחיבור הזה): {names}"
+  },
+  "apps": {
+    "title": "האפליקציות שלך",
+    "subtitle": "פתחו אפליקציה כדי להתחיל.",
+    "openWorkspace": "פתיחת סביבת העבודה",
+    "search": "חיפוש אפליקציות",
+    "untitled": "אפליקציה ללא שם",
+    "inApplication": "בתוך {name}",
+    "allApps": "כל האפליקציות",
+    "language": "שפה",
+    "account": "חשבון",
+    "signOut": "התנתקות",
+    "loadFailed": "לא ניתן היה לטעון את האפליקציות שלך.",
+    "retry": "ניסיון חוזר",
+    "noMatches": "אין אפליקציות שתואמות ל־“{query}”.",
+    "empty": {
+      "title": "אין עדיין אפליקציות",
+      "body": "כשמישהו ישתף איתך אפליקציה, היא תופיע כאן."
+    },
+    "requestAccess": {
+      "prompt": "צריכים יותר מהאפליקציות האלה?",
+      "button": "בקשת גישה מלאה",
+      "sent": "הבקשה נשלחה. מנהל יבדוק אותה.",
+      "failed": "לא ניתן היה לשלוח את הבקשה. נסו שוב."
+    },
+    "showMore": "הצגת עוד"
   }
 }

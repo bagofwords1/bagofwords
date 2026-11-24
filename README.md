@@ -251,6 +251,7 @@ BOW can connect to any MCP server or custom API. Ready-to-connect MCP integratio
 | Jira / Atlassian | Jira issues and Confluence pages |
 | Linear | Issues, projects, and cycles |
 | Sentry | Errors, issues, releases, and diagnostics |
+| Fathom | Meeting summaries, transcripts, and search |
 | GitHub | Repositories, issues, and pull requests |
 | HubSpot | CRM contacts, companies, deals, and tickets |
 | Google Drive | File search and content access |

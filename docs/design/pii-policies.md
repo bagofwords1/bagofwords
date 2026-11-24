@@ -283,6 +283,7 @@ BoW-style text; numbers in the loop doc):
 ## Not in scope
 
 - Policies per agent or data source: one prompt mixes several agents' content
-  (see the provider-exemption feedback loop).
+  (see the provider-exemption feedback loop). A "strictest wins" variant that
+  avoids this is proposed in `docs/design/pii-agent-policies.md`.
 - Per-user policies.
 - Applying PII rules to stored data at rest.

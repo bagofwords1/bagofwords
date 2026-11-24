@@ -415,3 +415,65 @@ def test_metadata_file_trust_and_selection(saml_env, tmp_path, variant):
         # the application still obtains all trust material from the file.
         cfg.idp.entity_id = "https://idp.example.test"
         assert redeem(saml_env, submit(saml_env, login_form(saml_env)))
+
+
+# ── signing up inside a host application's sign-in window ─────────────────
+
+def _window_form(env, embed_host=None):
+    """login_form, with the provider button pressed inside (or outside) an
+    embedded artifact's sign-in window."""
+    client, cfg, key, cert = env
+    resp = client.get(f"/api/auth/saml/{cfg.name}/authorize", params={"embed_host": embed_host} if embed_host else None)
+    assert resp.status_code == 200, resp.text
+    params = parse_qs(urlsplit(resp.json()["authorization_url"]).query)
+    req = fromstring(zlib.decompress(base64.b64decode(params["SAMLRequest"][0]), -15))
+    assertion = response_xml(req.get("ID"), req.get("AssertionConsumerServiceURL"),
+                             req.find("{urn:oasis:names:tc:SAML:2.0:assertion}Issuer").text,
+                             cfg.idp.entity_id, key, cert)
+    return {"SAMLResponse": assertion, "RelayState": params["RelayState"][0]}, resp
+
+
+@pytest.mark.parametrize("window", ["this_request", "none", "abandoned"])
+def test_an_account_a_saml_sign_in_creates_in_an_applications_window_is_its_app_user(saml_env, test_client,
+                                                                                     login_user, window):
+    """The host application rides with the SAML request it was started for
+    (bound to that request's browser token, in a cookie that comes back on
+    the cross-site POST), so the membership is an app user's from the write
+    that creates it. A request started outside a window is an ordinary one,
+    even while an abandoned window's cookie is still in the browser."""
+    client, cfg, *_ = saml_env
+    admin = {"Authorization": f"Bearer {login_user()}", "X-Organization-Id": cfg.organization_id}
+    host = test_client.post("/api/host_applications", headers=admin, json={
+        "name": "Portal", "allowed_origins": ["https://portal.example.com"], "identity_mode": "sso"})
+    assert host.status_code == 201, host.text
+    intent_cookie = "bow_saml_test-idp_embed"
+
+    stale = None
+    if window == "abandoned":
+        _, opened = _window_form(saml_env, host.json()["public_id"])
+        stale = next(v for k, v in opened.cookies.items() if k.endswith("_embed"))
+        intent_cookie = next(k for k in opened.cookies.keys() if k.endswith("_embed"))
+    form, started = _window_form(saml_env, host.json()["public_id"] if window == "this_request" else None)
+    assert any(k.endswith("_embed") and v for k, v in started.cookies.items()) is (window == "this_request")
+    if stale:  # the browser kept it, whatever the server asked
+        client.cookies.set(intent_cookie, stale, domain="localhost", path=f"/api/auth/saml/{cfg.name}")
+
+    token = redeem(saml_env, submit(saml_env, form))
+    members = test_client.get(f"/api/organizations/{cfg.organization_id}/members", headers=admin).json()
+    member = next(m for m in members if (m.get("user") or {}).get("email") == "person@example.com")
+    in_window = window == "this_request"
+    assert member["role"] == ("app_user" if in_window else "member")
+    assert member["created_via_host_application"] == ("Portal" if in_window else None)
+    assert [r["name"] for r in member["roles"]] == ["app_user" if in_window else "member"]
+    reports = test_client.get("/api/reports", headers={"Authorization": f"Bearer {token}",
+                                                       "X-Organization-Id": cfg.organization_id})
+    assert reports.status_code == (403 if in_window else 200)
+
+
+def test_a_saml_request_that_cannot_be_tied_to_its_application_does_not_start(saml_env):
+    """Fail closed, as for OIDC: an unknown host application starts nothing."""
+    client, cfg, *_ = saml_env
+    refused = client.get(f"/api/auth/saml/{cfg.name}/authorize", params={"embed_host": "host_" + "0" * 20})
+    assert refused.status_code == 403, refused.text
+    assert "authorization_url" not in refused.text
+    assert client.get(f"/api/auth/saml/{cfg.name}/authorize").status_code == 200

@@ -1,5 +1,23 @@
 # Release Notes
 
+## Version 0.0.636 (November 24, 2026)
+- Added PII policies per agent; an agent's policy merges with the provider's and the strictest rule wins (#1911) — set in Settings → PII or the agent's settings
+- Added a SharePoint Server lists connector for on-prem SharePoint 2013+ over NTLM or Kerberos (#1910)
+- Added a Fathom connector for meetings, summaries and transcripts, with each user signing in to their own account (#1905)
+- Added sending requested files back to the user over WhatsApp (#1903)
+- Added removing a report from a project on the project page (#1902)
+- Added a per-user on/off toggle for personal connectors in the chat composer, remembered across chats (#1901)
+- Added app users: members who can use the apps (embedded artifacts) shared with them but not the workspace — set "New people join as" on a host application; give the workspace later by changing their role or through a group (#1914)
+- Added an app launcher at `/apps` listing the apps shared with you, with "Request full access" for app users (#1914)
+- Added "Use the workspace" to the role editor, on for every existing role (#1914)
+- Changed the command palette's All tab to show only reports and dashboards (#1900)
+- Changed a shared folder's instruction list in the Knowledge Explorer to show status, Pending review, category and load mode, like an agent's list (#1908)
+- Fixed result cards in chat opening collapsed, and a pending wait's Cancel button scrolling out of view (#1897)
+- Fixed Power BI schema refresh failing when one semantic model has no readable tables; that model is now skipped with a warning (#1907)
+- Fixed the Outlook Mail connect form missing its setup steps; it now lists the Entra app steps, permissions and the redirect URI to copy (#1912)
+- Fixed slow opening of shared dashboards with large results, which also blocked other requests while loading (#1909)
+- Fixed sign-up inside an embedded app's sign-in window not returning to the app (#1914)
+
 ## Version 0.0.635 (November 23, 2026)
 - Added agents with no data connection, built from instructions, files and a description only (#1895)
 - Added daily caps on LLM tokens, LLM spend, data queries and data scanned to usage policies, alongside monthly caps (#1896) — the day resets at midnight in the org's timezone

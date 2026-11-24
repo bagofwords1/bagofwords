@@ -69,6 +69,46 @@
                     </div>
                 </SettingsSection>
 
+                <!-- Which policy each agent adds (strictest wins; see docs/design/pii-agent-policies.md) -->
+                <SettingsSection :title="$t('settings.pii.agentsTitle')" :description="$t('settings.pii.agentsDesc')">
+                    <div data-testid="pii-agent-policies" :class="['space-y-3', { 'opacity-50 pointer-events-none': !pii.enabled }]">
+                        <div class="bow-table-card">
+                            <div class="flex items-center justify-between gap-4 px-5 py-3">
+                                <div class="min-w-0">
+                                    <div class="text-sm font-medium text-ink">{{ $t('settings.pii.defaultAgentPolicy') }}</div>
+                                    <div class="text-xs text-ink-muted">{{ $t('settings.pii.defaultAgentPolicyDesc') }}</div>
+                                </div>
+                                <USelect
+                                    :model-value="pii.default_agent_policy"
+                                    :options="defaultAgentOptions"
+                                    :aria-label="$t('settings.pii.defaultAgentPolicy')"
+                                    data-testid="pii-default-agent-policy"
+                                    size="sm" class="w-80 max-w-[50%] shrink-0"
+                                    @update:model-value="pii.default_agent_policy = $event; save()" />
+                            </div>
+                        </div>
+                        <div v-if="agents.length === 0" class="rounded-lg border border-dashed border-line">
+                            <SettingsEmpty icon="i-heroicons-circle-stack" :title="$t('settings.pii.noAgents')" compact />
+                        </div>
+                        <div v-else class="bow-table-card divide-y divide-line-subtle">
+                            <div v-for="agent in agents" :key="agent.id" data-testid="pii-agent-row" :data-agent-id="agent.id"
+                                 class="flex items-center justify-between gap-4 px-5 py-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <DataSourceIcon :type="agent.type" class="w-5 h-5 shrink-0" />
+                                    <div class="text-sm font-medium text-ink truncate">{{ agent.name }}</div>
+                                </div>
+                                <USelect
+                                    :model-value="agentPolicy(agent.id)"
+                                    :options="agentOptions"
+                                    :aria-label="$t('settings.pii.agentPolicyFor', { name: agent.name })"
+                                    data-testid="pii-agent-policy"
+                                    size="sm" class="w-80 max-w-[50%] shrink-0"
+                                    @update:model-value="setAgentPolicy(agent.id, $event); save()" />
+                            </div>
+                        </div>
+                    </div>
+                </SettingsSection>
+
                 <!-- Custom rules: defined once here, switched on per policy -->
                 <SettingsSection :title="$t('settings.pii.customTitle')" :description="$t('settings.pii.customDescShared')">
                     <template #actions>
@@ -172,14 +212,16 @@ import SettingsRow from '~/components/settings/SettingsRow.vue'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
-import { usePiiSettings, PII_DEFAULT, PII_EXEMPT, type PiiCustomRule } from '~/composables/usePiiSettings'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { usePiiSettings, PII_DEFAULT, PII_EXEMPT, PII_NONE, PII_INHERIT, type PiiCustomRule } from '~/composables/usePiiSettings'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
 const { t } = useI18n()
 const { hasFeature } = useEnterprise()
 const {
-    pii, loading, providers, policyIds, policyLabel, providerPolicy, setProviderPolicy, providersOf,
+    pii, loading, providers, agents, policyIds, policyLabel, providerPolicy, setProviderPolicy, providersOf,
+    agentPolicy, setAgentPolicy, agentsOf,
     enabledRuleCount, createPolicy, deleteCustomRule, load, save,
 } = usePiiSettings()
 
@@ -187,9 +229,27 @@ const policyOptions = computed(() => [
     ...policyIds.value.map(id => ({ label: policyLabel(id), value: id })),
     { label: t('settings.pii.exemptOption'), value: PII_EXEMPT },
 ])
+// Agents can't be Exempt: an agent policy only adds redaction.
+const defaultAgentOptions = computed(() => [
+    { label: t('settings.pii.noAgentPolicy'), value: PII_NONE },
+    ...policyIds.value.map(id => ({ label: policyLabel(id), value: id })),
+])
+const agentOptions = computed(() => [
+    {
+        label: t('settings.pii.inheritAgentPolicy', {
+            policy: '\u2068' + (pii.default_agent_policy === PII_NONE ? t('settings.pii.noAgentPolicy') : policyLabel(pii.default_agent_policy)) + '\u2069',
+        }),
+        value: PII_INHERIT,
+    },
+    ...defaultAgentOptions.value,
+])
 const usedBy = (id: string) => {
     const names = providersOf(id).map(p => p.name)
-    return names.length ? t('settings.pii.usedBy', { providers: names.join(', ') }) : t('settings.pii.usedByNone')
+    const agentCount = agentsOf(id).length
+    const parts = []
+    if (names.length) parts.push(t('settings.pii.usedBy', { providers: names.join(', ') }))
+    if (agentCount) parts.push(t('settings.pii.usedByAgents', { n: agentCount }, agentCount))
+    return parts.length ? parts.join(' · ') : t('settings.pii.usedByNone')
 }
 
 // --- new policy ---

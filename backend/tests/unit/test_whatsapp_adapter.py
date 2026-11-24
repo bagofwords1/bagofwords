@@ -341,6 +341,32 @@ async def test_send_file_in_thread_uploads_and_sends(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_send_file_uses_clean_filename_over_storage_basename(monkeypatch, tmp_path):
+    # The on-disk name carries a uuid prefix the recipient must never see;
+    # the explicit `filename` is what WhatsApp shows on the document bubble.
+    f = tmp_path / "7b1e0c42-9d3a-4f12-bc77-5e2a1f0e9a10_lease.pdf"
+    f.write_bytes(b"%PDF-1.4 x")
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.path.endswith("/media"):
+            return httpx.Response(200, json={"id": "media-doc"})
+        return httpx.Response(200, json={"messages": [{"id": "wamid.D"}]})
+
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client(handler))
+    a = make_adapter()
+    ok = await a.send_file_in_thread(
+        "15551234567", str(f), "lease.pdf", filename="lease.pdf"
+    )
+    assert ok is True
+    send_req = [r for r in calls if r.url.path.endswith("/messages")][-1]
+    body = json.loads(send_req.content.decode())
+    assert body["document"]["filename"] == "lease.pdf"  # not the uuid-prefixed basename
+    assert "7b1e0c42" not in body["document"]["filename"]
+
+
+@pytest.mark.asyncio
 async def test_send_image_in_dm_uploads_and_sends_image(monkeypatch, tmp_path):
     f = tmp_path / "chart.png"
     f.write_bytes(b"\x89PNG\r\n\x1a\n")

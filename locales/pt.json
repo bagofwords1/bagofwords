@@ -524,7 +524,8 @@
     "automations": "Automações",
     "agent": "Agente",
     "agents": "Agentes",
-    "viewAllAgents": "Ver todos os agentes →"
+    "viewAllAgents": "Ver todos os agentes →",
+    "apps": "Aplicativos"
   },
   "notifications": {
     "title": "Notificações",
@@ -1178,6 +1179,9 @@
     "dropHint": "Solte em um projeto",
     "movedTo": "Movido para {name}",
     "removeFromProject": "Remover do projeto",
+    "removedFromProject": "Removido do projeto",
+    "removeImpact": "Este relatório volta para a sua lista pessoal.",
+    "removeImpactShared": "Os membros deste projeto perderão o acesso a este relatório. Apenas você e as pessoas com quem o compartilhou diretamente o manterão.",
     "empty": "Novo projeto",
     "moveNoProjects": "Crie um projeto para organizar seus relatórios em pastas.",
     "moveShareDisclosure": "Mover um relatório para um projeto compartilhado permite que seus membros o vejam.",
@@ -2469,7 +2473,8 @@
       "manage_data_sources": "Gerenciar agentes",
       "manage_service_accounts": "Gerenciar contas de serviço",
       "view_code": "Ver código gerado",
-      "run_custom_code": "Editar e executar código personalizado"
+      "run_custom_code": "Editar e executar código personalizado",
+      "access_workspace": "Usar o espaço de trabalho"
     },
     "delete": "Excluir",
     "duplicate": "Duplicar",
@@ -2489,7 +2494,8 @@
       "knowledge": "Conhecimento dos agentes",
       "code": "Código",
       "admin": "Administração",
-      "other": "Outros"
+      "other": "Outros",
+      "workspace": "Espaço de trabalho"
     },
     "permissionHints": {
       "create_data_source": "Criar agentes nas conexões que podem usar",
@@ -2505,7 +2511,8 @@
       "manage_settings": "Alterar as configurações da organização",
       "manage_llm": "Configurar provedores e modelos de LLM",
       "view_audit_logs": "Ver quem fez o quê e quando",
-      "manage_identity_providers": "Configurar login único (SSO)"
+      "manage_identity_providers": "Configurar login único (SSO)",
+      "access_workspace": "Abrir o próprio espaço de trabalho: início, relatórios, agentes. Sem isso, um membro só tem os aplicativos compartilhados com ele."
     },
     "fullAdminHint": "Pode fazer tudo na organização",
     "fullAdminAccessTab": "O acesso total de administrador inclui todos os agentes, conexões e modelos.",
@@ -3279,7 +3286,9 @@
       "defaultRoleHint": "Preenche a função ao adicionar ou convidar um membro.",
       "defaultRoleSaved": "Função padrão salva",
       "defaultRoleFailed": "Falha ao salvar a função padrão",
-      "defaultRoleShort": "Função padrão"
+      "defaultRoleShort": "Função padrão",
+      "appUser": "Usuário de aplicativos",
+      "joinedVia": "Entrou por meio de {app}"
     },
     "organizationName": "Nome da organização",
     "organizationNameRequired": "O nome da organização não pode ficar vazio.",
@@ -4221,7 +4230,16 @@
         "LOCATION": "Lugar",
         "ORGANIZATION": "Organização",
         "NRP": "Nacionalidade, grupo religioso ou político"
-      }
+      },
+      "agentsTitle": "Políticas por agente",
+      "agentsDesc": "Escolha a política que cada agente adiciona. A política de um agente se aplica a toda solicitação que inclui o agente, inclusive os dados dos outros agentes no mesmo chat, mesmo com um provedor isento. Quando várias políticas se aplicam, vence a opção mais rigorosa de cada regra.",
+      "defaultAgentPolicy": "Padrão para agentes",
+      "defaultAgentPolicyDesc": "Agentes sem escolha própria usam esta política.",
+      "noAgents": "Ainda não há agentes.",
+      "agentPolicyFor": "Política de PII para {name}",
+      "noAgentPolicy": "Sem política de agente",
+      "inheritAgentPolicy": "Padrão da organização: {policy}",
+      "usedByAgents": "{n} agente | {n} agentes"
     },
     "piiTab": "Dados pessoais",
     "frameAncestors": {
@@ -4690,6 +4708,24 @@
           "title": "Exporte o certificado do SMS Provider",
           "body": "Por padrão, o site usa um certificado autoassinado. Execute isto no PowerShell do SMS Provider e cole a saída em SMS Provider certificate (PEM). Pule esta etapa se o certificado vier de uma AC em que este servidor já confia."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Registre um aplicativo no Microsoft Entra",
+          "body": "No centro de administração do Microsoft Entra, vá para App registrations > New registration. Escolha \"Accounts in this organizational directory only\". Na página Overview do aplicativo, copie Directory (tenant) ID e Application (client) ID para os campos abaixo."
+        },
+        {
+          "title": "Adicione o URI de redirecionamento",
+          "body": "No aplicativo, vá para Authentication > Add a platform > Web e cole este URI de redirecionamento."
+        },
+        {
+          "title": "Conceda permissões do Microsoft Graph",
+          "body": "Em API permissions > Add a permission > Microsoft Graph > Delegated permissions, adicione Mail.Read, User.Read, offline_access, openid e profile. Para permitir que os agentes movam, redijam ou enviem e-mails, adicione também Mail.ReadWrite e Mail.Send. Depois clique em \"Grant admin consent\" para que os usuários não precisem aprovar o aplicativo. Use apenas permissões Delegated, não Application: o conector lê somente a caixa de correio do usuário conectado."
+        },
+        {
+          "title": "Crie um segredo do cliente",
+          "body": "Em Certificates & secrets > New client secret, crie um segredo e copie o seu Value (não o Secret ID) para Client Secret abaixo. Não será possível ver o valor novamente depois."
+        }
       ]
     },
     "setupGuideCopyFailed": "Falha ao copiar — selecione o texto",
@@ -5121,7 +5157,8 @@
     "organization.name_taken": "Já existe uma organização chamada “{name}”.",
     "organization.signup_domains_instance_admin_required": "Só um administrador da instância pode atribuir domínios de registo a uma organização.",
     "organization.signup_domain_claimed": "O domínio {domain} já está atribuído a outra organização.",
-    "organization.member_instance_admin": "Esta conta é de um administrador da instância. Apenas um administrador da instância pode adicioná-la a uma organização."
+    "organization.member_instance_admin": "Esta conta é de um administrador da instância. Apenas um administrador da instância pode adicioná-la a uma organização.",
+    "workspace.access_required": "Sua conta pode usar os aplicativos compartilhados com você, mas não o espaço de trabalho."
   },
   "email": {
     "dashboardShare": {
@@ -7719,6 +7756,9 @@
       "denied": "Você não tem acesso a isto. Peça ao proprietário que compartilhe com você.",
       "notAllowed": "Isto não está habilitado para este aplicativo. Um editor pode permitir isso nas configurações de incorporação no BOW.",
       "failed": "Não foi possível carregar. Tente novamente em instantes."
+    },
+    "signin": {
+      "intentFailed": "Não foi possível confirmar o aplicativo em que você está entrando. Nada foi enviado. Tente novamente."
     }
   },
   "connectedApps": {
@@ -7776,6 +7816,10 @@
     "shareToggleLabel": "Disponibilizar para todos na sua organização",
     "shareToggleHint": "Adiciona “{name}” aos conectores de todos. Cada pessoa entra com a própria conta — ninguém vê os dados dos outros.",
     "useAsAgent": "Usar como agente",
+    "enableForChat": "Ativar para o chat",
+    "disableForChat": "Desativar para o chat",
+    "enabledHint": "Ativado — a IA pode usá-lo no chat",
+    "disabledHint": "Desativado — a IA não o usará no chat",
     "movedToAgents": "{name} agora é um agente"
   },
   "tablePreview": {
@@ -7882,6 +7926,13 @@
       "none": "Sem limite",
       "ask": "Perguntar",
       "auto": "Automático"
+    },
+    "pii": {
+      "title": "Política de PII",
+      "hint": "Aplica-se a toda solicitação que inclui este agente, além da política do modelo. Vence a opção mais rigorosa de cada regra.",
+      "disabled": "A proteção de PII está desativada nesta organização.",
+      "saved": "Política de PII salva",
+      "saveError": "Não foi possível salvar a política de PII"
     }
   },
   "productUpdates": {
@@ -8270,5 +8321,40 @@
       "key": "identificador",
       "set_by_admin": "definida por um administrador"
     }
+  },
+  "apps": {
+    "title": "Seus aplicativos",
+    "subtitle": "Abra um aplicativo para começar.",
+    "openWorkspace": "Abrir o espaço de trabalho",
+    "search": "Buscar aplicativos",
+    "untitled": "Aplicativo sem título",
+    "inApplication": "Em {name}",
+    "allApps": "Todos os aplicativos",
+    "language": "Idioma",
+    "account": "Conta",
+    "signOut": "Sair",
+    "loadFailed": "Não foi possível carregar seus aplicativos.",
+    "retry": "Tentar novamente",
+    "noMatches": "Nenhum aplicativo corresponde a “{query}”.",
+    "empty": {
+      "title": "Ainda não há aplicativos",
+      "body": "Quando alguém compartilhar um aplicativo com você, ele aparecerá aqui."
+    },
+    "requestAccess": {
+      "prompt": "Precisa de mais do que estes aplicativos?",
+      "button": "Solicitar acesso completo",
+      "sent": "Solicitação enviada. Um administrador irá analisá-la.",
+      "failed": "Não foi possível enviar a solicitação. Tente novamente."
+    },
+    "showMore": "Mostrar mais"
+  },
+  "hostApps": {
+    "newUserRole": "Novas pessoas entram como",
+    "newUserRoleHelp": "Para contas criadas ao entrar por este aplicativo. Quem já tem uma conta mantém sua função.",
+    "newUserRoleApp": "Usuário de aplicativos",
+    "newUserRoleAppHelp": "Pode usar os aplicativos compartilhados com ele, não o espaço de trabalho.",
+    "newUserRoleMember": "Membro",
+    "newUserRoleMemberHelp": "Também pode usar o espaço de trabalho: relatórios, agentes e painéis.",
+    "newPeopleAs": "novas pessoas entram como {role}"
   }
 }

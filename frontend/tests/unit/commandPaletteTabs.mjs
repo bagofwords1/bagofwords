@@ -11,11 +11,12 @@ const scoped = { inReport: true, scoped: true }
 // "All" leads and is the mixed list; the four categories follow in the agreed order.
 assert.deepEqual(PALETTE_TABS, ['all', 'reports', 'agents', 'instructions', 'dashboards'])
 
-// Every category is reachable from "All", and each focused tab shows its own group.
-const allGroups = groupsForTab('all', plain)
-for (const g of ['actions', 'reports', 'prompts', 'agents', 'instructions', 'dashboards']) {
-  assert.ok(allGroups.includes(g), `All shows ${g}`)
+// "All" is only reports and dashboards (plus "New report"); the rest live in their tabs.
+assert.deepEqual(groupsForTab('all', plain), ['actions', 'reports', 'dashboards'])
+for (const g of ['prompts', 'agents', 'instructions']) {
+  assert.ok(!groupsForTab('all', plain).includes(g), `All hides ${g}`)
 }
+assert.deepEqual(fetchesForTab('all', plain), ['reports', 'dashboards'])
 assert.ok(groupsForTab('reports', plain).includes('reports'))
 assert.deepEqual(groupsForTab('agents', plain), ['agents'])
 assert.ok(groupsForTab('instructions', plain).includes('instructions'))
@@ -49,8 +50,8 @@ assert.deepEqual(fetchesForTab('agents', plain), [], 'agents filter client-side'
 assert.deepEqual(fetchesForTab('dashboards', plain), ['dashboards'])
 assert.deepEqual(fetchesForTab('reports', scoped), ['inReport'])
 
-// Actions: both under All, only the fitting one elsewhere.
-assert.deepEqual(actionsForTab('all'), ['newReport', 'newInstruction'])
+// Actions: only the fitting one per tab; All keeps "New report" for ⌘K → type → Enter.
+assert.deepEqual(actionsForTab('all'), ['newReport'])
 assert.deepEqual(actionsForTab('reports'), ['newReport'])
 assert.deepEqual(actionsForTab('instructions'), ['newInstruction'])
 assert.deepEqual(actionsForTab('agents'), [])

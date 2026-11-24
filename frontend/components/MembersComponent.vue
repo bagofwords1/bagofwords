@@ -172,6 +172,10 @@
                                         <div class="ms-3 leading-tight">
                                             <div class="bow-cell-primary">{{ member.user.name }}</div>
                                             <div class="bow-cell-secondary">{{ member.user.email }}</div>
+                                            <!-- An account created by signing in through a host application. -->
+                                            <div v-if="member.created_via_host_application" class="bow-cell-secondary" data-testid="member-joined-via">
+                                                {{ $t('settings.members.joinedVia', { app: member.created_via_host_application }) }}
+                                            </div>
                                         </div>
                                     </div>
                                     <div v-else class="flex items-center">
@@ -198,19 +202,19 @@
                                     >
                                         <template #label>
                                             <div class="flex gap-1 items-center">
-                                                <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" variant="subtle">
+                                                <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" variant="subtle" class="whitespace-nowrap">
                                                     {{ cap(r.name) }}
                                                     <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-2xs">via {{ r.source.replace('group:', '') }}</span>
                                                 </UBadge>
                                                 <UBadge v-if="!member.roles?.length" size="xs" color="gray" variant="subtle">
-                                                    {{ member.role ? member.role.charAt(0).toUpperCase() + member.role.slice(1) : '—' }}
+                                                    {{ member.role ? cap(member.role) : '—' }}
                                                 </UBadge>
                                             </div>
                                         </template>
                                     </USelectMenu>
                                     <template v-else-if="member.roles?.length">
                                         <div class="flex gap-1 items-center">
-                                            <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" variant="subtle">
+                                            <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" variant="subtle" class="whitespace-nowrap">
                                                 {{ cap(r.name) }}
                                                 <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-2xs">via {{ r.source.replace('group:', '') }}</span>
                                             </UBadge>
@@ -218,7 +222,7 @@
                                     </template>
                                     <template v-else>
                                         <UBadge size="xs" color="gray">
-                                            {{ member.role?.charAt(0).toUpperCase() + member.role?.slice(1) }}
+                                            {{ cap(member.role) }}
                                         </UBadge>
                                     </template>
                                 </td>
@@ -709,6 +713,7 @@ interface Member {
     email?: string
     role?: string
     roles?: { id: string; name: string; source?: string }[]
+    created_via_host_application?: string | null
     note?: string | null
     custom_attributes?: Record<string, string> | null
     created_at: string
@@ -853,6 +858,8 @@ function getDirectRoleIds(member: Member): string[] {
 // lowercase, e.g. "admin") match the capitalized fallback ("Member").
 function cap(name?: string): string {
     if (!name) return ''
+    // The built-in role of a member who has only the apps shared with them.
+    if (name === 'app_user') return t('settings.members.appUser')
     return name.charAt(0).toUpperCase() + name.slice(1)
 }
 
@@ -1175,6 +1182,20 @@ async function updateMemberRoles(member: any, selectedRoleIds: string[]) {
         const principalId = userId || member.id
 
         const currentRoleIds = (member.roles || []).filter((r: any) => !r.source || r.source === 'direct').map((r: any) => r.id)
+        // "App user" is the role without the workspace, so it and the
+        // built-in workspace roles replace each other: picking Member for an
+        // app user gives them the workspace (and the reverse takes it away),
+        // instead of leaving both badges on the row.
+        const appUserId = availableRoles.value.find(r => r.name === 'app_user')?.id
+        if (appUserId) {
+            const workspaceIds = availableRoles.value.filter(r => r.name === 'member' || r.name === 'admin').map(r => r.id)
+            const picked = selectedRoleIds.filter((id: string) => !currentRoleIds.includes(id))
+            if (picked.includes(appUserId)) {
+                selectedRoleIds = selectedRoleIds.filter((id: string) => !workspaceIds.includes(id))
+            } else if (picked.some((id: string) => workspaceIds.includes(id))) {
+                selectedRoleIds = selectedRoleIds.filter((id: string) => id !== appUserId)
+            }
+        }
         const added = selectedRoleIds.filter((id: string) => !currentRoleIds.includes(id))
         const removed = currentRoleIds.filter((id: string) => !selectedRoleIds.includes(id))
 

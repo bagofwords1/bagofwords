@@ -667,6 +667,20 @@ class ExternalPlatformManager:
                 print(f"Failed to send access-revoked DM: {e}")
             return {"success": False, "error": "User is not a member of this organization"}
 
+        # An app user uses the apps shared with them, not the workspace: the
+        # chat platforms are the workspace (they start reports).
+        from app.core.workspace_access import has_workspace_access
+        if not await has_workspace_access(db, user, str(organization.id)):
+            try:
+                await adapter.send_dm(
+                    user_mapping.external_user_id,
+                    "Your account can use the apps shared with you, but not this workspace. "
+                    "Ask your admin for full access.",
+                )
+            except Exception as e:
+                print(f"Failed to send no-workspace-access DM: {e}")
+            return {"success": False, "error": "Workspace access is required"}
+
         # The message is handled as this member in this organization.
         from app.core.request_org import set_request_organization_id
         set_request_organization_id(str(organization.id))

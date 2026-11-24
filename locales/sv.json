@@ -524,7 +524,8 @@
     "automations": "Automatiseringar",
     "agent": "Agent",
     "agents": "Agenter",
-    "viewAllAgents": "Visa alla agenter →"
+    "viewAllAgents": "Visa alla agenter →",
+    "apps": "Appar"
   },
   "notifications": {
     "title": "Aviseringar",
@@ -1178,6 +1179,9 @@
     "dropHint": "Släpp på ett projekt",
     "movedTo": "Flyttad till {name}",
     "removeFromProject": "Ta bort från projektet",
+    "removedFromProject": "Borttagen från projektet",
+    "removeImpact": "Rapporten flyttas tillbaka till din personliga lista.",
+    "removeImpactShared": "Medlemmar i det här projektet förlorar åtkomst till rapporten. Endast du och de du delat den direkt med behåller den.",
     "empty": "Nytt projekt",
     "moveNoProjects": "Skapa ett projekt för att organisera dina rapporter i mappar.",
     "moveShareDisclosure": "Att flytta en rapport till ett delat projekt låter medlemmarna se den.",
@@ -2469,7 +2473,8 @@
       "manage_data_sources": "Hantera agenter",
       "manage_service_accounts": "Hantera tjänstkonton",
       "view_code": "Visa genererad kod",
-      "run_custom_code": "Redigera och köra egen kod"
+      "run_custom_code": "Redigera och köra egen kod",
+      "access_workspace": "Använda arbetsytan"
     },
     "delete": "Ta bort",
     "duplicate": "Duplicera",
@@ -2489,7 +2494,8 @@
       "knowledge": "Agenternas kunskap",
       "code": "Kod",
       "admin": "Administration",
-      "other": "Övrigt"
+      "other": "Övrigt",
+      "workspace": "Arbetsyta"
     },
     "permissionHints": {
       "create_data_source": "Skapa agenter på anslutningar de kan använda",
@@ -2505,7 +2511,8 @@
       "manage_settings": "Ändra organisationens inställningar",
       "manage_llm": "Konfigurera LLM-leverantörer och modeller",
       "view_audit_logs": "Se vem som gjorde vad och när",
-      "manage_identity_providers": "Konfigurera enkel inloggning"
+      "manage_identity_providers": "Konfigurera enkel inloggning",
+      "access_workspace": "Öppna själva arbetsytan: start, rapporter, agenter. Utan den har en medlem bara apparna som delats med hen."
     },
     "fullAdminHint": "Kan göra allt i organisationen",
     "fullAdminAccessTab": "Full administratörsåtkomst omfattar alla agenter, anslutningar och modeller.",
@@ -3279,7 +3286,9 @@
       "defaultRoleHint": "Förifyller rollen när du lägger till eller bjuder in en medlem.",
       "defaultRoleSaved": "Standardroll sparad",
       "defaultRoleFailed": "Det gick inte att spara standardrollen",
-      "defaultRoleShort": "Standardroll"
+      "defaultRoleShort": "Standardroll",
+      "appUser": "Appanvändare",
+      "joinedVia": "Gick med via {app}"
     },
     "organizationName": "Organisationens namn",
     "organizationNameRequired": "Organisationens namn får inte vara tomt.",
@@ -4221,7 +4230,16 @@
         "LOCATION": "Plats",
         "ORGANIZATION": "Organisation",
         "NRP": "Nationalitet, religiös eller politisk grupp"
-      }
+      },
+      "agentsTitle": "Policyer per agent",
+      "agentsDesc": "Välj den policy som varje agent lägger till. En agents policy gäller varje förfrågan som omfattar agenten, inklusive andra agenters data i samma chatt, även hos en undantagen leverantör. När flera policyer gäller vinner det strängaste alternativet för varje regel.",
+      "defaultAgentPolicy": "Standard för agenter",
+      "defaultAgentPolicyDesc": "Agenter utan eget val använder den här policyn.",
+      "noAgents": "Inga agenter ännu.",
+      "agentPolicyFor": "PII-policy för {name}",
+      "noAgentPolicy": "Ingen agentpolicy",
+      "inheritAgentPolicy": "Organisationens standard: {policy}",
+      "usedByAgents": "{n} agent | {n} agenter"
     },
     "piiTab": "Personuppgifter",
     "frameAncestors": {
@@ -4690,6 +4708,24 @@
           "title": "Exportera SMS Providerns certifikat",
           "body": "Platsen använder som standard ett självsignerat certifikat. Kör detta i PowerShell på SMS Providern och klistra in utdata i SMS Provider certificate (PEM). Hoppa över steget om certifikatet kommer från en CA som den här servern redan litar på."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Registrera en app i Microsoft Entra",
+          "body": "Gå till App registrations > New registration i administrationscentret för Microsoft Entra. Välj \"Accounts in this organizational directory only\". Kopiera Directory (tenant) ID och Application (client) ID från appens Overview till fälten nedan."
+        },
+        {
+          "title": "Lägg till omdirigerings-URI:n",
+          "body": "Gå till Authentication > Add a platform > Web i appen och klistra in den här omdirigerings-URI:n."
+        },
+        {
+          "title": "Bevilja Microsoft Graph-behörigheter",
+          "body": "Under API permissions > Add a permission > Microsoft Graph > Delegated permissions lägger du till Mail.Read, User.Read, offline_access, openid och profile. För att låta agenter flytta, skriva utkast till eller skicka e-post lägger du även till Mail.ReadWrite och Mail.Send. Klicka sedan på \"Grant admin consent\" så att användarna inte behöver godkänna appen. Använd endast Delegated-behörigheter, inte Application-behörigheter: anslutningen läser bara den inloggade användarens postlåda."
+        },
+        {
+          "title": "Skapa en klienthemlighet",
+          "body": "Under Certificates & secrets > New client secret skapar du en hemlighet och kopierar dess Value (inte Secret ID) till Client Secret nedan. Värdet kan inte visas igen senare."
+        }
       ]
     },
     "setupGuideCopyFailed": "Kopiering misslyckades — markera texten",
@@ -5121,7 +5157,8 @@
     "organization.name_taken": "Det finns redan en organisation med namnet ”{name}”.",
     "organization.signup_domains_instance_admin_required": "Endast en instansadministratör kan tilldela registreringsdomäner till en organisation.",
     "organization.signup_domain_claimed": "Domänen {domain} är redan tilldelad en annan organisation.",
-    "organization.member_instance_admin": "Det här kontot tillhör en instansadministratör. Endast en instansadministratör kan lägga till det i en organisation."
+    "organization.member_instance_admin": "Det här kontot tillhör en instansadministratör. Endast en instansadministratör kan lägga till det i en organisation.",
+    "workspace.access_required": "Ditt konto kan använda apparna som delats med dig, men inte arbetsytan."
   },
   "email": {
     "dashboardShare": {
@@ -7719,6 +7756,9 @@
       "denied": "Du har inte åtkomst till det här. Be ägaren att dela det med dig.",
       "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i BOW.",
       "failed": "Det gick inte att läsa in. Försök igen om en stund."
+    },
+    "signin": {
+      "intentFailed": "Det gick inte att bekräfta appen du loggar in på. Inget skickades. Försök igen."
     }
   },
   "connectedApps": {
@@ -7776,6 +7816,10 @@
     "shareToggleLabel": "Gör tillgänglig för alla i organisationen",
     "shareToggleHint": "Lägger till ”{name}” bland allas kopplingar. Var och en loggar in med sitt eget konto — ingen ser någon annans data.",
     "useAsAgent": "Använd som agent",
+    "enableForChat": "Aktivera för chatt",
+    "disableForChat": "Inaktivera för chatt",
+    "enabledHint": "På – AI:n kan använda den i chatten",
+    "disabledHint": "Av – AI:n använder den inte i chatten",
     "movedToAgents": "{name} är nu en agent"
   },
   "tablePreview": {
@@ -7882,6 +7926,13 @@
       "none": "Inget tak",
       "ask": "Fråga",
       "auto": "Auto"
+    },
+    "pii": {
+      "title": "PII-policy",
+      "hint": "Gäller varje förfrågan som omfattar den här agenten, utöver modellens policy. Det strängaste alternativet för varje regel vinner.",
+      "disabled": "PII-skydd är avstängt för den här organisationen.",
+      "saved": "PII-policyn sparades",
+      "saveError": "Det gick inte att spara PII-policyn"
     }
   },
   "productUpdates": {
@@ -8270,5 +8321,40 @@
       "key": "identifierare",
       "set_by_admin": "angiven av en administratör"
     }
+  },
+  "apps": {
+    "title": "Dina appar",
+    "subtitle": "Öppna en app för att komma igång.",
+    "openWorkspace": "Öppna arbetsytan",
+    "search": "Sök appar",
+    "untitled": "Namnlös app",
+    "inApplication": "I {name}",
+    "allApps": "Alla appar",
+    "language": "Språk",
+    "account": "Konto",
+    "signOut": "Logga ut",
+    "loadFailed": "Det gick inte att läsa in dina appar.",
+    "retry": "Försök igen",
+    "noMatches": "Inga appar matchar ”{query}”.",
+    "empty": {
+      "title": "Inga appar ännu",
+      "body": "När någon delar en app med dig visas den här."
+    },
+    "requestAccess": {
+      "prompt": "Behöver du mer än de här apparna?",
+      "button": "Begär full åtkomst",
+      "sent": "Begäran skickad. En administratör granskar den.",
+      "failed": "Det gick inte att skicka begäran. Försök igen."
+    },
+    "showMore": "Visa fler"
+  },
+  "hostApps": {
+    "newUserRole": "Nya personer går med som",
+    "newUserRoleHelp": "För konton som skapas vid inloggning via den här applikationen. De som redan har ett konto behåller sin roll.",
+    "newUserRoleApp": "Appanvändare",
+    "newUserRoleAppHelp": "Kan använda apparna som delats med hen, inte arbetsytan.",
+    "newUserRoleMember": "Medlem",
+    "newUserRoleMemberHelp": "Kan också använda arbetsytan: rapporter, agenter och dashboards.",
+    "newPeopleAs": "nya personer går med som {role}"
   }
 }

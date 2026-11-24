@@ -232,7 +232,9 @@
 <script setup lang="ts">
 import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
 import { ref as activityRef } from 'vue'
-const toolHeaderExpanded = activityRef(false)
+// Open by default: what was created (agents, tables) is the result of
+// this call, not a detail of it. It also opens itself for review while waiting.
+const toolHeaderExpanded = activityRef(true)
 
 import { computed, ref, watch } from 'vue'
 import Spinner from '~/components/Spinner.vue'

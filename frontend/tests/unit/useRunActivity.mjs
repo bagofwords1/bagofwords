@@ -4,6 +4,7 @@ import {
   computeRunActivity,
   computeRunToolGroups,
   describeDataOutput,
+  isPendingWait,
   findFinalBlock,
 } from '../../composables/useRunActivity.ts'
 
@@ -478,4 +479,44 @@ console.log('useRunActivity: shared-link payload assertions passed')
   const x = tool('read_file'), y = tool('grep_files')
   assert.deepEqual(ids([x, y]), [[x.id, y.id]])
   console.log('useRunActivity: deliverables stay out of tool groups passed')
+}
+
+// A wait still armed keeps its card (countdown + Cancel) in view: the page
+// passes it as keepVisible, so a run that ends on it lists the card under the
+// conclusion instead of folding it away. Cancelled, elapsed or failed waits
+// fold like any other step.
+{
+  const now = Date.UTC(2026, 0, 1, 12, 0, 0)
+  const iso = (ms) => new Date(ms).toISOString()
+  const te = (rj) => ({ tool_name: 'wait', status: 'success', result_json: rj })
+  assert.equal(isPendingWait(te({ status: 'scheduled', wake_at: iso(now + 60000) }), now), true)
+  assert.equal(isPendingWait(te({ status: 'scheduled', wake_at: iso(now - 1000) }), now), false)
+  assert.equal(isPendingWait(te({ status: 'cancelled', wake_at: iso(now + 60000) }), now), false)
+  assert.equal(isPendingWait(te({ status: 'scheduled' }), now), true, 'no wake time yet: still armed')
+  assert.equal(isPendingWait(te({}), now), false)
+  assert.equal(isPendingWait({ tool_name: 'run_eval', result_json: { status: 'scheduled' } }, now), false)
+
+  const data = tool('create_data', { title: 'Revenue' })
+  const wait = tool('wait', { delay_minutes: 10 }, {
+    te: { result_json: { status: 'scheduled', wake_at: iso(Date.now() + 600000) } },
+    block: { content: 'Waiting 10 minutes, then I\'ll pick this back up automatically.', plan_decision: { analysis_complete: true } },
+  })
+  const keepVisible = (b) => isPendingWait(b.tool_execution)
+  const done = computeRunActivity([data, wait], { runStatus: 'success', keepVisible })
+  assert.equal(done?.finalBlockId, wait.id, 'the wait ends the turn with its message')
+  assert.deepEqual(done?.deliverableIds, [wait.id])
+  assert.deepEqual(computeRunActivity([data, wait], { runStatus: 'success', keepVisible: () => false })?.deliverableIds, [])
+  console.log('useRunActivity: an armed wait stays in view passed')
+}
+
+// Approved or undone actions are deliverables too: their outcome stays under
+// the conclusion, and they never join a live tool group.
+{
+  for (const name of ['delete_list_rows', 'set_report_agents', 'cancel_wait', 'cancel_scheduled_task', 'stop_eval_run', 'stop_sub_agent']) {
+    const read = tool('read_file'), act = tool(name)
+    assert.deepEqual(computeRunToolGroups([read, act], undefined, false).map((g) => g.blockIds), [[read.id], [act.id]], name)
+    const done = computeRunActivity([read, act, final()], { runStatus: 'success' })
+    assert.deepEqual(done?.deliverableIds, [act.id], name)
+  }
+  console.log('useRunActivity: approved and undone actions stay in view passed')
 }

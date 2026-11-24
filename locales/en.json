@@ -621,7 +621,8 @@
     "admin": "Admin",
     "backToApp": "Back to app",
     "notifications": "Notifications",
-    "automations": "Automations"
+    "automations": "Automations",
+    "apps": "Apps"
   },
   "notifications": {
     "title": "Notifications",
@@ -1298,6 +1299,9 @@
     "dropHint": "Drop on a project",
     "movedTo": "Moved to {name}",
     "removeFromProject": "Remove from project",
+    "removedFromProject": "Removed from project",
+    "removeImpact": "This report moves back to your personal list.",
+    "removeImpactShared": "Members of this project will lose access to this report. Only you and anyone you've shared it with directly will keep it.",
     "empty": "New project",
     "moveNoProjects": "Create a project to organize your reports into folders.",
     "moveShareDisclosure": "Moving a report into a shared project lets its members view the report.",
@@ -2830,7 +2834,8 @@
       "manage": "Manage settings",
       "manage_connection": "Manage connection",
       "create_data_sources": "Create agents",
-      "manage_data_sources": "Manage agents"
+      "manage_data_sources": "Manage agents",
+      "access_workspace": "Use the workspace"
     },
     "delete": "Delete",
     "duplicate": "Duplicate",
@@ -2850,7 +2855,8 @@
       "knowledge": "Agent knowledge",
       "code": "Code",
       "admin": "Administration",
-      "other": "Other"
+      "other": "Other",
+      "workspace": "Workspace"
     },
     "permissionHints": {
       "create_data_source": "Create new agents on connections they can use",
@@ -2866,7 +2872,8 @@
       "manage_settings": "Change organization settings",
       "manage_llm": "Configure LLM providers and models",
       "view_audit_logs": "See who did what, and when",
-      "manage_identity_providers": "Configure single sign-on"
+      "manage_identity_providers": "Configure single sign-on",
+      "access_workspace": "Open the workspace itself: home, reports, agents. Without it, a member only has the apps shared with them."
     },
     "fullAdminHint": "Can do everything in the organization",
     "fullAdminAccessTab": "Full admin access includes every agent, connection and model.",
@@ -3765,7 +3772,9 @@
       "defaultRoleShort": "Default role",
       "importButton": "Import",
       "colNote": "Note",
-      "colLastLogin": "Last login"
+      "colLastLogin": "Last login",
+      "appUser": "App user",
+      "joinedVia": "Joined via {app}"
     },
     "organizationName": "Organization name",
     "organizationNameRequired": "Organization name can't be empty.",
@@ -4852,7 +4861,16 @@
         "LOCATION": "Location",
         "ORGANIZATION": "Organization",
         "NRP": "Nationality, religious or political group"
-      }
+      },
+      "agentsTitle": "Agent policies",
+      "agentsDesc": "Choose the policy each agent adds. An agent's policy applies to every request that includes the agent, including the other agents' data in the same chat, and even on an Exempt provider. When several policies apply, the strictest option for each rule wins.",
+      "defaultAgentPolicy": "Default for agents",
+      "defaultAgentPolicyDesc": "Agents without their own choice use this policy.",
+      "noAgents": "No agents yet.",
+      "agentPolicyFor": "PII policy for {name}",
+      "noAgentPolicy": "No agent policy",
+      "inheritAgentPolicy": "Org default: {policy}",
+      "usedByAgents": "{n} agent | {n} agents"
     },
     "adminPages": {
       "members": "Invite people to the workspace and manage their role, groups and access.",
@@ -5427,6 +5445,24 @@
           "title": "Create an API token",
           "body": "In your Atlassian account go to Security > API tokens > Create API token with scopes, pick Bitbucket and grant read:repository:bitbucket. Leave Username empty. For a repository access token, set Username to x-token-auth."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Register an app in Microsoft Entra",
+          "body": "In the Microsoft Entra admin center go to App registrations > New registration. Choose \"Accounts in this organizational directory only\". From the app's Overview, copy the Directory (tenant) ID and the Application (client) ID into the fields below."
+        },
+        {
+          "title": "Add the redirect URI",
+          "body": "In the app go to Authentication > Add a platform > Web and paste this redirect URI."
+        },
+        {
+          "title": "Grant Microsoft Graph permissions",
+          "body": "In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app. Use Delegated permissions only, not Application permissions: the connector reads only the signed-in user's mailbox."
+        },
+        {
+          "title": "Create a client secret",
+          "body": "In Certificates & secrets > New client secret, create a secret and copy its Value (not the Secret ID) into Client Secret below. You can't view the value again later."
+        }
       ]
     },
     "setupGuideCopyFailed": "Copy failed — select the text",
@@ -5879,7 +5915,8 @@
     "organization.name_taken": "An organization named “{name}” already exists.",
     "organization.signup_domains_instance_admin_required": "Only an instance administrator can assign sign-up domains to an organization.",
     "organization.signup_domain_claimed": "The domain {domain} is already assigned to another organization.",
-    "organization.member_instance_admin": "This account is an instance administrator. Only an instance administrator can add it to an organization."
+    "organization.member_instance_admin": "This account is an instance administrator. Only an instance administrator can add it to an organization.",
+    "workspace.access_required": "Your account can use the apps shared with you, but not the workspace."
   },
   "email": {
     "dashboardShare": {
@@ -8606,7 +8643,8 @@
     "signin": {
       "working": "Signing you in…",
       "done": "Signed in. You can close this window.",
-      "invalid": "This sign-in link is incomplete. Close this window and try again."
+      "invalid": "This sign-in link is incomplete. Close this window and try again.",
+      "intentFailed": "Couldn't confirm the app you're signing in to. Nothing was sent. Try again."
     },
     "tab": {
       "title": "Embed",
@@ -8660,7 +8698,7 @@
     "audience": "Audience",
     "audienceHelp": "The aud of the ID tokens your provider issues to this application",
     "createUsers": "Create people on first sign-in",
-    "createUsersHelp": "Someone the directory knows but BOW doesn't yet joins as a member. Otherwise they must exist already (invited or provisioned).",
+    "createUsersHelp": "Someone the directory knows but BOW doesn't yet gets an account on first sign-in, with the role below. Otherwise they must exist already (invited or provisioned).",
     "createsUsers": "creates people",
     "create": "Create",
     "keyOnce": "Copy the private key now and store it in your application's backend secrets. It is shown only once; BOW keeps the public key only.",
@@ -8681,7 +8719,14 @@
     "delete": "Delete",
     "deleteConfirm": "Delete {name}? Its embeds stop working and everyone is signed out.",
     "backendExample": "Backend example",
-    "backendExampleHelp": "Sign one assertion per sign-in, for the user your application has signed in:"
+    "backendExampleHelp": "Sign one assertion per sign-in, for the user your application has signed in:",
+    "newUserRole": "New people join as",
+    "newUserRoleHelp": "For accounts created by signing in through this application. People who already have an account keep their role.",
+    "newUserRoleApp": "App user",
+    "newUserRoleAppHelp": "Can use the apps shared with them, not the workspace.",
+    "newUserRoleMember": "Member",
+    "newUserRoleMemberHelp": "Can also use the workspace: reports, agents and dashboards.",
+    "newPeopleAs": "new people join as {role}"
   },
   "connectedApps": {
     "title": "Connected applications",
@@ -8738,6 +8783,10 @@
     "shareToggleLabel": "Make available to everyone in your org",
     "shareToggleHint": "Adds “{name}” to everyone's connectors. Each person signs in with their own account — nobody sees anyone else's data.",
     "useAsAgent": "Use as agent",
+    "enableForChat": "Turn on for chat",
+    "disableForChat": "Turn off for chat",
+    "enabledHint": "On — the AI can use this in chat",
+    "disabledHint": "Off — the AI won't use this in chat",
     "movedToAgents": "{name} is now an agent"
   },
   "tablePreview": {
@@ -8844,6 +8893,13 @@
       "none": "No cap",
       "ask": "Ask",
       "auto": "Auto"
+    },
+    "pii": {
+      "title": "PII policy",
+      "hint": "Applies to every request that includes this agent, on top of the model's own policy. The strictest option for each rule wins.",
+      "disabled": "PII protection is off for this organization.",
+      "saved": "PII policy saved",
+      "saveError": "Couldn't save the PII policy"
     }
   },
   "productUpdates": {
@@ -9245,5 +9301,31 @@
     "deleteKeepsAgents": "Agents are kept. An agent that uses only this connection will have no data connection until you link another.",
     "impactLoadFailed": "Couldn't load what this delete affects.",
     "deleteRemovesConnectors": "Deleted with it (connectors that use only this connection): {names}"
+  },
+  "apps": {
+    "title": "Your apps",
+    "subtitle": "Open an app to get started.",
+    "openWorkspace": "Open workspace",
+    "search": "Search apps",
+    "untitled": "Untitled app",
+    "inApplication": "In {name}",
+    "allApps": "All apps",
+    "language": "Language",
+    "account": "Account",
+    "signOut": "Sign out",
+    "loadFailed": "Couldn't load your apps.",
+    "retry": "Try again",
+    "noMatches": "No apps match “{query}”.",
+    "empty": {
+      "title": "No apps yet",
+      "body": "When someone shares an app with you, it will show up here."
+    },
+    "requestAccess": {
+      "prompt": "Need more than these apps?",
+      "button": "Request full access",
+      "sent": "Request sent. An admin will review it.",
+      "failed": "Couldn't send the request. Try again."
+    },
+    "showMore": "Show more"
   }
 }

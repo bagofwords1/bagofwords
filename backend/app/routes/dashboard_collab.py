@@ -377,6 +377,9 @@ async def get_conversation_dashboards(
     report = await db.get(Report, str(report_id))
     if report is None or str(report.user_id) != str(current_user.id):
         return []
+    from app.core.workspace_access import has_workspace_access
+    if not await has_workspace_access(db, current_user, str(report.organization_id)):
+        return []  # a conversation is the workspace of its organization
     rows = (await db.execute(
         select(ArtifactConversation).where(ArtifactConversation.report_id == str(report_id),
                                            ArtifactConversation.ended_at.is_(None))

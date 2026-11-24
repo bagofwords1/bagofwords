@@ -81,6 +81,21 @@ async def load_redactor_for_org(
     return compiled.for_display()
 
 
+async def load_redactor_for_call(
+    organization_id: Optional[str],
+    session_maker: Optional[Callable[[], "object"]],
+    provider_id: Optional[str],
+    agent_ids: Optional[Tuple[str, ...]],
+) -> Optional[PiiRedactor]:
+    """The redactor for one LLM call: the provider's policy merged with the
+    policies of the agents in scope (``agent_ids``; ``None`` = unknown, which
+    applies every agent policy). See ``docs/design/pii-agent-policies.md``."""
+    compiled = await load_policies_for_org(organization_id, session_maker)
+    if compiled is None:
+        return None
+    return compiled.for_call(provider_id, agent_ids)
+
+
 async def load_policies_for_org(
     organization_id: Optional[str],
     session_maker: Optional[Callable[[], "object"]],

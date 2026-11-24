@@ -25,7 +25,7 @@ def table(name, column="id"):
     return {"name": name, "columns": [{"name": column, "dtype": "int"}], "pks": [], "fks": []}
 
 
-async def seed(org_id):
+async def seed(org_id, names=("alpha", "beta")):
     # A persisted last-successful snapshot, including selections and its exact
     # timestamp, is the recovery baseline. No public endpoint can restore an
     # arbitrary historical snapshot for fault injection.
@@ -40,7 +40,7 @@ async def seed(org_id):
             db.add(ds)
             await db.flush()
             await db.execute(domain_connection.insert().values(data_source_id=ds.id, connection_id=c.id))
-            for name in ("alpha", "beta"):
+            for name in names:
                 ct = (await db.execute(select(ConnectionTable).where(
                     ConnectionTable.connection_id == c.id, ConnectionTable.name == name))).scalar_one_or_none()
                 if ct is None:
@@ -48,7 +48,7 @@ async def seed(org_id):
                     db.add(ct)
                     await db.flush()
                 db.add(DataSourceTable(datasource_id=ds.id, connection_table_id=ct.id,
-                                       is_active=(name == "alpha"), no_rows=0, **table(name)))
+                                       is_active=(name == names[0]), no_rows=0, **table(name)))
         await db.commit()
         return c.id
 
@@ -108,6 +108,35 @@ def test_incomplete_discovery_preserves_catalog_and_all_agent_selections(
         asyncio.run(refresh(cid))
     assert asyncio.run(snapshot(cid)) == before
 
+
+
+def test_a_skipped_model_keeps_its_tables_while_the_rest_refreshes(
+    monkeypatch, create_user, login_user, whoami,
+):
+    """A model the client could not read, and scoped as an unread part, is not
+    a reason to reject the run: its tables and their selection stay, and every
+    other model is refreshed and pruned as usual."""
+    user = create_user()
+    org = whoami(login_user(user["email"], user["password"]))["organizations"][0]["id"]
+    cid = asyncio.run(seed(org, ("Skipped/orders", "Read/orders", "Read/dropped")))
+    before = asyncio.run(snapshot(cid))
+
+    async def discover(self, **kwargs):
+        return [table("Read/orders", "changed"), table("Fresh/items")]
+
+    monkeypatch.setattr(SqliteClient, "aget_schemas", discover)
+    monkeypatch.setattr(SqliteClient, "discovery_diagnostics", [
+        {"datasetName": "Skipped", "reason": "no tables"}], raising=False)
+    monkeypatch.setattr(SqliteClient, "unindexed_table_prefixes", lambda self: ["Skipped"])
+
+    asyncio.run(refresh(cid))
+
+    _, tables, agents = asyncio.run(snapshot(cid))
+    by_name = {name: columns for _, name, columns in tables}
+    assert set(by_name) == {"Skipped/orders", "Read/orders", "Fresh/items"}
+    assert "changed" in by_name["Read/orders"]
+    kept = lambda rows: [r for r in rows if "Skipped/orders" in r]
+    assert kept(tables) == kept(before[1]) and kept(agents) == kept(before[2])
 
 
 @pytest.mark.parametrize("fault", ["database", "cancel_between_agents", "cancel_before_commit"])

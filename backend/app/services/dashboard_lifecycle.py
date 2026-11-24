@@ -430,6 +430,12 @@ async def fork_eligibility(db, artifact: Artifact, release: ArtifactRelease, use
     if not await _is_member(db, user, artifact.organization_id):
         return no("different_org")
     resolved = await resolve_permissions(db, str(user.id), str(artifact.organization_id))
+    # A fork is a new report in the dashboard's organization: the workspace
+    # there, whatever a custom role grants and whatever the caller holds in
+    # another organization (the fork route names no organization itself).
+    from app.core.permission_resolver import has_workspace_access
+    if not has_workspace_access(resolved.org_permissions):
+        return no("no_permission")
     if FULL_ADMIN not in resolved.org_permissions and not resolved.has_org_permission("create_reports"):
         return no("no_permission")
     organization = await db.get(Organization, str(artifact.organization_id))

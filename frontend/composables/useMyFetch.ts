@@ -98,6 +98,13 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
         status: ref('success')
       }
     } catch (error) {
+      // The workspace was taken away while this tab was open (the session in
+      // memory still says member): go to the app launcher, reloading so the
+      // session is read again. Never from a page an app user may be on.
+      if (!embed && (error as any)?.data?.error_code === 'workspace.access_required'
+          && typeof window !== 'undefined' && !isAppUserPath(window.location.pathname)) {
+        window.location.assign('/apps')
+      }
       return {
         data: ref(null),
         error: ref(error),

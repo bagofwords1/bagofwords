@@ -86,6 +86,14 @@ async def can_edit(db, artifact: Artifact, user) -> bool:
 
     if user is None or not await principal_belongs_to_org(db, user, str(artifact.organization_id)):
         return False
+    # Editing is the workspace. An app user (a member without
+    # access_workspace) reads what is published and shared with them, even a
+    # dashboard they own or were given to edit while they had the workspace:
+    # no draft, no unpublished changes, no editor's controls.
+    from app.core.workspace_access import has_workspace_access
+
+    if not await has_workspace_access(db, user, str(artifact.organization_id)):
+        return False
     if is_owner(artifact, user):
         return True
     if await _edit_granted(db, artifact, user):

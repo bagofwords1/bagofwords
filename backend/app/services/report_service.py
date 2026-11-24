@@ -94,6 +94,15 @@ class ReportService:
         visibility_field: 'artifact_visibility' or 'conversation_visibility'
         Raises 401 if login needed, 403 if denied, or passes silently if allowed.
         """
+        # A report is the workspace. Someone who is only an app user in the
+        # report's organization is, for it, a signed-out visitor: they get
+        # what the public gets, whatever they hold in another organization
+        # (these routes carry no organization of their own, so the request's
+        # gate cannot know which one the report belongs to).
+        if user is not None:
+            from app.core.workspace_access import has_workspace_access
+            if not await has_workspace_access(db, user, str(report.organization_id)):
+                user = None
         from app.services.bow_source_access import assert_read
         await assert_read(db, getattr(report, "bow_source_access", None), user)
         from app.models.membership import Membership
