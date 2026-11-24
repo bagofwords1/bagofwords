@@ -427,3 +427,19 @@ def test_unparseable_column_type_is_refused_never_emitted(sql):
     weird = _table("weird", [("c", INJECTION_PROBE)], ["acme_db", "globex_db"], missing={"globex_db": ["c"]})
     with pytest.raises(UnsupportedColumnType):
         rewrite_unified(sql, {"weird": weird}, CATALOG)
+
+
+@pytest.mark.parametrize("sql, left_out, emptied", [
+    ("SELECT severity FROM findings", {"findings": {"acme_db", "globex_db"}}, ("findings",)),
+    ("SELECT hostname FROM assets WHERE tenant_db = 'globex_db'", {"assets": {"globex_db"}}, ("assets",)),
+    (
+        "SELECT a.hostname FROM assets a JOIN assets b ON a.tenant_db = b.tenant_db WHERE a.tenant_db = 'globex_db'",
+        {"assets": {"globex_db"}},
+        ("assets",),
+    ),
+    ("SELECT hostname FROM assets WHERE tenant_db = 'nobody_db'", {"assets": {"globex_db"}}, ()),
+    ("SELECT hostname FROM assets", {"assets": {"globex_db"}}, ()),
+])
+def test_rewrite_names_tables_whose_reference_lost_every_tenant_to_left_outs(sql, left_out, emptied):
+    out = rewrite_unified(sql, TABLES, CATALOG, left_out={k: frozenset(v) for k, v in left_out.items()})
+    assert out.emptied == emptied

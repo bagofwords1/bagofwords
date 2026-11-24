@@ -294,11 +294,15 @@ class AwsAthenaClient(DataSourceClient):
 
     def _execute_unified(self, sql: str) -> pd.DataFrame:
         dropped: list[tuple[str, str]] = []
+        error: Optional[Exception] = None
         while True:
             rewrite = self._unified_rewrite(sql)
+            if rewrite.emptied:
+                raise self._emptied_failure(rewrite.emptied, error) from error
             try:
-                return self._read_sql(rewrite.sql)
+                df = self._read_sql(rewrite.sql)
             except Exception as e:
+                error = e
                 found = self._diagnose_unified_failure(e, rewrite.branches, rewrite.columns)
                 if not found:
                     raise self._query_failure(e, f" {REINDEX_HINT}") from e
@@ -315,6 +319,41 @@ class AwsAthenaClient(DataSourceClient):
                     )
                     self._query_left_out.setdefault(table, {})[tenant] = reason
                     dropped.append((table, tenant))
+                continue
+            return self._with_left_out_note(df, rewrite)
+
+    def _left_out_text(self, tables) -> str:
+        return "; ".join(
+            f"{table} leaves out " + ", ".join(
+                f"{tenant} ({reason})" for tenant, reason in sorted(self._query_left_out[table].items())
+            )
+            for table in tables
+            if self._query_left_out.get(table)
+        )
+
+    def _emptied_failure(self, tables: tuple[str, ...], error: Optional[Exception]) -> Exception:
+        note = (
+            f"Every tenant this query reads from {', '.join(tables)} is left out "
+            f"({self._left_out_text(tables)}), so it was not run. {REINDEX_HINT}"
+        )
+        if error is None:
+            return self._query_failure(Exception(note))
+        return self._query_failure(error, f" {note}")
+
+    def _with_left_out_note(self, df: pd.DataFrame, rewrite: Rewrite) -> pd.DataFrame:
+        left_out = {
+            table: dict(self._query_left_out[table]) for table in rewrite.branches if self._query_left_out.get(table)
+        }
+        if not left_out:
+            return df
+        text_ = self._left_out_text(left_out)
+        logger.warning("Unified query result leaves out tenants: %s", text_)
+        df.attrs["unified_left_out"] = left_out
+        df.attrs["bow_notice"] = (
+            f"Results exclude tenants that could not be read at query time: {text_}. "
+            "Tell the user results exclude them."
+        )
+        return df
 
     def _diagnose_unified_failure(
         self,

@@ -58,6 +58,7 @@ class Rewrite:
     sql: str
     branches: dict[str, tuple[str, ...]]
     columns: dict[str, tuple[str, ...]]
+    emptied: tuple[str, ...] = ()
 
 
 class UnknownUnifiedTable(ValueError):
@@ -78,6 +79,7 @@ class _Reference:
     table: UnifiedTable
     columns: tuple[tuple[str, str], ...]
     tenants: tuple[str, ...]
+    emptied: bool
 
 
 def rewrite_unified(
@@ -92,6 +94,7 @@ def rewrite_unified(
     emitted: dict[str, set[str]] = {}
     emitted_columns: dict[str, dict[str, None]] = {}
     subqueries: list[tuple[UnifiedTable, exp.Subquery]] = []
+    emptied: dict[str, None] = {}
     for statement in statements:
         references = [
             _plan(node, table, statement, left_out.get(table.name, frozenset()))
@@ -103,6 +106,8 @@ def rewrite_unified(
             subqueries.append((ref.table, subquery))
             emitted.setdefault(ref.table.name, set()).update(ref.tenants)
             emitted_columns.setdefault(ref.table.name, {}).update(dict.fromkeys(c for c, _ in ref.columns))
+            if ref.emptied:
+                emptied[ref.table.name] = None
 
     final = ";\n".join(s.sql(dialect=_DIALECT) for s in statements)
     size = len(final.encode("utf-8"))
@@ -114,7 +119,7 @@ def rewrite_unified(
         for table, _ in subqueries
     }
     columns = {table.name: tuple(emitted_columns[table.name]) for table, _ in subqueries}
-    return Rewrite(sql=final, branches=branches, columns=columns)
+    return Rewrite(sql=final, branches=branches, columns=columns, emptied=tuple(emptied))
 
 
 def _unified_references(statement: exp.Expression, by_name: Mapping[str, UnifiedTable]):
@@ -163,10 +168,11 @@ def _plan(
         columns = tuple((c, t) for c, t in table.columns if c.lower() in used)
 
     allowed = None if renamed else _tenant_filter(owner, join, alias)
-    tenants = tuple(
-        t for t in table.tenants if t not in left_out and (allowed is None or t in allowed)
+    candidates = tuple(t for t in table.tenants if allowed is None or t in allowed)
+    tenants = tuple(t for t in candidates if t not in left_out)
+    return _Reference(
+        node=node, table=table, columns=columns, tenants=tenants, emptied=bool(candidates) and not tenants
     )
-    return _Reference(node=node, table=table, columns=columns, tenants=tenants)
 
 
 def _introducing_select(node: exp.Table) -> tuple[exp.Select | None, exp.Join | None]:

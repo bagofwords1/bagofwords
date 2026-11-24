@@ -630,3 +630,58 @@ def test_one_missing_database_counts_once_against_the_drop_cap(wrangler):
     client.execute_query(sql)
     assert len(wrangler.calls) == 2
     assert branch_tenants(wrangler.calls[1]) == ["acme_db"]
+
+
+def vanished(tenant, table="assets"):
+    return query_failed(f"TABLE_NOT_FOUND: line 1:15: Table 'awsdatacatalog.{tenant}.{table}' does not exist")
+
+
+def test_result_lists_the_tenants_left_out_of_the_tables_it_read(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    wrangler.outcomes = [vanished("globex_db")]
+    first = client.execute_query("SELECT id FROM assets")
+    again = client.execute_query("SELECT count(*) FROM assets")
+    for df in (first, again):
+        assert df.attrs["unified_left_out"] == {"assets": {"globex_db": "table vanished"}}
+        assert "globex_db" in df.attrs["bow_notice"]
+    other = client.execute_query("SELECT id FROM users")
+    assert "unified_left_out" not in other.attrs
+    assert "bow_notice" not in other.attrs
+
+
+def test_clean_unified_result_carries_no_left_out_note(wrangler):
+    df = indexed_client(FakeGlue(DATABASES)).execute_query("SELECT id FROM assets")
+    assert "unified_left_out" not in df.attrs
+    assert "bow_notice" not in df.attrs
+
+
+@pytest.mark.parametrize("sql, failing", [
+    ("SELECT id FROM assets WHERE tenant_db = 'globex_db'", ("globex_db", "assets")),
+    ("SELECT * FROM alerts", ("globex_db", "alerts")),
+    ("SELECT u.id FROM users u JOIN assets a ON u.tenant_db = a.tenant_db WHERE u.tenant_db = 'acme_db'",
+     ("acme_db", "users")),
+])
+def test_drop_that_leaves_a_table_reference_without_tenants_fails_instead_of_returning_empty(
+    wrangler, sql, failing,
+):
+    client = indexed_client(FakeGlue(DATABASES))
+    wrangler.outcomes = [vanished(*failing)]
+    with pytest.raises(Exception, match="Query execution failed") as raised:
+        client.execute_query(sql)
+    assert failing[0] in str(raised.value)
+    assert "does not exist" in str(raised.value)
+    assert len(wrangler.calls) == 1
+    with pytest.raises(Exception, match="Query execution failed"):
+        client.execute_query(sql)
+    assert len(wrangler.calls) == 1
+
+
+def test_left_out_note_reaches_the_query_notices_handed_to_the_agent(wrangler):
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper, collect_query_notices
+
+    timings = []
+    wrapped = QueryCapturingClientWrapper(indexed_client(FakeGlue(DATABASES)), [], timings)
+    wrangler.outcomes = [vanished("globex_db")]
+    wrapped.execute_query("SELECT id FROM assets")
+    (notice,) = collect_query_notices(timings)
+    assert "globex_db" in notice and "assets" in notice
