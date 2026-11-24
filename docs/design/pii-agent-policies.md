@@ -43,8 +43,8 @@ loose provider policy applies to every agent.
 
 | Concept | What it is |
 |---|---|
-| **Agent assignment** | Agent (data source) → policy, or `none` (no agent policy). Optional: an agent with no assignment uses the **default agent policy**. |
-| **Default agent policy** | `default_agent_policy`: the policy unassigned agents use. `none` (the default) means unassigned agents add nothing. |
+| **Agent assignment** | Agent (data source) → policy, or `:none` (no agent policy). Optional: an agent with no assignment uses the **default agent policy**. |
+| **Default agent policy** | `default_agent_policy`: the policy unassigned agents use. `:none` (the default) means unassigned agents add nothing. |
 | **Agent scope** of a call | The set of agents whose data or context can be in that call's prompt. |
 | **Effective policy** | The merge of the provider's policy and the policies of every agent in scope. It is compiled into a single `PiiRedactor`, so the engine itself doesn't change. |
 
@@ -62,8 +62,8 @@ policies: {default: {...}, strict: {...}, hr: {...}}
 provider_policies: {<provider_id>: strict, <provider_id>: exempt}
 agent_policies:                   # new; optional
   <data_source_id>: hr
-  <data_source_id>: none          # explicitly no agent policy (overrides the default)
-default_agent_policy: none        # new; or a policy id
+  <data_source_id>: ":none"        # explicitly no agent policy (overrides the default)
+default_agent_policy: ":none"      # new; or a policy id
 display_policy: default
 ```
 
@@ -74,8 +74,11 @@ display_policy: default
 - Values must be an existing policy id other than `exempt`.
 - Deleting a policy removes its agent assignments, so those agents inherit the
   default agent policy again; a default agent policy pointing at it falls back
-  to `none`. This is audited.
-- `none` is reserved and can't be used as a policy id.
+  to `:none`. This is audited.
+- The keywords `:none` (stored) and `:inherit` (agent endpoint only) start
+  with a colon, which no policy id can (`POLICY_ID_RE`). Policies that were
+  already named `none` or `inherit` keep working, with their provider
+  assignments (review finding 5).
 - Deleting an agent drops its assignment the next time the config is normalized.
 
 An org with no `agent_policies` produces exactly the same redaction as today.
@@ -108,6 +111,20 @@ Why this order of actions:
 a text that `p` would block is blocked by the merge, and any span that `p`
 hides is also hidden by the merge, with an action at least as strong.
 
+**Overlapping rules (review finding 1).** The per-rule merge isn't enough on
+its own: different rules can match the same text, such as the built-in email
+rule and a custom rule for one domain, or a name detector and a custom pattern.
+A single policy applies pattern rules one after another on the edited text, so
+an agent's email *mask* would rewrite the value before the provider's custom
+*replace* could match it. A merged redactor therefore sets `resolve_overlaps`.
+- Every pattern match and every detector span is taken on the **original** text.
+- Overlaps are resolved strongest action first, then the longest match, then
+  the detector score, then rule order.
+- The survivors are applied in one pass.
+
+Single policies keep their historical order, so their output stays pinned by
+the golden tests.
+
 **Cost.** Merged redactors are cached per (org, sorted tuple of policy ids) in
 the loader's existing per-org cache, and cleared on every settings save
 (`loader.invalidate`). Orgs have at most 20 policies, so there are few combos,
@@ -131,10 +148,16 @@ chokepoint (`_aget_pii_redactor` / `_get_pii_redactor_sync` in
 1. Every agent attached to the report (`report.data_sources`), whether or not
    it has been queried yet. Its schema and instructions may already be in the
    prompt.
-2. **Sticky:** every agent whose data has entered this report before, even if
-   it was detached later. Its rows are still in the conversation history.
-   Sources: the data source ids on the report's steps and queries.
-   *Open question 1.*
+2. **History (built; review finding 2):** every agent exposed to the report's
+   earlier runs, even if it was detached since. Its rows are still in the
+   history the run reloads.
+   - The provenance is the run exposure already recorded for monitoring
+     (`execution_exposed_agents`), read by
+     `app.ai.llm.pii.history_scope.historical_agent_ids`.
+   - If that provenance is incomplete, the scope is left **unknown**: an
+     earlier turn without a recorded run, a run without exposure rows (before
+     exposure existed, or a failed best-effort write), or history copied in by
+     a fork.
 
 **No scope.** If a call has no agent scope (the contextvar is unset or the set
 is empty) and the org has any `agent_policies`, the effective policy is
@@ -152,7 +175,7 @@ deliberately rely on the fallback:
 
 | Entry point | Scope |
 |---|---|
-| AgentV2 runs: web chat, Slack/Teams/WhatsApp, scheduled automations | Report agents + sticky set, stamped at run start |
+| AgentV2 runs: web chat, Slack/Teams/WhatsApp, scheduled automations | Working set + report agents + agents of earlier runs (unknown when that history is incomplete), stamped at run start |
 | Sub-agents and context compaction inside a run | Inherit the run's contextvar (to verify with a test) |
 | Artifact-page chat and resources (`backend/app/routes/artifact_resources.py`) | The report's set |
 | Agent indexing and onboarding LLM calls (`use_llm_sync`, schema descriptions) | The single agent being indexed |
@@ -209,13 +232,24 @@ Strings go into every locale catalog, including RTL checks for `he`.
 | `pii_protection.prompt_blocked` (extended) | A call is blocked | Adds `agent_ids` in scope, `policy_ids` merged, and `scope: known \| unknown` |
 | `pii_protection.detector_failed` (extended) | Same | Same additions |
 
+## Concurrency (review findings 3, 4)
+
+- **Redactor cache (`llm.py`):** one `(scope, redactor)` entry per LLM
+  instance, written only after a load resolves. Each call returns its own
+  result. A call can't pick up a redactor resolved for another scope while
+  that scope's load is pending.
+- **Agent endpoint saves:** compare-and-swap on the settings row's
+  `updated_at`, with a retry. Two managers saving different agents at once
+  both keep their choice. The org PII page's full save is still
+  last-writer-wins, like every other settings save.
+
 ## Permissions (decided)
 
 - **Org admins** (`manage_settings`) edit everything in Settings → PII,
   including the default agent policy and every agent's assignment.
 - **Agent managers** (`manage` on the agent) set their own agent's policy from
   the agent's settings: `GET`/`PUT /api/data_sources/{id}/pii_policy`, with a
-  policy id or `inherit`. Setting `none` would loosen what the org default
+  policy id or `:inherit`. Setting `:none` would loosen what the org default
   imposes, so it needs `manage_settings` (403 otherwise). Exempt is never
   allowed for an agent.
 
@@ -242,7 +276,7 @@ Strings go into every locale catalog, including RTL checks for `he`.
    `merge_policies`, `for_call` resolution, `data_source_ids` in attribution
    from AgentV2 (working set + sign-in candidates + report agents, growing
    mid-run), unknown-scope fallback, audit, agent endpoint.
-2. **Coverage — not built:** sticky agent set, stamping the other entry points
+2. **Coverage — partly built:** the history scope is built. Not built: stamping the other entry points
    (artifact resources, indexing, MCP), the call-site guard test. Until then
    those paths take the unknown-scope fallback (every agent policy).
 3. **UI — built:** Settings → PII "Agent policies" section (default for agents
@@ -255,16 +289,14 @@ never looser.
 
 ## Open questions
 
-1. **Sticky scope:** should an agent that was detached keep its policy on the
-   report for good? Recommended: yes, since its rows stay in history. The
-   alternative is clearing the sticky set when history is compacted past its
-   last step.
+1. ~~Sticky scope~~: decided. A detached agent keeps its policy on the report
+   for as long as its runs are in the report's history (see "History").
 2. **Unknown scope:** is "every assigned agent policy" too strict for orgs with
    many agents? It over-redacts calls that touch no data at all. The opt-out
    marking covers known-safe sites, but the scale is unknown until phase 2 has
    audited the entry points.
 3. ~~Who can assign~~ — decided: org admins and agent managers (see
-   Permissions); only org admins can set `none`.
+   Permissions); only org admins can set `:none`.
 4. **Display policy:** should the display masking for an agent's data follow
    its policy too? Out of scope here, because display uses one org-wide policy
    and restore follows the report's sharing settings.

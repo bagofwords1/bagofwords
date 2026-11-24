@@ -108,7 +108,7 @@ if (mode === 'shots') {
   check('settings: HR policy persisted after reload',
     (await agentRow(HR).locator('select').inputValue()) === 'hr');
   check('settings: Sales shows inherit',
-    (await agentRow(SALES).locator('select').inputValue()) === 'inherit');
+    (await agentRow(SALES).locator('select').inputValue()) === ':inherit');
   await shot('flow-1-settings', { fullPage: true });
   await page.getByTestId('pii-agent-policies').screenshot({ path: join(out, `flow-1-settings-agents${suffix}.png`) });
 
@@ -116,8 +116,8 @@ if (mode === 'shots') {
   await openAgent(SALES);
   const sel = page.getByTestId('agent-pii-policy-select');
   check('agent: control visible', await page.getByTestId('agent-pii-policy').isVisible());
-  check('agent: inherits org default', (await sel.inputValue()) === 'inherit');
-  const inheritLabel = await sel.locator('option[value="inherit"]').textContent();
+  check('agent: inherits org default', (await sel.inputValue()) === ':inherit');
+  const inheritLabel = await sel.locator('option[value=":inherit"]').textContent();
   check('agent: inherit option names the default', /Sales \(emails\)/.test(inheritLabel || ''), inheritLabel);
   await page.getByTestId('agent-pii-policy').screenshot({ path: join(out, `flow-2-agent-inherit${suffix}.png`) });
   wait = saved('/pii_policy');
@@ -139,9 +139,9 @@ if (mode === 'shots') {
   // Put Sales back on the org default from the agent page (leaves the loop's state as configured above).
   await openAgent(SALES);
   wait = saved('/pii_policy');
-  await page.getByTestId('agent-pii-policy-select').selectOption('inherit');
+  await page.getByTestId('agent-pii-policy-select').selectOption(':inherit');
   await wait;
-  check('agent: back to inherit', (await page.getByTestId('agent-pii-policy-select').inputValue()) === 'inherit');
+  check('agent: back to inherit', (await page.getByTestId('agent-pii-policy-select').inputValue()) === ':inherit');
 }
 
 await browser.close();

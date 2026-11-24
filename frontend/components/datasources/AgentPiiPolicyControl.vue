@@ -46,14 +46,14 @@ const policyName = (p: { id: string; name: string }) => (p.id === 'default' ? t(
 const options = computed(() => {
     const s = state.value
     if (!s) return []
-    const inheritName = s.default_agent_policy === 'none' || !s.default_agent_policy_name
+    const inheritName = s.default_agent_policy === ':none' || !s.default_agent_policy_name
         ? t('settings.pii.noAgentPolicy')
         : (s.default_agent_policy === 'default' ? t('settings.pii.defaultPolicy') : s.default_agent_policy_name)
     // FSI … PDI: a Latin policy name keeps its own order inside an RTL label.
-    const out = [{ label: t('settings.pii.inheritAgentPolicy', { policy: `\u2068${inheritName}\u2069` }), value: 'inherit' }]
+    const out = [{ label: t('settings.pii.inheritAgentPolicy', { policy: `\u2068${inheritName}\u2069` }), value: ':inherit' }]
     // "No agent policy" can only loosen the org default: org admins only.
-    if (s.can_turn_off || s.policy === 'none') {
-        out.push({ label: t('settings.pii.noAgentPolicy'), value: 'none', disabled: !s.can_turn_off } as any)
+    if (s.can_turn_off || s.policy === ':none') {
+        out.push({ label: t('settings.pii.noAgentPolicy'), value: ':none', disabled: !s.can_turn_off } as any)
     }
     return [...out, ...s.policies.map(p => ({ label: policyName(p), value: p.id }))]
 })

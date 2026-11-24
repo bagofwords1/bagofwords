@@ -230,7 +230,7 @@ async def set_data_source_pii_policy(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Set the agent's PII policy: a policy id, "inherit", or "none" (org admins only)."""
+    """Set the agent's PII policy: a policy id, ":inherit", or ":none" (org admins only)."""
     from app.services import pii_agent_policy_service
     return await pii_agent_policy_service.set_agent_pii_policy(
         db, organization, current_user, data_source_id, (payload or {}).get("policy")

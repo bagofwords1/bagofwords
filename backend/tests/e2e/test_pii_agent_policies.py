@@ -8,7 +8,7 @@ Through the real settings API, the agent's own endpoint and the real LLM class
 * the run's agent scope comes from the usage attribution; an unknown scope
   applies every agent policy (fail closed);
 * agent admins set their agent's policy from the agent; turning it off
-  (``none``) is for org admins only; members without ``manage`` get 403;
+  (``:none``) is for org admins only; members without ``manage`` get 403;
 * unknown agent ids are rejected at save; changes are audited.
 
 The permutation matrix itself (every combination of agent / provider / default
@@ -193,10 +193,10 @@ def test_an_agent_policy_overrides_an_exempt_provider(world):
 @pytest.mark.e2e
 def test_settings_round_trip_and_reject_unknown_agents(world):
     w = world
-    put = _put_pii(w, **_base(agent_policies={w["hr"]: "emails", w["sales"]: "none"}, default_agent_policy="phones"))
+    put = _put_pii(w, **_base(agent_policies={w["hr"]: "emails", w["sales"]: ":none"}, default_agent_policy="phones"))
     assert put.status_code == 200, put.text
     cfg = w["client"].get("/api/organization/settings", headers=w["H"]).json()["config"]["pii_protection"]
-    assert cfg["agent_policies"] == {w["hr"]: "emails", w["sales"]: "none"}
+    assert cfg["agent_policies"] == {w["hr"]: "emails", w["sales"]: ":none"}
     assert cfg["default_agent_policy"] == "phones"
 
     assert _put_pii(w, **_base(agent_policies={str(uuid.uuid4()): "emails"})).status_code == 400
@@ -234,7 +234,7 @@ def test_agent_admins_set_their_agents_policy_from_the_agent(world):
     got = w["client"].get(url, headers=agent_admin)
     assert got.status_code == 200, got.text
     body = got.json()
-    assert body["policy"] == "inherit" and body["effective_policy"] == "phones"
+    assert body["policy"] == ":inherit" and body["effective_policy"] == "phones"
     assert body["can_turn_off"] is False
     assert {p["id"] for p in body["policies"]} >= {"default", "emails", "phones"}
 
@@ -248,15 +248,15 @@ def test_agent_admins_set_their_agents_policy_from_the_agent(world):
     assert EMAIL not in with_hr
 
     # Only org admins may turn it off; no Exempt; no unknown policy.
-    assert w["client"].put(url, json={"policy": "none"}, headers=agent_admin).status_code == 403
+    assert w["client"].put(url, json={"policy": ":none"}, headers=agent_admin).status_code == 403
     assert w["client"].put(url, json={"policy": "exempt"}, headers=agent_admin).status_code == 400
     assert w["client"].put(url, json={"policy": "missing"}, headers=agent_admin).status_code == 400
-    off = w["client"].put(url, json={"policy": "none"}, headers=w["H"])
-    assert off.status_code == 200 and off.json()["effective_policy"] == "none"
+    off = w["client"].put(url, json={"policy": ":none"}, headers=w["H"])
+    assert off.status_code == 200 and off.json()["effective_policy"] == ":none"
 
     # Back to the org default.
-    back = w["client"].put(url, json={"policy": "inherit"}, headers=agent_admin)
-    assert back.status_code == 200 and back.json()["policy"] == "inherit"
+    back = w["client"].put(url, json={"policy": ":inherit"}, headers=agent_admin)
+    assert back.status_code == 200 and back.json()["policy"] == ":inherit"
 
     # A member without manage on the agent can't read or write it, nor another agent.
     assert w["client"].get(url, headers=member).status_code == 403
@@ -269,3 +269,152 @@ def test_agent_admins_set_their_agents_policy_from_the_agent(world):
     assert logs.status_code == 200, logs.text
     items = [i for i in logs.json()["items"] if i["action"] == "pii_protection.agent_policies_updated"]
     assert any(c["to"] == "emails" for i in items for c in i["details"]["changes"])
+
+
+@pytest.mark.e2e
+def test_two_managers_saving_different_agents_at_once_both_keep_their_choice(world, monkeypatch):
+    """Two saves read the same settings revision; the first to write wins the
+    row, the second re-reads and re-applies its change on top, so neither
+    assignment is lost (previously the later commit erased the earlier one)."""
+    import app.services.pii_agent_policy_service as svc
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.models.organization import Organization
+    from app.models.user import User
+
+    w = world
+    assert _put_pii(w, **_base()).status_code == 200
+    real_read = svc._read_settings_row
+    state = {"interleaved": False}
+
+    async def run():
+        async with async_session_maker() as s1:
+            org = (await s1.execute(select(Organization).where(Organization.id == w["org"]))).scalar_one()
+            admin = (await s1.execute(select(User).limit(1))).scalar_one()
+            admin_id = admin.id
+
+            async def read_then_let_the_other_save_first(db, org_id):
+                row = await real_read(db, org_id)
+                if not state["interleaved"]:
+                    state["interleaved"] = True
+                    # A second manager saves another agent from a separate
+                    # session after we read and before we write.
+                    async with async_session_maker() as s2:
+                        org2 = (await s2.execute(select(Organization).where(Organization.id == w["org"]))).scalar_one()
+                        admin2 = (await s2.execute(select(User).where(User.id == admin_id))).scalar_one()
+                        await svc.set_agent_pii_policy(s2, org2, admin2, w["sales"], "phones")
+                return row
+
+            monkeypatch.setattr(svc, "_read_settings_row", read_then_let_the_other_save_first)
+            return await svc.set_agent_pii_policy(s1, org, admin, w["hr"], "emails")
+
+    view = asyncio.run(run())
+    assert state["interleaved"]
+    assert view["effective_policy"] == "emails"
+    cfg = w["client"].get("/api/organization/settings", headers=w["H"]).json()["config"]["pii_protection"]
+    assert cfg["agent_policies"] == {w["hr"]: "emails", w["sales"]: "phones"}
+
+
+# --- earlier turns keep their agents' policies --------------------------------
+# A follow-up run reloads the report's history, which can hold rows from an
+# agent since detached. The run's scope adds every agent exposed to the
+# report's earlier runs; when that provenance is incomplete the scope is left
+# unknown (every agent policy applies).
+
+def _history(w, report_agents, turns):
+    """A report with ``report_agents`` attached now and earlier ``turns``:
+    each turn is a list of exposed agent ids, None for a turn with a run but
+    no exposure, or "no-run" for a turn with no recorded run."""
+    from datetime import datetime
+    from app.dependencies import async_session_maker
+    from app.models.agent_execution import AgentExecution, execution_exposed_agents as exposed
+    from app.models.completion import Completion
+
+    rep = w["client"].post("/api/reports", json={"title": "history", "widget": None, "files": [],
+                                                   "data_sources": report_agents}, headers=w["H"])
+    assert rep.status_code == 200, rep.text
+    rid = rep.json()["id"]
+
+    async def seed():
+        async with async_session_maker() as s:
+            for i, turn in enumerate(turns):
+                c = Completion(report_id=rid, role="system", prompt={}, completion={"content": "rows"},
+                               turn_index=i, sigkill=datetime.utcnow(), status="success")
+                s.add(c)
+                await s.flush()
+                if turn == "no-run":
+                    continue
+                ex = AgentExecution(completion_id=c.id, organization_id=w["org"], report_id=rid, status="success")
+                s.add(ex)
+                await s.flush()
+                for agent_id in turn or []:
+                    await s.execute(exposed.insert().values(execution_id=ex.id, agent_id=agent_id))
+            await s.commit()
+
+    asyncio.run(seed())
+    return rid
+
+
+def _historical(rid):
+    from app.dependencies import async_session_maker
+    from app.ai.llm.pii.history_scope import historical_agent_ids
+
+    async def run():
+        async with async_session_maker() as s:
+            return await historical_agent_ids(s, rid)
+
+    return asyncio.run(run())
+
+
+@pytest.mark.e2e
+def test_a_detached_agents_earlier_turns_keep_its_policy_in_the_next_turn(world):
+    import app.ai.llm.pii.loader as loader
+
+    w = world
+    assert _put_pii(w, **_base(agent_policies={w["hr"]: "emails"},
+                                provider_policies={w["provider"]: "exempt"})).status_code == 200
+    loader.invalidate()
+    # Turn 1 ran with HR + Sales; HR has since been detached: only Sales now.
+    rid = _history(w, [w["sales"]], [[w["hr"], w["sales"]]])
+    hist = _historical(rid)
+    assert hist == sorted([w["hr"], w["sales"]])
+    # The second turn's scope = current agents + historical ones: HR's policy
+    # still applies, even on an Exempt provider.
+    (second_turn,) = _send(w["provider"], [sorted({w["sales"], *hist})])
+    assert EMAIL not in second_turn
+    # Without the history (the old behavior) it would have gone out raw.
+    (current_only,) = _send(w["provider"], [[w["sales"]]])
+    assert current_only == TEXT
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("turns", [
+    [None],                       # a run whose exposure was never written (before exposure, or a failed write)
+    ["no-run"],                   # an earlier turn with no recorded run at all
+    [["{sales}"], None],          # complete first turn, incomplete second
+], ids=["run-without-exposure", "turn-without-run", "partly-recorded"])
+def test_incomplete_history_leaves_the_scope_unknown(world, turns):
+    w = world
+    turns = [[w["sales"]] if t == ["{sales}"] else t for t in turns]
+    rid = _history(w, [w["sales"]], turns)
+    assert _historical(rid) is None  # → unknown scope: every agent policy applies
+
+
+@pytest.mark.e2e
+def test_a_new_report_and_a_fork_have_the_expected_history(world):
+    w = world
+    assert _historical(_history(w, [w["sales"]], [])) == []
+    rid = _history(w, [w["sales"]], [[w["sales"]]])
+    assert _historical(rid) == [w["sales"]]
+
+    from app.dependencies import async_session_maker
+    from app.models.report import Report
+
+    async def fork_of(source):
+        async with async_session_maker() as s:
+            r = await s.get(Report, source)
+            r.forked_from_id = source  # any report forked from another
+            await s.commit()
+
+    asyncio.run(fork_of(rid))
+    assert _historical(rid) is None

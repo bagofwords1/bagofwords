@@ -10,8 +10,8 @@ Stored shape (``OrganizationSettings.config["pii_protection"]``)::
       default: {name, mode, redact_context, builtin_overrides, custom_overrides}
       <slug>:  {...}
     provider_policies: {<llm_provider_id>: <policy_id> | "exempt"}
-    agent_policies: {<data_source_id>: <policy_id> | "none"}
-    default_agent_policy: none | <policy_id>
+    agent_policies: {<data_source_id>: <policy_id> | ":none"}
+    default_agent_policy: ":none" | <policy_id>
     display_policy: default
 
 * ``builtin_overrides`` / ``custom_overrides`` map a rule id to
@@ -50,8 +50,10 @@ from .redactor import VALID_ACTIONS, VALID_MODES, DetectorRule, PiiRedactor, _re
 DEFAULT_POLICY = "default"
 EXEMPT_POLICY = "exempt"
 # Agent assignment meaning "no agent policy" (only the provider's applies).
-NO_AGENT_POLICY = "none"
-RESERVED_POLICY_IDS = (DEFAULT_POLICY, EXEMPT_POLICY, NO_AGENT_POLICY)
+# The leading colon keeps it apart from every policy id (POLICY_ID_RE starts
+# with a letter or digit), so an existing policy named "none" stays valid.
+NO_AGENT_POLICY = ":none"
+RESERVED_POLICY_IDS = (DEFAULT_POLICY, EXEMPT_POLICY)
 # Action strength for merging: a merged rule takes the strongest action any
 # input policy gives it. mask leaks part of the value, pseudonymize leaks
 # equality between values, replace leaks nothing, block sends nothing.
@@ -174,7 +176,7 @@ def normalize(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if is_v2(raw):
         for pid, pol in raw["policies"].items():
             pid = str(pid)
-            if pid in (EXEMPT_POLICY, NO_AGENT_POLICY) or not POLICY_ID_RE.match(pid):
+            if pid == EXEMPT_POLICY or not POLICY_ID_RE.match(pid):
                 continue
             policies[pid] = _clean_policy(pol, fallback_name=pid)
         pp = raw.get("provider_policies")
@@ -220,7 +222,7 @@ def normalize(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if pol == EXEMPT_POLICY or (pol in policies and pol != DEFAULT_POLICY)
     }
     # Agent assignments: a policy (never Exempt: agents only tighten) or
-    # "none". An assignment to a policy that no longer exists is dropped, so
+    # ":none". An assignment to a policy that no longer exists is dropped, so
     # the agent inherits the default agent policy again.
     agent_policies: Dict[str, str] = {}
     ap = raw.get("agent_policies")
@@ -502,7 +504,10 @@ class CompiledPiiConfig:
         if key not in self._merged:
             merged_id = "+".join(ids)
             cfg = {**self.cfg, "policies": {**self.cfg["policies"], merged_id: merge_policies(self.cfg, ids)}}
-            self._merged[key] = compile_policy(cfg, merged_id)
+            merged = compile_policy(cfg, merged_id)
+            if merged is not None:
+                merged.resolve_overlaps = True
+            self._merged[key] = merged
         return self._merged[key]
 
     def policy_id_for_provider(self, provider_id: Optional[str]) -> str:
@@ -572,7 +577,7 @@ def validate_update(update: Dict[str, Any], existing: Optional[Dict[str, Any]] =
             raise PolicyValidationError(f"At most {MAX_POLICIES} PII policies are allowed.")
         names = set()
         for pid, pol in policies.items():
-            if pid in (EXEMPT_POLICY, NO_AGENT_POLICY) or not isinstance(pid, str) or not POLICY_ID_RE.match(pid):
+            if pid == EXEMPT_POLICY or not isinstance(pid, str) or not POLICY_ID_RE.match(pid):
                 raise PolicyValidationError(f"Invalid PII policy id: {pid!r}.")
             if not isinstance(pol, dict):
                 raise PolicyValidationError(f"Invalid PII policy: {pid!r}.")
@@ -637,7 +642,7 @@ def validate_update(update: Dict[str, Any], existing: Optional[Dict[str, Any]] =
     if "default_agent_policy" in update:
         dap = update.get("default_agent_policy")
         if not isinstance(dap, str) or dap == EXEMPT_POLICY or (dap != NO_AGENT_POLICY and dap not in known):
-            raise PolicyValidationError("default_agent_policy must be 'none' or an existing policy.")
+            raise PolicyValidationError(f"default_agent_policy must be {NO_AGENT_POLICY!r} or an existing policy.")
 
 
 def diff_for_audit(old: Dict[str, Any], new: Dict[str, Any]) -> List[Dict[str, Any]]:

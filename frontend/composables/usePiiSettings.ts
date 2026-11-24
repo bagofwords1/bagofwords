@@ -6,9 +6,10 @@ import { reactive, ref, computed } from 'vue'
 export const PII_DEFAULT = 'default'
 export const PII_EXEMPT = 'exempt'
 // Agent assignment: "no agent policy" (only the provider's policy applies).
-export const PII_NONE = 'none'
+// The colon keeps both apart from policy ids (a policy may be named "none").
+export const PII_NONE = ':none'
 // Agent assignment: use the org's default agent policy (stored as no entry).
-export const PII_INHERIT = 'inherit'
+export const PII_INHERIT = ':inherit'
 export const PII_DEFAULT_MIN_SCORE = 0.7
 
 export type PiiRuleKind = 'builtin' | 'custom' | 'detector'

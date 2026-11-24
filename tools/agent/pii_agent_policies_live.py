@@ -56,7 +56,7 @@ HR, SALES, MUSIC = agents["HR"], agents["Sales"], agents.get("Music Store")
 mock_provider = next(pr["id"] for pr in c.get("/api/llm/providers", headers=H).json() if pr["name"] == "Mock LLM")
 
 
-def configure(agent_policies=None, default_agent="none", provider_policies=None):
+def configure(agent_policies=None, default_agent=":none", provider_policies=None):
     r = c.put("/api/organization/settings", json={"config": {"pii_protection": {
         "enabled": True, "policies": POLICIES,
         "provider_policies": provider_policies or {},
@@ -124,7 +124,7 @@ CASES = [
     ("HR-pii + Sales-emails, chat with Sales", dict(agent_policies={HR: "hr", SALES: "sales"}), [SALES], EMAIL_HIDDEN),
     ("HR-pii + Sales-emails, chat with both (union)", dict(agent_policies={HR: "hr", SALES: "sales"}), [HR, SALES], BOTH_HIDDEN),
     ("default agent = Sales-emails, Sales inherits", dict(default_agent="sales"), [SALES], EMAIL_HIDDEN),
-    ("default agent = Sales-emails, Sales explicit none", dict(default_agent="sales", agent_policies={SALES: "none"}), [SALES], RAW),
+    ("default agent = Sales-emails, Sales explicit none", dict(default_agent="sales", agent_policies={SALES: ":none"}), [SALES], RAW),
     ("default agent = Sales-emails, HR own policy wins for HR", dict(default_agent="sales", agent_policies={HR: "hr"}), [HR], BOTH_HIDDEN),
     ("provider Exempt + HR-pii, chat with HR", dict(agent_policies={HR: "hr"}, provider_policies={mock_provider: "exempt"}), [HR], BOTH_HIDDEN),
     ("provider Exempt + HR-pii, chat with Sales", dict(agent_policies={HR: "hr"}, provider_policies={mock_provider: "exempt"}), [SALES], RAW),
@@ -136,6 +136,22 @@ CASES = [
 if MUSIC:
     CASES.append(("default agent = Sales-emails, Music Store inherits", dict(default_agent="sales"), [MUSIC], EMAIL_HIDDEN))
 
+def run_turn(report_id):
+    """One more agent run in an existing report."""
+    c.delete(f"{a.mock}/captures")
+    c.post(f"/api/reports/{report_id}/completions", params={"background": True}, headers=H,
+           json={"prompt": {"content": PROMPT, "widget_id": None, "step_id": None, "mentions": [{}]}}).raise_for_status()
+    deadline = time.monotonic() + 240
+    while time.monotonic() < deadline:
+        time.sleep(3)
+        comps = c.get(f"/api/reports/{report_id}/completions", headers=H).json().get("completions") or []
+        system = [x for x in comps if x.get("role") == "system"]
+        if system and system[-1].get("status") not in ("in_progress", None):
+            break
+    time.sleep(2)
+    return c.get(f"{a.mock}/captures").json()
+
+
 results = []
 for name, cfg, ds, expected in CASES:
     configure(**cfg)
@@ -144,6 +160,22 @@ for name, cfg, ds, expected in CASES:
     ok = got == expected
     results.append({"case": name, "expected": expected, "got": got, "calls": len(calls), "pass": ok})
     print(f"{'PASS' if ok else 'FAIL'}  {name}: expected {expected}, got {got} ({len(calls)} LLM calls)", flush=True)
+
+# A detached agent's earlier turns keep its policy: turn 1 with HR + Sales,
+# HR detached, turn 2 in the same report on an Exempt provider.
+configure(agent_policies={HR: "hr"}, provider_policies={mock_provider: "exempt"})
+rep = c.post("/api/reports", json={"title": "PII detach loop", "widget": None, "files": [],
+                                    "data_sources": [HR, SALES]}, headers=H).json()
+first = outcome(run_turn(rep["id"]), "success", "")
+c.put(f"/api/reports/{rep['id']}", json={"data_sources": [SALES]}, headers=H).raise_for_status()
+attached = [d["id"] for d in c.get(f"/api/reports/{rep['id']}", headers=H).json().get("data_sources") or []]
+second = outcome(run_turn(rep["id"]), "success", "")
+for name, got in (("detach: turn 1 with HR + Sales", first),
+                  ("detach: turn 2 after HR was detached (Exempt provider)", second)):
+    ok = got == BOTH_HIDDEN and (name.startswith("detach: turn 1") or attached == [SALES])
+    results.append({"case": name, "expected": BOTH_HIDDEN, "got": got, "pass": ok})
+    print(f"{'PASS' if ok else 'FAIL'}  {name}: expected {BOTH_HIDDEN}, got {got}"
+          + ("" if name.startswith("detach: turn 1") else f" (attached now: {len(attached)} agent)"), flush=True)
 
 configure()  # leave nothing assigned
 passed = sum(r["pass"] for r in results)

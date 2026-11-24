@@ -58,8 +58,6 @@ tracer = get_tracer(__name__)
 # later calls from worker threads (e.g. asyncio.to_thread(llm.inference))
 # can still schedule usage recording via run_coroutine_threadsafe.
 _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
-# Marks an LLM instance whose PII redactor hasn't been resolved for any scope.
-_PII_SCOPE_UNSET = object()
 
 
 def bind_usage_loop(loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
@@ -413,9 +411,10 @@ class LLM:
         self._pii_redactor_override = pii_redactor
         self._pii_redactor: Optional[PiiRedactor] = pii_redactor
         self._pii_loaded = pii_redactor is not None
-        # The agent scope the cached redactor was resolved for: an instance
-        # reused under another scope resolves again.
-        self._pii_scope: Any = _PII_SCOPE_UNSET
+        # (agent scope, redactor) resolved for it; None until the first load.
+        # An instance reused under another scope resolves again. An explicit
+        # ``pii_redactor`` is always used as is (see _pii_cached).
+        self._pii_entry: Any = None
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -808,14 +807,29 @@ class LLM:
             return None
         return tuple(sorted({str(i) for i in ids if i}))
 
-    def _pii_cache_valid(self, scope) -> bool:
-        if not self._pii_loaded:
-            return False
-        # An explicit redactor, or an instance built without __init__ (some
-        # tests set _pii_loaded/_pii_redactor by hand), keeps what it was given.
-        if getattr(self, "_pii_redactor_override", None) is not None or not hasattr(self, "_pii_scope"):
-            return True
-        return self._pii_scope == scope
+    def _pii_cached(self, scope):
+        """``(hit, redactor)`` for ``scope``. The cache is one ``(scope,
+        redactor)`` entry, written only once a load has resolved, so a call
+        can never pair a scope with a redactor resolved for another one (a
+        concurrent load for a new scope leaves the old entry in place)."""
+        override = getattr(self, "_pii_redactor_override", None)
+        if override is not None:
+            return True, override
+        if not hasattr(self, "_pii_entry"):
+            # Built without __init__ (some tests set _pii_loaded/_pii_redactor
+            # by hand): keep what it was given.
+            if getattr(self, "_pii_loaded", False):
+                return True, getattr(self, "_pii_redactor", None)
+            return False, None
+        entry = self._pii_entry
+        if entry is not None and entry[0] == scope:
+            return True, entry[1]
+        return False, None
+
+    def _pii_store(self, scope, redactor) -> None:
+        self._pii_entry = (scope, redactor)
+        self._pii_redactor = redactor
+        self._pii_loaded = True
 
     async def _aget_pii_redactor(self) -> Optional[PiiRedactor]:
         """Async resolution of this call's PII redactor: the provider's policy
@@ -825,18 +839,19 @@ class LLM:
         if not hasattr(self, "_pii_loaded"):
             return None
         scope = self._pii_agent_scope()
-        if self._pii_cache_valid(scope):
-            return self._pii_redactor
-        self._pii_scope = scope
+        hit, cached = self._pii_cached(scope)
+        if hit:
+            return cached
         try:
-            self._pii_redactor = await load_redactor_for_call(
+            redactor = await load_redactor_for_call(
                 self._organization_id, self._usage_session_maker, self._pii_provider_id(), scope
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("PII redactor resolution failed: %s", exc)
-            self._pii_redactor = None
-        self._pii_loaded = True
-        return self._pii_redactor
+            redactor = None
+        self._pii_store(scope, redactor)
+        # This call's own result, whatever another call stored meanwhile.
+        return redactor
 
     def _get_pii_redactor_sync(self) -> Optional[PiiRedactor]:
         """Sync resolution for the ``inference`` path (always dispatched via
@@ -849,8 +864,9 @@ class LLM:
         # Read here, in the caller's context: the coroutine below runs on the
         # main loop, which doesn't see this thread's context variables.
         scope = self._pii_agent_scope()
-        if self._pii_cache_valid(scope):
-            return self._pii_redactor
+        hit, cached = self._pii_cached(scope)
+        if hit:
+            return cached
 
         # If a loop is running on THIS thread we were (unexpectedly) called on
         # the event-loop thread rather than via to_thread. Blocking on that loop
@@ -868,19 +884,18 @@ class LLM:
         if loop is None or not loop.is_running():
             return None  # no loop reachable yet; retry on a later call
         try:
-            self._pii_scope = scope
             fut = asyncio.run_coroutine_threadsafe(
                 load_redactor_for_call(
                     self._organization_id, self._usage_session_maker, self._pii_provider_id(), scope
                 ),
                 loop,
             )
-            self._pii_redactor = fut.result(timeout=10)
+            redactor = fut.result(timeout=10)
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("PII redactor resolution (sync) failed: %s", exc)
-            self._pii_redactor = None
-        self._pii_loaded = True
-        return self._pii_redactor
+            redactor = None
+        self._pii_store(scope, redactor)
+        return redactor
 
     def _pii_blocked(self, err: PiiPromptBlockedError) -> PiiPromptBlockedError:
         """Name the model on a block and audit it (best effort, never raises)."""

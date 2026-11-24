@@ -1665,7 +1665,7 @@ class AgentV2:
         if scope is None:
             return
         for ds in data_sources or []:
-            ds_id = str(getattr(ds, "id", "") or "")
+            ds_id = ds if isinstance(ds, str) else str(getattr(ds, "id", "") or "")
             if ds_id and ds_id not in scope:
                 scope.append(ds_id)
 
@@ -5980,17 +5980,31 @@ class AgentV2:
             [*(self.data_sources or []), *(getattr(self, "_signin_candidates", None) or []),
              *((getattr(self.report, "data_sources", None) or []) if self.report else [])]
         )
-        _attribution_token = set_usage_attribution(
-            {
-                "organization_id": _attr_org,
-                "user_id": _attr_user,
-                "report_id": _attr_report,
-                "data_source_id": _attr_ds,
-                "data_source_ids": self._pii_agent_scope,
-                "routed": _attr_routed,
-                "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
-            }
-        )
+        # Earlier turns reloaded into this run may carry rows from agents since
+        # detached: their policies keep applying. None = the history's
+        # provenance is incomplete, so the scope is left unknown (every agent
+        # policy applies). See app.ai.llm.pii.history_scope.
+        _pii_scope_known = True
+        if self.report:
+            from app.ai.llm.pii.history_scope import historical_agent_ids
+            _hist = await historical_agent_ids(
+                self.db, str(self.report_id), exclude_completion_id=self.system_completion_id
+            )
+            if _hist is None:
+                _pii_scope_known = False
+            else:
+                self._extend_pii_agent_scope(_hist)
+        _attribution = {
+            "organization_id": _attr_org,
+            "user_id": _attr_user,
+            "report_id": _attr_report,
+            "data_source_id": _attr_ds,
+            "routed": _attr_routed,
+            "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
+        }
+        if _pii_scope_known:
+            _attribution["data_source_ids"] = self._pii_agent_scope
+        _attribution_token = set_usage_attribution(_attribution)
         # Tag the warehouse queries this run sends (Snowflake QUERY_TAG, see
         # app/data_sources/query_tag.py) with the run's reply completion, so a
         # warehouse admin can find this exact turn. Org/user/report/run id come

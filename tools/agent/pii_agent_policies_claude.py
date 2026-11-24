@@ -62,7 +62,7 @@ r = c.put("/api/organization/settings", json={"config": {"pii_protection": {
     },
     "provider_policies": {},
     "agent_policies": {HR: "hr"},
-    "default_agent_policy": "none",
+    "default_agent_policy": ":none",
 }}}, headers=H)
 r.raise_for_status()
 

@@ -36,7 +36,7 @@ Written first, as an executable table in
 | Exempt provider | Exempt + A-pii | pii (agent overrides Exempt) |
 | | Exempt + B-none | raw |
 | Default agent policy | A unassigned, default = emails | pii |
-| | A explicit `none`, default = emails | raw |
+| | A explicit `:none`, default = emails | raw |
 | | A explicit phones, default = emails | phones only (own choice replaces default) |
 | Unknown scope (call didn't say) | any agent has a policy | every agent policy applies (fail closed) |
 | | nothing assigned | provider policy only (unchanged) |
@@ -49,15 +49,15 @@ Also in that file:
 - merged redactors are cached per policy set;
 - config normalize, validate, deleting a policy, the schema round trip, and audit.
 
-**109 passed.**
+**131 passed**, with the review regressions below.
 
 ## Loop A — deterministic (no external services)
 
 ```bash
 cd backend
 export TESTING=true BOW_DATABASE_URL="sqlite:///db/app.db"
-uv run pytest tests/unit/test_pii_agent_policies.py -q          # 109 passed
-uv run pytest tests/e2e/test_pii_agent_policies.py -m e2e -q    # 4 passed
+uv run pytest tests/unit/test_pii_agent_policies.py tests/unit/test_pii_scope_cache.py -q   # 134 passed
+uv run pytest tests/e2e/test_pii_agent_policies.py -m e2e -q                                 # 10 passed
 ```
 
 The e2e file goes through the real settings API, the agent endpoint and the
@@ -67,7 +67,7 @@ real `LLM` class, with only the provider client stubbed:
 - **Exempt provider:** an agent policy overrides it.
 - **Agent endpoint:**
   - an agent manager (a `manage` grant on the agent only) can read the policy, set it, and go back to inherit;
-  - `none` returns 403 for them and 200 for an org admin;
+  - `:none` returns 403 for them and 200 for an org admin;
   - Exempt and unknown policies are rejected with 400;
   - a plain member gets 403, and the agent manager gets 403 on another agent;
   - every change is audited (`pii_protection.agent_policies_updated`).
@@ -113,7 +113,9 @@ PASS  HR blocks emails + Sales, chat with both: blocked (0 LLM calls)
 PASS  HR blocks emails, chat with Sales only: raw
 PASS  nothing configured, chat with both: raw
 PASS  default agent = Sales-emails, Music Store inherits: email hidden, phone raw
-16/16 live cases passed
+PASS  detach: turn 1 with HR + Sales: both hidden
+PASS  detach: turn 2 after HR was detached (Exempt provider): both hidden (attached now: 1 agent)
+18/18 live cases passed
 ```
 
 In the blocked case, nothing reached the provider. The chat shows the typed
@@ -171,7 +173,7 @@ dropdowns.
 
 - **`backend/app/ai/llm/pii/policy.py`:**
   - `agent_policies` and `default_agent_policy` in the config: normalize, validate, audit diff;
-  - `none` is reserved as a policy id;
+  - `:none` / `:inherit` keywords that no policy id can match;
   - `merge_policies` (strictest per rule);
   - `CompiledPiiConfig.for_call(provider, agent_ids)`, which skips policies with no active rule and caches merged redactors per policy set.
 - **`backend/app/ai/llm/pii/loader.py`:** `load_redactor_for_call`.
@@ -185,20 +187,31 @@ dropdowns.
   - agents attached mid-run are added (`_extend_pii_agent_scope`).
 - **`backend/app/services/pii_agent_policy_service.py`** and **`backend/app/routes/data_source.py`:**
   - `GET`/`PUT /data_sources/{id}/pii_policy` for agent managers (`manage` on the agent);
-  - `none` requires `manage_settings`.
+  - `:none` requires `manage_settings`.
 - **`backend/app/services/organization_settings_service.py`:** agent ids are checked against the org's live agents on save.
 - **Frontend:**
   - an "Agent policies" section in Settings → PII: the default for agents, and one row per agent;
   - `AgentPiiPolicyControl` in the agent's settings panel;
   - strings in all 10 catalogs.
 
+## Review round 1 (PR #1911): five findings, all confirmed and fixed
+
+Each fix comes with a regression test that fails without the fix. Each was
+checked by reverting or disabling the fix and watching the test go red.
+
+| # | Finding | Fix | Regression (fails without the fix) |
+|---|---|---|---|
+| 1 | An agent's **mask** on the built-in email rule rewrote a value before the provider's custom **replace** could match it: `[PRIVATE]` became `******@*******.test` | Merged redactors resolve every overlapping pattern match **and detector span** on the original text, strongest action first (`PiiRedactor.resolve_overlaps`, `_apply_patterns_resolved`). Single policies keep the historical order. | `test_reported_case_an_agents_mask_keeps_the_providers_replacement`, 18 action pairs × both sides, block-on-either-side, name detector vs. a weaker pattern: **8 fail with the fix off** |
+| 2 | A detached agent's rows in history were reloaded without its policy | The run scope adds every agent exposed to the report's earlier runs (`history_scope.historical_agent_ids`, from `execution_exposed_agents`). Incomplete provenance (unrecorded turn, missing exposure, fork) leaves the scope unknown. | e2e: the second turn after detachment is redacted on an Exempt provider (current-only scope would be raw); three incomplete-provenance shapes → unknown; fork → unknown. **Live: the detach turn 2 case above.** |
+| 3 | The redactor cache published the new scope before its load finished, so a concurrent call got the old redactor | One `(scope, redactor)` entry, written after the load; each call returns its own result | `test_pii_scope_cache.py`: a paused load with two callers, and loads finishing out of order. **Both fail on the old cache.** |
+| 4 | Concurrent agent-page saves: the later commit erased the earlier assignment | Compare-and-swap on `organization_settings.updated_at`, with a retry. It also fixed a second bug: the retry's rollback expired the ORM objects, so the ids are now captured up front. | e2e: two sessions interleaved after the read; both assignments survive. **Fails with the version check removed.** |
+| 5 | Existing policies named `none` were silently dropped | The agent keywords are `:none` / `:inherit`, which no policy id can match | A policy named `none` or `inherit` keeps its provider assignment and can be assigned to an agent |
+
 ## Regression notes
 
-- The related suites pass: PII, LLM, org settings, data source, audit, public output parity, report message search. **626 passed, 1 skipped.**
-- The agent-run e2e tests (`tests/e2e/test_agent_*.py`, `test_bow_runs_token_split.py`) pass. **153 passed.**
+- After the review fixes, the related suites pass: PII, LLM, org settings, data source, audit, public output parity, report message search, plus every `tests/e2e/test_agent_*.py` and `test_bow_runs_token_split.py`. **810 passed, 1 skipped.**
 - Catalog sync: missing/extra key counts are unchanged from the base branch; the new keys exist in all 10 catalogs.
 - Not covered (documented in the design doc):
-  - **"Sticky" agents:** an agent detached from a report doesn't keep its policy there. Queries don't record their agent, so there's no cheap source.
   - **Unknown-scope paths:** calls outside an agent run (artifact-page resources, indexing) get every agent policy. Those paths over-redact rather than leak.
 - Loop hazards hit along the way:
   - the setup's table activation failed silently at first, which made the real-model leg vacuous ("Described 0 tables"); the setup now fails loudly;
