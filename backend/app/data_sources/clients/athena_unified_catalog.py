@@ -1,4 +1,8 @@
 import re
+from functools import lru_cache
+
+from sqlglot import exp
+from sqlglot.errors import SqlglotError
 
 from app.ai.prompt_formatters import Table
 from app.data_sources.clients.postgresql_multi_catalog import (
@@ -12,6 +16,10 @@ TENANTS_KEY = "tenants"
 TENANT_CASTS_KEY = "tenant_casts"
 TENANT_MISSING_KEY = "tenant_missing"
 UNREADABLE_TENANTS_KEY = "unreadable_tenants"
+EXCLUDED_TENANTS_KEY = "excluded_tenants"
+UNSUPPORTED_TYPE_REASON = "unsupported column type"
+
+_UNUSABLE_TYPES = {exp.DataType.Type.UNKNOWN, exp.DataType.Type.USERDEFINED}
 
 _INTEGER_RANKS = {"tinyint": 0, "smallint": 1, "int": 2, "integer": 2, "bigint": 3}
 _FLOAT_RANKS = {"float": 0, "real": 0, "double": 1}
@@ -33,6 +41,22 @@ def _decimal_shape(t: str) -> tuple[int, int] | None:
     if match.group(1) is None:
         return _DEFAULT_DECIMAL
     return int(match.group(1)), int(match.group(2) or 0)
+
+
+def athena_type(dtype: str | None) -> exp.DataType | None:
+    parsed = _parsed_athena_type(dtype or "")
+    return parsed.copy() if parsed is not None else None
+
+
+@lru_cache(maxsize=512)
+def _parsed_athena_type(dtype: str) -> exp.DataType | None:
+    try:
+        parsed = exp.DataType.build(dtype, dialect="athena")
+    except (SqlglotError, ValueError):
+        return None
+    if any(node.this in _UNUSABLE_TYPES for node in parsed.find_all(exp.DataType)):
+        return None
+    return parsed
 
 
 def glue_type_family(dtype: str | None) -> str:
@@ -70,8 +94,30 @@ GLUE_TYPE_RULES = TypeRules(
 )
 
 
+def _without_unsupported_types(
+    per_tenant: dict[str, list[Table]],
+) -> tuple[dict[str, list[Table]], list[dict]]:
+    usable: dict[str, list[Table]] = {}
+    unsupported: list[dict] = []
+    for tenant, tables in per_tenant.items():
+        usable[tenant] = []
+        for table in tables:
+            bad = [c.name for c in table.columns or [] if athena_type(_normalize(c.dtype)) is None]
+            if not bad:
+                usable[tenant].append(table)
+            unsupported += [
+                {"table": table.name, "tenant": tenant, "column": name, "reason": UNSUPPORTED_TYPE_REASON}
+                for name in bad
+            ]
+    return usable, unsupported
+
+
 def unify_glue_catalogs(per_tenant: dict[str, list[Table]]) -> UnifiedCatalog:
-    catalog = unify_catalogs(per_tenant, GLUE_TYPE_RULES)
+    usable, unsupported = _without_unsupported_types(per_tenant)
+    catalog = unify_catalogs(usable, GLUE_TYPE_RULES)
+    left_out: dict[str, set[str]] = {}
+    for entry in unsupported:
+        left_out.setdefault(entry["table"], set()).add(entry["tenant"])
     sources = {tenant: {t.name: t for t in tables} for tenant, tables in per_tenant.items()}
     for unified in catalog.tables:
         metadata = unified.metadata_json
@@ -91,4 +137,7 @@ def unify_glue_catalogs(per_tenant: dict[str, list[Table]]) -> UnifiedCatalog:
                 missing[tenant] = absent
         metadata[TENANT_CASTS_KEY] = casts
         metadata[TENANT_MISSING_KEY] = missing
+        if unified.name in left_out:
+            metadata[EXCLUDED_TENANTS_KEY] = sorted(set(metadata[EXCLUDED_TENANTS_KEY]) | left_out[unified.name])
+    catalog.excluded.extend(unsupported)
     return catalog

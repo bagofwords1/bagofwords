@@ -131,3 +131,33 @@ def test_metadata_keeps_existing_keys_and_drops_schema():
     assert metadata[COLUMN_TYPES_KEY] == {"id": "bigint"}
     assert metadata[TENANT_CASTS_KEY] == {}
     assert metadata[TENANT_MISSING_KEY] == {}
+
+
+INJECTION_PROBE = "x) AS c, (SELECT secret FROM other_db.creds) AS d, CAST(NULL AS x"
+
+
+@pytest.mark.parametrize("bad_type", [INJECTION_PROBE, "uniontype<int,string>", "struct<`a b`:int>", "no such type"])
+def test_tenant_with_an_unsupported_column_type_is_left_out_with_that_reason(bad_type):
+    catalog = unify_glue_catalogs({
+        "a": [table("orders", [("id", "bigint"), ("c", "varchar")])],
+        "b": [table("orders", [("id", "bigint")])],
+        "c": [table("orders", [("id", "bigint"), ("c", bad_type)])],
+    })
+    (unified,) = catalog.tables
+    metadata = unified.metadata_json
+    assert metadata["tenants"] == ["a", "b"]
+    assert "c" in metadata["excluded_tenants"]
+    assert [
+        (e["tenant"], e["column"], e["reason"]) for e in catalog.excluded if e.get("tenant") == "c"
+    ] == [("c", "c", "unsupported column type")]
+    assert bad_type not in repr(metadata)
+    assert bad_type not in [col.dtype for col in unified.columns]
+
+
+def test_table_whose_every_tenant_has_an_unsupported_type_is_not_unified():
+    catalog = unify_glue_catalogs({
+        "a": [table("orders", [("c", INJECTION_PROBE)]), table("users", [("id", "int")])],
+        "b": [table("orders", [("c", INJECTION_PROBE)])],
+    })
+    assert [t.name for t in catalog.tables] == ["users"]
+    assert sorted(e["tenant"] for e in catalog.excluded if e["table"] == "orders") == ["a", "b"]

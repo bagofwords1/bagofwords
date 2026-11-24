@@ -482,3 +482,39 @@ def test_connection_test_succeeds_before_any_unified_table_is_indexed(wrangler):
     client = unified_client("acme_db, globex_db", FakeGlue(DATABASES))
     assert client.test_connection()["success"] is True
     assert wrangler.calls[-1]["sql"] == "SELECT 1"
+
+
+INJECTION_PROBE = "x) AS c, (SELECT secret FROM other_db.creds) AS d, CAST(NULL AS x"
+
+
+def test_unsupported_glue_column_type_leaves_the_tenant_out_and_is_never_sent(wrangler):
+    glue = FakeGlue(
+        {"a_db": ["orders"], "b_db": ["orders"], "c_db": ["orders"]},
+        columns={
+            ("a_db", "orders"): [{"Name": "id", "Type": "int"}],
+            ("b_db", "orders"): [{"Name": "id", "Type": "int"}, {"Name": "c", "Type": "varchar"}],
+            ("c_db", "orders"): [{"Name": "id", "Type": "int"}, {"Name": "c", "Type": INJECTION_PROBE}],
+        },
+    )
+    client = indexed_client(glue)
+    assert {"name": "orders (c_db)", "reason": "unsupported column type on c"} in client.index_stats()[
+        "unreadable_datasets"
+    ]
+    client.execute_query("SELECT c FROM orders")
+    assert "secret" not in wrangler.calls[-1]["sql"]
+    assert branch_tenants(wrangler.calls[-1]) == ["a_db", "b_db"]
+
+
+def test_stored_metadata_with_an_unparseable_type_is_refused_before_athena(wrangler):
+    client = unified_client("*_db", FakeGlue(DATABASES))
+    client.attach_table_metadata([{
+        "name": "orders",
+        "metadata_json": {
+            "tenants": ["acme_db", "globex_db"],
+            "column_types": {"id": "int", "c": INJECTION_PROBE},
+            "tenant_missing": {"globex_db": ["c"]},
+        },
+    }])
+    with pytest.raises(ValueError):
+        client.execute_query("SELECT c FROM orders")
+    assert wrangler.calls == []

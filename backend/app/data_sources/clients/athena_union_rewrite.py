@@ -1,16 +1,15 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import lru_cache
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError
 
 from app.ai.code_execution.table_scope import _resolves_to_cte
 from app.data_sources.clients.athena_unified_catalog import (
     TENANT_CASTS_KEY,
     TENANT_MISSING_KEY,
     TENANTS_KEY,
+    athena_type,
 )
 from app.data_sources.clients.postgresql_multi_catalog import COLUMN_TYPES_KEY, TENANT_COLUMN
 
@@ -55,6 +54,10 @@ class UnknownUnifiedTable(ValueError):
 
 
 class UnifiedQueryTooLarge(ValueError):
+    pass
+
+
+class UnsupportedColumnType(ValueError):
     pass
 
 
@@ -266,7 +269,7 @@ def _is_string(node: exp.Expression) -> bool:
 
 def _union(ref: _Reference, catalog: str) -> exp.Expression:
     if not ref.tenants:
-        return _empty_relation(ref.columns)
+        return _empty_relation(ref.table, ref.columns)
     branches = [_branch(ref.table, tenant, ref.columns, catalog) for tenant in ref.tenants]
     if len(branches) == 1:
         return branches[0]
@@ -281,9 +284,9 @@ def _branch(table: UnifiedTable, tenant: str, columns, catalog: str) -> exp.Sele
     ]
     for name, dtype in columns:
         if name in missing:
-            projections.append(exp.alias_(exp.cast(exp.null(), _data_type(dtype)), name, quoted=True))
+            projections.append(exp.alias_(exp.cast(exp.null(), _data_type(dtype, table, name)), name, quoted=True))
         elif name in casts:
-            projections.append(exp.alias_(exp.cast(_column(name), _data_type(dtype)), name, quoted=True))
+            projections.append(exp.alias_(exp.cast(_column(name), _data_type(dtype, table, name)), name, quoted=True))
         else:
             projections.append(_column(name))
     source = exp.Table(
@@ -292,10 +295,12 @@ def _branch(table: UnifiedTable, tenant: str, columns, catalog: str) -> exp.Sele
     return exp.select(*projections, copy=False).from_(source, copy=False)
 
 
-def _empty_relation(columns) -> exp.Select:
-    projections = [exp.alias_(exp.cast(exp.null(), _data_type("varchar")), TENANT_COLUMN, quoted=True)]
+def _empty_relation(table: UnifiedTable, columns) -> exp.Select:
+    projections = [
+        exp.alias_(exp.cast(exp.null(), _data_type("varchar", table, TENANT_COLUMN)), TENANT_COLUMN, quoted=True)
+    ]
     projections += [
-        exp.alias_(exp.cast(exp.null(), _data_type(dtype)), name, quoted=True) for name, dtype in columns
+        exp.alias_(exp.cast(exp.null(), _data_type(dtype, table, name)), name, quoted=True) for name, dtype in columns
     ]
     return exp.select(*projections, copy=False).where(exp.false(), copy=False)
 
@@ -314,16 +319,14 @@ def _column(name: str) -> exp.Column:
     return exp.Column(this=_identifier(name))
 
 
-def _data_type(dtype: str) -> exp.DataType:
-    return _parsed_type(dtype).copy()
-
-
-@lru_cache(maxsize=512)
-def _parsed_type(dtype: str) -> exp.DataType:
-    try:
-        return exp.DataType.build(dtype, dialect=_DIALECT)
-    except ParseError:
-        return exp.DataType.build(dtype, udt=True)
+def _data_type(dtype: str, table: UnifiedTable, column: str) -> exp.DataType:
+    parsed = athena_type(dtype)
+    if parsed is None:
+        raise UnsupportedColumnType(
+            f"The column {column} of the unified table {table.name} has a type this connection "
+            "cannot query. Re-index this connection."
+        )
+    return parsed
 
 
 def _too_large_message(size: int, subqueries, emitted: dict[str, set[str]]) -> str:

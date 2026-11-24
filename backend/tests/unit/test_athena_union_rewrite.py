@@ -12,6 +12,7 @@ from app.data_sources.clients.athena_union_rewrite import (
     UnifiedQueryTooLarge,
     UnifiedTable,
     UnknownUnifiedTable,
+    UnsupportedColumnType,
     rewrite_unified,
 )
 from app.data_sources.clients.postgresql_multi_catalog import COLUMN_TYPES_KEY
@@ -416,3 +417,13 @@ def test_from_metadata_keeps_column_order_and_tenant_details():
 ])
 def test_from_metadata_ignores_tables_without_tenants(metadata):
     assert UnifiedTable.from_metadata("assets", metadata) is None
+
+
+INJECTION_PROBE = "x) AS c, (SELECT secret FROM other_db.creds) AS d, CAST(NULL AS x"
+
+
+@pytest.mark.parametrize("sql", ["SELECT c FROM weird", "SELECT * FROM weird WHERE tenant_db = 'nobody'"])
+def test_unparseable_column_type_is_refused_never_emitted(sql):
+    weird = _table("weird", [("c", INJECTION_PROBE)], ["acme_db", "globex_db"], missing={"globex_db": ["c"]})
+    with pytest.raises(UnsupportedColumnType):
+        rewrite_unified(sql, {"weird": weird}, CATALOG)

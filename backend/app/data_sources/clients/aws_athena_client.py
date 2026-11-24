@@ -131,7 +131,7 @@ def _exclusion_entry(entry: dict) -> dict:
     if entry.get("column"):
         return {
             "name": f"{entry['table']} ({entry['tenant']})",
-            "reason": f"column type conflict on {entry['column']}",
+            "reason": f"{entry.get('reason') or 'column type conflict'} on {entry['column']}",
         }
     return {"name": entry["table"], "reason": entry["reason"]}
 
@@ -525,7 +525,7 @@ class AwsAthenaClient(DataSourceClient):
                 "Tell the user results exclude them.\n"
             )
         notes = [
-            f"{table} leaves out {tenant} (column type conflict)"
+            f"{table} leaves out {tenant} (incompatible column types)"
             for table, tenants in sorted(self._excluded_tenants.items())
             for tenant in tenants
         ]
