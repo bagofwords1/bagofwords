@@ -1,6 +1,7 @@
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import Callable
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
 
@@ -78,30 +79,42 @@ def _family_type(family: str, dtypes: set[str]) -> str:
     return family  # text, "timestamp without time zone", ...
 
 
-def _majority_types(members: dict[str, Table]) -> dict[str, tuple[str, str]]:
+@dataclass(frozen=True)
+class TypeRules:
+    family: Callable[[str | None], str]
+    advertised: Callable[[str, set[str]], str]
+    tenant_column_type: str = "text"
+
+
+POSTGRES_TYPE_RULES = TypeRules(family=type_family, advertised=_family_type)
+
+
+def _majority_types(members: dict[str, Table], rules: TypeRules) -> dict[str, tuple[str, str]]:
     """For each column, (majority family, advertised type)."""
     seen: dict[str, Counter] = {}
     spellings: dict[tuple[str, str], set[str]] = {}
     for tenant in sorted(members):
         for column in members[tenant].columns or []:
-            family = type_family(column.dtype)
+            family = rules.family(column.dtype)
             seen.setdefault(column.name, Counter())[family] += 1
             spellings.setdefault((column.name, family), set()).add(column.dtype or "")
     majority = {}
     for name, counts in seen.items():
         top = max(counts.values())
         family = min(f for f, count in counts.items() if count == top)
-        majority[name] = (family, _family_type(family, spellings[(name, family)]))
+        majority[name] = (family, rules.advertised(family, spellings[(name, family)]))
     return majority
 
 
-def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> Table | None:
-    expected = _majority_types(members)
+def _unify_table(
+    name: str, members: dict[str, Table], excluded: list[dict], rules: TypeRules
+) -> Table | None:
+    expected = _majority_types(members, rules)
     included: list[str] = []
     dropped: list[str] = []
     for tenant in sorted(members):
         conflicts = [
-            c for c in members[tenant].columns or [] if type_family(c.dtype) != expected[c.name][0]
+            c for c in members[tenant].columns or [] if rules.family(c.dtype) != expected[c.name][0]
         ]
         if conflicts:
             dropped.append(tenant)
@@ -120,7 +133,7 @@ def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> 
         excluded.append({"table": name, "reason": "no tenant matches the resolved column types"})
         return None
 
-    columns = [TableColumn(name=TENANT_COLUMN, dtype="text")]
+    columns = [TableColumn(name=TENANT_COLUMN, dtype=rules.tenant_column_type)]
     column_names = {TENANT_COLUMN}
     pks: list[TableColumn] = []
     pk_names: set[str] = set()
@@ -158,9 +171,9 @@ def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> 
     ]
     fks += [
         ForeignKey(
-            column=TableColumn(name=TENANT_COLUMN, dtype="text"),
+            column=TableColumn(name=TENANT_COLUMN, dtype=rules.tenant_column_type),
             references_name=ref,
-            references_column=TableColumn(name=TENANT_COLUMN, dtype="text"),
+            references_column=TableColumn(name=TENANT_COLUMN, dtype=rules.tenant_column_type),
         )
         for ref in referenced
     ]
@@ -193,7 +206,9 @@ def _column_case_collisions(members: dict[str, Table]) -> list[list[str]]:
     return [sorted(names) for _, names in sorted(spellings.items()) if len(names) > 1]
 
 
-def unify_catalogs(per_tenant: dict[str, list[Table]]) -> UnifiedCatalog:
+def unify_catalogs(
+    per_tenant: dict[str, list[Table]], rules: TypeRules = POSTGRES_TYPE_RULES
+) -> UnifiedCatalog:
     groups: dict[str, dict[str, Table]] = {}
     for tenant in sorted(per_tenant):
         for table in per_tenant[tenant]:
@@ -226,7 +241,7 @@ def unify_catalogs(per_tenant: dict[str, list[Table]]) -> UnifiedCatalog:
                 "columns": column_twins,
             })
             continue
-        unified = _unify_table(name, members, catalog.excluded)
+        unified = _unify_table(name, members, catalog.excluded, rules)
         if unified is not None:
             catalog.tables.append(unified)
     return catalog
