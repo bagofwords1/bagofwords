@@ -245,6 +245,17 @@ def test_or_and_non_literal_filters_keep_every_branch(sql, alias):
     assert sorted(_tenants(sub)) == ["acme_db", "globex_db", "initech_db"]
 
 
+@pytest.mark.parametrize("sql", [
+    "SELECT f.severity FROM findings f WHERE EXISTS "
+    "(SELECT 1 FROM assets AS x(t, i, h, r, o) WHERE tenant_db = 'acme_db' AND i = f.asset_id)",
+    "SELECT h FROM assets AS x(t, i, h, r, o) WHERE tenant_db IN ('globex_db')",
+])
+def test_column_list_alias_hides_tenant_db_from_pruning(sql):
+    out = rewrite_unified(sql, TABLES, CATALOG)
+    (sub,) = _unions(_parse(out.sql), "x")
+    assert sorted(_tenants(sub)) == ["acme_db", "globex_db", "initech_db"]
+
+
 def test_filter_that_matches_no_tenant_returns_typed_empty_relation():
     out = rewrite_unified(
         "SELECT a.hostname, a.risk FROM assets a WHERE a.tenant_db = 'nobody_db'", TABLES, CATALOG

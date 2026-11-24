@@ -144,7 +144,7 @@ def _plan(
         used = _used_names(statement, alias)
         columns = tuple((c, t) for c, t in table.columns if c.lower() in used)
 
-    allowed = _tenant_filter(owner, join, alias)
+    allowed = None if renamed else _tenant_filter(owner, join, alias)
     tenants = tuple(
         t for t in table.tenants if t not in left_out and (allowed is None or t in allowed)
     )
