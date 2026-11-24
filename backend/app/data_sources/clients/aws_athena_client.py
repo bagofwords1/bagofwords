@@ -19,6 +19,7 @@ from app.utils.safe_regex import compile_bounded, pattern_cost_problem
 from app.data_sources.clients.athena_unified_catalog import UNREADABLE_TENANTS_KEY, unify_glue_catalogs
 from app.data_sources.clients.athena_union_rewrite import Rewrite, UnifiedTable, rewrite_unified
 from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN
+from sqlglot import exp
 from sqlglot.errors import SqlglotError
 from app.data_sources.clients.database_spec import parse_database_spec, is_glob, is_excluded, spec_matches
 
@@ -110,6 +111,9 @@ S3_PATH_PATTERN = re.compile(r"s3://[^\s'\"<>,)]+", re.IGNORECASE)
 ACCESS_DENIED_PATTERN = re.compile(r"access\s*denied|permission denied|not authorized", re.IGNORECASE)
 
 REINDEX_HINT = "If a tenant database changed, re-index this connection."
+UNIFIED_QUERY_SHAPE = (
+    "This connection reads unified tables; send one SELECT over table names without a database."
+)
 
 
 class ExcludePatternTimeout(RuntimeError):
@@ -491,17 +495,23 @@ class AwsAthenaClient(DataSourceClient):
         )
 
     def _unified_rewrite(self, sql: str) -> Rewrite:
-        from app.ai.code_execution.table_scope import parse_for_refs, refuse_unchecked_reads_of
+        from app.ai.code_execution.sql_parser import parse_guard_sql
+        from app.ai.code_execution.table_scope import refuse_unchecked_reads_of
         if not self._unified_tables:
             raise ValueError(
                 "No unified tables are known for this connection yet. Index this connection first."
             )
         try:
-            refuse_unchecked_reads_of(parse_for_refs(sql, "athena"))
+            statements = [
+                s for s in parse_guard_sql(sql, "athena") if s is not None and not isinstance(s, exp.Semicolon)
+            ]
+            if len(statements) != 1 or not isinstance(statements[0], exp.Query):
+                raise ValueError(f"This query was not run. {UNIFIED_QUERY_SHAPE}")
+            refuse_unchecked_reads_of(statements)
             left_out = {table: frozenset(tenants) for table, tenants in self._query_left_out.items()}
             return rewrite_unified(sql, self._unified_tables, self.data_source, left_out)
         except SqlglotError as e:
-            raise ValueError(f"Could not read this query, so it was not run: {e}") from e
+            raise ValueError(f"Could not read this query, so it was not run. {UNIFIED_QUERY_SHAPE}") from e
 
     def _unified_description(self) -> str:
         tenants = sorted({t for table in self._unified_tables.values() for t in table.tenants})

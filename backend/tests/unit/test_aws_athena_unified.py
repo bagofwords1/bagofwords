@@ -518,3 +518,46 @@ def test_stored_metadata_with_an_unparseable_type_is_refused_before_athena(wrang
     with pytest.raises(ValueError):
         client.execute_query("SELECT c FROM orders")
     assert wrangler.calls == []
+
+
+@pytest.mark.parametrize("sql", [
+    "SHOW TABLES IN acme_db",
+    "SHOW COLUMNS FROM acme_db.assets",
+    "SHOW CREATE TABLE assets",
+    "MSCK REPAIR TABLE assets",
+    "EXPLAIN SELECT * FROM acme_db.assets",
+    "UNLOAD (SELECT * FROM assets) TO 's3://bucket/out/' WITH (format = 'PARQUET')",
+    "DESCRIBE assets",
+    "SELECT id FROM assets; SELECT id FROM users",
+    "INSERT INTO assets SELECT * FROM users",
+    "CREATE TABLE copied AS SELECT * FROM assets",
+    "DROP TABLE assets",
+    "VALUES (1)",
+])
+def test_unified_mode_sends_only_a_single_query_statement(wrangler, sql):
+    client = indexed_client(FakeGlue(DATABASES))
+    with pytest.raises(ValueError) as raised:
+        client.execute_query(sql)
+    assert wrangler.calls == []
+    assert "<database>.<table>" not in str(raised.value)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT id FROM assets;",
+    "WITH recent AS (SELECT id FROM assets) SELECT * FROM recent",
+    "SELECT id FROM assets UNION ALL SELECT id FROM users",
+    "(SELECT id FROM assets)",
+])
+def test_unified_mode_runs_any_single_query_shape(wrangler, sql):
+    client = indexed_client(FakeGlue(DATABASES))
+    client.execute_query(sql)
+    assert len(wrangler.calls) == 1
+
+
+def test_unreadable_sql_is_refused_with_unified_guidance(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    with pytest.raises(ValueError) as raised:
+        client.execute_query("SELECT FROM FROM (")
+    assert "<database>.<table>" not in str(raised.value)
+    assert "unified" in str(raised.value)
+    assert wrangler.calls == []
