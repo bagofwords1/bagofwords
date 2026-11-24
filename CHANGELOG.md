@@ -6,7 +6,9 @@
 - Added removing a report from a project on the project page (#1902)
 - Added a per-user on/off toggle for personal connectors in the chat composer, remembered across chats (#1901)
 - Changed the command palette's All tab to show only reports and dashboards (#1900)
+- Changed a shared folder's instruction list in the Knowledge Explorer to show status, Pending review, category and load mode, like an agent's list (#1908)
 - Fixed result cards in chat opening collapsed, and a pending wait's Cancel button scrolling out of view (#1897)
+- Fixed Power BI schema refresh failing when one semantic model has no readable tables; that model is now skipped with a warning (#1907)
 
 ## Version 0.0.635 (November 23, 2026)
 - Added agents with no data connection, built from instructions, files and a description only (#1895)
