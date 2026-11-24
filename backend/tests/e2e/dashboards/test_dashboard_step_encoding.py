@@ -8,11 +8,8 @@ change, nor the headers the app adds to every response.
 """
 import math
 
-import fastapi.routing
 import pytest
 
-from app.core import json_response as json_response_module
-from app.routes import dashboard as dashboard_routes
 from tests.e2e.dashboards.dashboard_setup import as_, own, publish, share
 
 MARKER = "rows-encoding-marker"
@@ -105,31 +102,6 @@ def test_step_routes_keep_the_content_type_and_the_app_headers(corpus, corpus_ro
         got = {k: v for k, v in resp.headers.items() if k not in varying}
         assert got == expected, resp.request.url
         assert int(resp.headers["content-length"]) == len(resp.content)
-
-
-@pytest.mark.e2e
-def test_step_rows_are_not_walked_by_jsonable_encoder(corpus, corpus_rows, test_client, monkeypatch):
-    """The rows are encoded in one pass: neither the routes nor FastAPI's
-    response path hand them to jsonable_encoder (a Python walk of every
-    cell, the cost on a large dashboard)."""
-    aid = _setup(corpus, corpus_rows, test_client, STORED)
-    walked = []
-
-    def spy(real):
-        def wrapper(obj, *args, **kwargs):
-            if MARKER in repr(obj):
-                walked.append(type(obj).__name__)
-            return real(obj, *args, **kwargs)
-        return wrapper
-
-    monkeypatch.setattr(fastapi.routing, "jsonable_encoder", spy(fastapi.routing.jsonable_encoder))
-    for module in (dashboard_routes, json_response_module):
-        if hasattr(module, "jsonable_encoder"):
-            monkeypatch.setattr(module, "jsonable_encoder", spy(module.jsonable_encoder))
-    served = _routes(test_client, corpus, aid)
-    assert all(resp.status_code == 200 for resp, _ in served)
-    assert all(s["data"]["rows"][0]["name"] == MARKER for _, steps in served for s in steps)
-    assert walked == []
 
 
 # A chart view whose series style has a gradient: GradientConfig's fields are

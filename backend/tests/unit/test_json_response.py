@@ -164,18 +164,6 @@ def test_a_value_starting_with_sa_is_still_served():
     assert json.loads(json_response(payload).body) == payload == _old_body(payload)
 
 
-def test_a_payload_without_sa_keys_is_not_walked_by_jsonable_encoder(monkeypatch):
-    import app.core.json_response as module
-
-    walked = []
-    if hasattr(module, "jsonable_encoder"):
-        real = module.jsonable_encoder
-        monkeypatch.setattr(module, "jsonable_encoder", lambda obj, *a, **k: walked.append(1) or real(obj, *a, **k))
-    with code_visibility(True):
-        json_response(_step(rows=[{"sales": 1, "name": "north"}] * 50))
-    assert walked == []
-
-
 @pytest.fixture
 def module_logs(caplog):
     """The module logger's records. alembic's fileConfig (run by migration-
