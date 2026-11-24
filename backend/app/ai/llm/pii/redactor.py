@@ -196,6 +196,13 @@ class PiiRedactor:
         # — instructions, schemas, platform context — are left as they are, and
         # only the prompt and the data are redacted.
         self.redact_context = redact_context
+        # True for a policy merged from several (see policy.merge_policies):
+        # overlapping pattern matches are resolved on the ORIGINAL text, the
+        # strongest action winning, instead of rule after rule on edited text.
+        # Otherwise an agent's mask on a built-in rule would rewrite a value
+        # before the provider's stronger custom rule could match it, and adding
+        # an agent would reveal more. Single policies keep the historical order.
+        self.resolve_overlaps = False
 
     @property
     def active(self) -> bool:
@@ -340,7 +347,10 @@ class PiiRedactor:
 
         # 3. pattern rules, one after another, tracking positions.
         protected: List[Tuple[int, int]] = []  # reversible tokens, current coordinates
-        for rule in self.rules:
+        if self.resolve_overlaps:
+            head, protected, pending, pattern_matches = self._apply_patterns_resolved(head, pending, vault)
+            matches.extend(pattern_matches)
+        for rule in ([] if self.resolve_overlaps else self.rules):
             if rule.action == "block":
                 continue
             count = 0
@@ -385,6 +395,57 @@ class PiiRedactor:
                     matches.append({"id": rule.id, "name": rule.name, "count": counts[rule.id], "action": rule.action})
 
         return RedactionResult(text=head + tail, matches=matches, detector_failed=detector_failed)
+
+    def _apply_patterns_resolved(self, head: str, pending: list, vault: Any):
+        """Steps 3 and 4 for merged policies: every non-block pattern match and
+        every detector span is taken on the original text, overlaps are
+        resolved strongest action first (block > replace > pseudonymize >
+        mask), then the longest match, then the higher detector score, then
+        rule order, and the survivors are applied in one pass."""
+        strength = {"mask": 1, "pseudonymize": 2, "replace": 3, "block": 4}
+        # start, end, rule index, rule, regex match (None for a detector span), score
+        found: List[Tuple[int, int, int, Any, Any, float]] = []
+        for idx, rule in enumerate(self.rules):
+            if rule.action == "block":
+                continue
+            for pattern in rule.patterns:
+                try:
+                    for m in pattern.finditer(head):
+                        s, e = m.span()
+                        if e > s:
+                            found.append((s, e, idx, rule, m, 1.0))
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("PII rule %s: match error, skipping pattern: %s", rule.id, exc)
+        base = len(self.rules)
+        for k, (start, end, drule, score) in enumerate(pending):
+            found.append((start, end, base + k, drule, None, score))
+        accepted: List[Tuple[int, int, int, Any, Any, float]] = []
+        for cand in sorted(found, key=lambda f: (-strength.get(f[3].action, 0), -(f[1] - f[0]), -f[5], f[2], f[0])):
+            if any(_overlaps(cand[0], cand[1], a[0], a[1]) for a in accepted):
+                continue
+            accepted.append(cand)
+        accepted.sort(key=lambda f: f[0])
+        edits: List[Tuple[int, int, str]] = []
+        protect_flags: List[bool] = []
+        counts: Dict[str, int] = {}
+        for s, e, _idx, rule, m, _score in accepted:
+            if m is None:  # detector span
+                rep = self._replacement_for(rule.action, rule.replacement, rule.label, head[s:e], vault)
+            elif rule.action == "replace":
+                rep = m.expand(rule.replacement)
+            else:
+                rep = self._replacement_for(rule.action, rule.replacement, rule.label, m.group(0), vault)
+            edits.append((s, e, rep))
+            protect_flags.append(rule.action == "pseudonymize")
+            counts[rule.id] = counts.get(rule.id, 0) + 1
+        protected: List[Tuple[int, int]] = []
+        if edits:
+            # Every detector span was either applied here or overlapped one
+            # that was: none are left for step 4.
+            head, protected, _ = _apply_edits(head, edits, protected, [], protect_new=protect_flags)
+        out = [{"id": r.id, "name": r.name, "count": counts[r.id], "action": r.action}
+               for r in [*self.rules, *self.detector_rules] if counts.get(r.id)]
+        return head, protected, [], out
 
     def redact_display(self, text: str) -> str:
         """Mask PII for *display* in the UI. Unlike ``scan``/``apply`` (which
@@ -478,21 +539,22 @@ def _apply_edits(
     protected: List[Tuple[int, int]],
     pending: list,
     *,
-    protect_new: bool,
+    protect_new,
 ):
     """Apply non-overlapping, left-to-right ``(start, end, replacement)`` edits
     and move the tracked positions with them: ``protected`` intervals shift,
     ``pending`` detector spans shift or are dropped when an edit overlaps them.
-    With ``protect_new`` the replacements become protected intervals."""
+    With ``protect_new`` the replacements become protected intervals; a list
+    of booleans (one per edit) protects only the flagged ones."""
     out: List[str] = []
     pos = 0
     new_protected: List[Tuple[int, int]] = []
     shift = 0
     shifts: List[Tuple[int, int]] = []  # (edit_end_in_old_coords, cumulative_shift_after_it)
-    for s, e, rep in edits:
+    for i, (s, e, rep) in enumerate(edits):
         out.append(text[pos:s])
         out.append(rep)
-        if protect_new:
+        if (protect_new[i] if isinstance(protect_new, list) else protect_new):
             new_start = s + shift
             new_protected.append((new_start, new_start + len(rep)))
         shift += len(rep) - (e - s)

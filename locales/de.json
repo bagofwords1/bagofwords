@@ -4224,7 +4224,16 @@
         "LOCATION": "Ort",
         "ORGANIZATION": "Organisation",
         "NRP": "Nationalität, religiöse oder politische Gruppe"
-      }
+      },
+      "agentsTitle": "Richtlinien pro Agent",
+      "agentsDesc": "Wählen Sie die Richtlinie, die jeder Agent hinzufügt. Die Richtlinie eines Agenten gilt für jede Anfrage, an der der Agent beteiligt ist, einschließlich der Daten anderer Agenten im selben Chat, auch bei einem ausgenommenen Anbieter. Gelten mehrere Richtlinien, gewinnt für jede Regel die strengste Option.",
+      "defaultAgentPolicy": "Standard für Agenten",
+      "defaultAgentPolicyDesc": "Agenten ohne eigene Auswahl verwenden diese Richtlinie.",
+      "noAgents": "Noch keine Agenten.",
+      "agentPolicyFor": "PII-Richtlinie für {name}",
+      "noAgentPolicy": "Keine Agent-Richtlinie",
+      "inheritAgentPolicy": "Organisationsstandard: {policy}",
+      "usedByAgents": "{n} Agent | {n} Agenten"
     },
     "piiTab": "PII-Schutz",
     "frameAncestors": {
@@ -7889,6 +7898,13 @@
       "none": "Keine Obergrenze",
       "ask": "Fragen",
       "auto": "Automatisch"
+    },
+    "pii": {
+      "title": "PII-Richtlinie",
+      "hint": "Gilt für jede Anfrage mit diesem Agenten, zusätzlich zur Richtlinie des Modells. Für jede Regel gewinnt die strengste Option.",
+      "disabled": "Der PII-Schutz ist für diese Organisation deaktiviert.",
+      "saved": "PII-Richtlinie gespeichert",
+      "saveError": "PII-Richtlinie konnte nicht gespeichert werden"
     }
   },
   "productUpdates": {

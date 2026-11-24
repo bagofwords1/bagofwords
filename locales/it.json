@@ -4224,7 +4224,16 @@
         "LOCATION": "Luogo",
         "ORGANIZATION": "Organizzazione",
         "NRP": "Nazionalità, gruppo religioso o politico"
-      }
+      },
+      "agentsTitle": "Criteri per agente",
+      "agentsDesc": "Scegli il criterio che ogni agente aggiunge. Il criterio di un agente si applica a ogni richiesta che include l'agente, compresi i dati degli altri agenti nella stessa chat, anche con un provider esente. Quando si applicano più criteri, vince l'opzione più restrittiva per ogni regola.",
+      "defaultAgentPolicy": "Predefinito per gli agenti",
+      "defaultAgentPolicyDesc": "Gli agenti senza una scelta propria usano questo criterio.",
+      "noAgents": "Ancora nessun agente.",
+      "agentPolicyFor": "Criterio PII per {name}",
+      "noAgentPolicy": "Nessun criterio dell'agente",
+      "inheritAgentPolicy": "Predefinito dell'organizzazione: {policy}",
+      "usedByAgents": "{n} agente | {n} agenti"
     },
     "piiTab": "Dati personali",
     "frameAncestors": {
@@ -7889,6 +7898,13 @@
       "none": "Nessun limite",
       "ask": "Chiedi",
       "auto": "Auto"
+    },
+    "pii": {
+      "title": "Criterio PII",
+      "hint": "Si applica a ogni richiesta che include questo agente, oltre al criterio del modello. Vince l'opzione più restrittiva per ogni regola.",
+      "disabled": "La protezione PII è disattivata per questa organizzazione.",
+      "saved": "Criterio PII salvato",
+      "saveError": "Impossibile salvare il criterio PII"
     }
   },
   "productUpdates": {

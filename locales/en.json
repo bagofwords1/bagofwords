@@ -4855,7 +4855,16 @@
         "LOCATION": "Location",
         "ORGANIZATION": "Organization",
         "NRP": "Nationality, religious or political group"
-      }
+      },
+      "agentsTitle": "Agent policies",
+      "agentsDesc": "Choose the policy each agent adds. An agent's policy applies to every request that includes the agent, including the other agents' data in the same chat, and even on an Exempt provider. When several policies apply, the strictest option for each rule wins.",
+      "defaultAgentPolicy": "Default for agents",
+      "defaultAgentPolicyDesc": "Agents without their own choice use this policy.",
+      "noAgents": "No agents yet.",
+      "agentPolicyFor": "PII policy for {name}",
+      "noAgentPolicy": "No agent policy",
+      "inheritAgentPolicy": "Org default: {policy}",
+      "usedByAgents": "{n} agent | {n} agents"
     },
     "adminPages": {
       "members": "Invite people to the workspace and manage their role, groups and access.",
@@ -8851,6 +8860,13 @@
       "none": "No cap",
       "ask": "Ask",
       "auto": "Auto"
+    },
+    "pii": {
+      "title": "PII policy",
+      "hint": "Applies to every request that includes this agent, on top of the model's own policy. The strictest option for each rule wins.",
+      "disabled": "PII protection is off for this organization.",
+      "saved": "PII policy saved",
+      "saveError": "Couldn't save the PII policy"
     }
   },
   "productUpdates": {

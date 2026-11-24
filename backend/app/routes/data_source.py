@@ -245,6 +245,35 @@ async def test_new_data_source_connection(
 ):
     return await data_source_service.test_new_data_source_connection(db=db, data=data_source, organization=organization, current_user=current_user)
 
+@router.get("/data_sources/{data_source_id}/pii_policy", response_model=dict)
+@requires_resource_permission('data_source', 'manage')
+async def get_data_source_pii_policy(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization)
+):
+    """The agent's PII policy (agent admins). See docs/design/pii-agent-policies.md."""
+    from app.services import pii_agent_policy_service
+    return await pii_agent_policy_service.get_agent_pii_policy(db, organization, current_user, data_source_id)
+
+
+@router.put("/data_sources/{data_source_id}/pii_policy", response_model=dict)
+@requires_resource_permission('data_source', 'manage')
+async def set_data_source_pii_policy(
+    data_source_id: str,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Set the agent's PII policy: a policy id, ":inherit", or ":none" (org admins only)."""
+    from app.services import pii_agent_policy_service
+    return await pii_agent_policy_service.set_agent_pii_policy(
+        db, organization, current_user, data_source_id, (payload or {}).get("policy")
+    )
+
+
 @router.put("/data_sources/{data_source_id}", response_model=DataSourceSchema)
 @requires_resource_permission('data_source', 'manage')
 async def update_data_source(

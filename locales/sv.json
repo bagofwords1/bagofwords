@@ -4224,7 +4224,16 @@
         "LOCATION": "Plats",
         "ORGANIZATION": "Organisation",
         "NRP": "Nationalitet, religiös eller politisk grupp"
-      }
+      },
+      "agentsTitle": "Policyer per agent",
+      "agentsDesc": "Välj den policy som varje agent lägger till. En agents policy gäller varje förfrågan som omfattar agenten, inklusive andra agenters data i samma chatt, även hos en undantagen leverantör. När flera policyer gäller vinner det strängaste alternativet för varje regel.",
+      "defaultAgentPolicy": "Standard för agenter",
+      "defaultAgentPolicyDesc": "Agenter utan eget val använder den här policyn.",
+      "noAgents": "Inga agenter ännu.",
+      "agentPolicyFor": "PII-policy för {name}",
+      "noAgentPolicy": "Ingen agentpolicy",
+      "inheritAgentPolicy": "Organisationens standard: {policy}",
+      "usedByAgents": "{n} agent | {n} agenter"
     },
     "piiTab": "Personuppgifter",
     "frameAncestors": {
@@ -7889,6 +7898,13 @@
       "none": "Inget tak",
       "ask": "Fråga",
       "auto": "Auto"
+    },
+    "pii": {
+      "title": "PII-policy",
+      "hint": "Gäller varje förfrågan som omfattar den här agenten, utöver modellens policy. Det strängaste alternativet för varje regel vinner.",
+      "disabled": "PII-skydd är avstängt för den här organisationen.",
+      "saved": "PII-policyn sparades",
+      "saveError": "Det gick inte att spara PII-policyn"
     }
   },
   "productUpdates": {
