@@ -21,7 +21,15 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_table() -> bool:
+    return sa.inspect(op.get_bind()).has_table('user_connector_preferences')
+
+
 def upgrade() -> None:
+    # Idempotent: the dashboards corpus runs schema-only revisions unstamped,
+    # so a later `upgrade head` runs this again.
+    if _has_table():
+        return
     op.create_table(
         'user_connector_preferences',
         sa.Column('id', sa.String(36), primary_key=True),
@@ -37,4 +45,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not _has_table():
+        return
     op.drop_table('user_connector_preferences')
