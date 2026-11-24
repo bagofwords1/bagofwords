@@ -37,7 +37,6 @@ from app.core.telemetry import telemetry, derive_org_domain
 from app.core.user_lifecycle import (
     deactivate_user_if_orphaned,
     is_instance_admin_account,
-    may_attach_existing_account,
     reactivate_user_for_membership,
     revoke_member_org_access,
 )
@@ -465,11 +464,11 @@ class OrganizationService:
         # Store the email for invitation before potentially setting it to None
         invitation_email = membership_data.email
 
-        # An existing account joins by accepting an invite, like a new address
-        # would, whenever this organization may not place it here on its own
-        # (see may_attach_existing_account). The caller adding themselves —
-        # creating an organization — is its own consent. An unknown account id
-        # is left to the insert, as before.
+        # An existing account joins directly: adding someone who already has an
+        # account (in this or another organization) makes them a member right
+        # away, with no invite to accept. Only an instance administrator's
+        # account still joins by accepting an invite — an organization never
+        # places it in itself. An unknown account id is left to the insert.
         is_self = lambda u: str(u.id) == str(getattr(current_user, "id", ""))  # noqa: E731
         target = user
         if target is None and membership_data.user_id:
@@ -482,7 +481,7 @@ class OrganizationService:
                     "This account is an instance administrator. Only an instance "
                     "administrator can add it to an organization.",
                 )
-            if not await may_attach_existing_account(db, target, org_id):
+            if is_instance_admin_account(target):
                 target_email = (target.email or "").strip().lower()
                 if user is None and await self._is_email_already_in_organization(
                     db, target_email, membership_data.organization_id

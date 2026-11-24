@@ -16,7 +16,7 @@ import uuid
 from app.dependencies import async_session_maker
 
 from ._shared_member import (  # noqa: F401
-    accept_invite, h, invite, is_member, run, shared_member, two_orgs,
+    h, invite, is_member, run, shared_member, two_orgs,
 )
 
 
@@ -77,9 +77,7 @@ def test_removed_member_comes_back_with_only_the_invited_role(
     assert _grants(test_client, admin, org, member_id) == []
 
     readded = invite(test_client, admin_token=admin, org_id=org, email=email, role="member")
-    accept_invite(
-        test_client, admin_token=admin, org_id=org, membership_id=readded["id"], user_token=member,
-    )
+    assert readded["user_id"] == member_id  # an existing account joins directly
 
     back = _row(test_client, admin, org, member_id)
     assert back["role"] == "member"
