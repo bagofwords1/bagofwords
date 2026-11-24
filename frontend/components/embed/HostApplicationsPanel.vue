@@ -48,6 +48,10 @@
                 <span dir="ltr">{{ host.identity_source }}</span>{{ host.create_users ? ` · ${$t('hostApps.createsUsers')}` : '' }}
                 <span class="mx-1.5 text-gray-300 dark:text-gray-600">·</span>
               </template>
+              <template v-if="host.identity_mode === 'sso' || host.create_users">
+                <span data-testid="host-app-new-people">{{ $t('hostApps.newPeopleAs', { role: host.new_user_role === 'member' ? $t('hostApps.newUserRoleMember') : $t('hostApps.newUserRoleApp') }) }}</span>
+                <span class="mx-1.5 text-gray-300 dark:text-gray-600">·</span>
+              </template>
               {{ $t('hostApps.usageValue', { sessions: host.active_sessions, artifacts: host.artifacts }) }}
             </p>
           </div>

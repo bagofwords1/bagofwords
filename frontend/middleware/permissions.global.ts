@@ -1,8 +1,26 @@
 import { useCan, useCanAny, usePermissionsLoaded } from '~/composables/usePermissions'
+import { isAppUserPath, workspaceAccessOf } from '~/composables/useWorkspaceAccess'
 
 type ResourcePermissionAny = { permission: string; resourceType: string }
 
 export default defineNuxtRouteMiddleware(async (to, from) => {
+  // An app user (a member without `access_workspace`) has the app launcher
+  // and the apps themselves, nothing else. Runs before every other rule here:
+  // the fallback below sends a refused navigation to '/', which they cannot
+  // open either. The API enforces this; here we only route them.
+  {
+    const { status, data } = useAuth()
+    if (status.value === 'authenticated' && !isAppUserPath(to.path)) {
+      const { organization, ensureOrganization } = useOrganization()
+      if (!organization.value?.id) {
+        try { await ensureOrganization() } catch {}
+      }
+      if (workspaceAccessOf(data.value, organization.value?.id) === false) {
+        return navigateTo('/apps')
+      }
+    }
+  }
+
   // Skip permission checks for auth/public pages
   const publicPaths = ['/users/', '/organizations/', '/onboarding', '/r/', '/d/', '/c/', '/print/', '/not_found']
   if (publicPaths.some(path => to.path.startsWith(path))) {

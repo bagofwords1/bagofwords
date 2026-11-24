@@ -276,9 +276,20 @@ class OrganizationService:
             db, getattr(current_user, "id", None), organization.id
         )
 
+        from app.core.permissions_registry import APP_USER_ROLE, WORKSPACE_ACCESS
+        from app.models.host_application import HostApplication
+
+        host_ids = {m.created_via_host_application_id for m in memberships if m.created_via_host_application_id}
+        host_names = {}
+        if host_ids:
+            host_names = {str(i): n for i, n in (await db.execute(
+                select(HostApplication.id, HostApplication.name).where(HostApplication.id.in_(host_ids))
+            )).all()}
+
         schemas = []
         for membership in memberships:
             schema = MembershipSchema.from_orm(membership)
+            schema.created_via_host_application = host_names.get(str(membership.created_via_host_application_id))
             if not can_see_attributes:
                 schema.custom_attributes = None
             if membership.user_id:
@@ -293,7 +304,14 @@ class OrganizationService:
                 # with the member's effective permissions (the legacy
                 # Membership.role column drifted on role changes).
                 resolved = await resolve_permissions(db, str(membership.user_id), str(organization.id))
-                schema.role = "admin" if FULL_ADMIN in resolved.org_permissions else "member"
+                # Three labels: an admin, a workspace member, or an app user
+                # (a member whose roles and groups carry no access_workspace).
+                if FULL_ADMIN in resolved.org_permissions:
+                    schema.role = "admin"
+                elif WORKSPACE_ACCESS in resolved.org_permissions:
+                    schema.role = "member"
+                else:
+                    schema.role = APP_USER_ROLE
             else:
                 # Pending invite: direct ('membership' principal) +
                 # group-inherited via pending group memberships.
@@ -637,7 +655,14 @@ class OrganizationService:
             # legacy Membership.role column) was returned verbatim before, which
             # drifted from RBAC on role changes.
             from app.core.permission_resolver import FULL_ADMIN
-            derived_role = "admin" if FULL_ADMIN in resolved.org_permissions else "member"
+            from app.core.permission_resolver import has_workspace_access
+            from app.core.permissions_registry import APP_USER_ROLE
+            if FULL_ADMIN in resolved.org_permissions:
+                derived_role = "admin"
+            elif has_workspace_access(resolved.org_permissions):
+                derived_role = "member"
+            else:
+                derived_role = APP_USER_ROLE
 
             # Usage quota: when usage_limits is off (the common case) this issues
             # no queries and returns the disabled summary cheaply.
@@ -1030,6 +1055,11 @@ class OrganizationService:
             await self._sync_system_role_assignment(
                 db, organization_id, str(membership.user_id), new_role
             )
+            from app.core.permissions_registry import APP_USER_ROLE
+            if new_role != APP_USER_ROLE:
+                # Given the workspace: their "request full access" is answered.
+                from app.services.app_launcher import resolve_requests
+                await resolve_requests(db, organization_id, str(membership.user_id))
         await db.commit()
 
         # Reload with the user relationship so MembershipSchema serialization

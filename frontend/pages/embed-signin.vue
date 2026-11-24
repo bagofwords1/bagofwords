@@ -43,6 +43,10 @@ onMounted(async () => {
   }
   await getSession()
   if (status.value !== 'authenticated') {
+    // Tell BOW this sign-in started in the host application's popup, so an
+    // account it creates gets that application's new-user role (an app user
+    // by default). A failure only means the account is created as usual.
+    try { await $fetch(`/api/embed/${host}/sso/intent`, { method: 'POST' }) } catch {}
     await navigateTo(`/users/sign-in?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`)
     return
   }

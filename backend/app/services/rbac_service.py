@@ -996,6 +996,10 @@ class RBACService:
         )
         db.add(assignment)
         await db.commit()
+        if data.principal_type == "user":
+            from app.core.permission_resolver import sync_app_user_label
+            await sync_app_user_label(db, org_id, str(data.principal_id))
+            await db.commit()
 
         # Re-fetch with eagerly loaded role to avoid lazy-load issues
         result = await db.execute(
@@ -1038,8 +1042,13 @@ class RBACService:
             if FULL_ADMIN in perms:
                 await assert_full_admin_exists(db, org_id, exclude_user_id=assignment.principal_id)
 
+        principal_type, principal_id = assignment.principal_type, str(assignment.principal_id)
         await db.delete(assignment)
         await db.commit()
+        if principal_type == "user":
+            from app.core.permission_resolver import sync_app_user_label
+            await sync_app_user_label(db, org_id, principal_id)
+            await db.commit()
 
     # ── Resource Grants ──────────────────────────────────────────────────
 

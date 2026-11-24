@@ -396,6 +396,8 @@ app.include_router(host_applications.router, prefix="/api")
 app.include_router(connected_applications.router, prefix="/api")
 app.include_router(embed.router, prefix="/api")
 app.include_router(artifact_conversations.router, prefix="/api")
+from app.routes import apps as apps_routes
+app.include_router(apps_routes.router, prefix="/api")
 app.include_router(artifact_activity.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")

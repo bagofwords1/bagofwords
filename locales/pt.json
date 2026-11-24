@@ -524,7 +524,8 @@
     "automations": "Automações",
     "agent": "Agente",
     "agents": "Agentes",
-    "viewAllAgents": "Ver todos os agentes →"
+    "viewAllAgents": "Ver todos os agentes →",
+    "apps": "Aplicativos"
   },
   "notifications": {
     "title": "Notificações",
@@ -2469,7 +2470,8 @@
       "manage_data_sources": "Gerenciar agentes",
       "manage_service_accounts": "Gerenciar contas de serviço",
       "view_code": "Ver código gerado",
-      "run_custom_code": "Editar e executar código personalizado"
+      "run_custom_code": "Editar e executar código personalizado",
+      "access_workspace": "Usar o espaço de trabalho"
     },
     "delete": "Excluir",
     "duplicate": "Duplicar",
@@ -2489,7 +2491,8 @@
       "knowledge": "Conhecimento dos agentes",
       "code": "Código",
       "admin": "Administração",
-      "other": "Outros"
+      "other": "Outros",
+      "workspace": "Espaço de trabalho"
     },
     "permissionHints": {
       "create_data_source": "Criar agentes nas conexões que podem usar",
@@ -2505,7 +2508,8 @@
       "manage_settings": "Alterar as configurações da organização",
       "manage_llm": "Configurar provedores e modelos de LLM",
       "view_audit_logs": "Ver quem fez o quê e quando",
-      "manage_identity_providers": "Configurar login único (SSO)"
+      "manage_identity_providers": "Configurar login único (SSO)",
+      "access_workspace": "Abrir o próprio espaço de trabalho: início, relatórios, agentes. Sem isso, um membro só tem os aplicativos compartilhados com ele."
     },
     "fullAdminHint": "Pode fazer tudo na organização",
     "fullAdminAccessTab": "O acesso total de administrador inclui todos os agentes, conexões e modelos.",
@@ -3279,7 +3283,9 @@
       "defaultRoleHint": "Preenche a função ao adicionar ou convidar um membro.",
       "defaultRoleSaved": "Função padrão salva",
       "defaultRoleFailed": "Falha ao salvar a função padrão",
-      "defaultRoleShort": "Função padrão"
+      "defaultRoleShort": "Função padrão",
+      "appUser": "Usuário de aplicativos",
+      "joinedVia": "Entrou por meio de {app}"
     },
     "organizationName": "Nome da organização",
     "organizationNameRequired": "O nome da organização não pode ficar vazio.",
@@ -5121,7 +5127,8 @@
     "organization.name_taken": "Já existe uma organização chamada “{name}”.",
     "organization.signup_domains_instance_admin_required": "Só um administrador da instância pode atribuir domínios de registo a uma organização.",
     "organization.signup_domain_claimed": "O domínio {domain} já está atribuído a outra organização.",
-    "organization.member_instance_admin": "Esta conta é de um administrador da instância. Apenas um administrador da instância pode adicioná-la a uma organização."
+    "organization.member_instance_admin": "Esta conta é de um administrador da instância. Apenas um administrador da instância pode adicioná-la a uma organização.",
+    "workspace.access_required": "Sua conta pode usar os aplicativos compartilhados com você, mas não o espaço de trabalho."
   },
   "email": {
     "dashboardShare": {
@@ -8270,5 +8277,39 @@
       "key": "identificador",
       "set_by_admin": "definida por um administrador"
     }
+  },
+  "apps": {
+    "title": "Seus aplicativos",
+    "subtitle": "Abra um aplicativo para começar.",
+    "openWorkspace": "Abrir o espaço de trabalho",
+    "search": "Buscar aplicativos",
+    "untitled": "Aplicativo sem título",
+    "inApplication": "Em {name}",
+    "allApps": "Todos os aplicativos",
+    "language": "Idioma",
+    "account": "Conta",
+    "signOut": "Sair",
+    "loadFailed": "Não foi possível carregar seus aplicativos.",
+    "retry": "Tentar novamente",
+    "noMatches": "Nenhum aplicativo corresponde a “{query}”.",
+    "empty": {
+      "title": "Ainda não há aplicativos",
+      "body": "Quando alguém compartilhar um aplicativo com você, ele aparecerá aqui."
+    },
+    "requestAccess": {
+      "prompt": "Precisa de mais do que estes aplicativos?",
+      "button": "Solicitar acesso completo",
+      "sent": "Solicitação enviada. Um administrador irá analisá-la.",
+      "failed": "Não foi possível enviar a solicitação. Tente novamente."
+    }
+  },
+  "hostApps": {
+    "newUserRole": "Novas pessoas entram como",
+    "newUserRoleHelp": "Para contas criadas ao entrar por este aplicativo. Quem já tem uma conta mantém sua função.",
+    "newUserRoleApp": "Usuário de aplicativos",
+    "newUserRoleAppHelp": "Pode usar os aplicativos compartilhados com ele, não o espaço de trabalho.",
+    "newUserRoleMember": "Membro",
+    "newUserRoleMemberHelp": "Também pode usar o espaço de trabalho: relatórios, agentes e painéis.",
+    "newPeopleAs": "novas pessoas entram como {role}"
   }
 }

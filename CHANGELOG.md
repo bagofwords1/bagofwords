@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.636 (November 24, 2026)
+- Added app users: members who can use the apps (embedded artifacts) shared with them but not the workspace — set "New people join as" on a host application; give the workspace later by changing their role or through a group
+- Added an app launcher at `/apps` listing the apps shared with you, with "Request full access" for app users
+- Added "Use the workspace" to the role editor, on for every existing role
+- Fixed sign-up inside an embedded app's sign-in window not returning to the app
+
 ## Version 0.0.635 (November 23, 2026)
 - Added agents with no data connection, built from instructions, files and a description only (#1895)
 - Added daily caps on LLM tokens, LLM spend, data queries and data scanned to usage policies, alongside monthly caps (#1896) — the day resets at midnight in the org's timezone

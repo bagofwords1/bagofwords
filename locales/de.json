@@ -524,7 +524,8 @@
     "automations": "Automatisierungen",
     "agent": "Agent",
     "agents": "Agenten",
-    "viewAllAgents": "Alle Agenten ansehen →"
+    "viewAllAgents": "Alle Agenten ansehen →",
+    "apps": "Apps"
   },
   "notifications": {
     "title": "Benachrichtigungen",
@@ -2469,7 +2470,8 @@
       "manage_data_sources": "Agenten verwalten",
       "manage_service_accounts": "Dienstkonten verwalten",
       "view_code": "Generierten Code ansehen",
-      "run_custom_code": "Eigenen Code bearbeiten und ausführen"
+      "run_custom_code": "Eigenen Code bearbeiten und ausführen",
+      "access_workspace": "Arbeitsbereich nutzen"
     },
     "delete": "Löschen",
     "duplicate": "Duplizieren",
@@ -2489,7 +2491,8 @@
       "knowledge": "Agentenwissen",
       "code": "Code",
       "admin": "Verwaltung",
-      "other": "Sonstiges"
+      "other": "Sonstiges",
+      "workspace": "Arbeitsbereich"
     },
     "permissionHints": {
       "create_data_source": "Agenten auf nutzbaren Verbindungen erstellen",
@@ -2505,7 +2508,8 @@
       "manage_settings": "Organisationseinstellungen ändern",
       "manage_llm": "LLM-Anbieter und -Modelle konfigurieren",
       "view_audit_logs": "Sehen, wer was wann getan hat",
-      "manage_identity_providers": "Single Sign-on konfigurieren"
+      "manage_identity_providers": "Single Sign-on konfigurieren",
+      "access_workspace": "Den Arbeitsbereich selbst öffnen: Start, Berichte, Agenten. Ohne dies hat ein Mitglied nur die mit ihm geteilten Apps."
     },
     "fullAdminHint": "Darf alles in der Organisation",
     "fullAdminAccessTab": "Voller Admin-Zugriff umfasst alle Agenten, Verbindungen und Modelle.",
@@ -3279,7 +3283,9 @@
       "defaultRoleHint": "Füllt die Rolle beim Hinzufügen oder Einladen eines Mitglieds vor.",
       "defaultRoleSaved": "Standardrolle gespeichert",
       "defaultRoleFailed": "Standardrolle konnte nicht gespeichert werden",
-      "defaultRoleShort": "Standardrolle"
+      "defaultRoleShort": "Standardrolle",
+      "appUser": "App-Benutzer",
+      "joinedVia": "Beigetreten über {app}"
     },
     "organizationName": "Organisationsname",
     "organizationNameRequired": "Der Organisationsname darf nicht leer sein.",
@@ -5121,7 +5127,8 @@
     "organization.name_taken": "Es gibt bereits eine Organisation mit dem Namen „{name}“.",
     "organization.signup_domains_instance_admin_required": "Nur ein Instanzadministrator kann einer Organisation Registrierungsdomains zuweisen.",
     "organization.signup_domain_claimed": "Die Domain {domain} ist bereits einer anderen Organisation zugewiesen.",
-    "organization.member_instance_admin": "Dieses Konto gehört einem Instanzadministrator. Nur ein Instanzadministrator kann es einer Organisation hinzufügen."
+    "organization.member_instance_admin": "Dieses Konto gehört einem Instanzadministrator. Nur ein Instanzadministrator kann es einer Organisation hinzufügen.",
+    "workspace.access_required": "Ihr Konto kann die mit Ihnen geteilten Apps nutzen, aber nicht den Arbeitsbereich."
   },
   "email": {
     "dashboardShare": {
@@ -8270,5 +8277,39 @@
       "key": "Kennung",
       "set_by_admin": "von einem Administrator festgelegt"
     }
+  },
+  "apps": {
+    "title": "Ihre Apps",
+    "subtitle": "Öffnen Sie eine App, um loszulegen.",
+    "openWorkspace": "Arbeitsbereich öffnen",
+    "search": "Apps durchsuchen",
+    "untitled": "Unbenannte App",
+    "inApplication": "In {name}",
+    "allApps": "Alle Apps",
+    "language": "Sprache",
+    "account": "Konto",
+    "signOut": "Abmelden",
+    "loadFailed": "Ihre Apps konnten nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "noMatches": "Keine App passt zu „{query}“.",
+    "empty": {
+      "title": "Noch keine Apps",
+      "body": "Sobald jemand eine App mit Ihnen teilt, erscheint sie hier."
+    },
+    "requestAccess": {
+      "prompt": "Brauchen Sie mehr als diese Apps?",
+      "button": "Vollzugriff anfordern",
+      "sent": "Anfrage gesendet. Ein Administrator prüft sie.",
+      "failed": "Die Anfrage konnte nicht gesendet werden. Versuchen Sie es erneut."
+    }
+  },
+  "hostApps": {
+    "newUserRole": "Neue Personen treten bei als",
+    "newUserRoleHelp": "Für Konten, die bei der Anmeldung über diese Anwendung erstellt werden. Wer bereits ein Konto hat, behält seine Rolle.",
+    "newUserRoleApp": "App-Benutzer",
+    "newUserRoleAppHelp": "Kann die mit ihm geteilten Apps nutzen, nicht den Arbeitsbereich.",
+    "newUserRoleMember": "Mitglied",
+    "newUserRoleMemberHelp": "Kann auch den Arbeitsbereich nutzen: Berichte, Agenten und Dashboards.",
+    "newPeopleAs": "neue Personen treten bei als {role}"
   }
 }

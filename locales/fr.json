@@ -524,7 +524,8 @@
     "automations": "Automatisations",
     "agent": "Agent",
     "agents": "Agents",
-    "viewAllAgents": "Voir tous les agents →"
+    "viewAllAgents": "Voir tous les agents →",
+    "apps": "Applications"
   },
   "notifications": {
     "title": "Notifications",
@@ -2469,7 +2470,8 @@
       "manage_data_sources": "Gérer les agents",
       "manage_service_accounts": "Gérer les comptes de service",
       "view_code": "Voir le code généré",
-      "run_custom_code": "Modifier et exécuter du code personnalisé"
+      "run_custom_code": "Modifier et exécuter du code personnalisé",
+      "access_workspace": "Utiliser l'espace de travail"
     },
     "delete": "Supprimer",
     "duplicate": "Dupliquer",
@@ -2489,7 +2491,8 @@
       "knowledge": "Connaissances des agents",
       "code": "Code",
       "admin": "Administration",
-      "other": "Autres"
+      "other": "Autres",
+      "workspace": "Espace de travail"
     },
     "permissionHints": {
       "create_data_source": "Créer des agents sur les connexions accessibles",
@@ -2505,7 +2508,8 @@
       "manage_settings": "Modifier les paramètres de l'organisation",
       "manage_llm": "Configurer les fournisseurs et modèles LLM",
       "view_audit_logs": "Voir qui a fait quoi, et quand",
-      "manage_identity_providers": "Configurer l'authentification unique"
+      "manage_identity_providers": "Configurer l'authentification unique",
+      "access_workspace": "Ouvrir l'espace de travail lui-même : accueil, rapports, agents. Sans cela, un membre n'a que les applications partagées avec lui."
     },
     "fullAdminHint": "Peut tout faire dans l'organisation",
     "fullAdminAccessTab": "L'accès administrateur complet inclut tous les agents, connexions et modèles.",
@@ -3279,7 +3283,9 @@
       "defaultRoleHint": "Pré-remplit le rôle lors de l'ajout ou de l'invitation d'un membre.",
       "defaultRoleSaved": "Rôle par défaut enregistré",
       "defaultRoleFailed": "Échec de l'enregistrement du rôle par défaut",
-      "defaultRoleShort": "Rôle par défaut"
+      "defaultRoleShort": "Rôle par défaut",
+      "appUser": "Utilisateur d'applications",
+      "joinedVia": "A rejoint via {app}"
     },
     "organizationName": "Nom de l'organisation",
     "organizationNameRequired": "Le nom de l'organisation ne peut pas être vide.",
@@ -5121,7 +5127,8 @@
     "organization.name_taken": "Une organisation nommée « {name} » existe déjà.",
     "organization.signup_domains_instance_admin_required": "Seul un administrateur de l'instance peut attribuer des domaines d'inscription à une organisation.",
     "organization.signup_domain_claimed": "Le domaine {domain} est déjà attribué à une autre organisation.",
-    "organization.member_instance_admin": "Ce compte est celui d'un administrateur de l'instance. Seul un administrateur de l'instance peut l'ajouter à une organisation."
+    "organization.member_instance_admin": "Ce compte est celui d'un administrateur de l'instance. Seul un administrateur de l'instance peut l'ajouter à une organisation.",
+    "workspace.access_required": "Votre compte peut utiliser les applications partagées avec vous, mais pas l'espace de travail."
   },
   "email": {
     "dashboardShare": {
@@ -8270,5 +8277,39 @@
       "key": "identifiant",
       "set_by_admin": "définie par un administrateur"
     }
+  },
+  "apps": {
+    "title": "Vos applications",
+    "subtitle": "Ouvrez une application pour commencer.",
+    "openWorkspace": "Ouvrir l'espace de travail",
+    "search": "Rechercher des applications",
+    "untitled": "Application sans titre",
+    "inApplication": "Dans {name}",
+    "allApps": "Toutes les applications",
+    "language": "Langue",
+    "account": "Compte",
+    "signOut": "Se déconnecter",
+    "loadFailed": "Impossible de charger vos applications.",
+    "retry": "Réessayer",
+    "noMatches": "Aucune application ne correspond à « {query} ».",
+    "empty": {
+      "title": "Pas encore d'applications",
+      "body": "Lorsqu'une application sera partagée avec vous, elle apparaîtra ici."
+    },
+    "requestAccess": {
+      "prompt": "Besoin de plus que ces applications ?",
+      "button": "Demander un accès complet",
+      "sent": "Demande envoyée. Un administrateur l'examinera.",
+      "failed": "Impossible d'envoyer la demande. Réessayez."
+    }
+  },
+  "hostApps": {
+    "newUserRole": "Les nouvelles personnes rejoignent en tant que",
+    "newUserRoleHelp": "Pour les comptes créés en se connectant via cette application. Les personnes qui ont déjà un compte conservent leur rôle.",
+    "newUserRoleApp": "Utilisateur d'applications",
+    "newUserRoleAppHelp": "Peut utiliser les applications partagées avec lui, pas l'espace de travail.",
+    "newUserRoleMember": "Membre",
+    "newUserRoleMemberHelp": "Peut aussi utiliser l'espace de travail : rapports, agents et tableaux de bord.",
+    "newPeopleAs": "les nouvelles personnes rejoignent en tant que {role}"
   }
 }

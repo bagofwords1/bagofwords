@@ -524,7 +524,8 @@
     "automations": "Automazioni",
     "agent": "Agente",
     "agents": "Agenti",
-    "viewAllAgents": "Vedi tutti gli agenti →"
+    "viewAllAgents": "Vedi tutti gli agenti →",
+    "apps": "App"
   },
   "notifications": {
     "title": "Notifiche",
@@ -2469,7 +2470,8 @@
       "manage_data_sources": "Gestire gli agenti",
       "manage_service_accounts": "Gestire gli account di servizio",
       "view_code": "Vedere il codice generato",
-      "run_custom_code": "Modificare ed eseguire codice personalizzato"
+      "run_custom_code": "Modificare ed eseguire codice personalizzato",
+      "access_workspace": "Usare l'area di lavoro"
     },
     "delete": "Elimina",
     "duplicate": "Duplica",
@@ -2489,7 +2491,8 @@
       "knowledge": "Conoscenza degli agenti",
       "code": "Codice",
       "admin": "Amministrazione",
-      "other": "Altro"
+      "other": "Altro",
+      "workspace": "Area di lavoro"
     },
     "permissionHints": {
       "create_data_source": "Creare agenti sulle connessioni utilizzabili",
@@ -2505,7 +2508,8 @@
       "manage_settings": "Modificare le impostazioni dell'organizzazione",
       "manage_llm": "Configurare provider e modelli LLM",
       "view_audit_logs": "Vedere chi ha fatto cosa e quando",
-      "manage_identity_providers": "Configurare il single sign-on"
+      "manage_identity_providers": "Configurare il single sign-on",
+      "access_workspace": "Aprire l'area di lavoro vera e propria: home, report, agenti. Senza, un membro ha solo le app condivise con lui."
     },
     "fullAdminHint": "Può fare tutto nell'organizzazione",
     "fullAdminAccessTab": "L'accesso amministrativo completo include tutti gli agenti, le connessioni e i modelli.",
@@ -3279,7 +3283,9 @@
       "defaultRoleHint": "Precompila il ruolo quando aggiungi o inviti un membro.",
       "defaultRoleSaved": "Ruolo predefinito salvato",
       "defaultRoleFailed": "Impossibile salvare il ruolo predefinito",
-      "defaultRoleShort": "Ruolo predefinito"
+      "defaultRoleShort": "Ruolo predefinito",
+      "appUser": "Utente app",
+      "joinedVia": "Entrato tramite {app}"
     },
     "organizationName": "Nome dell'organizzazione",
     "organizationNameRequired": "Il nome dell'organizzazione non può essere vuoto.",
@@ -5121,7 +5127,8 @@
     "organization.name_taken": "Esiste già un'organizzazione chiamata «{name}».",
     "organization.signup_domains_instance_admin_required": "Solo un amministratore dell'istanza può assegnare domini di registrazione a un'organizzazione.",
     "organization.signup_domain_claimed": "Il dominio {domain} è già assegnato a un'altra organizzazione.",
-    "organization.member_instance_admin": "Questo account appartiene a un amministratore dell'istanza. Solo un amministratore dell'istanza può aggiungerlo a un'organizzazione."
+    "organization.member_instance_admin": "Questo account appartiene a un amministratore dell'istanza. Solo un amministratore dell'istanza può aggiungerlo a un'organizzazione.",
+    "workspace.access_required": "Il tuo account può usare le app condivise con te, ma non l'area di lavoro."
   },
   "email": {
     "dashboardShare": {
@@ -8270,5 +8277,39 @@
       "key": "identificatore",
       "set_by_admin": "impostata da un amministratore"
     }
+  },
+  "apps": {
+    "title": "Le tue app",
+    "subtitle": "Apri un'app per iniziare.",
+    "openWorkspace": "Apri l'area di lavoro",
+    "search": "Cerca app",
+    "untitled": "App senza titolo",
+    "inApplication": "In {name}",
+    "allApps": "Tutte le app",
+    "language": "Lingua",
+    "account": "Account",
+    "signOut": "Esci",
+    "loadFailed": "Impossibile caricare le tue app.",
+    "retry": "Riprova",
+    "noMatches": "Nessuna app corrisponde a “{query}”.",
+    "empty": {
+      "title": "Ancora nessuna app",
+      "body": "Quando qualcuno condividerà un'app con te, comparirà qui."
+    },
+    "requestAccess": {
+      "prompt": "Ti serve più di queste app?",
+      "button": "Richiedi accesso completo",
+      "sent": "Richiesta inviata. Un amministratore la esaminerà.",
+      "failed": "Impossibile inviare la richiesta. Riprova."
+    }
+  },
+  "hostApps": {
+    "newUserRole": "Le nuove persone entrano come",
+    "newUserRoleHelp": "Per gli account creati accedendo tramite questa applicazione. Chi ha già un account mantiene il proprio ruolo.",
+    "newUserRoleApp": "Utente app",
+    "newUserRoleAppHelp": "Può usare le app condivise con lui, non l'area di lavoro.",
+    "newUserRoleMember": "Membro",
+    "newUserRoleMemberHelp": "Può usare anche l'area di lavoro: report, agenti e dashboard.",
+    "newPeopleAs": "le nuove persone entrano come {role}"
   }
 }

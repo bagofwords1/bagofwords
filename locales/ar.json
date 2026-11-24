@@ -524,7 +524,8 @@
     "automations": "الأتمتة",
     "agent": "وكيل",
     "agents": "الوكلاء",
-    "viewAllAgents": "عرض كل الوكلاء ←"
+    "viewAllAgents": "عرض كل الوكلاء ←",
+    "apps": "التطبيقات"
   },
   "notifications": {
     "title": "الإشعارات",
@@ -2469,7 +2470,8 @@
       "manage_data_sources": "إدارة الوكلاء",
       "manage_service_accounts": "إدارة حسابات الخدمة",
       "view_code": "عرض الشيفرة المُنشأة",
-      "run_custom_code": "تحرير الشيفرة المخصّصة وتشغيلها"
+      "run_custom_code": "تحرير الشيفرة المخصّصة وتشغيلها",
+      "access_workspace": "استخدام مساحة العمل"
     },
     "delete": "حذف",
     "duplicate": "تكرار",
@@ -2489,7 +2491,8 @@
       "knowledge": "معرفة الوكلاء",
       "code": "الشيفرة",
       "admin": "الإدارة",
-      "other": "أخرى"
+      "other": "أخرى",
+      "workspace": "مساحة العمل"
     },
     "permissionHints": {
       "create_data_source": "إنشاء وكلاء على الاتصالات المتاحة لهم",
@@ -2505,7 +2508,8 @@
       "manage_settings": "تغيير إعدادات المؤسسة",
       "manage_llm": "إعداد مزوّدي ونماذج LLM",
       "view_audit_logs": "معرفة من فعل ماذا ومتى",
-      "manage_identity_providers": "إعداد تسجيل الدخول الموحّد"
+      "manage_identity_providers": "إعداد تسجيل الدخول الموحّد",
+      "access_workspace": "فتح مساحة العمل نفسها: الصفحة الرئيسية والتقارير والوكلاء. بدونها، لا يملك العضو سوى التطبيقات المشتركة معه."
     },
     "fullAdminHint": "يمكنه فعل كل شيء في المؤسسة",
     "fullAdminAccessTab": "يشمل الوصول الإداري الكامل جميع الوكلاء والاتصالات والنماذج.",
@@ -3279,7 +3283,9 @@
       "defaultRoleHint": "يملأ الدور مسبقًا عند إضافة عضو أو دعوته.",
       "defaultRoleSaved": "تم حفظ الدور الافتراضي",
       "defaultRoleFailed": "تعذر حفظ الدور الافتراضي",
-      "defaultRoleShort": "الدور الافتراضي"
+      "defaultRoleShort": "الدور الافتراضي",
+      "appUser": "مستخدم تطبيقات",
+      "joinedVia": "انضم عبر {app}"
     },
     "organizationName": "اسم المؤسسة",
     "organizationNameRequired": "لا يمكن أن يكون اسم المؤسسة فارغًا.",
@@ -5121,7 +5127,8 @@
     "organization.name_taken": "توجد مؤسسة باسم «{name}» بالفعل.",
     "organization.signup_domains_instance_admin_required": "لا يمكن تعيين نطاقات التسجيل لمؤسسة إلا لمسؤول المثيل.",
     "organization.signup_domain_claimed": "النطاق {domain} معيّن بالفعل لمؤسسة أخرى.",
-    "organization.member_instance_admin": "هذا الحساب لمسؤول النظام. لا يمكن إضافته إلى مؤسسة إلا من قِبل مسؤول النظام."
+    "organization.member_instance_admin": "هذا الحساب لمسؤول النظام. لا يمكن إضافته إلى مؤسسة إلا من قِبل مسؤول النظام.",
+    "workspace.access_required": "يمكن لحسابك استخدام التطبيقات المشتركة معك، لكن ليس مساحة العمل."
   },
   "email": {
     "dashboardShare": {
@@ -8270,5 +8277,39 @@
       "key": "معرّف",
       "set_by_admin": "حدّده مسؤول"
     }
+  },
+  "apps": {
+    "title": "تطبيقاتك",
+    "subtitle": "افتح تطبيقًا للبدء.",
+    "openWorkspace": "فتح مساحة العمل",
+    "search": "البحث في التطبيقات",
+    "untitled": "تطبيق بلا عنوان",
+    "inApplication": "في {name}",
+    "allApps": "كل التطبيقات",
+    "language": "اللغة",
+    "account": "الحساب",
+    "signOut": "تسجيل الخروج",
+    "loadFailed": "تعذّر تحميل تطبيقاتك.",
+    "retry": "إعادة المحاولة",
+    "noMatches": "لا توجد تطبيقات تطابق «{query}».",
+    "empty": {
+      "title": "لا توجد تطبيقات بعد",
+      "body": "عندما يشارك أحدهم تطبيقًا معك، سيظهر هنا."
+    },
+    "requestAccess": {
+      "prompt": "هل تحتاج إلى أكثر من هذه التطبيقات؟",
+      "button": "طلب وصول كامل",
+      "sent": "تم إرسال الطلب. سيراجعه أحد المسؤولين.",
+      "failed": "تعذّر إرسال الطلب. حاول مرة أخرى."
+    }
+  },
+  "hostApps": {
+    "newUserRole": "ينضم الأشخاص الجدد بصفة",
+    "newUserRoleHelp": "للحسابات التي تُنشأ عند تسجيل الدخول عبر هذا التطبيق. من لديه حساب بالفعل يحتفظ بدوره.",
+    "newUserRoleApp": "مستخدم تطبيقات",
+    "newUserRoleAppHelp": "يمكنه استخدام التطبيقات المشتركة معه، لا مساحة العمل.",
+    "newUserRoleMember": "عضو",
+    "newUserRoleMemberHelp": "يمكنه أيضًا استخدام مساحة العمل: التقارير والوكلاء ولوحات المعلومات.",
+    "newPeopleAs": "ينضم الأشخاص الجدد بصفة {role}"
   }
 }
