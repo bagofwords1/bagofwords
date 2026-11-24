@@ -2,10 +2,10 @@
 
 Contract:
 
-* An organization cannot place a person who belongs to another organization
-  into itself. Adding their address creates an open invite; they become a
-  member only by accepting it. An account that belongs nowhere else is
-  attached directly, as it always was.
+* Adding the address of an existing account attaches that account directly,
+  whether it belongs to another organization or to none: it becomes a member
+  at once, with no invite to accept. Only an instance administrator's account
+  still joins by accepting an invite.
 * Adding by account id instead of address follows the same rule.
 * Member lists show a person's chat identities for the listing organization
   only.
@@ -22,7 +22,7 @@ from app.dependencies import async_session_maker
 from app.settings.config import settings as bow_settings
 
 from ._shared_member import (  # noqa: F401
-    accept_invite, get_user_row, h, instance_admin, invite, is_member, multi_org_flag,
+    get_user_row, h, instance_admin, invite, is_member, multi_org_flag,
     new_email, org_ids, run, set_superuser, set_user_active, shared_member, two_orgs,
 )
 
@@ -33,35 +33,32 @@ def _members(test_client, token, org_id):
     return resp.json()
 
 
-def test_adding_another_organizations_member_creates_an_invite_they_must_accept(
-    test_client, two_orgs, whoami,
+def test_adding_another_organizations_member_attaches_them_directly(
+    test_client, two_orgs, whoami, multi_org_flag,
 ):
     o = two_orgs
     email = whoami(o["a_member_token"])["email"]
 
     added = invite(test_client, admin_token=o["b_token"], org_id=o["b_org"], email=email)
 
-    # Not a member yet, and B learns nothing about the account behind the address.
-    assert added["user_id"] is None and added["user"] is None
-    assert org_ids(whoami, o["a_member_token"]) == {o["a_org"]}
-    assert not is_member(test_client, o["a_member_token"], o["b_org"])
+    # A member of both at once; no invite to accept.
+    assert added["user_id"] == o["a_member_id"]
+    assert org_ids(whoami, o["a_member_token"]) == {o["a_org"], o["b_org"]}
+    assert is_member(test_client, o["a_member_token"], o["b_org"])
     row = next(m for m in _members(test_client, o["b_token"], o["b_org"]) if m["id"] == added["id"])
-    assert row["user"] is None and row["email"] == email
+    assert row["user_id"] == o["a_member_id"]
+    assert not [
+        m for m in _members(test_client, o["b_token"], o["b_org"])
+        if (m.get("email") or "").lower() == email.lower() and not m.get("user_id")
+    ]
 
-    # Asking again does not stack a second invite.
+    # Adding again does not stack a second membership.
     again = test_client.post(
         f"/api/organizations/{o['b_org']}/members",
         json={"organization_id": o["b_org"], "email": email, "role": "member"},
         headers=h(o["b_token"], o["b_org"]),
     )
     assert again.status_code == 400
-
-    accept_invite(
-        test_client, admin_token=o["b_token"], org_id=o["b_org"],
-        membership_id=added["id"], user_token=o["a_member_token"],
-    )
-    assert is_member(test_client, o["a_member_token"], o["b_org"])
-    assert is_member(test_client, o["a_member_token"], o["a_org"])
 
 
 def _remove_from_a(test_client, o):
@@ -75,11 +72,11 @@ def _remove_from_a(test_client, o):
 
 
 @pytest.mark.parametrize("by", ["email", "user_id"])
-def test_account_with_no_organization_is_attached_only_on_single_organization_deployments(
+def test_account_with_no_organization_is_attached_directly(
     test_client, two_orgs, whoami, multi_org_flag, by,
 ):
-    """Re-adding a removed member: direct on a single-organization deployment
-    (as always), an invite where the instance hosts several organizations."""
+    """Re-adding a removed member attaches the account (and restores its login
+    where removal deactivated it), with or without multiple organizations."""
     o = two_orgs
     email = whoami(o["a_member_token"])["email"]
     _remove_from_a(test_client, o)
@@ -91,18 +88,13 @@ def test_account_with_no_organization_is_attached_only_on_single_organization_de
     )
 
     assert added.status_code == 200, added.text
-    if multi_org_flag:
-        assert added.json()["user_id"] is None and added.json()["email"] == email
-        assert not is_member(test_client, o["a_member_token"], o["a_org"])
-    else:
-        assert added.json()["user_id"] == o["a_member_id"]
-        assert run(get_user_row(o["a_member_id"]))["is_active"] is True
-        assert is_member(test_client, o["a_member_token"], o["a_org"])
+    assert added.json()["user_id"] == o["a_member_id"]
+    assert run(get_user_row(o["a_member_id"]))["is_active"] is True
+    assert is_member(test_client, o["a_member_token"], o["a_org"])
 
 
 def test_adding_by_account_id_follows_the_same_rule(test_client, two_orgs, whoami):
     o = two_orgs
-    email = whoami(o["a_member_token"])["email"]
 
     by_id = test_client.post(
         f"/api/organizations/{o['b_org']}/members",
@@ -110,15 +102,10 @@ def test_adding_by_account_id_follows_the_same_rule(test_client, two_orgs, whoam
         headers=h(o["b_token"], o["b_org"]),
     )
 
-    # Belongs to A already: an invite to their address, not a membership.
     assert by_id.status_code == 200, by_id.text
-    assert by_id.json()["user_id"] is None and by_id.json()["email"] == email
-    assert not is_member(test_client, o["a_member_token"], o["b_org"])
-    accept_invite(
-        test_client, admin_token=o["b_token"], org_id=o["b_org"],
-        membership_id=by_id.json()["id"], user_token=o["a_member_token"],
-    )
+    assert by_id.json()["user_id"] == o["a_member_id"]
     assert is_member(test_client, o["a_member_token"], o["b_org"])
+    assert is_member(test_client, o["a_member_token"], o["a_org"])
 
 
 @pytest.mark.parametrize("by", ["email", "user_id"])
