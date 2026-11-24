@@ -250,7 +250,16 @@
     // This window is the sign-in popup of a framed BOW (utils/ssoPopup.ts) and
     // the provider just sent it back: the frame that opened it finishes the
     // sign-in, so hand it the result and close instead of signing in here.
-    if (deliverPopupResult(route.query)) return
+    // It closes only once the frame has the result. If the frame never takes
+    // it (it was removed, or it cannot be reached), say so here: this window
+    // is all the user is looking at.
+    const handover = await deliverPopupResult(route.query)
+    if (handover === 'closing') return
+    if (handover === 'undelivered' && route.query.login_code) {
+      error_message.value = t('auth.popupReturnFailed')
+      pageLoaded.value = true
+      return
+    }
     try {
       const settings = await $fetch('/api/settings')
       if (settings?.oidc_providers?.length || settings?.saml_providers?.length) {

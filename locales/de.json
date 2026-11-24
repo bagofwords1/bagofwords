@@ -774,6 +774,7 @@
     "continueWithProvider": "Mit {provider} fortfahren",
     "invalidCredentials": "Ungültige Anmeldedaten",
     "signInFailed": "Anmeldung fehlgeschlagen. Bitte versuchen Sie es erneut.",
+    "popupReturnFailed": "Die Anmeldung ist abgeschlossen, aber dieses Fenster konnte sie nicht an die Seite zurückgeben, die es geöffnet hat. Schließen Sie dieses Fenster und versuchen Sie es von dieser Seite aus erneut.",
     "registrationError": "Bei der Registrierung ist ein Fehler aufgetreten.",
     "googleInitError": "Google-Anmeldung konnte nicht initialisiert werden",
     "providerInitError": "{provider}-Anmeldung konnte nicht initialisiert werden",

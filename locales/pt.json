@@ -774,6 +774,7 @@
     "continueWithProvider": "Continuar com {provider}",
     "invalidCredentials": "Credenciais inválidas",
     "signInFailed": "Falha ao iniciar sessão. Tente novamente.",
+    "popupReturnFailed": "O início de sessão terminou, mas esta janela não conseguiu devolvê-lo à página que a abriu. Feche esta janela e tente novamente a partir dessa página.",
     "registrationError": "Ocorreu um erro durante o cadastro.",
     "googleInitError": "Falha ao inicializar o login com Google",
     "providerInitError": "Falha ao inicializar o login com {provider}",

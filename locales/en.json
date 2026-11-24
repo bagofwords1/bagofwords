@@ -871,6 +871,7 @@
     "continueWithProvider": "Continue with {provider}",
     "invalidCredentials": "Invalid credentials",
     "signInFailed": "Sign-in failed. Please try again.",
+    "popupReturnFailed": "Sign-in finished, but this window could not pass it back to the page that opened it. Close this window and try again from that page.",
     "registrationError": "An error occurred during registration.",
     "googleInitError": "Failed to initialize Google sign-in",
     "providerInitError": "Failed to initialize {provider} sign-in",

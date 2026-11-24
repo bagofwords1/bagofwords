@@ -774,6 +774,7 @@
     "continueWithProvider": "Fortsätt med {provider}",
     "invalidCredentials": "Ogiltiga inloggningsuppgifter",
     "signInFailed": "Inloggningen misslyckades. Försök igen.",
+    "popupReturnFailed": "Inloggningen slutfördes, men det här fönstret kunde inte lämna tillbaka den till sidan som öppnade det. Stäng fönstret och försök igen från den sidan.",
     "registrationError": "Ett fel uppstod under registreringen.",
     "googleInitError": "Det gick inte att initiera Google-inloggning",
     "providerInitError": "Det gick inte att initiera {provider}-inloggning",
