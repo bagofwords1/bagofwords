@@ -4787,7 +4787,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Объединять таблицы из разных баз данных",
+      "unifyTablesDescription": "Объединяет таблицы с одинаковыми именами из подходящих баз данных в одну таблицу со столбцом tenant_db. Нельзя изменить после создания подключения."
     },
     "postgresqlMulti": {
       "databasesTitle": "Базы данных",
@@ -4979,7 +4981,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "«Разрешить всё» может быть режимом по умолчанию, только пока оно включено.",
     "tool_permission_mode.judge_model_unavailable": "Выберите включённую модель принятия решений для проверки в режиме «Авто».",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "Нельзя переключить подключение Athena между одной базой данных, несколькими базами данных и объединёнными таблицами. Вместо этого создайте новое подключение.",
     "catalog_discovery_incomplete": "Не удалось обновить каталог: обнаружение не завершено. Предыдущий каталог и выбранные таблицы сохранены.",
     "saml_unavailable": "Настройки SSO недоступны. Обратитесь к администратору.",
     "saml_login_failed": "Не удалось войти через SSO. Повторите попытку или обратитесь к администратору.",

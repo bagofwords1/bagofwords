@@ -4787,7 +4787,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Unifica le tabelle tra i database",
+      "unifyTablesDescription": "Unisce le tabelle con lo stesso nome dei database corrispondenti in un'unica tabella con una colonna tenant_db. Non può essere modificato dopo la creazione della connessione."
     },
     "postgresqlMulti": {
       "databasesTitle": "Database",
@@ -4979,7 +4981,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "\"Consenti tutto\" può essere il predefinito solo mentre è attivo.",
     "tool_permission_mode.judge_model_unavailable": "Scegli un modello decisionale attivo per il giudice della modalità Auto.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "Non è possibile cambiare una connessione Athena tra un database, più database e tabelle unificate. Crea invece una nuova connessione.",
     "catalog_discovery_incomplete": "L’aggiornamento del catalogo non è riuscito perché il rilevamento era incompleto. Il catalogo precedente e le selezioni delle tabelle sono stati conservati.",
     "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",
     "saml_login_failed": "Accesso SSO non riuscito. Riprova o contatta il tuo amministratore.",

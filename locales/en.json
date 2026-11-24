@@ -5524,7 +5524,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Unify tables across databases",
+      "unifyTablesDescription": "Join same-named tables across the matching databases into one table with a tenant_db column. Can't be changed after the connection is created."
     },
     "postgresqlMulti": {
       "databasesTitle": "Databases",
@@ -5721,7 +5723,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "Allow all can be the default only while it is turned on.",
     "tool_permission_mode.judge_model_unavailable": "Choose an enabled decision model for the Auto judge.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "Cannot change an Athena connection between one database, several databases and unified tables. Create a new connection instead.",
     "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",

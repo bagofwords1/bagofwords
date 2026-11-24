@@ -16,6 +16,15 @@ def test_legacy_stored_config_round_trips_without_an_exclude_pattern():
     assert {k: v for k, v in config.model_dump().items() if k in stored} == stored
 
 
+def test_unify_tables_defaults_off_and_round_trips():
+    assert AWSAthenaConfig(**BASE, database="x").unify_tables is False
+    assert AWSAthenaConfig(**BASE, database="x", unify_tables=True).unify_tables is True
+    extra = AWSAthenaConfig.model_json_schema()["properties"]["unify_tables"]
+    assert extra["ui:type"] == "boolean"
+    assert extra["ui:titleKey"] == "data.athena.unifyTablesTitle"
+    assert extra["ui:descriptionKey"] == "data.athena.unifyTablesDescription"
+
+
 def test_legacy_single_database_keeps_any_data_source():
     assert AWSAthenaConfig(**BASE, database="x", data_source="OtherCatalog").data_source == "OtherCatalog"
 

@@ -457,9 +457,10 @@ def _unread_prefixes(client) -> tuple[str, ...]:
         return ()
 
 
-def _athena_config_is_multi(config) -> bool:
+def _athena_config_mode(config) -> tuple[bool, bool]:
     from app.schemas.data_sources.configs import parse_athena_database_spec
-    return parse_athena_database_spec((config or {}).get("database"))[2]
+    config = config or {}
+    return parse_athena_database_spec(config.get("database"))[2], bool(config.get("unify_tables"))
 
 
 def _validate_connection_config(connection_type: str, config) -> None:
@@ -485,10 +486,10 @@ def _reject_athena_mode_switch(connection, new_config) -> None:
     stored = connection.config
     if isinstance(stored, str):
         stored = json.loads(stored)
-    if _athena_config_is_multi(stored) != _athena_config_is_multi(new_config):
+    if _athena_config_mode(stored) != _athena_config_mode(new_config):
         raise AppError.bad_request(
             ErrorCode.CONNECTION_ATHENA_MODE_SWITCH,
-            "Cannot switch an Athena connection between one database and several. Create a new connection instead.",
+            "Cannot change an Athena connection between one database, several databases and unified tables. Create a new connection instead.",
         )
 
 

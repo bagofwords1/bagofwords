@@ -1789,6 +1789,13 @@ class AWSAthenaConfig(BaseModel):
         json_schema_extra={"ui:type": "string", "ui:titleKey": "data.athena.tableExcludeTitle",
                            "ui:descriptionKey": "data.athena.tableExcludeDescription"},
     )
+    unify_tables: bool = Field(
+        False,
+        title="Unify tables across databases",
+        description="Join same-named tables across the matching databases into one table with a tenant_db column. Can't be changed after the connection is created.",
+        json_schema_extra={"ui:type": "boolean", "ui:titleKey": "data.athena.unifyTablesTitle",
+                           "ui:descriptionKey": "data.athena.unifyTablesDescription"},
+    )
 
     @field_validator("table_exclude_pattern")
     @classmethod

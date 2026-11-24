@@ -662,11 +662,14 @@ def test_athena_config_with_blank_optional_fields_uses_the_defaults(
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("stored,target", [
-    ("acme_db", "acme_db, globex_db"),
-    ("acme_db", "*_db"),
-    ("acme_db", "acme_db, !globex_db"),
-    ("acme_db, globex_db", "acme_db"),
-    ("*_db", "globex_db"),
+    (_athena_config("acme_db"), _athena_config("acme_db, globex_db")),
+    (_athena_config("acme_db"), _athena_config("*_db")),
+    (_athena_config("acme_db"), _athena_config("acme_db, !globex_db")),
+    (_athena_config("acme_db, globex_db"), _athena_config("acme_db")),
+    (_athena_config("*_db"), _athena_config("globex_db")),
+    (_athena_config("acme_db"), _athena_config("acme_db", unify_tables=True)),
+    (_athena_config("acme_db, globex_db"), _athena_config("acme_db, globex_db", unify_tables=True)),
+    (_athena_config("acme_db, globex_db", unify_tables=True), _athena_config("acme_db, globex_db")),
 ])
 def test_athena_mode_switch_is_a_typed_400_and_the_same_mode_update_succeeds(
     athena_glue, create_connection, update_connection, test_client, create_user, login_user, whoami, stored, target,
@@ -676,19 +679,19 @@ def test_athena_mode_switch_is_a_typed_400_and_the_same_mode_update_succeeds(
     org_id = whoami(token)["organizations"][0]["id"]
     headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
     connection = create_connection(
-        name=f"Athena {stored}", type="aws_athena", config=_athena_config(stored),
+        name="Athena mode switch", type="aws_athena", config=stored,
         credentials={}, user_token=token, org_id=org_id,
     )
 
     switched = test_client.put(
-        f"/api/connections/{connection['id']}", json={"config": _athena_config(target)}, headers=headers,
+        f"/api/connections/{connection['id']}", json={"config": target}, headers=headers,
     )
     assert switched.status_code == 400, switched.text
     assert switched.json()["error_code"] == "connection.athena_mode_switch", switched.text
 
-    same_mode = "globex_db, acme_db" if "," in stored or "*" in stored else "globex_db"
+    same_database = "globex_db, acme_db" if "," in stored["database"] or "*" in stored["database"] else "globex_db"
     kept = update_connection(
-        connection_id=connection["id"], payload={"config": _athena_config(same_mode)},
+        connection_id=connection["id"], payload={"config": {**stored, "database": same_database}},
         user_token=token, org_id=org_id,
     )
     assert kept["id"] == connection["id"]

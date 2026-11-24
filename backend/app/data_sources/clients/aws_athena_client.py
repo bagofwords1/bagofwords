@@ -139,6 +139,7 @@ class AwsAthenaClient(DataSourceClient):
         encryption_option: str = None,
         kms_key: str = None,
         table_exclude_pattern: Optional[str] = None,
+        unify_tables: bool = False,
     ):
         """
         Initialize the Athena client using AWS Wrangler.
@@ -160,6 +161,7 @@ class AwsAthenaClient(DataSourceClient):
             result_reuse_minutes (int): How long to reuse cached results
             encryption_option (str): S3 encryption option
             kms_key (str): KMS key for encryption
+            unify_tables (bool): Join same-named tables across the matching databases
         """
         self.database = database
         self.s3_output_location = s3_output_location
@@ -179,6 +181,7 @@ class AwsAthenaClient(DataSourceClient):
         ):
             raise ValueError("Invalid table_exclude_pattern")
         self._includes, self._excludes, self._multi = parse_database_spec(database)
+        self._unified = bool(unify_tables)
         self.exact_table_scope_catalogs = ("awsdatacatalog",) if self._multi else None
         self._unread_dbs: List[str] = []
         self._diagnostics: List[dict] = []
