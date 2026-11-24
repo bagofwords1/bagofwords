@@ -361,7 +361,6 @@
   }
 
   async function signInWithCredentials() {
-    await renewEmbedSignupIntent(useRoute().query.redirect)
     isSubmitting.value = true
     error_message.value = ''
     const route = useRoute();
@@ -377,6 +376,9 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
+          // A directory sign-in can create the account: inside a host
+          // application's sign-in window it is that application's.
+          ...(await embedSignupHeaders(route.query.redirect)),
         },
         body: qs.stringify(credentials),
       });

@@ -1614,11 +1614,8 @@ async def current_user(
     """The authenticated caller (JWT, OAuth token or API key), refused when
     they are an app user reaching outside their apps (core/workspace_access)."""
     user = await _authenticate(request, jwt_user, api_key, db)
-    from app.core.workspace_access import apply_signup_intent, gate_user
+    from app.core.workspace_access import gate_user
 
-    # An account that signed up in a host application's sign-in window gets
-    # that application's role before anything is decided about this request.
-    await apply_signup_intent(request, db, user)
     await gate_user(request, db, user)
     return user
 

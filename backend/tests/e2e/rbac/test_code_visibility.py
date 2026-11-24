@@ -560,7 +560,7 @@ async def test_console_trace_withholds_code_from_a_console_user_without_view_cod
     role_id = _strip_code_role(test_client, admin, member, create_role, assign_role)
     updated = test_client.put(
         f"/api/organizations/{admin['org_id']}/roles/{role_id}",
-        json={"permissions": ["view_reports", "manage_settings"]},
+        json={"permissions": ["access_workspace", "view_reports", "manage_settings"]},
         headers=_hdr(admin["token"], admin["org_id"]),
     )
     assert updated.status_code == 200, updated.text

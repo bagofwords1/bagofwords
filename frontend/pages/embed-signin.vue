@@ -43,10 +43,9 @@ onMounted(async () => {
   }
   await getSession()
   if (status.value !== 'authenticated') {
-    // Tell BOW this sign-in started in the host application's popup, so an
-    // account it creates gets that application's new-user role (an app user
-    // by default). A failure only means the account is created as usual.
-    try { await $fetch(`/api/embed/${host}/sso/intent`, { method: 'POST' }) } catch {}
+    // The sign-in and sign-up pages read the host application from this
+    // redirect and attach it to the one request that can create an account
+    // (composables/useEmbedSignupIntent.ts).
     await navigateTo(`/users/sign-in?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`)
     return
   }

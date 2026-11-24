@@ -15,9 +15,12 @@ workspace lost it. Design: `docs/design/embedded-artifacts.md` §12.
   grant the baseline only alongside the permission.
 - **The gate**: `backend/app/core/workspace_access.py`, called from
   `current_user` and `get_current_organization`; MCP and chat platforms too.
-- **Where the role comes from**: `host_identity.apply_new_user_role` (JIT in
-  assertion / IdP-token modes) and the SSO popup's sign-up intent
-  (`POST /api/embed/{host}/sso/intent`, applied at `…/sso/code`).
+- **Where the role comes from**: a per-transaction sign-up *intent* (header on
+  registration/sign-in, state-bound cookie for OIDC, request-bound cookie for
+  SAML) and a mapper event that stamps the role on the membership in the
+  write that creates it (`core/workspace_access.py`). Four review rounds on
+  the PR shaped this: applying the role after the fact, and a browser-wide
+  cookie, each left a way to end up a member.
 - **Launcher**: `GET /api/apps`, `GET /api/apps/available`,
   `POST /api/apps/access-request`; `frontend/pages/apps/index.vue`; redirect in
   `middleware/permissions.global.ts`; back arrow on `/d/{ref}`.

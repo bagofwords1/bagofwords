@@ -21,8 +21,8 @@ async def authorize(provider: str, request: Request) -> JSONResponse:
     response = await build_authorize_url(provider, request)
     # Started inside a host application's sign-in window: bind that to this
     # authorization, so an account the callback creates gets the host's role.
-    from app.core.workspace_access import bind_signup_intent
-    await bind_signup_intent(request, response)
+    from app.core.workspace_access import bind_oidc_authorization
+    await bind_oidc_authorization(provider, request, response)
     return response
 
 

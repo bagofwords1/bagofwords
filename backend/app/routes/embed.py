@@ -184,36 +184,30 @@ async def delete_embed_session(public_id: str, request: Request, db: AsyncSessio
 # ── SSO popup: who is signing up through this application ─────────────────
 # See core/workspace_access.py ("signing up through a host application").
 
-@router.post("/{public_id}/sso/intent", status_code=204)
+@router.post("/{public_id}/sso/intent")
 async def start_sso_sign_in(public_id: str, request: Request, db: AsyncSession = Depends(get_async_db)):
-    """Called by the sign-in popup before it sends a signed-out visitor to
-    BOW's sign-in. Public, like the bootstrap: it reveals nothing and grants
-    nothing."""
-    from app.core.workspace_access import set_signup_intent_cookie
+    """Called by BOW's sign-in and sign-up forms, inside this application's
+    sign-in window, as they submit: the token goes back in the
+    ``X-Embed-Signup`` header of that one request. Public, like the
+    bootstrap: it reveals nothing, and what it grants is a narrower role."""
+    from app.core.workspace_access import INTENT_FORM, INTENT_LIFETIME, issue_signup_intent
 
     host = await _host(db, public_id)
     if not host.enabled:
         raise AppError.forbidden(ErrorCode.HOST_APP_DISABLED, "This host application is disabled")
     await admit(db, ["embed-sso-intent", str(host.id), _client(request)], SESSION_LIMIT_PER_CLIENT)
     host = await _host(db, public_id)  # admit() committed
-    response = Response(status_code=204)
-    set_signup_intent_cookie(response, host)
-    return response
+    return {"token": issue_signup_intent(host, INTENT_FORM), "expires_in": INTENT_LIFETIME}
 
 
 @router.post("/{public_id}/sso/code")
-async def create_sso_code(public_id: str, body: SsoCodeRequest, request: Request, response: Response,
+async def create_sso_code(public_id: str, body: SsoCodeRequest, request: Request,
                           user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db)):
     """Called from BOW's own sign-in popup with the app session; the popup
-    hands the code to its opener (exact origin) and closes. ``current_user``
-    has already applied the popup's sign-up intent, if it carried one."""
-    from app.core.workspace_access import INTENT_COOKIE, INTENT_PATH
-
+    hands the code to its opener (exact origin) and closes."""
     host = await _host(db, public_id)
     await admit(db, ["embed-sso", host.id, str(user.id)], SESSION_LIMIT_PER_CLIENT)
     code = await service.issue_sso_code(db, host, user, body.code_challenge)
-    if request.cookies.get(INTENT_COOKIE):
-        response.delete_cookie(INTENT_COOKIE, path=INTENT_PATH)  # the window is done
     host = await _host(db, public_id)
     return {"code": code, "allowed_origins": list(host.allowed_origins or [])}
 

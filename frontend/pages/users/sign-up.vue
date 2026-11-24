@@ -250,7 +250,6 @@ async function signInWithCredentials(email: string, password: string) {
 }
 
 async function submit() {
-  await renewEmbedSignupIntent(route.query.redirect)
 isSubmitting.value = true
 error_message.value = ''
 const payload: Record<string, string | boolean> = {
@@ -270,6 +269,9 @@ try {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      // Inside a host application's sign-in window: this registration, and
+      // only this one, is that application's (useEmbedSignupIntent.ts).
+      ...(await embedSignupHeaders(route.query.redirect)),
     },
     body: JSON.stringify(payload),
   });
