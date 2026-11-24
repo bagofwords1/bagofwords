@@ -3164,6 +3164,12 @@ _TOOLS_SENTRY = [
     "update_project", "create_dsn", "find_dsns", "analyze_issue_with_seer", "search_docs",
     "get_doc",
 ]
+_TOOLS_FATHOM = [
+    "get_identity", "list_teams", "list_meetings", "get_meeting_summary",
+    "get_meeting_transcript", "find_person", "find_relevant_meetings",
+    "get_relevant_meetings_result", "scan_meeting_summaries", "search_meetings",
+    "get_recording_by_call_id", "get_recording_by_url",
+]
 _TOOLS_GOOGLE_DRIVE = [
     "search_files", "list_recent_files", "read_file_content", "download_file_content",
     "get_file_metadata", "get_file_permissions", "create_file",
@@ -3228,6 +3234,9 @@ MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
               allowed_auth=["dcr"], sample_tools=_TOOLS_SENTRY, category="infra",
               description="Errors, issues and releases from Sentry."),
+    McpPreset(key="fathom", title="Fathom", server_url="https://api.fathom.ai/mcp",
+              allowed_auth=["dcr"], sample_tools=_TOOLS_FATHOM,
+              description="Meetings, summaries and transcripts from Fathom."),
     McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
               auth="oauth_app", allowed_auth=["oauth_app"],
               oauth_defaults=McpAuthDefaults(

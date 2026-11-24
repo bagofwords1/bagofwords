@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.636 (November 24, 2026)
+- Added a Fathom connector for meetings, summaries and transcripts (#1905)
+
 ## Version 0.0.635 (November 23, 2026)
 - Added agents with no data connection, built from instructions, files and a description only (#1895)
 - Added daily caps on LLM tokens, LLM spend, data queries and data scanned to usage policies, alongside monthly caps (#1896) — the day resets at midnight in the org's timezone
