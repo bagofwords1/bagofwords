@@ -552,7 +552,7 @@ class McpPreset(BaseModel):
     title: str
     server_url: str
     transport: str = "streamable_http"   # streamable_http | sse
-    auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer | basic
+    auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer | basic | none
     description: str = ""
     # UI grouping bucket — same vocabulary as DataSourceRegistryEntry.category.
     # Presets are branded MCP servers, so they slot into a domain category
@@ -3226,6 +3226,9 @@ _TOOLS_FATHOM = [
     "get_relevant_meetings_result", "scan_meeting_summaries", "search_meetings",
     "get_recording_by_call_id", "get_recording_by_url",
 ]
+_TOOLS_MICROSOFT_LEARN = [
+    "microsoft_docs_search", "microsoft_code_sample_search", "microsoft_docs_fetch",
+]
 _TOOLS_GOOGLE_DRIVE = [
     "search_files", "list_recent_files", "read_file_content", "download_file_content",
     "get_file_metadata", "get_file_permissions", "create_file",
@@ -3293,6 +3296,10 @@ MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="fathom", title="Fathom", server_url="https://api.fathom.ai/mcp",
               allowed_auth=["dcr"], sample_tools=_TOOLS_FATHOM,
               description="Meetings, summaries and transcripts from Fathom."),
+    McpPreset(key="microsoft_learn", title="Microsoft Learn",
+              server_url="https://learn.microsoft.com/api/mcp",
+              auth="none", allowed_auth=["none"], sample_tools=_TOOLS_MICROSOFT_LEARN,
+              description="Search and read official Microsoft and Azure documentation and code samples."),
     McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
               auth="oauth_app", allowed_auth=["oauth_app"],
               oauth_defaults=McpAuthDefaults(

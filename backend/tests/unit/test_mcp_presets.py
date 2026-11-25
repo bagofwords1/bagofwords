@@ -36,6 +36,18 @@ def test_fathom_preset():
     ]
 
 
+def test_microsoft_learn_preset_is_public():
+    m = mcp_preset("microsoft_learn")
+    assert m.server_url == "https://learn.microsoft.com/api/mcp"
+    assert m.transport == "streamable_http"
+    assert m.auth == "none"
+    assert m.allowed_auth == ["none"]
+    assert m.oauth_defaults is None
+    assert m.sample_tools == [
+        "microsoft_docs_search", "microsoft_code_sample_search", "microsoft_docs_fetch",
+    ]
+
+
 def test_x_preset_is_bearer():
     # X has no DCR — it connects with an app-only bearer token from the
     # X Developer Portal, over streamable HTTP.
