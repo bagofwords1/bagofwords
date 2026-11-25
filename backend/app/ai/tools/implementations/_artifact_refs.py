@@ -1094,7 +1094,8 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any], *, previous_code
         errors.append(
             f"[chart] <{comp}> has no viz prop ({shown}): it has no ⓘ of its own{drawn}. "
             f"Pass viz={{vizById(\"<uuid>\")}} for the visualization its rows come from, inside a SectionCard too "
-            "(a card with the same viz keeps the only ⓘ); keep rows= for filtered or derived rows."
+            "(a card with the same viz keeps the only ⓘ); keep rows= for filtered or derived rows. "
+            "Only when its rows come from no visualization (a resource or constants) pass viz={null}."
         )
     elements = _jsx_element_starts(src)
     ends: Dict[int, Optional[int]] = {}

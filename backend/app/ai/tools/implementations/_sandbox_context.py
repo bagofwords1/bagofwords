@@ -131,6 +131,7 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
 PROVENANCE (required — the ⓘ popover lets readers inspect the data behind every number):
   Pass viz={vizById("…")} (plus rows={…} when filtered and calc="…" when derived) to every KPICard, SectionCard, TrendChart, RankChart and bare EChart —
   a chart inside a SectionCard too (a card with the same viz keeps the only ⓘ). Only a page with no visualizations (static or resource-backed) has no viz to pass.
+  On a page that has them, a TrendChart/RankChart whose rows come from no visualization (a resource or constants) passes viz={null}; rows derived from a visualization pass that viz.
   For custom markup, put data-bow-viz="<uuid>" (and data-bow-calc="…") on the item's outer element — the card, tile,
   chart or table container, never a label or short inline text (the ⓘ is drawn at that element's corner).
   EVERY metric, chart and table must be reachable one of these two ways. UUIDs live in code only — never in visible text.

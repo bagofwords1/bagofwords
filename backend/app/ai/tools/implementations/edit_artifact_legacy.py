@@ -64,7 +64,9 @@ EDIT_VIZ_PROP_RULE = (
     '`<KPICard>`, `<SectionCard>`, `<TrendChart>` and `<RankChart>` accept `viz={vizById("<uuid>")}` — this renders a built-in "ⓘ" info popover (Data tab with rows, Code tab with the query). '
     'When adding new cards or charts from a visualization, pass `viz={vizById("<uuid>")}`; '
     "a TrendChart/RankChart inside a SectionCard needs it too (a card with the same viz keeps the only ⓘ). "
-    "Only a page with no visualizations has no viz to pass. "
+    "Only a page with no visualizations has no viz to pass; "
+    "on a page that has them, a TrendChart/RankChart whose rows come from no visualization (a resource or constants) passes `viz={null}`, "
+    "while rows derived from a visualization pass that viz. "
     "When an edit touches an existing card that lacks it, add it too. "
     "If the card renders FILTERED rows (`filterRows(vizById(\"<uuid>\").rows)`), also pass `rows={<filtered rows>}` so the popover's Data tab matches what's shown. "
     'If the card aggregates/derives its value, also pass `calc="<formula>"` '
