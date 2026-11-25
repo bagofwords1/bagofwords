@@ -4871,7 +4871,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Tabellen über Datenbanken hinweg vereinheitlichen",
+      "unifyTablesDescription": "Fasst gleichnamige Tabellen der passenden Datenbanken zu einer Tabelle mit einer Spalte tenant_db zusammen. Lässt sich nach dem Erstellen der Verbindung nicht mehr ändern."
     },
     "postgresqlMulti": {
       "databasesTitle": "Datenbanken",
@@ -5063,7 +5065,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "„Alles erlauben“ kann nur Standard sein, solange es eingeschaltet ist.",
     "tool_permission_mode.judge_model_unavailable": "Wählen Sie ein aktiviertes Entscheidungsmodell für den Prüfer im Modus „Automatisch“.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "Eine Athena-Verbindung lässt sich nicht zwischen einer Datenbank, mehreren Datenbanken und vereinheitlichten Tabellen umstellen. Erstellen Sie stattdessen eine neue Verbindung.",
     "catalog_discovery_incomplete": "Die Katalogaktualisierung ist fehlgeschlagen, da die Erkennung unvollständig war. Der bisherige Katalog und die Tabellenauswahl wurden beibehalten.",
     "saml_unavailable": "Die SSO-Konfiguration ist nicht verfügbar. Wenden Sie sich an Ihren Administrator.",
     "saml_login_failed": "Die SSO-Anmeldung ist fehlgeschlagen. Versuchen Sie es erneut oder kontaktieren Sie Ihren Administrator.",

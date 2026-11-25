@@ -4871,7 +4871,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "توحيد الجداول عبر قواعد البيانات",
+      "unifyTablesDescription": "ادمج الجداول المتطابقة الاسم من قواعد البيانات المطابقة في جدول واحد مع عمود tenant_db. لا يمكن تغيير ذلك بعد إنشاء الاتصال."
     },
     "postgresqlMulti": {
       "databasesTitle": "قواعد البيانات",
@@ -5063,7 +5065,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "لا يمكن أن يكون \"السماح بالكل\" هو الافتراضي إلا أثناء تشغيله.",
     "tool_permission_mode.judge_model_unavailable": "اختر نموذج قرار مفعّلًا لحَكَم الوضع التلقائي.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "لا يمكن تغيير اتصال Athena بين قاعدة بيانات واحدة وعدة قواعد بيانات وجداول موحّدة. أنشئ اتصالًا جديدًا بدلًا من ذلك.",
     "catalog_discovery_incomplete": "فشل تحديث الكتالوج لأن الاكتشاف لم يكتمل. تم الاحتفاظ بالكتالوج السابق واختيارات الجداول.",
     "saml_unavailable": "إعدادات تسجيل الدخول الموحد غير متاحة. تواصل مع المسؤول.",
     "saml_login_failed": "فشل تسجيل الدخول الموحد. أعد المحاولة أو تواصل مع المسؤول.",

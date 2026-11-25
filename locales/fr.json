@@ -4871,7 +4871,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Unifier les tables entre les bases de données",
+      "unifyTablesDescription": "Regroupe les tables de même nom des bases de données correspondantes en une seule table avec une colonne tenant_db. Impossible à modifier après la création de la connexion."
     },
     "postgresqlMulti": {
       "databasesTitle": "Bases de données",
@@ -5063,7 +5065,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "« Tout autoriser » ne peut être le mode par défaut que lorsqu'il est activé.",
     "tool_permission_mode.judge_model_unavailable": "Choisissez un modèle de décision activé pour le juge du mode Auto.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "Impossible de faire passer une connexion Athena d'une base de données à plusieurs bases de données ou à des tables unifiées. Créez plutôt une nouvelle connexion.",
     "catalog_discovery_incomplete": "L’actualisation du catalogue a échoué car la découverte était incomplète. Le catalogue précédent et les sélections de tables ont été conservés.",
     "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",
     "saml_login_failed": "La connexion SSO a échoué. Réessayez ou contactez votre administrateur.",
