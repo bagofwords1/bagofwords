@@ -17,8 +17,9 @@ import pytest
 from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 
+from app.core import fire_and_forget
 from tests.e2e.dashboards.dashboard_setup import as_, own
-from tests.e2e.dashboards.test_collaboration import _edit, _grant_editor, drawn, spawned  # noqa: F401
+from tests.e2e.dashboards.test_collaboration import _edit, _grant_editor
 
 CONV = "conv_three_dash"
 DASH = f"{CONV}/dash_sales"
@@ -58,7 +59,7 @@ def _has_step_rows(corpus_rows, report_id):
 
 
 @pytest.mark.e2e
-def test_the_continued_from_card_reads_no_step_rows(corpus, corpus_rows, test_client, spawned):  # noqa: F811
+def test_the_continued_from_card_reads_no_step_rows(corpus, corpus_rows, test_client):
     """GET /api/artifacts/conversations/{id}, for a conversation that joined
     a dashboard from someone else's version (a base version row)."""
     aid = own(corpus_rows, corpus, DASH)
@@ -66,6 +67,11 @@ def test_the_continued_from_card_reads_no_step_rows(corpus, corpus_rows, test_cl
     _grant_editor(test_client, corpus, aid, "member")
     joined = _edit(test_client, corpus, aid, "member")
     assert joined.status_code == 200, joined.text
+    # The join started the copy's rerun as a real background task; the test
+    # client ends a request's tasks before the request returns, so it is
+    # settled here and none of its reads fall in the window measured below.
+    assert joined.json()["rerunning"] is True
+    assert all(task.done() for task in list(fire_and_forget._pending_tasks))
     report_id = joined.json()["report_id"]
     base = _one(corpus_rows, "SELECT base_version_id FROM artifact_conversations WHERE report_id = :r",
                 r=report_id)["base_version_id"]
@@ -142,9 +148,17 @@ def test_the_editors_refresh_on_open_reads_no_step_rows(corpus, corpus_rows, tes
     aid = own(corpus_rows, corpus, DASH)
     report_id = corpus.reports[CONV]
     _has_step_rows(corpus_rows, report_id)
+    # The conversation's own column: no route writes it once the conversation
+    # has a dashboard (POST /api/reports/{id}/schedule sets the dashboard's
+    # instead; the column is the migration's backup), so it is set directly.
     corpus_rows.update("reports", report_id, refresh_on_view=True)
-    corpus_rows.update("artifacts", corpus.ids[f"{CONV}/dash_stock"], refresh_on_view=True)
-    corpus_rows.update("artifacts", aid, refresh_on_view=False)  # the one open in the editor
+    # Through the dashboards' settings: the other dashboard refreshes when
+    # opened, the one open in the editor (aid) does not.
+    for dashboard_id, on in ((own(corpus_rows, corpus, f"{CONV}/dash_stock"), True), (aid, False)):
+        settings = test_client.put(f"/api/artifacts/{dashboard_id}/settings", json={"refresh_on_view": on},
+                                   headers=as_(corpus, "owner"))
+        assert settings.status_code == 200, settings.text
+        assert settings.json()["refresh_on_view"] is on
 
     with _StepRowReads() as reads:
         resp = test_client.post(f"/api/r/{report_id}/rerun", params={"artifact_id": corpus.ids[f"{DASH}/v1"]},
