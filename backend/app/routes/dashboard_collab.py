@@ -143,12 +143,23 @@ async def name_dashboard_version(
 
 
 async def _own_conversation(db, report_id: str, user, organization):
+    """The caller's own, live conversation, or a not-found error.
+
+    The Report comes back with NO relationship loaded (lazyload("*")): only
+    its columns may be read. It stays in the session's identity map, so a
+    later ``db.get(Report, id)`` in the same request returns this same partial
+    object without SQL, and reading a relationship on it raises
+    MissingGreenlet. Callers today (open-state, and bring through
+    ``join(into=...)`` / ``rows_to_conversation``) read columns only. A caller
+    that needs relationships must load them explicitly with
+    ``select(Report).options(selectinload(...))``, which fills them in.
+    """
     from app.errors import AppError, ErrorCode
     from app.models.report import Report
 
     # Callers read plain columns only: none of the conversation's graph
     # (widgets, queries and their steps' rows).
-    report = (await db.execute(select(Report).options(lazyload("*")).where(
+    report =(await db.execute(select(Report).options(lazyload("*")).where(
         Report.id == str(report_id), Report.organization_id == str(organization.id),
         Report.deleted_at.is_(None)))).scalars().first()
     if report is None or str(report.user_id) != str(user.id):

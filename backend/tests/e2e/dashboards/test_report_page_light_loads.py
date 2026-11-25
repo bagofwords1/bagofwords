@@ -33,7 +33,8 @@ class _StepRowReads:
 
     def _observe(self, conn, cursor, statement, parameters, context, executemany):
         if statement.lstrip().upper().startswith("SELECT"):
-            if re.search(r"\bsteps\.data\b", statement.split("FROM", 1)[0]):
+            # steps.data, or an aliased read such as steps_1.data (a joined load).
+            if re.search(r"\bsteps(?:_\d+)?\.data\b", statement.split("FROM", 1)[0]):
                 self.statements.append(statement)
 
     def __enter__(self):
