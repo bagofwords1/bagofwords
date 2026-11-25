@@ -134,7 +134,7 @@ async def emit_low_confidence_for_completion(db, completion) -> int:
             db, organization_id=org_id, type=TYPE_LOW_CONFIDENCE,
             data_source_id=ds_id, severity=SEVERITY_WARNING,
             title="Low-confidence answers",
-            why=f"{recent} answers on this agent were scored below 3/5 in the past week. Run training to close the gaps.",
+            why=f"{recent} answers on this agent were scored below 3/5 in the past week. Improve it in training mode to close the gaps.",
             group_key=f"low_confidence:{ds_id}",
             subject={"kind": "low_confidence", "i18n": {"n": recent}},
             occurrences=recent,
@@ -265,41 +265,108 @@ async def emit_instruction_suggestions_for_build(db, organization_id: str, build
 
 
 # ── schema changed (event emitter, called from the table-change trigger) ─────
+SCHEMA_HISTORY_MAX = 10   # earlier changes kept on the active item, newest first
+
+
+async def _reliability_check(db, organization_id: str, data_source_id: str) -> Optional[dict]:
+    try:
+        from app.models.organization import Organization
+        from app.models.data_source import DataSource
+        from app.models.agent_automation_run import TRIGGER_TABLE_CHANGE
+        from app.services.agent_reliability_service import AgentReliabilityService
+        org = await db.get(Organization, str(organization_id))
+        ds = await db.get(DataSource, str(data_source_id))
+        if org is None or ds is None:
+            return None
+        if not await AgentReliabilityService().will_check(db, org, ds, TRIGGER_TABLE_CHANGE):
+            return None
+        return {"started_at": datetime.utcnow().isoformat()}
+    except Exception as e:  # noqa: BLE001 — never block the notification
+        logger.warning("review: reliability check lookup failed: %s", e)
+        return None
+
+
 async def emit_schema_changed(db, organization_id: str, data_source_id: str, *,
-                              summary: Optional[str] = None, agent_name: Optional[str] = None) -> None:
-    await review_service.emit(
-        db, organization_id=organization_id, type=TYPE_SCHEMA_CHANGED,
-        data_source_id=str(data_source_id), severity=SEVERITY_WARNING,
-        title="Connection schema changed",
-        why=summary or "Tables or columns changed on this connection. Re-run evals or training to keep instructions accurate.",
-        group_key=f"schema_changed:{data_source_id}",
+                              summary: Optional[str] = None, agent_name: Optional[str] = None,
+                              connection_name: Optional[str] = None,
+                              connection_id: Optional[str] = None,
+                              diff: Optional[dict] = None) -> None:
+    """Emit (or refresh) the agent's schema-change item.
+
+    ``diff`` is the structured change from ``schema_diff.compute_schema_diff``.
+    While the item is still open, a new change replaces the current diff and
+    pushes the previous one onto ``history``, so an admin who looks later sees
+    every change, not only the last.
+    """
+    from app.models.review_item import ReviewItem, ACTIVE_STATUSES
+
+    group_key = f"schema_changed:{data_source_id}"
+    history: list = []
+    existing = (await db.execute(
+        select(ReviewItem).where(and_(
+            ReviewItem.organization_id == organization_id,
+            ReviewItem.data_source_id == str(data_source_id),
+            ReviewItem.type == TYPE_SCHEMA_CHANGED,
+            ReviewItem.group_key == group_key,
+            ReviewItem.status.in_(list(ACTIVE_STATUSES)),
+            ReviewItem.deleted_at.is_(None),
+        )).limit(1)
+    )).scalar_one_or_none()
+    if existing is not None:
+        prev = existing.subject_json or {}
+        prev_diff = prev.get("diff") or {}
+        seen = existing.last_seen_at or existing.created_at
+        history.append({
+            "at": seen.isoformat() if seen else None,
+            "connection": (prev.get("connection") or {}).get("name"),
+            "total": prev_diff.get("total"),
+            "counts": prev_diff.get("counts"),
+            "summary": existing.why,
+        })
+        history.extend(prev.get("history") or [])
+        history = history[:SCHEMA_HISTORY_MAX]
+
+    if agent_name and connection_name:
+        title, title_variant = f"{agent_name}: schema changed on {connection_name}", "named"
+    elif agent_name:
+        title, title_variant = f"{agent_name}: schema changed", "agent"
+    else:
+        title, title_variant = "Connection schema changed", None
+
+    i18n: dict = {}
+    if title_variant:
+        i18n.update({"title_variant": title_variant, "agent": agent_name, "connection": connection_name})
+    if diff:
+        counts = diff.get("counts") or {}
+        i18n.update({"variant": "counts", "added": counts.get("added", 0),
+                     "removed": counts.get("removed", 0), "modified": counts.get("modified", 0),
+                     "total": diff.get("total", 0)})
+    elif summary:
         # A custom summary is dynamic copy — the "custom" variant has no
         # catalogue entry, so the frontend keeps the summary text as emitted
         # while still localizing the title.
-        subject={"kind": "schema", "summary": summary,
-                 "i18n": ({"variant": "custom"} if summary else {})},
-        respect_dismissal=True, resurface_after_hours=DEFAULT_WINDOW_HOURS,
+        i18n["variant"] = "custom"
+
+    subject = {
+        "kind": "schema", "summary": summary,
+        "connection": {"id": connection_id, "name": connection_name} if (connection_id or connection_name) else None,
+        "diff": diff,
+        "history": history,
+        # Set only when the agent-reliability loop the same sync schedules will
+        # actually evaluate something; the inbox then points the admin at the
+        # agent's evals view for its outcome ("View checks").
+        "reliability_check": await _reliability_check(db, organization_id, data_source_id),
+        "i18n": i18n,
+    }
+    await review_service.emit(
+        db, organization_id=organization_id, type=TYPE_SCHEMA_CHANGED,
+        data_source_id=str(data_source_id), severity=SEVERITY_WARNING,
+        title=title,
+        why=summary or "Tables or columns changed on this connection. Review it in training mode to keep instructions accurate.",
+        group_key=group_key,
+        subject=subject,
+        # Every schema change is a new event, not a recurrence of the old one:
+        # marking the previous change as handled must not silence the next
+        # (slow queries / low confidence keep their dismissal window).
+        respect_dismissal=False,
     )
-
-
-def build_training_brief(item) -> str:
-    """A per-event 'focus brief' seeded into the training run, built from the
-    Review item's type + context. Threaded to the reliability loop's training
-    seam (and ready for the knowledge-harness implementation)."""
-    t = item.type
-    n = item.group_count or 1
-    why = (item.why or "").strip()
-    if t == TYPE_LOW_CONFIDENCE:
-        return (f"Focus: review the {n} low-confidence agent run(s) on this agent and propose "
-                f"instructions that fix the recurring gaps that caused the low scores. {why}")
-    if t == TYPE_SLOW_QUERY:
-        return (f"Focus: {n} data query/queries on this agent ran over the latency budget. "
-                f"Diagnose the common cause and propose guardrail instructions (e.g. require a "
-                f"filter, avoid full scans) to prevent it. {why}")
-    if t == TYPE_SCHEMA_CHANGED:
-        return (f"Focus: this agent's connection schema changed. {why} "
-                f"Update affected table/column references and instructions so answers stay correct.")
-    if t == TYPE_QUERY_ERROR:
-        return (f"Focus: {n} data query/queries on this agent errored. {why} "
-                f"Propose instructions/fixes so the agent forms valid queries.")
-    return why or "Review recent runs on this agent and propose instructions that improve accuracy."

@@ -26,6 +26,10 @@ class UsageAttribution(TypedDict, total=False):
     user_id: Optional[str]
     report_id: Optional[str]
     data_source_id: Optional[str]
+    # Every agent (data source) whose data or context can be in this run's
+    # prompts. Drives per-agent PII policies (app.ai.llm.pii.policy.for_call):
+    # present (even empty) = known scope; absent = unknown, which fails closed.
+    data_source_ids: Optional[list]
     # The agent run the call belongs to, set by AgentV2 once the run row
     # exists. Drives the diagnosis explorer's per-run cost/token/model rollup.
     agent_execution_id: Optional[str]

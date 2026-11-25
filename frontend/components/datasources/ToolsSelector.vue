@@ -56,13 +56,13 @@
         <div class="flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium text-gray-900 dark:text-white">{{ conn.name }}</span>
-            <span class="text-2xs px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 uppercase font-medium tracking-wide">{{ conn.type === 'remote_ssh' ? 'SSH' : conn.type === 'remote_smb' ? 'SMB' : conn.type === 'custom_api' ? 'API' : 'MCP' }}</span>
+            <span class="text-2xs px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 uppercase font-medium tracking-wide">{{ isBuiltinActions(conn) ? $t('connectionTools.builtinBadge') : conn.type === 'remote_ssh' ? 'SSH' : conn.type === 'remote_smb' ? 'SMB' : conn.type === 'custom_api' ? 'API' : 'MCP' }}</span>
           </div>
           <div class="flex items-center gap-1.5">
             <span class="text-2xs text-ink-muted me-1">
               {{ getEnabledCount(conn.id) }}/{{ getToolCount(conn.id) }} enabled
             </span>
-            <UTooltip v-if="canUpdate" text="Refresh tools">
+            <UTooltip v-if="canUpdate && !isBuiltinActions(conn)" text="Refresh tools">
               <button
                 @click="refreshTools(conn.id)"
                 :disabled="refreshingConn === conn.id"
@@ -80,7 +80,7 @@
                 <UIcon name="heroicons-pencil-square" class="w-3.5 h-3.5 text-ink-muted" />
               </button>
             </UTooltip>
-            <UTooltip v-if="canUpdate" text="Remove connection">
+            <UTooltip v-if="canUpdate && !isBuiltinActions(conn)" text="Remove connection">
               <button
                 @click="$emit('delete-connection', conn)"
                 class="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950"
@@ -139,7 +139,7 @@
                 @click="bulkSetEnabled(conn.id, false)"
               >{{ $t('toolsSelector.bulkDisable') }}</button>
               <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
-              <span class="text-2xs uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.adminPolicy') }}</span>
+              <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('toolsSelector.adminPolicy') }}</span>
               <select
                 :value="''"
                 :disabled="bulkBusy"
@@ -162,7 +162,7 @@
               >{{ $t('toolsSelector.reset') }}</button>
             </template>
             <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
-            <span class="text-2xs uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.myPolicy') }}</span>
+            <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('toolsSelector.myPolicy') }}</span>
             <select
               :value="''"
               :disabled="bulkBusy"
@@ -226,7 +226,8 @@
                   data-testid="tool-http-path"
                 >{{ tool.metadata.path }}</code>
                 <span v-if="!tool.is_enabled" class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted">off</span>
-                <span v-if="canUpdate && !tool.has_overlay" class="text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-500" title="Inherits connection default">default</span>
+                <UIcon v-if="tool.policy_locked" name="heroicons-lock-closed" class="w-3 h-3 text-amber-600 shrink-0" :title="$t('connectionTools.lockHint')" data-testid="tool-policy-locked" />
+                <span v-if="canUpdate && !tool.has_overlay" class="text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-500 dark:text-blue-300" title="Inherits connection default">default</span>
               </button>
               <span class="text-2xs text-ink-muted truncate min-w-0">{{ tool.description }}</span>
               <div class="flex items-center gap-2 ms-auto flex-shrink-0">
@@ -243,17 +244,14 @@
                 />
                 <!-- Admin policy: editable for agent admins, read-only badge otherwise -->
                 <div class="flex items-center gap-1" :title="$t('toolsSelector.adminPolicyTip')">
-                  <span class="text-2xs uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.adminPolicy') }}</span>
+                  <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('toolsSelector.adminPolicy') }}</span>
                   <select
                     v-if="canUpdate"
                     :value="tool.policy"
                     @change="(e: Event) => setToolPolicy(conn.id, tool.id, (e.target as HTMLSelectElement).value)"
                     class="text-2xs border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 focus:outline-none focus:border-blue-400"
                   >
-                    <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
-                    <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
-                    <option v-if="tool.name !== 'execute_shell' || conn.type !== 'remote_ssh'" value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
-                    <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
+                    <option v-for="p in toolPolicies(tool, conn)" :key="p" :value="p">{{ policyLabel(p) }}</option>
                   </select>
                   <span
                     v-else
@@ -269,7 +267,7 @@
                 >{{ $t('toolsSelector.reset') }}</button>
                 <!-- Per-user policy: every member controls their own -->
                 <div v-if="tool.policy !== 'deny'" class="flex items-center gap-1" :title="$t('toolsSelector.myPolicyTip')">
-                  <span class="text-2xs uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.myPolicy') }}</span>
+                  <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('toolsSelector.myPolicy') }}</span>
                   <select
                     :value="tool.user_policy || ''"
                     @change="(e: Event) => setMyPolicy(conn.id, tool.id, (e.target as HTMLSelectElement).value)"
@@ -278,10 +276,7 @@
                     data-testid="my-policy-select"
                   >
                     <option value="">{{ $t('toolsSelector.policyInherit', { policy: policyLabel(tool.policy) }) }}</option>
-                    <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
-                    <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
-                    <option v-if="tool.name !== 'execute_shell' || conn.type !== 'remote_ssh'" value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
-                    <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
+                    <option v-for="p in toolPolicies(tool, conn)" :key="p" :value="p">{{ policyLabel(p) }}</option>
                   </select>
                 </div>
               </div>
@@ -306,7 +301,7 @@
                     :key="pname"
                     class="flex items-baseline gap-2 text-xs"
                   >
-                    <code class="text-2xs text-blue-700 bg-blue-50 dark:bg-blue-950 px-1 py-0.5 rounded">{{ pname }}</code>
+                    <code class="text-2xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 px-1 py-0.5 rounded">{{ pname }}</code>
                     <span class="text-ink-muted">{{ prop.type || 'any' }}</span>
                     <span v-if="(tool.input_schema.required || []).includes(pname)" class="text-2xs text-red-400">required</span>
                     <span v-if="prop.description" class="text-gray-500 dark:text-gray-400 truncate">— {{ prop.description }}</span>
@@ -324,7 +319,7 @@
         <!-- Empty tools -->
         <div v-else class="px-4 py-6 text-xs text-ink-muted text-center">
           {{ searchQuery ? 'No matching tools' : 'No tools discovered yet.' }}
-          <button v-if="!searchQuery && canUpdate" @click="refreshTools(conn.id)" class="text-blue-500 hover:underline ms-1">Refresh</button>
+          <button v-if="!searchQuery && canUpdate && !isBuiltinActions(conn)" @click="refreshTools(conn.id)" class="text-blue-500 hover:underline ms-1">Refresh</button>
         </div>
       </div>
     </div>
@@ -553,6 +548,12 @@ async function loadAllTools() {
   }
 }
 
+// Outlook / Teams actions are defined by BOW, not discovered from a server:
+// nothing to refresh.
+function isBuiltinActions(conn: any): boolean {
+  return ['outlook_mail', 'teams_messages'].includes(conn?.type)
+}
+
 async function refreshTools(connectionId: string) {
   refreshingConn.value = connectionId
   try {
@@ -651,6 +652,17 @@ function methodChipClass(method: string): string {
     DELETE: 'bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400',
   }
   return map[(method || '').toUpperCase()] || 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+}
+
+// Policies a tool may take: its effect limits them (external: no automatic
+// review; destructive: never silent), and remote shell has no auto mode.
+const EFFECT_POLICIES: Record<string, string[]> = {
+  external: ['allow', 'ask', 'deny'],
+  destructive: ['ask', 'deny'],
+}
+function toolPolicies(tool: any, conn: any): string[] {
+  const base = EFFECT_POLICIES[tool?.effect] || ['allow', 'ask', 'auto', 'deny']
+  return tool?.name === 'execute_shell' && conn?.type === 'remote_ssh' ? base.filter(p => p !== 'auto') : base
 }
 
 function policyLabel(policy: string): string {

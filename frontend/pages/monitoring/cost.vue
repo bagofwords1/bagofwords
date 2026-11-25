@@ -2,10 +2,10 @@
     <!-- Enterprise-gated: direct navigation without the license shows a notice
          instead of a broken page (the API returns 402). -->
     <div v-if="!costLicensed" class="mt-6">
-        <div class="bg-white border border-gray-200 rounded-xl p-12 text-center max-w-xl mx-auto">
+        <div class="bg-surface border border-line rounded-xl p-12 text-center max-w-xl mx-auto">
             <UIcon name="i-heroicons-lock-closed" class="w-6 h-6 text-ink-muted mx-auto mb-3" />
-            <h3 class="text-base font-semibold text-gray-900">{{ $t('monitoring.cost.lockedTitle') }}</h3>
-            <p class="text-sm text-gray-500 mt-1.5">{{ $t('monitoring.cost.lockedBody') }}</p>
+            <h3 class="text-base font-semibold text-ink">{{ $t('monitoring.cost.lockedTitle') }}</h3>
+            <p class="text-sm text-ink-muted mt-1.5">{{ $t('monitoring.cost.lockedBody') }}</p>
         </div>
     </div>
 
@@ -21,27 +21,27 @@
 
         <!-- KPI cards -->
         <div class="grid grid-cols-1 gap-6 mb-6" :class="data?.routing?.enabled ? 'md:grid-cols-5' : 'md:grid-cols-4'">
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900">${{ formatNum(data?.total_cost_usd || 0, 2) }}</div>
-                <div class="text-sm font-medium text-gray-600 mt-1">
+            <div class="bg-surface p-6 border border-line rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-ink">${{ formatNum(data?.total_cost_usd || 0, 2) }}</div>
+                <div class="text-sm font-medium text-ink-muted mt-1">
                     {{ $t('monitoring.cost.kpiTotalCost') }}
                     <span v-if="hasEstimated" class="text-ink-muted font-normal">· {{ $t('monitoring.cost.estimated') }}</span>
                 </div>
             </div>
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900">{{ compactNum(data?.total_tokens || 0) }}</div>
-                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cost.kpiTotalTokens') }}</div>
+            <div class="bg-surface p-6 border border-line rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-ink">{{ compactNum(data?.total_tokens || 0) }}</div>
+                <div class="text-sm font-medium text-ink-muted mt-1">{{ $t('monitoring.cost.kpiTotalTokens') }}</div>
             </div>
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900">{{ compactNum(data?.total_calls || 0) }}</div>
-                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cost.kpiTotalCalls') }}</div>
+            <div class="bg-surface p-6 border border-line rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-ink">{{ compactNum(data?.total_calls || 0) }}</div>
+                <div class="text-sm font-medium text-ink-muted mt-1">{{ $t('monitoring.cost.kpiTotalCalls') }}</div>
             </div>
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900">${{ formatNum(avgCostPerCall, 4) }}</div>
-                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cost.kpiAvgCostPerCall') }}</div>
+            <div class="bg-surface p-6 border border-line rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-ink">${{ formatNum(avgCostPerCall, 4) }}</div>
+                <div class="text-sm font-medium text-ink-muted mt-1">{{ $t('monitoring.cost.kpiAvgCostPerCall') }}</div>
             </div>
             <!-- Auto model router savings — 5th KPI tile in the same row, only when enabled -->
-            <div v-if="data?.routing?.enabled" class="bg-emerald-50 p-6 border border-emerald-200 rounded-xl shadow-sm" data-testid="cost-routing-savings">
+            <div v-if="data?.routing?.enabled" class="bg-emerald-50 dark:bg-emerald-950 p-6 border border-emerald-200 dark:border-emerald-800 rounded-xl shadow-sm" data-testid="cost-routing-savings">
                 <div class="flex items-center gap-1.5">
                     <UIcon name="i-heroicons-arrow-trending-down" class="w-5 h-5 text-emerald-600" />
                     <div class="text-2xl font-bold text-emerald-700">${{ formatNum(data.routing.savings_usd || 0, 2) }}</div>
@@ -59,15 +59,15 @@
         </div>
 
         <!-- Trend chart -->
-        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
+        <div class="bg-surface rounded-2xl border border-line-subtle shadow-sm overflow-hidden mb-6">
             <div class="p-6 border-b border-gray-50 flex items-center justify-between">
-                <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.cost.trendTitle') }}</h3>
-                <div class="inline-flex rounded-md border border-gray-200 overflow-hidden">
+                <h3 class="text-lg font-semibold text-ink">{{ $t('monitoring.cost.trendTitle') }}</h3>
+                <div class="inline-flex rounded-md border border-line overflow-hidden">
                     <button
                         v-for="opt in metricOptions"
                         :key="opt.value"
-                        class="px-3 py-1 text-xs font-medium transition border-s first:border-s-0 border-gray-200"
-                        :class="selectedMetric === opt.value ? 'bg-gray-100 text-gray-900' : 'bg-white text-gray-500 hover:text-gray-700'"
+                        class="px-3 py-1 text-xs font-medium transition border-s first:border-s-0 border-line"
+                        :class="selectedMetric === opt.value ? 'bg-surface-muted text-ink' : 'bg-surface text-ink-muted hover:text-ink-2'"
                         @click="selectedMetric = opt.value"
                     >
                         {{ opt.label }}
@@ -79,11 +79,11 @@
                     <div v-if="isLoading" class="flex items-center justify-center h-full">
                         <div class="flex items-center gap-2">
                             <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                            <span class="text-gray-600">{{ $t('monitoring.cost.loading') }}</span>
+                            <span class="text-ink-muted">{{ $t('monitoring.cost.loading') }}</span>
                         </div>
                     </div>
                     <VChart v-else-if="trendOptions" class="chart" :option="trendOptions" autoresize />
-                    <div v-else class="flex items-center justify-center h-full text-gray-500">
+                    <div v-else class="flex items-center justify-center h-full text-ink-muted">
                         {{ $t('monitoring.cost.noData') }}
                     </div>
                 </div>
@@ -91,13 +91,13 @@
         </div>
 
         <!-- Breakdown -->
-        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="bg-surface rounded-2xl border border-line-subtle shadow-sm overflow-hidden">
             <div class="p-6 border-b border-gray-50 flex items-center justify-between flex-wrap gap-3">
                 <div>
-                    <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.cost.breakdownTitle') }}</h3>
+                    <h3 class="text-lg font-semibold text-ink">{{ $t('monitoring.cost.breakdownTitle') }}</h3>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="text-sm font-medium text-gray-700">{{ $t('monitoring.cost.groupBy') }}:</span>
+                    <span class="text-sm font-medium text-ink-2">{{ $t('monitoring.cost.groupBy') }}:</span>
                     <USelectMenu
                         :model-value="selectedGroupBy"
                         :options="groupByOptions"
@@ -120,32 +120,32 @@
 
             <div class="overflow-x-auto">
                 <table class="min-w-full">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-surface-subtle">
                         <tr>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colName') }}</th>
-                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colCalls') }}</th>
-                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colTokens') }}</th>
-                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colInputCost') }}</th>
-                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colOutputCost') }}</th>
-                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colTotalCost') }}</th>
-                            <th class="px-6 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colShare') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-ink-muted uppercase tracking-wider">{{ $t('monitoring.cost.colName') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-ink-muted uppercase tracking-wider">{{ $t('monitoring.cost.colCalls') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-ink-muted uppercase tracking-wider">{{ $t('monitoring.cost.colTokens') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-ink-muted uppercase tracking-wider">{{ $t('monitoring.cost.colInputCost') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-ink-muted uppercase tracking-wider">{{ $t('monitoring.cost.colOutputCost') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-ink-muted uppercase tracking-wider">{{ $t('monitoring.cost.colTotalCost') }}</th>
+                            <th class="px-6 py-3 text-end text-xs font-medium text-ink-muted uppercase tracking-wider">{{ $t('monitoring.cost.colShare') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200 text-sm">
-                        <tr v-for="item in items" :key="item.key" class="hover:bg-gray-50">
+                    <tbody class="bg-surface divide-y divide-line text-sm">
+                        <tr v-for="item in items" :key="item.key" class="hover:bg-surface-subtle">
                             <td class="px-6 py-4">
-                                <div class="font-medium text-gray-900">{{ item.label }}</div>
-                                <div v-if="item.sublabel" class="text-xs text-gray-500">{{ item.sublabel }}</div>
+                                <div class="font-medium text-ink">{{ item.label }}</div>
+                                <div v-if="item.sublabel" class="text-xs text-ink-muted">{{ item.sublabel }}</div>
                             </td>
-                            <td class="px-4 py-4 text-end text-gray-600 tabular-nums">{{ compactNum(item.total_calls) }}</td>
-                            <td class="px-4 py-4 text-end text-gray-600 tabular-nums">{{ compactNum(item.total_tokens) }}</td>
-                            <td class="px-4 py-4 text-end text-gray-600 tabular-nums">${{ formatNum(item.input_cost_usd, 4) }}</td>
-                            <td class="px-4 py-4 text-end text-gray-600 tabular-nums">${{ formatNum(item.output_cost_usd, 4) }}</td>
-                            <td class="px-4 py-4 text-end font-semibold text-gray-900 tabular-nums">${{ formatNum(item.total_cost_usd, 4) }}</td>
-                            <td class="px-6 py-4 text-end text-gray-500 tabular-nums">{{ sharePct(item) }}%</td>
+                            <td class="px-4 py-4 text-end text-ink-muted tabular-nums">{{ compactNum(item.total_calls) }}</td>
+                            <td class="px-4 py-4 text-end text-ink-muted tabular-nums">{{ compactNum(item.total_tokens) }}</td>
+                            <td class="px-4 py-4 text-end text-ink-muted tabular-nums">${{ formatNum(item.input_cost_usd, 4) }}</td>
+                            <td class="px-4 py-4 text-end text-ink-muted tabular-nums">${{ formatNum(item.output_cost_usd, 4) }}</td>
+                            <td class="px-4 py-4 text-end font-semibold text-ink tabular-nums">${{ formatNum(item.total_cost_usd, 4) }}</td>
+                            <td class="px-6 py-4 text-end text-ink-muted tabular-nums">{{ sharePct(item) }}%</td>
                         </tr>
                         <tr v-if="!isLoading && items.length === 0">
-                            <td colspan="7" class="px-6 py-12 text-center text-gray-500">{{ $t('monitoring.cost.noData') }}</td>
+                            <td colspan="7" class="px-6 py-12 text-center text-ink-muted">{{ $t('monitoring.cost.noData') }}</td>
                         </tr>
                     </tbody>
                 </table>

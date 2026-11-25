@@ -2,14 +2,14 @@
     <!-- Settings › Access: who can edit and who can view, resolved to names.
          Read only; changes are made in Share. -->
     <div class="space-y-6" data-testid="settings-access">
-        <div v-if="loading" class="flex justify-center py-10"><Spinner class="w-5 h-5 text-gray-400" /></div>
-        <p v-else-if="failed" class="text-sm text-gray-500">{{ $t('dashboardSettings.access.loadFailed') }}</p>
+        <div v-if="loading" class="flex justify-center py-10"><Spinner class="w-5 h-5 text-ink-muted" /></div>
+        <p v-else-if="failed" class="text-sm text-ink-muted">{{ $t('dashboardSettings.access.loadFailed') }}</p>
         <template v-else>
             <!-- Can edit -->
             <section data-testid="access-editors">
                 <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-2">
                     {{ $t('dashboardSettings.access.canEdit') }}
-                    <span class="text-gray-400 font-normal tabular-nums">· {{ editorCount }}</span>
+                    <span class="text-ink-muted font-normal tabular-nums">· {{ editorCount }}</span>
                 </h3>
                 <ul class="divide-y divide-gray-100 dark:divide-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                     <li v-for="row in editRows" :key="row.key" class="flex items-center gap-3 px-3 py-2" data-testid="access-row">
@@ -59,7 +59,7 @@
                     </ul>
                     <p v-else class="text-sm text-gray-500 dark:text-gray-400">{{ $t('dashboardSettings.access.onlyEditors') }}</p>
                 </template>
-                <p class="text-xs text-gray-400 mt-2">{{ $t('dashboardSettings.access.editorsAlsoView') }}</p>
+                <p class="text-xs text-ink-muted mt-2">{{ $t('dashboardSettings.access.editorsAlsoView') }}</p>
             </section>
 
             <p class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">

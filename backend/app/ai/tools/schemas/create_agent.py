@@ -5,9 +5,10 @@ from pydantic import BaseModel, Field
 class CreateAgentInput(BaseModel):
     """Input schema for create_agent tool.
 
-    Creates a new agent (data source) linked to one or more EXISTING
+    Creates a new agent (data source) linked to zero or more EXISTING
     connections, optionally selecting its active tables / enabled tools in the
-    same call, and attaches it to the current training session.
+    same call, and attaches it to the current training session. With no
+    connection the agent is instructions, files and a description only.
     """
 
     folder_id: str | None = None
@@ -15,9 +16,12 @@ class CreateAgentInput(BaseModel):
     name: str = Field(..., description="Agent name (unique per organization).", min_length=1, max_length=120)
 
     connection_ids: List[str] = Field(
-        ...,
-        description="Existing connection ID(s) to build the agent on (from list_connections).",
-        min_length=1,
+        default_factory=list,
+        description=(
+            "Existing connection ID(s) to build the agent on (from list_connections). "
+            "Empty for an agent with no data connection (instructions, files and a "
+            "description only); connections can be linked later."
+        ),
         max_length=5,
     )
 

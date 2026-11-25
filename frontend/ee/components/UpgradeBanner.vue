@@ -13,7 +13,7 @@ const defaultDescription = 'This feature requires an enterprise license. Contact
 </script>
 
 <template>
-  <div class="rounded-lg border border-blue-200 bg-blue-50 p-6">
+  <div class="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-6">
     <div class="flex items-start gap-4">
       <div class="flex-shrink-0">
         <svg class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

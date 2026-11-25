@@ -1,42 +1,25 @@
 <template>
-  <div class="mb-2">
-    <div
-      class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-      @click="toggleOpen"
-      :aria-expanded="expandable ? open : undefined"
-    >
-      <span v-if="status === 'running'" class="tool-shimmer inline-flex items-center">
-        <Spinner class="w-3 h-3 me-1.5 text-ink-muted" />
-        {{ t('tools.readInstruction.reading') }}
-      </span>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-book-open" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.readInstruction.reading') }}</template>
       <template v-else>
-        <Icon
-          v-if="succeeded"
-          :name="open ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-          class="w-3 h-3 me-1 text-ink-muted flex-shrink-0 rtl-flip"
-        />
-        <Icon v-else name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500 flex-shrink-0" />
-        <Icon :name="isSkill ? 'heroicons-sparkles' : 'heroicons-cube'" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
-        <span v-if="succeeded" class="text-gray-700 dark:text-gray-300 truncate">
-          {{ isSkill ? t('tools.readInstruction.readSkill') : t('tools.readInstruction.read') }}<template v-if="title"> · {{ title }}</template>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 truncate">
-          {{ message || t('tools.readInstruction.failed') }}
-        </span>
-        <!-- Window badge: which slice of the body the agent actually saw. A
-             plain full read shows nothing, exactly as before. -->
-        <span
+      <template v-if="succeeded">{{ isSkill ? t('tools.readInstruction.readSkill') : t('tools.readInstruction.read') }}<template v-if="title"> · {{ title }}</template></template>
+      <template v-else>{{ t('tools.readInstruction.failed') }}</template></template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else><span
           v-if="succeeded && windowLabel"
           class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 whitespace-nowrap"
           dir="ltr"
-        >{{ windowLabel }}</span>
-        <span v-if="succeeded && truncated" class="ms-2 text-chat-3 text-yellow-600 whitespace-nowrap">{{ t('tools.readInstruction.truncated') }}</span>
-        <span v-if="succeeded && grepTruncated" class="ms-2 text-chat-3 text-yellow-600 whitespace-nowrap">{{ t('tools.readInstruction.moreMatches') }}</span>
-      </template>
-    </div>
+        >{{ windowLabel }}</span><span v-if="succeeded && truncated" class="ms-2 text-chat-3 text-yellow-600 whitespace-nowrap">{{ t('tools.readInstruction.truncated') }}</span><span v-if="succeeded && grepTruncated" class="ms-2 text-chat-3 text-yellow-600 whitespace-nowrap">{{ t('tools.readInstruction.moreMatches') }}</span></template></div>
+      <p v-if="message" class="mb-2 text-chat-3 text-ink-muted break-words">{{ message }}</p>
+      
 
     <Transition name="fade">
-      <div v-if="open && succeeded" class="mt-1 ms-4 space-y-1.5">
+      <div v-if="toolHeaderExpanded && succeeded" class="mt-1 ms-4 space-y-1.5">
         <!-- GREP READ: matching lines with line numbers; click one for its context. -->
         <template v-if="readMode === 'grep'">
           <ul v-if="matches.length" class="space-y-0.5 leading-snug text-chat-2 text-gray-600 dark:text-gray-400">
@@ -93,13 +76,18 @@
         <ToolCallParams :params="toolExecution?.arguments_json" />
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { ref, computed } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
-import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
 
 const { t } = useResponseI18n()
@@ -198,16 +186,6 @@ function contextBlock(m: GrepMatch): string {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
 .fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

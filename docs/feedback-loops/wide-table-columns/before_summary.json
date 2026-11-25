@@ -1,0 +1,101 @@
+{
+  "label": "before",
+  "agents": {
+    "Wide Postgres": {
+      "tables_total": 2000,
+      "widest_table_columns_in_catalog": 1600,
+      "context_chars": 525512,
+      "context_tokens": 257453,
+      "token_method": "anthropic.count_tokens(claude-haiku-5-5)",
+      "columns_rendered": 9621,
+      "widest_rendered_table": "public.metrics_wide_001",
+      "widest_rendered_table_columns": 1600,
+      "build_ms_median": 456.8,
+      "render_ms_median": 14.8,
+      "planner_prep_ms_median": 497.8,
+      "snapshot_top_tables": [
+        {
+          "name": "public.app_accounts",
+          "columns_count": 5,
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "public.app_events",
+          "columns_count": 6,
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "public.app_orders",
+          "columns_count": 5,
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "public.app_sessions",
+          "columns_count": 5,
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "public.metrics_wide_001",
+          "columns_count": 1600,
+          "selection_reason": "top_k_score"
+        }
+      ]
+    },
+    "Wide DuckDB": {
+      "tables_total": 3,
+      "widest_table_columns_in_catalog": 5000,
+      "context_chars": 510541,
+      "context_tokens": 289297,
+      "token_method": "anthropic.count_tokens(claude-haiku-5-5)",
+      "columns_rendered": 10003,
+      "widest_rendered_table": "events_wide_5000",
+      "widest_rendered_table_columns": 5000,
+      "build_ms_median": 55.5,
+      "render_ms_median": 8.1,
+      "planner_prep_ms_median": 65.9,
+      "snapshot_top_tables": [
+        {
+          "name": "dim_region",
+          "columns_count": 3,
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "events_wide_5000",
+          "columns_count": 5000,
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "telemetry_wide_5000",
+          "columns_count": 5000,
+          "selection_reason": "top_k_score"
+        }
+      ]
+    },
+    "Wide Elastic": {
+      "tables_total": 2,
+      "widest_table_columns_in_catalog": 5000,
+      "context_chars": 416696,
+      "context_tokens": 187028,
+      "token_method": "anthropic.count_tokens(claude-haiku-5-5)",
+      "columns_rendered": 7205,
+      "widest_rendered_table": "svc-events-wide",
+      "widest_rendered_table_columns": 5000,
+      "build_ms_median": 60.6,
+      "render_ms_median": 9.4,
+      "planner_prep_ms_median": 92.3,
+      "snapshot_top_tables": [
+        {
+          "name": "obs-logs-*",
+          "columns_count": 2205,
+          "selection_reason": "top_k_score"
+        },
+        {
+          "name": "svc-events-wide",
+          "columns_count": 5000,
+          "selection_reason": "top_k_score"
+        }
+      ]
+    }
+  },
+  "top_k_schema": 10
+}

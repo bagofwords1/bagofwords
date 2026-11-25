@@ -11,7 +11,6 @@
           data-testid="model-picker-search"
           class="flex-1 min-w-0 bg-transparent outline-none text-xs text-gray-800 dark:text-gray-100 placeholder-gray-400"
           :placeholder="$t('prompt.effort.searchModels')"
-          @input="highlighted = 0"
         />
       </div>
     </div>
@@ -19,7 +18,7 @@
     <!-- Model list: the user's recent models, then the rest by provider -->
     <div ref="listRef" class="max-h-72 overflow-y-auto p-1">
       <template v-if="showAuto && !query">
-        <button type="button" class="picker-row" :class="rowClass(false, props.modelValue === AUTO)" @click="pick(AUTO)">
+        <button type="button" class="picker-row" data-picker-index="0" :class="rowClass(highlighted === 0, props.modelValue === AUTO)" @mouseenter="highlighted = 0" @click="pick(AUTO)">
           <Icon name="heroicons-sparkles" class="w-4 h-4 text-ink-muted me-2 flex-shrink-0" />
           <span class="flex flex-col flex-1 text-start min-w-0">
             <span class="font-medium">{{ $t('prompt.modelAuto') }}</span>
@@ -30,7 +29,7 @@
         <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
       </template>
       <template v-if="showDefault && !query">
-        <button type="button" class="picker-row" :class="rowClass(false, !props.modelValue)" @click="pick(null)">
+        <button type="button" class="picker-row" :data-picker-index="defaultIndexInNav" :class="rowClass(highlighted === defaultIndexInNav, !props.modelValue)" @mouseenter="highlighted = defaultIndexInNav" @click="pick(null)">
           <Icon name="heroicons-sparkles" class="w-4 h-4 text-ink-muted me-2 flex-shrink-0" />
           <span class="flex flex-col flex-1 text-start min-w-0">
             <span class="font-medium">{{ defaultLabel || $t('prompts.modelDefault') }}</span>
@@ -150,7 +149,7 @@ const listRef = ref<HTMLElement | null>(null)
 
 onMounted(() => {
   nextTick(() => searchRef.value?.focus())
-  const i = flat.value.findIndex(m => m.id === props.modelValue)
+  const i = navIds.value.indexOf(props.modelValue ?? null)
   if (i >= 0) {
     highlighted.value = i
     nextTick(() => scrollToHighlighted())
@@ -194,7 +193,16 @@ const sections = computed(() => {
   return out
 })
 const flat = computed(() => sections.value.flatMap(s => s.items))
-function indexOf(m: any) { return flat.value.indexOf(m) }
+
+// Keyboard order: the Auto / Default rows (shown only without a query) come
+// first, then the models. `highlighted` indexes this list.
+const leading = computed<Array<string | null>>(() => query.value ? [] : [
+  ...(props.showAuto ? [AUTO] : []),
+  ...(props.showDefault ? [null] : []),
+])
+const defaultIndexInNav = computed(() => (props.showAuto ? 1 : 0))
+const navIds = computed<Array<string | null>>(() => [...leading.value, ...flat.value.map(m => m.id)])
+function indexOf(m: any) { return leading.value.length + flat.value.indexOf(m) }
 
 watch(query, () => { highlighted.value = 0 })
 
@@ -309,7 +317,9 @@ function scrollToHighlighted() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  const n = flat.value.length
+  // The effort slider owns arrows while focused (it stops propagation).
+  if (e.isComposing) return
+  const n = navIds.value.length
   if (!n) return
   if (e.key === 'ArrowDown') {
     e.preventDefault()
@@ -320,10 +330,9 @@ function onKeydown(e: KeyboardEvent) {
     highlighted.value = (highlighted.value - 1 + n) % n
     scrollToHighlighted()
   } else if (e.key === 'Enter') {
-    const m = flat.value[highlighted.value]
-    if (m) {
+    if (highlighted.value >= 0 && highlighted.value < n) {
       e.preventDefault()
-      pick(m.id)
+      pick(navIds.value[highlighted.value])
     }
   }
 }

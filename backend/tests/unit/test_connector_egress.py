@@ -105,11 +105,15 @@ CASES = [
     # Windows auth, no ambient environment, a session per thread.
     ("mecm", lambda u: _client("mecm_client", "MecmClient")(server_url=_https(u), username="u", password="p"), None, NAME),
     ("sharepoint_onprem", lambda u: _client("sharepoint_onprem_client", "SharepointOnpremClient")(site_url=u, username="u", password="p", allow_http=True)),
+    ("sharepoint_onprem_lists", lambda u: _client("sharepoint_onprem_lists_client", "SharepointOnpremListsClient")(site_url=u, username="u", password="p", allow_http=True)),
+    ("exchange_onprem", lambda u: _client("exchange_onprem_client", "ExchangeOnpremClient")(ews_url=u, username="u", password="p", allow_http=True)),
     ("powerbi_report_server", lambda u: _client("powerbi_report_server_client", "PowerBIReportServerClient")(server_url=u, username="u", password="p")),
     # Deployment-owned trust, no ambient environment.
     ("netapp_ontap", lambda u: _client("netapp_ontap_client", "NetAppOntapClient")(url=u, username="u", password="p", allow_http=True)),
     ("documentum", lambda u: _client("documentum_client", "DocumentumClient")(rest_url=u, repository="r", username="u", password="p", allow_http=True)),
     ("kms_lighthouse", lambda u: _client("kms_lighthouse_client", "KmsLighthouseClient")(base_url=u, username="u", password="p", allow_http=True)),
+    ("confluence_dc", lambda u: _client("confluence_dc_client", "ConfluenceDcClient")(base_url=u, username="u", password="p", allow_http=True)),
+    ("jira_dc", lambda u: _client("jira_dc_client", "JiraDcClient")(base_url=u, username="u", password="p", allow_http=True)),
     ("brocade", lambda u: _client("brocade_client", "BrocadeClient")(url=_https(u), username="u", password="p"), None, NAME),
     ("checkpoint", lambda u: _client("checkpoint_client", "CheckPointClient")(url=_https(u), username="u", password="p"), None, NAME),
     ("dell_ome", lambda u: _client("dell_ome_client", "DellOmeClient")(url=_https(u), username="u", password="p"), None, NAME),
@@ -263,7 +267,12 @@ def test_the_direct_call_check_sees_every_import_form(source, flagged):
 
 
 # Modules that share their HTTP code with connectors that have their own row.
-_COVERED_THROUGH_SUBCLASSES = {"xmla_base"}  # analysis_services, sap_bw_xmla, infor_olap
+_COVERED_THROUGH_SUBCLASSES = {
+    "xmla_base",              # analysis_services, sap_bw_xmla, infor_olap
+    "_windows_auth_session",  # sharepoint_onprem, exchange_onprem
+    "_exchange_ews",          # exchange_onprem
+    "_atlassian_dc_http",     # confluence_dc, jira_dc
+}
 
 
 def test_every_connector_on_requests_has_a_row_in_the_matrix():

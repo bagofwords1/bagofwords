@@ -1,24 +1,16 @@
 <template>
-  <div class="mb-2">
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
-
-      <!-- Status icon (spinner while running, on the left like create_data) -->
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
-
-      <!-- Tool title with shimmer effect for running status -->
-      <span v-if="status === 'running'" class="tool-shimmer">{{ toolTitle }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ toolTitle }}</span>
-
-      <!-- Execution time if > 2 seconds -->
-      <span v-if="showDuration" class="ms-2 text-ink-muted">{{ formatDuration }}</span>
-    </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-wrench-screwdriver" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ toolTitle }}</template>
+      <template v-else>{{ toolTitle }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="showDuration" class="ms-2 text-ink-muted">{{ formatDuration }}</span></div>
 
     <!-- Collapsible content -->
     <Transition name="fade">
-      <div v-if="!isCollapsed" class="mt-2 ms-4 space-y-3">
+      <div v-if="toolHeaderExpanded" class="mt-2 ms-4 space-y-3">
         <!-- Input arguments - Full Display -->
         <div v-if="hasInput">
           <div class="text-chat-3 uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">{{ t('tools.common.input') }}</div>
@@ -106,7 +98,7 @@
 
         <!-- Error message fallback (when result_json is empty but error_message exists) -->
         <div v-if="status === 'error' && toolExecution.error_message && !hasOutput"
-             class="text-chat-2 text-red-700 bg-red-50 dark:bg-red-950 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
+             class="text-chat-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
           {{ toolExecution.error_message }}
         </div>
 
@@ -141,7 +133,7 @@
                   <div v-if="outputData.summary" class="text-chat-2 text-gray-800 dark:text-gray-200">
                     <span class="text-gray-500 dark:text-gray-400">{{ t('tools.common.summary') }}</span> {{ outputData.summary }}
                   </div>
-                  <div v-if="outputData.error" class="text-chat-2 text-red-700 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
+                  <div v-if="outputData.error" class="text-chat-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
                     <span class="font-medium">{{ t('tools.common.errorLabel') }}</span>
                     {{ typeof outputData.error === 'string' ? outputData.error : outputData.error.message || JSON.stringify(outputData.error) }}
                   </div>
@@ -170,14 +162,19 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
-import { computed, ref, watch, reactive } from 'vue'
-import Spinner from '~/components/Spinner.vue'
+import { computed, ref, reactive } from 'vue'
 
 interface Props {
   toolExecution: {
@@ -196,7 +193,6 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const isCollapsed = ref(true) // Start collapsed
 const showFullInput = reactive<Record<string, boolean>>({})
 const showFullOutput = ref(false)
 
@@ -243,9 +239,6 @@ const formatDuration = computed(() => {
   return `${seconds}s`
 })
 
-function toggleCollapsed() {
-  isCollapsed.value = !isCollapsed.value
-}
 
 function toggleFullInput(key: string) {
   showFullInput[key] = !showFullInput[key]
@@ -268,20 +261,7 @@ function truncateString(str: string, maxLen: number): string {
   return str.slice(0, maxLen) + '...'
 }
 
-// Auto-collapse when execution finishes
-watch(() => status.value, (newStatus, oldStatus) => {
-  // Auto-expand when execution starts
-  if (newStatus === 'running') {
-    isCollapsed.value = false
-  }
-  // Auto-collapse when execution finishes
-  else if (oldStatus === 'running' && (newStatus === 'success' || newStatus === 'error')) {
-    // Delay collapse to show result briefly
-    setTimeout(() => {
-      isCollapsed.value = true
-    }, 2000) // 2 second delay
-  }
-}, { immediate: true })
+
 </script>
 
 <style scoped>

@@ -16,6 +16,7 @@
 
       <div v-if="loadingFields" class="text-xs text-ink-muted">{{ $t('common.loading') }}</div>
       <template v-else>
+        <SetupGuide :type="props.integrationType" :steps="setupGuide" :default-open="!isEditMode" />
         <!-- Only when the registry offers more than one admin option (e.g.
              Google Drive: OAuth client vs. shared service account). Fixed in
              edit mode: switching changes who the connection runs as. -->
@@ -53,7 +54,7 @@
         </div>
       </template>
 
-      <div class="rounded-md border border-blue-100 bg-blue-50 dark:bg-blue-950 p-3 text-xs text-blue-800 flex items-start gap-2">
+      <div class="rounded-md border border-blue-100 bg-blue-50 dark:bg-blue-950 p-3 text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2">
         <UIcon name="heroicons-information-circle" class="w-4 h-4 mt-0.5" />
         <div>
           {{ isSharedAuth ? $t('data.integrationSharedAfterSaveHint') : $t('data.integrationAfterSaveHint') }}
@@ -68,7 +69,7 @@
         noun="integration"
       />
 
-      <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 dark:bg-green-950 text-green-700' : 'bg-red-50 dark:bg-red-950 text-red-700']">
+      <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300']">
         {{ testResult.message }}
       </div>
 
@@ -96,6 +97,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import SetupGuide from '~/components/datasources/SetupGuide.vue'
 
 const props = defineProps<{
   integrationType: string
@@ -129,6 +131,7 @@ const authMeta = ref<Record<string, any>>({})
 const defaultAuth = ref<string>('')
 const selectedAuth = ref<string>('')
 const loadingFields = ref(true)
+const setupGuide = ref<any[] | null>(null)
 const authOptions = computed(() =>
   Object.keys(fieldsByAuth.value).map((k) => ({ label: authMeta.value[k]?.title || k, value: k }))
 )
@@ -236,6 +239,7 @@ async function loadFields() {
     const payload = data.value as any
     fieldsByAuth.value = payload?.credentials_by_auth || {}
     authMeta.value = payload?.auth?.by_auth || {}
+    setupGuide.value = payload?.setup_guide || null
     // Pick the auth variant that isn't the empty "oauth" delegated one. By
     // convention the admin variant is the registry's default.
     defaultAuth.value = payload?.auth?.default || Object.keys(fieldsByAuth.value)[0] || ''

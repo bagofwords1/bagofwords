@@ -13,30 +13,7 @@
           <input id="connection-name" v-model="name" type="text" :placeholder="$t('data.connectionNamePlaceholder')" class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500" />
         </div>
 
-        <!-- Setup guide: numbered steps the admin runs on the remote system BEFORE
-             filling the fields (Kubernetes token, API keys minted elsewhere…).
-             Served per type by the registry (`setup_guide`); most types have none. -->
-        <div v-if="setupGuide.length" class="p-3 rounded border border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-950/20" data-testid="setup-guide">
-          <button type="button" class="flex items-center justify-between w-full text-start" @click="setupGuideOpen = !setupGuideOpen">
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('data.setupGuideTitle') }}</span>
-            <UIcon :name="setupGuideOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-4 h-4 text-gray-500" />
-          </button>
-          <ol v-show="setupGuideOpen" class="mt-2 space-y-3">
-            <li v-for="(step, i) in setupGuide" :key="i" class="flex gap-2">
-              <span class="flex-none w-5 h-5 rounded-full bg-blue-600 text-white text-2xs font-semibold flex items-center justify-center mt-0.5">{{ i + 1 }}</span>
-              <div class="min-w-0 flex-1">
-                <div class="text-xs font-medium text-gray-800 dark:text-gray-200">{{ stepText(step, i, 'title') }}</div>
-                <div v-if="stepText(step, i, 'body')" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 whitespace-pre-line">{{ stepText(step, i, 'body') }}</div>
-                <div v-if="step.code" class="relative mt-1.5">
-                  <pre class="text-2xs leading-snug bg-gray-900 text-gray-100 rounded-md p-2 pe-16 overflow-x-auto max-h-56 rtl-no-flip" dir="ltr"><code>{{ step.code }}</code></pre>
-                  <button type="button" class="absolute top-1.5 end-1.5 text-2xs px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-100" @click="copyStep(step.code, i)">
-                    {{ copiedStep === i ? $t('data.setupGuideCopied') : (copyFailedStep === i ? $t('data.setupGuideCopyFailed') : $t('data.setupGuideCopy')) }}
-                  </button>
-                </div>
-              </div>
-            </li>
-          </ol>
-        </div>
+        <SetupGuide :type="selectedType" :steps="fields?.setup_guide" />
 
         <template v-for="group in configGroups" :key="group.name">
         <div v-if="fields.config" class="connection-section p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
@@ -117,9 +94,10 @@
             </div>
           </div>
 
-          <div v-if="authOptions.length > 1" class="connection-auth-selector w-48 mb-2">
+          <div v-if="authOptions.length > 1" class="connection-auth-selector w-72 max-w-full mb-2">
             <USelectMenu v-model="selectedAuth" :options="authOptions" option-attribute="label" value-attribute="value" @change="handleAuthChange" />
           </div>
+          <p v-if="authDescription && authOptions.length > 1" class="text-xs text-ink-muted mb-2" data-testid="auth-description">{{ authDescription }}</p>
 
           <!-- Locked state: show masked fields -->
           <div v-if="credentialsLocked && showSystemCredentialFields">
@@ -239,6 +217,7 @@
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
 import SSHServerVerification from './SSHServerVerification.vue'
+import SetupGuide from './SetupGuide.vue'
 import MemberIdentityBindings from '@/components/datasources/MemberIdentityBindings.vue'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 
@@ -273,58 +252,6 @@ const selectedType = ref<string>(String(props.initialType || (typeof route.query
 const name = ref(String(props.initialName || ''))
 const fields = ref<any>({ config: null, credentials: null, auth: null, credentials_by_auth: null })
 
-// ── Setup guide (see template) ──
-// Steps come from the registry entry via /data_sources/<type>/fields. Text is
-// localized when `data.setupGuides.<type>[i].{title,body}` exists in the
-// catalog; otherwise the server's English default is shown. Code is never
-// localized.
-const setupGuide = computed<any[]>(() => Array.isArray(fields.value?.setup_guide) ? fields.value.setup_guide : [])
-const setupGuideOpen = ref(true)
-const copiedStep = ref<number | null>(null)
-function stepText(step: any, i: number, key: 'title' | 'body'): string {
-  const k = `data.setupGuides.${selectedType.value}.${i}.${key}`
-  return te(k) ? t(k) : String(step?.[key] || '')
-}
-const copyFailedStep = ref<number | null>(null)
-async function copyStep(code: string, i: number) {
-  // navigator.clipboard exists only in secure contexts (https / localhost). A
-  // dev or on-prem deployment served over plain http — the k8s runtime pod's
-  // gateway, say — has no clipboard API at all, and silently doing nothing
-  // left whatever the user copied last on the clipboard. Fall back to the
-  // legacy execCommand path there, and say so when both fail.
-  let ok = false
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(code)
-      ok = true
-    }
-  } catch {}
-  if (!ok) {
-    try {
-      const ta = document.createElement('textarea')
-      ta.value = code
-      ta.setAttribute('readonly', '')
-      ta.style.position = 'fixed'
-      ta.style.top = '-1000px'
-      document.body.appendChild(ta)
-      try {
-        ta.select()
-        ok = document.execCommand('copy')
-      } finally {
-        document.body.removeChild(ta)
-      }
-    } catch {}
-  }
-  if (ok) {
-    copyFailedStep.value = null
-    copiedStep.value = i
-    setTimeout(() => { if (copiedStep.value === i) copiedStep.value = null }, 1500)
-  } else {
-    copiedStep.value = null
-    copyFailedStep.value = i
-    setTimeout(() => { if (copyFailedStep.value === i) copyFailedStep.value = null }, 2500)
-  }
-}
 const formData = reactive<{ config: Record<string, any>; credentials: Record<string, any> }>({ config: {}, credentials: {} })
 // Editable rows backing any `ui:type: keyvalue` config field, keyed by field name.
 // The flat object in formData.config stays the source of truth that gets submitted;
@@ -516,9 +443,21 @@ const credentialFields = computed(() => {
   return Object.entries(credsSchema.properties).map(([field_name, schema]: any) => ({ field_name, ...schema }))
 })
 
-// Core credential fields (exclude oauth_* fields)
+// Core credential fields (exclude oauth_* fields). A field marked ui:hidden is
+// a fixed marker the auth method carries (e.g. "use the server's identity"):
+// it is still sent with its schema default, there is just nothing to edit.
 const coreCredentialFields = computed(() => {
-  return credentialFields.value.filter((f: any) => !f.field_name.startsWith('oauth_'))
+  return credentialFields.value.filter((f: any) => !f.field_name.startsWith('oauth_') && f['ui:hidden'] !== true)
+})
+
+// One line of help for auth methods that are set up outside this form. The
+// server sends an English default; the locale catalog wins when it has
+// `data.authDescriptions.<type>.<auth>`.
+const authDescription = computed(() => {
+  const auth = selectedAuth.value
+  if (!auth) return ''
+  const k = `data.authDescriptions.${selectedType.value}.${auth}`
+  return te(k) ? t(k) : String(fields.value?.auth?.by_auth?.[auth]?.description || '')
 })
 
 // Fields an admin may bind to a member attribute under per-user auth.
@@ -623,6 +562,10 @@ async function fetchFields() {
         is_public.value = typeof iv.is_public === 'boolean' ? iv.is_public : is_public.value
         require_user_auth.value = (iv.auth_policy === 'user_required')
         selectedAuth.value = iv.config?.auth_type || selectedAuth.value
+        // The saved method may no longer be offered (one the operator has
+        // since turned off). Fall back to the default so the fields shown and
+        // the method sent agree, and the admin can move the connection off it.
+        if (authMeta?.by_auth && selectedAuth.value && !(selectedAuth.value in authMeta.by_auth)) selectedAuth.value = authMeta.default || undefined
         memberBindings.value = { ...(iv.member_bindings || {}) }
         // Exclude auth_type from hydrated config to avoid sending it during tests
         const { auth_type: _ignoredAuthType, ...restConfig } = (iv.config || {})
@@ -710,7 +653,17 @@ function cleanCredentials(creds: Record<string, any>): Record<string, any> {
 }
 
 function editedCredentials() {
-  return Object.fromEntries(Object.entries(cleanCredentials(formData.credentials)).filter(([key, value]) => value !== savedCredentialValues.value[key]))
+  const edited: Record<string, any> = Object.fromEntries(Object.entries(cleanCredentials(formData.credentials)).filter(([key, value]) => value !== savedCredentialValues.value[key]))
+  // A blank box normally means "keep what is saved" (that is how secrets stay
+  // untouched). A visible, non-secret field the admin emptied is different: it
+  // had a value on screen and they removed it, so say so with an explicit null.
+  for (const field of coreCredentialFields.value) {
+    const key = field.field_name
+    const saved = savedCredentialValues.value[key]
+    const current = (formData.credentials as any)[key]
+    if (!isSecretField(field) && typeof saved === 'string' && saved !== '' && (current == null || current === '')) edited[key] = null
+  }
+  return edited
 }
 
 // Blank inputs are stripped by cleanCredentials, so a required-but-empty field
@@ -779,8 +732,8 @@ function validateRemoteSetup(): string | null {
 
 const formElement = ref<HTMLFormElement | null>(null)
 const submitError = ref('')
-watch([submitting, isTestingConnection, submitError, testResultMessage, testResultLevel, settingsChanged], () => {
-  emit('state', { busy: submitting.value || isTestingConnection.value, error: submitError.value || (testResultLevel.value === 'error' ? testResultMessage.value : ''), warning: testResultLevel.value === 'warning' ? testResultMessage.value : '', message: testResultLevel.value === 'success' ? testResultMessage.value : '', settingsChanged: settingsChanged.value })
+watch([submitting, isTestingConnection, submitError, testResultMessage, testResultLevel, settingsChanged, require_user_auth], () => {
+  emit('state', { busy: submitting.value || isTestingConnection.value, error: submitError.value || (testResultLevel.value === 'error' ? testResultMessage.value : ''), warning: testResultLevel.value === 'warning' ? testResultMessage.value : '', message: testResultLevel.value === 'success' ? testResultMessage.value : '', settingsChanged: settingsChanged.value, requireUserAuth: require_user_auth.value })
 })
 defineExpose({ connect: () => formElement.value?.requestSubmit(), test: testConnection })
 

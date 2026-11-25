@@ -1,5 +1,170 @@
 # Release Notes
 
+## Version 0.0.637 (November 25, 2026)
+- Added Slack as a data source, read live with each user's own access and limited per agent to chosen channels (#1920)
+- Added more PII identifiers: 45 Presidio types, 7 built-in rules for secrets and network IDs, and custom rules with exact terms, checksums and context words (#1919) — off until a policy turns them on
+
+## Version 0.0.636 (November 24, 2026)
+- Added PII policies per agent; an agent's policy merges with the provider's and the strictest rule wins (#1911) — set in Settings → PII or the agent's settings
+- Added a SharePoint Server lists connector for on-prem SharePoint 2013+ over NTLM or Kerberos (#1910)
+- Added a Fathom connector for meetings, summaries and transcripts, with each user signing in to their own account (#1905)
+- Added sending requested files back to the user over WhatsApp (#1903)
+- Added removing a report from a project on the project page (#1902)
+- Added a per-user on/off toggle for personal connectors in the chat composer, remembered across chats (#1901)
+- Added app users: members who can use the apps (embedded artifacts) shared with them but not the workspace — set "New people join as" on a host application; give the workspace later by changing their role or through a group (#1914)
+- Added an app launcher at `/apps` listing the apps shared with you, with "Request full access" for app users (#1914)
+- Added "Use the workspace" to the role editor, on for every existing role (#1914)
+- Changed the command palette's All tab to show only reports and dashboards (#1900)
+- Changed a shared folder's instruction list in the Knowledge Explorer to show status, Pending review, category and load mode, like an agent's list (#1908)
+- Fixed result cards in chat opening collapsed, and a pending wait's Cancel button scrolling out of view (#1897)
+- Fixed Power BI schema refresh failing when one semantic model has no readable tables; that model is now skipped with a warning (#1907)
+- Fixed the Outlook Mail connect form missing its setup steps; it now lists the Entra app steps, permissions and the redirect URI to copy (#1912)
+- Fixed slow opening of shared dashboards with large results, which also blocked other requests while loading (#1909)
+- Fixed sign-up inside an embedded app's sign-in window not returning to the app (#1914)
+
+## Version 0.0.635 (November 23, 2026)
+- Added agents with no data connection, built from instructions, files and a description only (#1895)
+- Added daily caps on LLM tokens, LLM spend, data queries and data scanned to usage policies, alongside monthly caps (#1896) — the day resets at midnight in the org's timezone
+- Added the agents a run drew on to the trace modal's turn strip (#1892)
+- Changed deleting a connection to keep the agents that used it, unlinked, instead of deleting them; the delete dialog always lists the agents affected (#1895)
+- Fixed users being signed out when the session check failed during a deploy, restart or network blip (#1894)
+
+## Version 0.0.634 (November 22, 2026)
+- Added a PostgreSQL (multi-database) connector: one server with a database per tenant, queried across tenants (#1879, originally #1808 by @roytev)
+- Added WhatsApp "typing…" while the agent works on a question; the user's message now shows as read when the run starts (#1880)
+- Added a tappable dashboard link in WhatsApp when the agent builds a dashboard (#1881)
+- Added the owning agent's icon on tool group headers in reports and shared conversations (#1884)
+- Added LLM provider managers, who run one provider's key, models and settings, and group managers choosing their group's default models (#1885)
+- Added `result_format=raw` for Elasticsearch and OpenSearch searches, returning the engine response in a single cell (#1882)
+- Fixed chart images missing from chat channel replies on SQLite installs (#1881)
+- Fixed Slack, Teams, Google Chat and WhatsApp re-sending the previous chart after a dashboard or generated image (#1881)
+- Fixed Elasticsearch and OpenSearch searches dropping filters, count-only searches showing zero matches, and nested aggregation metrics missing from results; saved queries using unsupported options such as `highlight`, `script_fields` or `explain` now return an error and must be revised (#1882)
+- Fixed row-by-row reads of large Elasticsearch and OpenSearch results taking tens of seconds, and empty aggregation groups dropping their expected columns and nullable integers turning into floats (#1882)
+- Fixed the Auto router's decision model reading requests from users who aren't allowed to use it; they now start on the small model (#1885)
+
+## Version 0.0.633 (November 22, 2026)
+- Added in-report search to ⌘K: find any message in the open report, including unloaded pages, and jump to it (#1863)
+- Added category tabs to ⌘K: All, Reports, Agents, Instructions, Dashboards (#1864)
+- Added per-step input/output tokens and the run's model to the trace modal, and a diagnosis filter on LLM runs (#1869)
+- Added column meanings from the catalog to cached tables, flagging columns that must not be summed (#1868)
+- Added column search to table descriptions, and a cap on wide tables' columns in the agent's context, ranked by usage (#1876)
+- Changed Priority ERP cached tables to load forms in verified pages instead of one capped request (#1867)
+- Fixed an open report's dashboard refreshing more than once per new version (#1866)
+- Fixed SQLite connections hiding tables whose names have spaces, dashes or non-ASCII characters (#1877)
+- Fixed a Git instruction sync failing entirely when a synced file was removed from the repo (#1872)
+- Fixed WhatsApp replies being dropped when an organization has more than one WhatsApp number (#1874)
+- Fixed self-built Docker images including `backend/.env`, uploads and test files (#1877)
+
+## Version 0.0.632 (November 22, 2026)
+- Added "Save as cached table" beside Save Query on a result, opening the custom-table dialog pre-filled with the agent's query, and a progress bar on a table's first load (#1859)
+- Added custom tables on SAP BusinessObjects, and paged DAX custom tables on Analysis Services (#1857)
+- Added per-organization custom-table limits for rows, size, scanned data and requests (#1857) — under Settings → AI → Custom tables
+- Added group managers: admins delegated to manage one group, with an Admin entry that opens on their group (#1849)
+- Changed the Ask / Auto / Allow all chip in the prompt box to show only when the session has connection tools that can write (#1855)
+- Changed Power BI agents to do two-step aggregations in one DAX query instead of downloading detail rows (#1856)
+- Fixed a chart's refinement holding up the agent's next step; it now finishes in the background (#1858)
+- Fixed the first request after a restart taking seconds to reach some pages (#1845)
+- Fixed the Exchange Server (on-prem) connection form showing no fields (#1862)
+- Fixed exported HTML dashboards missing the `X-Content-Type-Options: nosniff` header (#1861)
+
+## Version 0.0.631 (November 21, 2026)
+- Added inline figures in answers: charts and tables placed in the text, with highlighted categories and a ••• menu to add to a dashboard, save as a query, download or copy (#1844)
+- Added read-only Confluence and Jira Data Center (on-prem) connectors (#1842)
+- Added Outlook and Teams write actions (flag, move, draft and send email; post to channels and chats), off by default and managed in a new Tools tab on the connection (#1847)
+- Added a Connect button in chat when a question needs an agent or connector the user hasn't signed in to yet (#1846, #1852)
+- Added a note in the answer when an agent can't be reached, and since when, instead of "no agent has that data" (#1852, #1853)
+- Added a "Refresh to vN" prompt on an open dashboard when a newer version is saved elsewhere (#1841)
+- Added an Ask / Auto / Allow all permission mode for connection tools on each report, and "Allow for this report" on the approval card (#1786) — defaults and the Allow all switch under Settings → AI
+- Added a built-in safety blocklist that refuses catastrophic connection-tool calls such as disk wipes, `rm -rf /`, `DROP DATABASE` and `DELETE` without `WHERE`, whatever the mode or tool setting (#1786)
+- Added arrow-key and Enter navigation to the agent and model pickers in the prompt box (#1854)
+- Added a live timer next to the run-activity dot, and a "· N failed" count on tool groups that recovered from a failed call (#1854)
+- Changed a connection tool call to follow the rule of the agent it goes through (#1847)
+- Changed System logs to be off by default (#1843) — turn on with `system_logs.enabled` / `BOW_SYSTEM_LOGS_ENABLED=true`
+- Fixed a large log backlog wiping older System logs (#1843)
+- Fixed running eval and sub-agent cards, and their Stop button, folding out of view (#1840)
+- Fixed the run-activity dot disappearing, resizing and jumping during a live run (#1839)
+- Fixed the answer header flashing "BoW" before the model name, and showing the starting model after the Auto router switched (#1854)
+- Fixed missing spaces in "Inspecting" and "Searched" tool labels (#1854)
+- Fixed sending a prompt snapping the view instead of scrolling smoothly (#1854)
+- Fixed answered clarify questions showing as raw "Q: … A: …" text instead of a question and answer (#1850)
+- Fixed scheduled tasks growing their prompt, and cost, with every run by replaying earlier runs' full tool results (#1851)
+- Fixed a folder conversation failing outright when all its agents need the user's sign-in; it now asks for it (#1852)
+
+## Version 0.0.630 (November 20, 2026)
+- Added resizable, movable data-grid columns that keep their layout, and a single value-list filter per column (#1828)
+- Added content-sized columns to dashboard tables, resizable and movable by drag (#1834)
+- Added the refresh history, with the failure shown, behind a dashboard's "Refresh failing" badge (#1832)
+- Changed instruction diffs to render as markdown, right-to-left per block in RTL languages (#1826)
+- Changed remote SSH/SMB file reads in the report chat to show the file and server instead of the raw tool name (#1827)
+- Changed instruction and dashboard tool cards in the report chat to open by default (#1831)
+- Fixed dark-mode contrast gaps: white cards, unreadable labels and chips, and the LLM usage chart tooltip (#1830, #1837)
+- Fixed sidebar menus swallowing the next click (#1835)
+- Fixed the Reports group/sort button sitting out of line with the row star column (#1833)
+- Fixed a saved query's table missing under the answer when a run folds (#1829)
+- Fixed tool-card header labels running together (#1831)
+
+## Version 0.0.629 (November 18, 2026)
+- Added Clone agent in the agent menu: copies tables, tools, prompts and files, with instructions copied, shared or left out (#1807)
+- Added Import agent under Agents → New: rebuilds an agent from its export zip, with instructions imported as drafts (#1810)
+- Added Monitoring access to Auto runs for agent managers when the run could only reach agents they manage (#1811)
+- Added what changed, who handled it and a link to where it is fixed in review notifications, and a training-mode conversation prefilled from the item (#1809)
+- Added automatic saving of each Settings → General field, without a Save button; removing a framing site asks first (#1796)
+- Added project agents pre-selected on a new report opened from a project (#1806)
+- Added the full report or project name on hover in the sidebar when it is cut off, and a Reports icon in the collapsed sidebar (#1814)
+- Added Qlik Cloud app filtering, up to four apps indexed at once, and master items, variables, sheets and charts in Qlik Cloud schemas (#1818)
+- Added multiple organizations on one deployment as a supported mode: instance administrators create organizations from the top-left menu — `BOW_SUPERUSER_EMAILS`, `features.allow_multiple_organizations`, Enterprise license
+- Added mapping from identity-provider groups to organizations and roles at sign-in — `oidc_providers[].org_mapping`
+- Added folders reserved for one organization's file connections — `security.organization_file_roots`
+- Added a numbered citation on the answer's claims that previews, and opens, the result behind it; chat channels get the same as `[1]` footnotes (#1770)
+- Added GPT-6.2 Sol and Astra to the OpenAI models; Sol is the new managed OpenAI default — $2/$10 per million tokens, up from Terra's $1/$5 (#1820)
+- Added named PII protection policies assigned per LLM provider, with an Exempt option, under Settings → PII Protection (#1821) — Enterprise
+- Added a PostgreSQL (multi-database) connection: one connection over many single-tenant databases on the same server, queried as unified tables with a `tenant_db` column; database names, globs and !-exclusions pick the tenants (#1808)
+- Changed a steered prompt to appear above the step that picked it up, on the report page, after a reload and on shared links (#1802)
+- Changed, on multi-organization deployments only: creating an organization needs an instance administrator, a personal API key works only in its own organization, an existing account joins another organization by invite, a sign-up domain is assigned by an instance administrator, and a first sign-in links to an existing account by email only from a trusted provider — `trust_email_for_linking`
+- Changed `security.block_private_outbound` to also cover Cosmos DB, Couchbase, Iceberg, Azure Blob and Kubernetes endpoints and SQL Server failover hosts
+- Changed a run's steps, charts included, to sit behind one row above the answer, live while it works and settled once it ends (#1770)
+- Changed PII protection to redact only the user's prompt and the data; instructions, schemas and other agent context reach the model as written, image-generation prompts are now redacted, and a blocked request ends the turn without retrying (#1821)
+- Fixed every chat failing on Azure OpenAI with the default content filter; content-filter blocks now show a named error (#1803)
+- Fixed MCP and custom API agents losing their tools when a SQL or file agent shares the report (#1815)
+- Fixed Qlik Cloud tables showing no columns after indexing (#1818)
+- Fixed shared conversations not using the organization's language and direction (#1800)
+- Fixed the agent trace modal sliding off-screen when scrolling (#1812)
+- Fixed a schema change being silent for 7 days after an earlier one was handled (#1809)
+- Fixed sandbox step runs being slower from a repeated import (#1805)
+- Fixed file-based connections (DuckDB, CSV, QVD, PBIX, SQLite) being able to read or write files outside their own data — `security.unsafe_allow_unrestricted_file_connectors` restores the old behaviour
+- Fixed database connection options being injectable through the database name; options written after the name such as `mydb?sslmode=require` still apply, except ones that read local files or redirect the connection
+- Fixed Git repository indexing following symlinks out of the repository; symlinked files are no longer indexed
+- Fixed linked local files being pulled into document previews — `security.office_convert_confinement`
+- Fixed records from another organization being reachable by id through mentions, instruction references, entities, eval runs, report sharing, LLM model settings and the agent's metadata search
+- Fixed "public" agents being usable by people outside the organization that owns them
+- Fixed Slack, Teams and WhatsApp messages reaching the wrong organization when two organizations share a workspace, tenant or number; connecting one to a second organization is refused
+- Fixed SCIM in one organization changing or deactivating an account that also belongs to another
+- Fixed users being able to change their own sign-in email
+- Fixed notifications from one organization showing in another
+- Fixed a removed member keeping roles, access grants and API keys after being invited again
+- Fixed saved queries and dashboards failing with a missing-key error after an agent or connection is renamed (#1822)
+- Fixed agent queries reaching tables outside the agent's selection through a LATERAL or APPLY table function (#1808)
+
+## Version 0.0.628 (November 18, 2026)
+- Added Admin → System logs: read, search, filter and delete the server's own logs in the app (#1697) — kept 7 days, up to 1 GB; `BOW_SYSTEM_LOGS_DIR`, `BOW_SYSTEM_LOGS_RETENTION_DAYS`, `BOW_SYSTEM_LOGS_MAX_SIZE_MB`
+
+## Version 0.0.627 (November 18, 2026)
+- Added keyless BigQuery connections that use the server's Google identity instead of a service-account key (#1794) — enable with `BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true`
+
+## Version 0.0.626 (November 18, 2026)
+- Added Slack as a data source: each user signs in with their own Slack account, and each agent reads only the channels picked for it (#1785)
+- Fixed "Save and Run" on an eval test case failing silently and creating duplicate test cases on retry (#1787)
+
+## Version 0.0.625 (November 17, 2026)
+- Added Rerun on a chat message: sends the same prompt again with its mentions, attached images, mode and model (#1771)
+- Added `/clear` in the report prompt box: starts a fresh agent context while earlier turns stay visible (#1767)
+- Added `missing_folder_rules` to the MCP `create_report` and `get_context` responses, and `applies_in` to `create_instruction` and `edit_instruction` (#1762)
+- Added inherited folder and connection access to the agent access panel (#1780)
+- Fixed the Approve/Deny card disappearing after a page reload or in a second tab (#1766)
+- Fixed an agent losing all its MCP tools when one of its connections fails, and agents created mid-run not getting theirs (#1763)
+- Fixed Qlik Sense on-prem metric choices not applying through nested variables (#1783)
+- Fixed the agents page listing folders you have no grant on unless Show all is on (#1781)
+
 ## Version 0.0.624 (November 16, 2026)
 - Added the full dashboard name on hover when it is cut off, in the dashboards grid and list, the dashboard header and the "open a dashboard" list (#1730)
 - Fixed dashboards rendering blank or failing to save when the model names its root component something other than `App`, wraps its export, or imports `createRoot` (#1735)

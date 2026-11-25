@@ -98,6 +98,24 @@ class DataSourceMembershipSchema(BaseModel):
         from_attributes = True
 
 
+class DataSourceInheritedPrincipal(BaseModel):
+    """A principal that reaches the agent through a folder or connection grant."""
+    principal_type: str  # "user" | "group" | "role"
+    principal_id: str
+    principal_name: Optional[str] = None
+    principal_email: Optional[str] = None
+    access: str  # "query" | "manage"
+    source_type: str  # "folder" | "connection"
+    source_id: str
+    source_name: str
+
+
+class DataSourceInheritedAccess(BaseModel):
+    principals: List[DataSourceInheritedPrincipal] = []
+    # Inherited access exists that this viewer is not allowed to enumerate.
+    hidden: bool = False
+
+
 class DataSourceMembershipCreate(BaseModel):
     principal_type: str = "user"  # Default to "user"
     principal_id: str
@@ -262,6 +280,9 @@ class DataSourceReportSchema(AgentIconTokenMixin):
     # (Development / Training) the same way the data source selector does.
     publish_status: str = "published"
     reliability_status: str = "training"
+    # The agent's cap on the run permission mode (ask | auto, None = no cap),
+    # so the prompt box shows the mode the run will really use.
+    max_permission_mode: Optional[str] = None
 
     # Connection info (multi-connection support) — slim, config-free view.
     connections: List[ConnectionReportEmbedded] = []
@@ -282,6 +303,8 @@ class DataSourceBase(BaseModel):
 
 class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
     """Full DataSource (Domain) schema with nested connection info."""
+    # Cap on the run permission mode (ask | auto); null = no cap.
+    max_permission_mode: Optional[str] = None
     folder_id: str | None = None
     folder_path: str | None = None
     inherited_folder_name: str | None = None
@@ -345,6 +368,18 @@ class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
         from_attributes = True
 
 
+class ConnectorChatPreferenceUpdate(BaseModel):
+    """Body for PUT /data_sources/{id}/chat-preference — the user's on/off
+    choice for a personal connector in the chat composer."""
+    enabled: bool
+
+
+class ConnectorChatPreference(BaseModel):
+    """The saved on/off choice for one connector."""
+    data_source_id: str
+    enabled: bool
+
+
 class DataSourceListItemSchema(AgentIconTokenMixin):
     limited_access: bool = False
     """List item schema for DataSource with nested connection info."""
@@ -391,6 +426,10 @@ class DataSourceListItemSchema(AgentIconTokenMixin):
     # Catalog key for a known connector (e.g. "notion", "monday"), so the UI can
     # render the provider's icon instead of the generic MCP glyph. None otherwise.
     connector_key: Optional[str] = None
+    # Connectors only: the current user's chat on/off choice (the connectors
+    # menu toggle). True = joins runs as usual, False = switched off for chat;
+    # None for agents (the toggle does not apply). Default True when unset.
+    chat_enabled: Optional[bool] = None
 
     # Legacy fields for backward compatibility - computed from first connection
     type: Optional[str] = None
@@ -410,10 +449,12 @@ class DataSourceListItemSchema(AgentIconTokenMixin):
 class DataSourceCreate(DataSourceBase):
     """Schema for creating a new DataSource (Domain).
 
-    Three modes:
+    Four modes:
     1. Create new connection: Provide type, config, credentials
     2. Link to existing connection: Provide connection_id (single connection)
     3. Link to multiple connections: Provide connection_ids (array)
+    4. No connection: provide none of the above — an agent made of
+       instructions, files and a description (connections can be linked later)
     """
 
     folder_id: str | None = None
@@ -465,21 +506,27 @@ class DataSourceCreate(DataSourceBase):
 
     @validator('connection_ids', always=True)
     def validate_connection_ids_or_type(cls, v, values):
-        """Ensure either connection_id, connection_ids, OR (type, config, credentials) is provided."""
-        # If connection_ids is provided, use it
+        """Validate the connection mode.
+
+        Linking existing connection(s), creating a new one (type + config), or
+        neither: an agent with no connections (instructions, files and a
+        description only). Only a half-configured new connection is rejected.
+        """
         if v and len(v) > 0:
             return v
-
-        # If connection_id (singular) is provided, that's fine too
         if values.get('connection_id'):
             return v
 
-        # Creating new connection - require type and config
-        if not values.get('type'):
-            raise ValueError('Either connection_id, connection_ids, or type must be provided')
-        if values.get('config') is None:
+        has_type = bool(values.get('type'))
+        has_config = values.get('config') is not None
+        if has_type and not has_config:
             raise ValueError('Config is required when creating a new connection')
-
+        if has_config and not has_type:
+            raise ValueError('Data source type must be specified when creating a new connection')
+        # A connector is nothing but a line into its connection: it cannot be
+        # created without one (an agent can).
+        if not has_type and values.get('kind') == 'connector':
+            raise ValueError('A connector needs a connection')
         return v
 
 
@@ -509,6 +556,9 @@ class DataSourceUpdate(DataSourceBase):
     reliability_status: Optional[str] = None
     member_user_ids: Optional[List[str]] = None  # User IDs to grant access to
     primary_instruction_id: Optional[Union[str, None]] = None  # None = clear, str = set
+    # Cap on the run permission mode for runs that use this agent: "ask" or
+    # "auto"; "none" removes the cap. Omit to leave unchanged.
+    max_permission_mode: Optional[Literal["ask", "auto", "none"]] = None
 
     @field_validator('publish_status')
     @classmethod

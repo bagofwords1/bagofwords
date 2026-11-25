@@ -23,6 +23,8 @@ class Connection(BaseSchema):
     )
 
     name = Column(String, nullable=False)
+    # Names this connection used to have (app/models/former_names.py).
+    previous_names = Column(JSON, nullable=True)
     type = Column(String, nullable=False)  # e.g., 'snowflake', 'postgres', 'bigquery'
     config = Column(JSON, nullable=False)  # Non-secret connection parameters
     credentials = Column(Text, nullable=True)  # Encrypted credentials
@@ -37,6 +39,11 @@ class Connection(BaseSchema):
     # when this reaches the threshold (see ConnectionService.test_connection),
     # so one slow probe does not hide its tables from every agent.
     consecutive_test_failures = Column(Integer, nullable=False, default=0, server_default="0")
+    # When the health probes last deactivated this connection (UTC). Set on the
+    # probe that crosses the failure threshold, cleared on the first success,
+    # so it reads "unreachable since" for as long as the outage lasts. NULL =
+    # reachable, or flagged before this column existed.
+    unreachable_since = Column(DateTime, nullable=True, default=None)
     # When the last "connection is down" alert email went out for this shared
     # connection. The in-app inbox row always fires on the down transition
     # (deduped by group_key); the email is additionally throttled to at most
@@ -262,3 +269,8 @@ class Connection(BaseSchema):
         fernet = Fernet(settings.bow_config.encryption_key)
         return json.loads(fernet.decrypt(self.credentials.encode()).decode())
 
+
+
+from app.models.former_names import track_former_names  # noqa: E402
+
+track_former_names(Connection)

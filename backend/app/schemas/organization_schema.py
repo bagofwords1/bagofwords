@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -10,12 +10,34 @@ from app.schemas.base import OptionalUTCDatetime
 # prompt overhead negligible.
 MEMBERSHIP_NOTE_MAX_LENGTH = 500
 
-class OrganizationCreate(BaseModel):
+ORGANIZATION_NAME_MAX_LENGTH = 100
+
+class OrganizationBase(BaseModel):
     name: str
     description: Optional[str] = None
 
-class OrganizationSchema(OrganizationCreate):
+class OrganizationCreate(OrganizationBase):
+    # Optional: invite this address as an admin of the new organization. It is
+    # an ordinary invite (same email, same acceptance) as one sent from the
+    # members page. The creator joins as admin either way.
+    first_admin_email: Optional[EmailStr] = None
+
+    @field_validator("first_admin_email", mode="before")
+    @classmethod
+    def _blank_first_admin_email_is_none(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
+
+class OrganizationSchema(OrganizationBase):
     id: str
+    # Set only in the response to a creation that asked for a first admin:
+    # "sent" | "failed" | "skipped_no_smtp" (invite email outcome), "added"
+    # (the address already had an account that could be attached directly),
+    # "already_member" (it is the creator) or "not_invited" (the invite could
+    # not be created; the organization was).
+    first_admin_invite_status: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -92,6 +114,10 @@ class MembershipSchema(MembershipCreate):
     invite_email_status: Optional[str] = None
     # When the pending invite link expires (pending invites only).
     invite_expires_at: OptionalUTCDatetime = None
+    # The host application whose sign-in created this membership (an app
+    # user's first arrival through an embedded artifact), and its name.
+    created_via_host_application_id: Optional[str] = None
+    created_via_host_application: Optional[str] = None
 
     class Config:
         from_attributes = True

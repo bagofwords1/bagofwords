@@ -123,7 +123,7 @@
           type="button"
           @click="toggleFilterMenu"
           class="h-7 w-7 inline-flex items-center justify-center rounded border"
-          :class="hasActiveFilters ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'"
+          :class="hasActiveFilters ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'"
           :aria-label="`Filter ${props.itemNoun.plural}`"
         >
           <UIcon name="heroicons-funnel" class="w-4 h-4" />
@@ -329,7 +329,7 @@
       <div v-if="!diagramReady && !catalogError" class="absolute inset-0 z-20 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950" role="status" :aria-label="t('tableErd.loading')" data-testid="erd-loading">
         <Spinner class="w-6 h-6 text-ink-muted" aria-hidden="true" />
       </div>
-      <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
+      <div v-if="catalogError" class="py-4 text-xs text-ink-muted" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
       <TablesCanvas v-if="catalogLoaded" :class="[{ 'opacity-0 pointer-events-none': !diagramReady }, fill ? 'flex-1 min-h-[240px]' : '']" :fill="fill" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="canvasTables" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
         :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
         :bottom-inset="fullscreenInPlace ? 120 : 72" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
@@ -421,7 +421,7 @@
                     <span v-if="table.rls_enabled" class="ms-2 text-2xs text-blue-500">{{ t('tableErd.rowFiltered') }}</span>
                     <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-2xs text-red-500">{{ t('tableErd.refreshFailed') }}</span>
                     <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
-                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-2xs px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-2xs px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-950 text-yellow-700 dark:text-yellow-300">modified</span>
                     <UTooltip v-if="hiddenColumnCount(table)" :text="t('tableErd.columnsHiddenTooltip')">
                       <span
                         :data-testid="`cols-hidden-badge-${table.name}`"
@@ -541,14 +541,21 @@
                         :data-testid="`cols-hide-all-${table.name}`" @click="setAllColumnsVisible(table, false)">{{ t('tableErd.hideAllColumns') }}</button>
                     </span>
                   </div>
-                  <div class="grid text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1" :class="canUpdate ? 'grid-cols-[1.5rem_1fr_1fr]' : 'grid-cols-2'">
+                  <div class="grid gap-x-3 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1" :class="columnGridClass(table)">
                     <div v-if="canUpdate"></div>
                     <div>Name</div>
                     <div>Type</div>
+                    <UTooltip :text="t('tableErd.usedTooltip')" class="justify-self-end">
+                      <span class="inline-flex items-center gap-1" :data-testid="`cols-used-header-${table.name}`">
+                        {{ t('tableErd.usedHeader') }}
+                        <UIcon v-if="hasColumnUsage(table)" name="heroicons-arrow-down" class="w-3 h-3" :aria-label="t('tableErd.sortedByUsage')" />
+                      </span>
+                    </UTooltip>
+                    <div v-if="showsColumnDetails(table)">{{ t('cachedColumns.details') }}</div>
                   </div>
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
-                    <label v-for="col in table.columns" :key="col.name" class="grid items-center text-xs px-2 py-1"
-                      :class="[canUpdate ? 'grid-cols-[1.5rem_1fr_1fr] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900' : 'grid-cols-2']"
+                    <label v-for="col in columnsByUsage(table)" :key="col.name" class="grid gap-x-3 text-xs px-2 py-1"
+                      :class="[columnGridClass(table), showsColumnDetails(table) ? 'items-start' : 'items-center', canUpdate ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900' : '']"
                       :data-testid="`col-row-${table.name}-${col.name}`">
                       <UCheckbox v-if="canUpdate" color="blue" :model-value="isColumnVisible(table, col.name)" :disabled="saving"
                         :aria-label="t('tableErd.includeColumn', { name: col.name })"
@@ -558,6 +565,39 @@
                         <span v-if="!isColumnVisible(table, col.name)" class="shrink-0 text-2xs px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.columnHidden') }}</span>
                       </div>
                       <div :class="isColumnVisible(table, col.name) ? 'text-gray-500 dark:text-gray-400' : 'text-ink-muted'">{{ col.dtype || col.type }}</div>
+                      <div class="text-end nums text-gray-500 dark:text-gray-400" :data-testid="`col-usage-${table.name}-${col.name}`">{{ columnUsage(table, col.name) || '—' }}</div>
+                      <!-- A cached table's column says what it means: its
+                           description, where it was copied from, and whether
+                           its values may be summed across rows. -->
+                      <div v-if="showsColumnDetails(table)" class="min-w-0 space-y-0.5" :data-testid="`col-details-${table.name}-${col.name}`">
+                        <div v-if="col.description" v-text-dir class="text-gray-700 dark:text-gray-300 break-words">{{ col.description }}</div>
+                        <div v-if="showsSource(col, col.description)" class="text-2xs text-ink-muted break-words" :data-testid="`col-source-${table.name}-${col.name}`">
+                          <i18n-t scope="global" v-if="sourceLabel(col)!.kind === 'derived'" keypath="cachedColumns.computedAs" tag="span">
+                            <template #expression><code class="font-mono" dir="ltr">{{ sourceLabel(col)!.text }}</code></template>
+                          </i18n-t>
+                          <i18n-t scope="global" v-else :keypath="sourceLabel(col)!.kind === 'measure' ? 'cachedColumns.measureFrom' : 'cachedColumns.copiedFrom'" tag="span">
+                            <template #source><code class="font-mono" dir="ltr">{{ sourceLabel(col)!.text }}</code></template>
+                          </i18n-t>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-1">
+                          <UTooltip v-if="showsAdditivity(col)" :text="additivityTooltip(col)">
+                            <span :data-testid="`col-additive-${table.name}-${col.name}`" :data-state="additiveState(col)"
+                              class="inline-flex items-center gap-1 text-2xs px-1 py-0.5 rounded" :class="additivityClass(col)">
+                              {{ additivityText(col) }}
+                            </span>
+                          </UTooltip>
+                          <UTooltip v-if="isEdited(col, 'description') || isEdited(col, 'additive')" :text="t('cachedColumns.editedHint')">
+                            <span :data-testid="`col-edited-${table.name}-${col.name}`"
+                              class="text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{{ t('cachedColumns.edited') }}</span>
+                          </UTooltip>
+                          <UTooltip v-if="driftOf(col)" :text="t('cachedColumns.driftHint')">
+                            <span :data-testid="`col-drift-${table.name}-${col.name}`"
+                              class="inline-flex items-center gap-0.5 text-2xs px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                              <UIcon name="heroicons-exclamation-triangle" class="w-3 h-3" />{{ t('cachedColumns.drift') }}
+                            </span>
+                          </UTooltip>
+                        </div>
+                      </div>
                     </label>
                   </div>
                 </div>
@@ -615,7 +655,7 @@
                     </div>
                   </div>
 
-                  <div v-if="table.metadata_json.powerbi_report_server.upstream_source" class="border border-blue-100 bg-blue-50 rounded">
+                  <div v-if="table.metadata_json.powerbi_report_server.upstream_source" class="border border-blue-100 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 rounded">
                     <div class="text-xs font-medium text-blue-700 px-2 py-1 rounded-t">Upstream source</div>
                     <div class="text-xs text-blue-900 px-2 py-1 break-all">
                       {{ table.metadata_json.powerbi_report_server.upstream_source }}
@@ -655,7 +695,7 @@
                     <pre class="text-xs text-gray-700 dark:text-gray-300 px-2 py-1 whitespace-pre-wrap break-all">{{ table.metadata_json.powerbi_report_server.command_text }}</pre>
                   </div>
 
-                  <div v-if="table.metadata_json.powerbi_report_server.query_note" class="border border-yellow-200 bg-yellow-50 rounded text-xs text-yellow-800 px-2 py-1">
+                  <div v-if="table.metadata_json.powerbi_report_server.query_note" class="border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-950 rounded text-xs text-yellow-800 dark:text-yellow-300 px-2 py-1">
                     {{ table.metadata_json.powerbi_report_server.query_note }}
                   </div>
                 </div>
@@ -728,11 +768,14 @@ import { tableId, matchesTable } from '~/utils/tableGraph'
 import { isRoutine, routineKind, routineMeta, ROUTINE_ICON } from '~/utils/routines'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 import CustomQueryModal from '@/components/datasources/CustomQueryModal.vue'
+import {
+  additiveReason, additiveState, driftOf, hasColumnMetadata, isEdited, showsAdditivity, showsSource, sourceLabel,
+} from '~/utils/columnMetadata'
 import TablePreviewModal from '@/components/datasources/TablePreviewModal.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 
-type Column = { name: string; dtype?: string; type?: string }
+type Column = { name: string; dtype?: string; type?: string; description?: string; metadata?: Record<string, any> | null }
 type ForeignKey = {
   column?: { name: string; dtype?: string };
   references_name: string;
@@ -745,6 +788,8 @@ type Table = {
   columns?: Column[];
   // Column names hidden from this agent's context (null/absent = none).
   excluded_columns?: string[] | null;
+  // Per-column usage (with_stats): { [column]: { usage_count, success_count, ... } }
+  column_stats?: Record<string, { usage_count?: number; success_count?: number; failure_count?: number; pos_feedback_count?: number; neg_feedback_count?: number }> | null;
   pks?: any[];
   fks?: ForeignKey[];
   last_used_at?: string;
@@ -871,7 +916,7 @@ const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err
 // per-connection grids with one button. onSave is a hoisted declaration below.
 defineExpose({ save: () => onSave() })
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const fullscreen = ref(false)
 const selectorElement = ref<HTMLElement | null>(null)
 let fullscreenTrigger: HTMLElement | null = null
@@ -1231,6 +1276,39 @@ async function followCatalogSyncAfterSignIn() {
 const tables = ref<Table[]>([])
 const expandedTables = ref<Record<string, boolean>>({})
 
+// A cached table's columns carry what the source catalog says about them
+// (utils/columnMetadata.ts). The extra "Details" column is shown for those
+// only, and only once a refresh has described them.
+function showsColumnDetails(table: Table): boolean {
+  return !!table.custom_query_id && (table.columns || []).some(hasColumnMetadata)
+}
+function columnGridClass(table: Table): string {
+  // checkbox (editors) · name · type · used · details (cached tables)
+  if (showsColumnDetails(table)) {
+    return props.canUpdate
+      ? 'grid-cols-[1.5rem_minmax(0,10rem)_minmax(0,8rem)_4rem_minmax(0,1fr)]'
+      : 'grid-cols-[minmax(0,10rem)_minmax(0,8rem)_4rem_minmax(0,1fr)]'
+  }
+  return props.canUpdate ? 'grid-cols-[1.5rem_1fr_1fr_4rem]' : 'grid-cols-[1fr_1fr_4rem]'
+}
+function additivityText(col: Column): string {
+  const state = additiveState(col)
+  const label = t(`cachedColumns.${state}`)
+  const reason = additiveReason(col)
+  const key = `cachedColumns.reasons.${reason}`
+  return reason && state === 'notAdditive' && te(key) ? `${label} · ${t(key)}` : label
+}
+function additivityTooltip(col: Column): string {
+  const state = additiveState(col)
+  return state ? t(`cachedColumns.${state}Hint`) : ''
+}
+function additivityClass(col: Column): string {
+  const state = additiveState(col)
+  if (state === 'additive') return 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+  if (state === 'notAdditive') return 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+  return 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+}
+
 // Pagination state
 const isPaginated = ref(false)
 const page = ref(1)
@@ -1509,6 +1587,33 @@ function hiddenColumnCount(table: Table): number {
   const hidden = new Set(excluded.map(n => n.toLowerCase()))
   return (table.columns || []).filter(c => hidden.has(c.name.toLowerCase())).length
 }
+
+// Column usage: executed queries per column, from ColumnStats.
+function columnUsage(table: Table, column: string): number {
+  const stats = table.column_stats || {}
+  return Number(stats[column]?.usage_count || 0)
+}
+
+function hasColumnUsage(table: Table): boolean {
+  return Object.values(table.column_stats || {}).some((s: any) => Number(s?.usage_count || 0) > 0)
+}
+
+function columnNetFeedback(table: Table, column: string): number {
+  const s = (table.column_stats || {})[column]
+  return Number(s?.pos_feedback_count || 0) - Number(s?.neg_feedback_count || 0)
+}
+
+// Most used first, ties broken by net thumbs (up minus down); columns with
+// no usage keep catalog order.
+function columnsByUsage(table: Table): Column[] {
+  const cols = table.columns || []
+  if (!hasColumnUsage(table)) return cols
+  return cols
+    .map((c, i) => ({ c, i, u: columnUsage(table, c.name), f: columnNetFeedback(table, c.name) }))
+    .sort((a, b) => (b.u - a.u) || (b.f - a.f) || (a.i - b.i))
+    .map(x => x.c)
+}
+
 
 function isColumnVisible(table: Table, column: string): boolean {
   const excluded = currentExcluded.value.get(tableKey(table)) ?? normalizeExcluded(table.excluded_columns)

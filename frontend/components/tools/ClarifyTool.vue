@@ -1,12 +1,12 @@
 <template>
-  <div class="mt-1 mb-6" dir="auto">
+  <div class="min-w-0" dir="auto">
     <!-- Header: spinner while running, checkmark when done -->
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 mb-3">
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.clarify.clarifying') }}</span>
-      <span v-else class="text-gray-500 dark:text-gray-400">{{ t('tools.clarify.clarifying') }}</span>
-    </div>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-question-mark-circle" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.clarify.clarifying') }}</template>
+      <template v-else>{{ t('tools.clarify.clarifying') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded || (questions.length && !isLocked)" class="tool-call-details w-full min-w-0 mt-2">
 
     <!-- Questions form (only when tool has finished and questions exist) -->
     <div v-if="questions.length && status !== 'running'" class="space-y-4 ms-4">
@@ -117,13 +117,19 @@
         <span v-if="saveError" class="text-chat-2 text-red-500" role="alert">{{ t('tools.clarify.saveFailed') }}</span>
       </div>
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
-import Spinner from '~/components/Spinner.vue'
+import { buildClarifyPrompt } from '~/utils/clarifyPrompt'
 
 interface ClarifyQuestion {
   text: string
@@ -244,27 +250,27 @@ function isOtherSelected(i: number) {
   return chipsOf(i).some(isOtherOption)
 }
 
-// The answer for question i as text for the agent, or '' while incomplete.
-function effectiveAnswer(i: number): string {
+// The answers for question i as sent to the agent, or [] while incomplete.
+function effectiveAnswers(i: number): string[] {
   const q = questions.value[i]
-  if (!q) return ''
+  if (!q) return []
   if (q.options?.length) {
     const picks = chipsOf(i)
     const parts = picks.filter((o) => !isOtherOption(o))
     if (picks.some(isOtherOption)) {
       const other = otherTexts.value[i]?.trim() ?? ''
-      if (!other) return '' // "Other" picked but not described yet
+      if (!other) return [] // "Other" picked but not described yet
       parts.push(other)
     }
-    // One pick per line: options may themselves contain commas.
-    return parts.length > 1 ? parts.map((p) => `\n- ${p}`).join('') : (parts[0] ?? '')
+    return parts
   }
-  return freeTexts.value[i]?.trim() ?? ''
+  const free = freeTexts.value[i]?.trim() ?? ''
+  return free ? [free] : []
 }
 
 const allAnswered = computed(() =>
   questions.value.length > 0 &&
-  questions.value.every((_, i) => effectiveAnswer(i) !== '')
+  questions.value.every((_, i) => effectiveAnswers(i).length > 0)
 )
 
 function initArrays(qs: ClarifyQuestion[]) {
@@ -356,9 +362,7 @@ function selectOption(index: number, option: string) {
 }
 
 function assemblePrompt(): string {
-  return questions.value
-    .map((q, i) => `Q: ${q.text}  \nA: ${effectiveAnswer(i)}`)
-    .join('\n\n')
+  return buildClarifyPrompt(questions.value.map((q, i) => ({ question: q.text, answers: effectiveAnswers(i) })))
 }
 
 // Resolves true when the answer is stored (or there is nowhere to store it).
@@ -414,18 +418,6 @@ function skip() {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-}
-@keyframes shimmer {
-  0% { background-position: -100% 0; }
-  100% { background-position: 100% 0; }
-}
 .expand-enter-active,
 .expand-leave-active {
   transition: opacity 0.15s ease, transform 0.15s ease;

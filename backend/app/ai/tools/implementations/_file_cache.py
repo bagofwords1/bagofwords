@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -33,13 +34,19 @@ _MAX_TEXT_CHARS = 400_000
 # would now escalate to images, and version tokens don't change on a code fix).
 # v3: workbook reads carry `sheet`/`sheets`, and are keyed per sheet.
 _CACHE_SCHEMA = "3"
+_SAFE_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def _entry_dir(connection_id: str, file_id: str) -> Path:
     h = hashlib.sha256(
         f"{_CACHE_SCHEMA}\x00{connection_id}\x00{file_id}".encode("utf-8")
     ).hexdigest()[:24]
-    return _CACHE_ROOT / str(connection_id) / h
+    # The directory name is a real connection id. Anything that does not look
+    # like one is hashed, so it cannot name a path outside the cache root.
+    owner = str(connection_id)
+    if not _SAFE_ID.fullmatch(owner):
+        owner = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:32]
+    return _CACHE_ROOT / owner / h
 
 
 def read(connection_id: str, file_id: str, version: str) -> Optional[Dict[str, Any]]:

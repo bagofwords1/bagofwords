@@ -7,13 +7,39 @@ from app.data_sources.routines import is_routine, routine_kind, routine_meta
 
 
 # Schema usage tracking models for context snapshots
+class ColumnUsageItem(BaseModel):
+    """A column rendered in full in the context, with its usage."""
+    name: str
+    usage_count: Optional[int] = None
+    score: Optional[float] = None
+    # usage | instructions | structural | schema_order
+    signal: Optional[str] = None
+
+
+class ColumnFoldGroup(BaseModel):
+    prefix: str
+    count: int
+
+
 class TableUsageItem(BaseModel):
     """Lightweight tracking of a single table's usage in context."""
     name: str
     score: Optional[float] = None
     usage_count: Optional[int] = None
     columns_count: int = 0
-    selection_reason: str = "top_k_score"  # 'top_k_score' | 'mentioned' | 'all'
+    selection_reason: str = "top_k_score"  # 'top_k_score' | 'cached' | 'mentioned' | 'all'
+    # Column cap: "columns_shown of columns_total" reached the model.
+    columns_total: Optional[int] = None
+    columns_shown: Optional[int] = None
+    # all_columns | usage_ranked | structural_only
+    column_selection_reason: Optional[str] = None
+    # e.g. "7 by usage, 12 key/time/id columns, 41 catalog order"
+    column_selection_note: Optional[str] = None
+    # The same, structured for the UI: {usage: 7, structural: 12, schema_order: 41}
+    column_signal_counts: Dict[str, int] = {}
+    shown_columns: List[ColumnUsageItem] = []
+    folded_groups: List[ColumnFoldGroup] = []
+    folded_other: int = 0
 
 
 class DataSourceUsage(BaseModel):
@@ -160,12 +186,13 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
     # TeradataClient: the primary index is Teradata's distribution key and the
     # cheapest join path; `kind` says view vs table. Neither is in the name.
     "teradata": ("kind", "primary_index", "primary_index_unique"),
-    # QlikSenseOnPremClient: `Master Items` and `Sheets/<title>` entries are not
+    # Qlik Engine clients: `Master Items` and `Sheets/<title>` entries are not
     # physical tables. `objectType` says which kind of entry the agent is
     # reading (data tables carry none), and a sheet's description is the
     # author's own statement of what the sheet answers — `Table.description`
     # is not persisted with the catalog, so this is the only place it renders.
     "qlik_sense_onprem": ("objectType", "sheetDescription"),
+    "qlik_sense": ("objectType", "sheetDescription"),
 }
 
 
@@ -237,6 +264,88 @@ _COLUMN_META_KEYS: tuple[str, ...] = (
     "format_string", "data_category", "display_folder", "sort_by_column",
     "summarize_by", "contents", "from_form",
 )
+
+
+def _aggregation_attr(col_meta: dict, dtype) -> str:
+    """` aggregation="..."` for a cached table's column that must not simply
+    be summed (a distinct count, a ratio, an average), or "".
+
+    A cached table holds results at one grain, and the model's reflex for a
+    coarser question is SUM(column). For these columns that returns a wrong
+    number with no error, so the column itself says so, next to its name.
+    """
+    try:
+        from app.data_sources.fast.column_metadata import agent_note
+
+        note = agent_note(col_meta, dtype)
+    except Exception:
+        return ""
+    return f' aggregation="{xml_escape(note)}"' if note else ""
+
+def _column_xml(c) -> str:
+    """One <column/> entry (shared by every table renderer)."""
+    attrs = f'name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"'
+    if getattr(c, 'description', None):
+        attrs += f' description="{xml_escape(c.description)}"'
+    # Column role/kind from metadata (semantic views, PowerBI, Tableau)
+    col_meta = getattr(c, 'metadata', None)
+    if isinstance(col_meta, dict):
+        role = col_meta.get("kind") or col_meta.get("role")
+        if role:
+            attrs += f' role="{xml_escape(str(role).lower())}"'
+        # Query identifiers that differ from the display name (XMLA
+        # unique_name). Without these the agent has only captions and
+        # cannot author valid MDX/DAX.
+        for mk in _COLUMN_META_KEYS:
+            mv = col_meta.get(mk)
+            if mv is None or mv == "":
+                continue
+            # Booleans render lowercase so the attribute reads as XML
+            # (hidden="true"), not as Python (hidden="True").
+            mv = str(mv).lower() if isinstance(mv, bool) else str(mv)
+            attrs += f' {mk}="{xml_escape(mv)}"'
+        attrs += _aggregation_attr(col_meta, c.dtype)
+    usage = getattr(c, 'usage_count', None)
+    if usage:
+        attrs += f' usage="{int(usage)}"'
+    return f'<column {attrs}/>'
+
+
+def _curated_columns_xml(t: PromptTable):
+    """(columns xml, fold xml, CuratedColumns) for a table: the top columns
+    of a wide table in full (column_ranking), the rest folded into a prefix
+    summary that points at describe_tables column search."""
+    from app.ai.context.column_ranking import curate_columns, fold_summary_text
+    cur = curate_columns(t)
+    cols = "\n".join(_column_xml(c) for c in cur.shown)
+    fold = ""
+    match = getattr(t, "column_match", None)
+    if isinstance(match, dict):
+        terms = ", ".join(str(x) for x in (match.get("terms") or []))
+        fold = xml_tag(
+            "column_search",
+            xml_escape(
+                f"showing {len(cur.shown)} of {match.get('total', cur.total)} columns: those matching {terms}"
+                + (f" ({match.get('matched')} matched)" if cur.capped else "")
+                + ". The table has other columns; search again with different `columns` terms to see them."
+            ),
+            {"matched": str(match.get("matched", cur.total)), "total": str(match.get("total", cur.total))},
+        )
+        if cur.capped:
+            fold += "\n" + xml_tag("more_columns", xml_escape(
+                f"{len(cur.folded)} more matching columns: {fold_summary_text(cur)}. Narrow the `columns` pattern."
+            ), {"count": str(len(cur.folded))})
+        return cols, fold, cur
+    if cur.capped:
+        fold = xml_tag(
+            "more_columns",
+            xml_escape(
+                f"{fold_summary_text(cur)}. Not listed here, but queryable: find them with "
+                f'describe_tables(query="{t.name}", columns=["<name or pattern>"]).'
+            ),
+            {"count": str(len(cur.folded)), "shown": str(len(cur.shown)), "total": str(cur.total)},
+        )
+    return cols, fold, cur
 
 
 def _render_analysis_services_semantics_xml(t: PromptTable) -> str:
@@ -431,6 +540,12 @@ class TablesSchemaContext(ContextSection):
         # and, worse, unaware of WHICH URLs are in scope (so it guesses wrong ones).
         browser_scope: Optional[Dict[str, Any]] = None
 
+        # The agent has no connection at all: it is instructions, files and a
+        # description. It renders anyway (with a note saying there is nothing
+        # to query) so the planner knows it exists and what it is for, instead
+        # of being dropped for having no tables.
+        no_connections: bool = False
+
         # MCP tools are registered natively, each carrying its schema in the
         # request's tools array. False only when the run could not build its
         # MCP catalog and falls back to execute_mcp (set by the context hub):
@@ -508,27 +623,7 @@ class TablesSchemaContext(ContextSection):
             """Render a single table to XML."""
             if is_routine(t):
                 return _render_routine_xml(t)
-            col_parts = []
-            for c in (t.columns or []):
-                attrs = f'name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"'
-                if getattr(c, 'description', None):
-                    attrs += f' description="{xml_escape(c.description)}"'
-                # Column role/kind from metadata (semantic views, PowerBI, Tableau)
-                col_meta = getattr(c, 'metadata', None)
-                if isinstance(col_meta, dict):
-                    role = col_meta.get("kind") or col_meta.get("role")
-                    if role:
-                        attrs += f' role="{xml_escape(str(role).lower())}"'
-                    for mk in _COLUMN_META_KEYS:
-                        mv = col_meta.get(mk)
-                        if mv is None or mv == "":
-                            continue
-                        # Booleans render lowercase so the attribute reads as
-                        # XML (hidden="true"), not as Python (hidden="True").
-                        mv = str(mv).lower() if isinstance(mv, bool) else str(mv)
-                        attrs += f' {mk}="{xml_escape(mv)}"'
-                col_parts.append(f'<column {attrs}/>')
-            cols = "\n".join(col_parts)
+            cols, fold_xml, cur = _curated_columns_xml(t)
 
             pks = "\n".join(
                 f'<pk name="{xml_escape(pk.name)}" dtype="{xml_escape(pk.dtype or "")}"/>'
@@ -610,6 +705,7 @@ class TablesSchemaContext(ContextSection):
             inner = "\n".join(filter(None, [
                 note_xml,
                 xml_tag("columns", cols),
+                fold_xml,
                 xml_tag("pks", pks) if pks else "",
                 xml_tag("fks", fks) if fks else "",
                 _render_semantic_model_xml(t),
@@ -617,6 +713,12 @@ class TablesSchemaContext(ContextSection):
                 metadata_xml, pbi_xml, pbi_cloud_xml, metrics_xml,
             ]))
             table_attrs = {"name": t.name}
+            if isinstance(getattr(t, "column_match", None), dict):
+                table_attrs["cols"] = str(t.column_match.get("total", len(t.columns or [])))
+                table_attrs["cols_matched"] = str(t.column_match.get("matched", len(t.columns or [])))
+            elif cur.capped:
+                table_attrs["cols"] = str(cur.total)
+                table_attrs["cols_shown"] = str(len(cur.shown))
             # Mark semantic views
             if is_semantic_view:
                 table_attrs["type"] = "semantic_view"
@@ -771,17 +873,21 @@ class TablesSchemaContext(ContextSection):
             # Per-user OAuth sources: the sample/count above (if any) reflect the
             # querying user's own account, and discovery is always live — so tell
             # the model not to treat an empty scope as "no files".
-            if fs.type == "teams_messages":
+            if fs.type in ("teams_messages", "slack_messages"):
                 inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
-                # Chat vocabulary, never file tools: a Teams connection backs
-                # only search_chat_messages / list_chat_messages /
-                # read_chat_thread (see GraphTeamsClient.capabilities).
+                # Chat vocabulary, never file tools: a Teams or Slack connection
+                # backs only search_chat_messages / list_chat_messages /
+                # read_chat_thread (see GraphTeamsClient / SlackMessagesClient
+                # capabilities).
+                chats = "DMs" if fs.type == "slack_messages" else "chats"
                 inner.append(xml_tag(
                     "auth",
                     "per-user — searched live as the signed-in user; they see only "
-                    "the channels and chats they belong to. Nothing is indexed, so "
+                    f"the channels and {chats} they belong to. Nothing is indexed, so "
                     "an empty count here does NOT mean no messages."
                 ))
+                if fs.note:
+                    inner.append(xml_tag("note", xml_escape(fs.note)))
                 inner.append(xml_tag(
                     "holds",
                     "the team's conversations — decisions, reported numbers, metric "
@@ -799,6 +905,33 @@ class TablesSchemaContext(ContextSection):
                     "lists the channels and chats). Cite the Link: URL of the thread you used."
                 ))
                 attrs = {"name": fs.name, "type": fs.type, "kind": "messages"}
+                if fs.connection_id:
+                    attrs["id"] = fs.connection_id
+                return xml_tag("connection", "\n".join(inner), attrs)
+            if fs.type == "exchange_onprem":
+                inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
+                # Same mail vocabulary as the cloud mailboxes, but the identity
+                # is the connection's Windows account and the connection may
+                # span several mailboxes.
+                inner.append(xml_tag(
+                    "auth",
+                    xml_escape(fs.note) if fs.note else (
+                        "read live with this connection's Windows account. Nothing is "
+                        "indexed, so an empty count here does NOT mean no mail."
+                    )
+                ))
+                inner.append(xml_tag(
+                    "usage",
+                    "list_emails with list_folders=true to see the mailboxes and folders · "
+                    "search_email to find messages (keywords, from:, subject:) — with no "
+                    "folder it searches every mailbox on the connection · list_emails to "
+                    "browse a time window or unread mail — with no folder it covers the "
+                    "whole default mailbox, with a mailbox address as the folder it covers "
+                    "that mailbox · read_email to open one. A non-default mailbox's "
+                    "folders are prefixed with its address. Cite the message's Link: URL "
+                    "when one is shown."
+                ))
+                attrs = {"name": fs.name, "type": fs.type, "kind": "mailbox"}
                 if fs.connection_id:
                     attrs["id"] = fs.connection_id
                 return xml_tag("connection", "\n".join(inner), attrs)
@@ -870,6 +1003,9 @@ class TablesSchemaContext(ContextSection):
                 attrs = {"name": (c.get("name") or "unknown")}
                 if c.get("type"):
                     attrs["type"] = c["type"]
+                if c.get("since"):
+                    # When it went down (UTC); fixed for the whole outage.
+                    attrs["since"] = c["since"]
                 items.append(xml_tag(
                     "connection",
                     "temporarily unreachable — its tables are withheld until it "
@@ -1039,29 +1175,7 @@ class TablesSchemaContext(ContextSection):
             def render_table(t):
                 if is_routine(t):
                     return _render_routine_xml(t, include_definition=include_definitions)
-                col_parts = []
-                for c in (t.columns or []):
-                    col_attrs = f'name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"'
-                    if getattr(c, 'description', None):
-                        col_attrs += f' description="{xml_escape(c.description)}"'
-                    col_meta = getattr(c, 'metadata', None)
-                    if isinstance(col_meta, dict):
-                        role = col_meta.get("kind") or col_meta.get("role")
-                        if role:
-                            col_attrs += f' role="{xml_escape(str(role).lower())}"'
-                        # Query identifiers that differ from the display name
-                        # (XMLA unique_name). Without these the agent has only
-                        # captions and cannot author valid MDX/DAX.
-                        for mk in _COLUMN_META_KEYS:
-                            mv = col_meta.get(mk)
-                            if mv is None or mv == "":
-                                continue
-                            # Booleans render lowercase so the attribute reads
-                            # as XML (hidden="true"), not Python (hidden="True").
-                            mv = str(mv).lower() if isinstance(mv, bool) else str(mv)
-                            col_attrs += f' {mk}="{xml_escape(mv)}"'
-                    col_parts.append(f'<column {col_attrs}/>')
-                cols = "\n".join(col_parts)
+                cols, fold_xml, cur = _curated_columns_xml(t)
                 pks = "\n".join(
                     f'<pk name="{xml_escape(pk.name)}" dtype="{xml_escape(pk.dtype or "")}"/>'
                     for pk in (t.pks or [])
@@ -1073,6 +1187,11 @@ class TablesSchemaContext(ContextSection):
                     for fk in (t.fks or [])
                 )
                 attrs = {"name": t.name, "cols": str(len(t.columns or []))}
+                if isinstance(getattr(t, "column_match", None), dict):
+                    attrs["cols"] = str(t.column_match.get("total", len(t.columns or [])))
+                    attrs["cols_matched"] = str(t.column_match.get("matched", len(t.columns or [])))
+                elif cur.capped:
+                    attrs["cols_shown"] = str(len(cur.shown))
                 is_sv = isinstance(getattr(t, 'metadata_json', None), dict) and t.metadata_json.get("type") == "semantic_view"
                 if is_sv:
                     attrs["type"] = "semantic_view"
@@ -1117,7 +1236,7 @@ class TablesSchemaContext(ContextSection):
                 # Connector-specific identifiers the query path needs (Tableau
                 # datasourceLuid, SSAS modelType, Prometheus metric_type/unit).
                 src_meta_xml = _render_source_metadata_xml(t)
-                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", _render_semantic_model_xml(t), _render_analysis_services_semantics_xml(t), pbi_xml, pbi_cloud_xml, src_meta_xml]))
+                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), fold_xml, xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", _render_semantic_model_xml(t), _render_analysis_services_semantics_xml(t), pbi_xml, pbi_cloud_xml, src_meta_xml]))
                 if getattr(t, 'is_cached', False):
                     attrs["cached"] = "true"
                     if getattr(t, 'cached_as_of', None):
@@ -1368,7 +1487,12 @@ class TablesSchemaContext(ContextSection):
             # long as ONE connection is live (or there is a down connection worth
             # flagging), so a dead DB connection never takes its healthy file
             # sibling — or the whole agent — down with it.
-            if not (sample_xml or index_xml or mcp_xml or file_xml or browser_xml or unhealthy_xml):
+            no_data_xml = (
+                xml_tag("no_data", "This agent has no data connection: nothing to query. "
+                        "Answer from its description and instructions.")
+                if getattr(ds, "no_connections", False) else ""
+            )
+            if not (sample_xml or index_xml or mcp_xml or file_xml or browser_xml or unhealthy_xml or no_data_xml):
                 continue
 
             # Check if multi-connection (sample_xml will contain <connection> tags if so)
@@ -1408,6 +1532,8 @@ class TablesSchemaContext(ContextSection):
                 inner_parts.append(browser_xml)
             if unhealthy_xml:
                 inner_parts.append(unhealthy_xml)
+            if no_data_xml:
+                inner_parts.append(no_data_xml)
 
             attrs = {
                 "name": ds.info.name,
@@ -1449,9 +1575,13 @@ class TablesSchemaContext(ContextSection):
             tables = list(ds.tables or [])
             tables_total = len(tables)
             
-            # Get top K tables (same logic as _render_topk_tables_full)
-            top_tables = tables[:max(0, top_k_per_ds)]
-            
+            # Same selection as _render_topk_tables_full: cached relations
+            # always, then the best-scored tables up to k.
+            cached = [t for t in tables if getattr(t, 'is_cached', False)]
+            rest = [t for t in tables if not getattr(t, 'is_cached', False)]
+            top_tables = cached + rest[: max(0, top_k_per_ds - len(cached))]
+
+            from app.ai.context.column_ranking import curate_columns, selection_note
             tables_used: List[TableUsageItem] = []
             for t in top_tables:
                 score_val = None
@@ -1460,24 +1590,42 @@ class TablesSchemaContext(ContextSection):
                         score_val = float(t.score)
                 except Exception:
                     pass
-                
+
                 usage_val = None
                 try:
                     if getattr(t, 'usage_count', None) is not None:
                         usage_val = int(t.usage_count)
                 except Exception:
                     pass
-                
+
                 cols_count = len(getattr(t, 'columns', []) or [])
-                
-                tables_used.append(TableUsageItem(
+                item = TableUsageItem(
                     name=t.name,
                     score=score_val,
                     usage_count=usage_val,
                     columns_count=cols_count,
-                    selection_reason="top_k_score",
-                ))
-            
+                    selection_reason="cached" if getattr(t, 'is_cached', False) else "top_k_score",
+                )
+                if not is_routine(t) and cols_count:
+                    cur = curate_columns(t)
+                    item.columns_total = cur.total
+                    item.columns_shown = len(cur.shown)
+                    item.column_selection_reason = cur.reason
+                    item.column_selection_note = selection_note(cur)
+                    item.column_signal_counts = dict(cur.signal_counts)
+                    # The shown list is bounded by the budget; the folded
+                    # remainder is summarized, never listed.
+                    item.shown_columns = [
+                        ColumnUsageItem(
+                            name=c.name, usage_count=getattr(c, 'usage_count', None),
+                            score=getattr(c, 'score', None), signal=getattr(c, 'selection_signal', None),
+                        )
+                        for c in cur.shown
+                    ] if cur.capped or any(getattr(c, 'usage_count', None) for c in cur.shown) else []
+                    item.folded_groups = [ColumnFoldGroup(prefix=p, count=n) for p, n in cur.groups]
+                    item.folded_other = cur.other
+                tables_used.append(item)
+
             ds_usages.append(DataSourceUsage(
                 ds_id=ds.info.id,
                 ds_name=ds.info.name,

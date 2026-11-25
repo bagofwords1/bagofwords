@@ -996,6 +996,9 @@ class MessageContextBuilder:
         # history mid-run: its calls already live in the run's transcript, and
         # replaying them twice duplicates provider call ids.
         self.durable_exclude_completion_ids: set = set()
+        # Scheduled runs replay earlier runs' tool results as digests (summary
+        # + ids) instead of full payloads; see build_durable_transcript.
+        self.durable_digest_prior_results = False
 
     def get_durable_transcript(self):
         """Return the native tool turns from the latest live-window build."""
@@ -1004,12 +1007,17 @@ class MessageContextBuilder:
     async def _protected_head_completions(self):
         """The report's opening exchange (never folded into the compaction
         summary). Rendered ahead of the summary once
-        a watermark exists, so 'what was my first ask' stays answerable."""
+        a watermark exists, so 'what was my first ask' stays answerable.
+        After /clear, only the opening exchange of the fresh context: nothing
+        at or before the newest clear boundary may reach the agent."""
         try:
             from app.services.context_compaction_service import (
-                PROTECT_FIRST_N, COMPACTION_MESSAGE_TYPE,
+                PROTECT_FIRST_N, COMPACTION_MESSAGE_TYPE, ContextCompactionService,
             )
-            rows = (await self.db.execute(
+            cleared_at = await ContextCompactionService.clear_boundary_created_at(
+                self.db, str(self.report.id)
+            )
+            query = (
                 select(Completion)
                 .options(lazyload("*"))
                 .filter(Completion.report_id == self.report.id)
@@ -1018,7 +1026,10 @@ class MessageContextBuilder:
                 .filter((Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"))
                 .order_by(Completion.created_at.asc())
                 .limit(PROTECT_FIRST_N)
-            )).scalars().all()
+            )
+            if cleared_at is not None:
+                query = query.filter(Completion.created_at > cleared_at)
+            rows = (await self.db.execute(query)).scalars().all()
             return list(rows)
         except Exception:
             return []
@@ -1072,19 +1083,16 @@ class MessageContextBuilder:
         if not completion_ids:
             return {}
         try:
-            from app.models.file import File as FileModel
-            from app.models.report_file_association import report_file_association
-            rows = await self.db.execute(
-                select(report_file_association.c.completion_id, FileModel)
-                .join(FileModel, FileModel.id == report_file_association.c.file_id)
-                .where(report_file_association.c.completion_id.in_(list(completion_ids)))
-            )
-            out = {}
-            for cid, f in rows.all():
-                out.setdefault(str(cid), []).append(
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            attached = await attached_files_by_completion(self.db, list(completion_ids))
+            return {
+                cid: [
                     f"{getattr(f, 'filename', '?')} ({getattr(f, 'content_type', None) or 'file'}, id={f.id})"
-                )
-            return out
+                    for f in files
+                ]
+                for cid, files in attached.items()
+            }
         except Exception:
             return {}
 
@@ -2248,13 +2256,24 @@ class MessageContextBuilder:
                     file_map[str(getattr(f, 'id', ''))] = f
             except Exception:
                 pass
+        # Mention ids are client-supplied: resolve them only inside this
+        # conversation's organization. An id from elsewhere stays unresolved
+        # and renders as the mention's own text.
+        _mention_org_id = str(
+            getattr(self.organization, 'id', None)
+            or getattr(self.report, 'organization_id', None)
+            or ''
+        )
         if ds_ids:
             try:
                 # Only ds.id and ds.name are read downstream — suppress the
                 # model-level lazy="selectin" cascade (reports → widgets/
                 # queries/completions/…) that would otherwise fire per row.
                 rows = await self.db.execute(
-                    select(DataSource).where(DataSource.id.in_(list(ds_ids)))
+                    select(DataSource).where(
+                        DataSource.id.in_(list(ds_ids)),
+                        DataSource.organization_id == _mention_org_id,
+                    )
                     .options(lazyload("*"))
                 )
                 for ds in rows.scalars().all():
@@ -2263,7 +2282,14 @@ class MessageContextBuilder:
                 pass
         if tbl_ids:
             try:
-                rows = await self.db.execute(select(DataSourceTable).where(DataSourceTable.id.in_(list(tbl_ids))))
+                rows = await self.db.execute(
+                    select(DataSourceTable)
+                    .join(DataSource, DataSource.id == DataSourceTable.datasource_id)
+                    .where(
+                        DataSourceTable.id.in_(list(tbl_ids)),
+                        DataSource.organization_id == _mention_org_id,
+                    )
+                )
                 for t in rows.scalars().all():
                     tbl_map[str(getattr(t, 'id', ''))] = t
                     try:
@@ -2277,7 +2303,10 @@ class MessageContextBuilder:
                 missing_ds = [x for x in ds_ids if x not in ds_map]
                 if missing_ds:
                     rows2 = await self.db.execute(
-                        select(DataSource).where(DataSource.id.in_(missing_ds))
+                        select(DataSource).where(
+                            DataSource.id.in_(missing_ds),
+                            DataSource.organization_id == _mention_org_id,
+                        )
                         .options(lazyload("*"))
                     )
                     for ds in rows2.scalars().all():
@@ -2286,7 +2315,12 @@ class MessageContextBuilder:
                 pass
         if ent_ids:
             try:
-                rows = await self.db.execute(select(Entity).where(Entity.id.in_(list(ent_ids))))
+                rows = await self.db.execute(
+                    select(Entity).where(
+                        Entity.id.in_(list(ent_ids)),
+                        Entity.organization_id == _mention_org_id,
+                    )
+                )
                 for e in rows.scalars().all():
                     ent_map[str(getattr(e, 'id', ''))] = e
             except Exception:
@@ -2391,6 +2425,7 @@ class MessageContextBuilder:
                     blocks_by_completion=blocks_by_completion,
                     tool_exec_by_id=tool_exec_by_id,
                     allow_llm_see_data=allow_llm_see_data,
+                    digest_prior_results=self.durable_digest_prior_results,
                 )
             except Exception:
                 from app.ai.context.transcript import Transcript

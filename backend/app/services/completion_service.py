@@ -83,6 +83,8 @@ _SSE_HEARTBEAT_SECONDS = float(os.getenv("BOW_SSE_HEARTBEAT_SECONDS", "15"))
 # and treat several missed heartbeats as an abandoned lease. The generous lease
 # tolerates long LLM/tool awaits; the process-local registry protects runs owned
 # by this worker even if the database heartbeat temporarily fails.
+# Most completions one `until` page may return (GET /completions?until=).
+_UNTIL_MAX_COMPLETIONS = 500
 _COMPLETION_HEARTBEAT_SECONDS = float(os.getenv("BOW_COMPLETION_HEARTBEAT_SECONDS", "30"))
 _COMPLETION_STALE_AFTER_SECONDS = float(os.getenv("BOW_COMPLETION_STALE_AFTER_SECONDS", "300"))
 _ACTIVE_COMPLETION_RUNS: set[str] = set()
@@ -118,10 +120,11 @@ from app.services.report_payload_projection import (
 
 
 # Tools whose card is the primary renderer of the Step they created (code +
-# result table). Reader tools (read_query, create_artifact, ...) also stamp
-# created_step_id via the orchestrator's current-step fallback, but their
-# cards never render the Step inline — they carry their own bounded preview
-# and hydrate on expansion.
+# result table). Reader tools (read_query, run_query, ...) report the step
+# they read as created_step_id, but their cards never render the Step inline —
+# they carry their own bounded preview and hydrate on expansion. Tools that
+# create no step (create_artifact, generate_image, ...) get none (see
+# agent_v2.resolve_created_step_id).
 STEP_CREATOR_TOOL_NAMES = frozenset(
     {
         "create_data",
@@ -400,7 +403,12 @@ class CompletionService:
             prompt = None
 
         if completion.widget_id and current_user and organization:
-            widget = await self.widget_service.get_widget_by_id(db, str(completion.widget_id), current_user, organization)
+            try:
+                widget = await self.widget_service.get_widget_by_id(db, str(completion.widget_id), current_user, organization)
+            except HTTPException:
+                # Not a widget of this organization (or gone): render the
+                # completion without it rather than failing the whole list.
+                widget = None
         else:
             widget = None
 
@@ -429,6 +437,42 @@ class CompletionService:
                 update={"last_step": await self.widget_service._get_last_step(db, widget.id)}
             ) if completion.role == "system" and widget else None
         )
+
+    async def _prompt_widget_and_step(self, db: AsyncSession, report, prompt, *, lazy: bool = False, strict: bool = True):
+        """Resolve a prompt's optional widget_id / step_id.
+
+        Both ids are client-supplied, so each must belong to the report the
+        completion is posted to: the widget directly, the step through
+        row_owner. Anything else is answered exactly like an id that does not
+        exist (404 when `strict`, else None).
+        """
+
+        def _get(obj, name):
+            return obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
+
+        widget = step = None
+        widget_id = _get(prompt, "widget_id") if prompt else None
+        step_id = _get(prompt, "step_id") if prompt else None
+        if widget_id:
+            stmt = select(Widget).where(Widget.id == str(widget_id), Widget.report_id == str(report.id))
+            if lazy:
+                stmt = stmt.options(lazyload("*"))
+            widget = (await db.execute(stmt)).scalar_one_or_none()
+            if widget is None and strict:
+                raise HTTPException(status_code=404, detail="Widget not found")
+        if step_id:
+            from app.services.row_owner import step_report_id
+
+            stmt = select(Step).where(Step.id == str(step_id))
+            if lazy:
+                stmt = stmt.options(lazyload("*"))
+            step = (await db.execute(stmt)).scalars().first()
+            # The same resolver every gate uses: the step's own conversation.
+            if step is not None and await step_report_id(db, step) != str(report.id):
+                step = None
+            if step is None and strict:
+                raise HTTPException(status_code=404, detail="Step not found")
+        return widget, step
 
     async def _resolve_build_id(self, db: AsyncSession, organization: Organization, build_id: str = None) -> str | None:
         """Resolve build_id - use provided or default to main build."""
@@ -560,21 +604,7 @@ class CompletionService:
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
 
-            if completion_data.prompt.widget_id:
-                widget_res = await db.execute(select(Widget).filter(Widget.id == completion_data.prompt.widget_id))
-                widget = widget_res.scalar_one_or_none()
-                if not widget:
-                    raise HTTPException(status_code=404, detail="Widget not found")
-            else:
-                widget = None
-
-            if completion_data.prompt.step_id:
-                step_res = await db.execute(select(Step).filter(Step.id == completion_data.prompt.step_id))
-                step = step_res.scalar_one_or_none()
-                if not step:
-                    raise HTTPException(status_code=404, detail="Step not found")
-            else:
-                step = None
+            widget, step = await self._prompt_widget_and_step(db, report, completion_data.prompt)
 
             model, small_model, routing_meta = await self._resolve_completion_models(
                 db, organization, current_user, report,
@@ -728,9 +758,12 @@ class CompletionService:
         return_on_answer: bool = False,
         run_data_source_ids: list = None,
         run_folder_ids: list = None,
+        started_via: str = None,
     ):
         """``run_data_source_ids``: the agents this run uses instead of the
-        report's (a scheduled task with its own agents). None = the report's."""
+        report's (a scheduled task with its own agents). None = the report's.
+        ``started_via``: the head's unattended-origin mark for a machine turn
+        (see app.services.machine_turn.unattended_origin)."""
         with tracer.start_as_current_span("completion.create") as span:
             span.set_attribute("report.id", str(report_id))
             span.set_attribute("completion.background", background)
@@ -744,6 +777,7 @@ class CompletionService:
                     trigger_source=trigger_source,
                     return_on_answer=return_on_answer,
                     run_data_source_ids=run_data_source_ids, run_folder_ids=run_folder_ids,
+                    started_via=started_via,
                 )
             except Exception as e:
                 span.set_status(StatusCode.ERROR, str(e))
@@ -772,6 +806,7 @@ class CompletionService:
         return_on_answer: bool = False,
         run_data_source_ids: list = None,
         run_folder_ids: list = None,
+        started_via: str = None,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -800,23 +835,8 @@ class CompletionService:
             self._assert_can_write_to_report(report, current_user)
             _clamp_training_mode(completion_data, report)
 
-            # Validate widget if provided
-            if completion_data.prompt and completion_data.prompt.widget_id:
-                result = await db.execute(select(Widget).filter(Widget.id == completion_data.prompt.widget_id))
-                widget = result.scalar_one_or_none()
-                if not widget:
-                    raise HTTPException(status_code=404, detail="Widget not found")
-            else:
-                widget = None
-
-            # Validate step if provided
-            if completion_data.prompt and completion_data.prompt.step_id:
-                step = await db.execute(select(Step).filter(Step.id == completion_data.prompt.step_id))
-                step = step.scalar_one_or_none()
-                if not step:
-                    raise HTTPException(status_code=404, detail="Step not found")
-            else:
-                step = None
+            # Validate widget / step if provided (must belong to this report)
+            widget, step = await self._prompt_widget_and_step(db, report, completion_data.prompt)
 
             span.add_event("validation_done")
 
@@ -875,6 +895,7 @@ class CompletionService:
                 scheduled_prompt_id=scheduled_prompt_id,
                 webhook_id=webhook_id,
                 trigger_source=trigger_source,
+                started_via=started_via,
             )
 
             try:
@@ -927,7 +948,11 @@ class CompletionService:
             span.add_event("system_completion_saved")
 
             # Mark image files with this completion_id (so they show attached to this message)
-            await self._mark_images_with_completion(db, report.id, str(head_completion.id))
+            # A Rerun names its attachments (prompt.file_ids): it must not also
+            # claim uploads waiting in the composer for the next message.
+            from app.services.completion_attachments import names_its_attachments
+            if not names_its_attachments(completion_data.prompt):
+                await self._mark_images_with_completion(db, report.id, str(head_completion.id))
 
             # Store mentions associated with the user head completion (best-effort)
             try:
@@ -1078,6 +1103,9 @@ class CompletionService:
                                 external_channel_id, str(_system_completion_id),
                                 failed=not run_outcome.get("finished"),
                             ))
+                        if external_platform == "whatsapp" and external_channel_id:
+                            from app.services.platform_adapters import whatsapp_typing
+                            whatsapp_typing.end_run(external_channel_id, str(_system_completion_id))
                         await self._stop_completion_lease(_system_completion_id, heartbeat)
                         await self.start_next_queued_if_idle(str(_report_id), str(_system_completion_id))
 
@@ -1229,6 +1257,7 @@ class CompletionService:
         current_user: User,
         limit: int = 10,
         before: str | None = None,
+        until: str | None = None,
     ) -> CompletionsV2Response:
         """Assemble v2 completions response efficiently with batched queries.
 
@@ -1236,6 +1265,8 @@ class CompletionService:
         then sorted ascending for UI render. If `before` is provided (the response's
         opaque `next_before` cursor: "<ISO8601>~<completion id>", or a bare ISO8601
         timestamp from older clients), fetches items strictly before that position.
+        If `until` (a completion id) is provided, the page is widened so it runs
+        down to and includes that completion.
         """
         from app.ai.llm.pii.display import display_redaction
         from app.dependencies import async_session_maker
@@ -1246,9 +1277,38 @@ class CompletionService:
             # the org redactor to this assembly so the shared sync serializers mask
             # content without per-call wiring.
             async with display_redaction(str(organization.id) if organization else None, async_session_maker):
-                return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before)
+                return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before, until)
 
-    async def _get_completions_v2_traced(self, span, db, report_id, organization, current_user, limit, before):
+    async def search_report_completions(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        organization: Organization,
+        query: str,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Search this report's visible messages (all pages), newest first.
+
+        Snippets are PII-redacted exactly like the transcript, and the match
+        runs on the redacted text, so a viewer finds only what they can read.
+        """
+        from app.ai.llm.pii.display import display_redaction
+        from app.dependencies import async_session_maker
+        from app.services.report_message_search import search_report_messages
+
+        report_exists = await db.scalar(
+            select(Report.id).where(Report.id == report_id, Report.organization_id == organization.id)
+        )
+        if not report_exists:
+            raise HTTPException(status_code=404, detail="Report not found")
+        with tracer.start_as_current_span("completion.search_report_completions") as span:
+            span.set_attribute("report.id", str(report_id))
+            async with display_redaction(str(organization.id) if organization else None, async_session_maker):
+                hits = await search_report_messages(db, report_id, query, limit=limit)
+            span.set_attribute("search.hits", len(hits))
+            return hits
+
+    async def _get_completions_v2_traced(self, span, db, report_id, organization, current_user, limit, before, until=None):
         # The route permission decorator already performs authorization. Keep
         # the service's defensive existence check, but do not build the full
         # ReportSchema (user, shares, agents, connections and count queries)
@@ -1262,20 +1322,9 @@ class CompletionService:
         # answers): (webhook_id OR trigger_source set) AND role='user'. The
         # visible event entry (role='external') and the agent reply
         # (role='system') still show.
-        completions_stmt = select(Completion).options(lazyload("*")).where(
-            Completion.report_id == report_id,
-            ~(
-                (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
-                & (Completion.role == 'user')
-            ),
-            # Sub-agent children (mode=subagent) are hidden completions: the
-            # parent's delegate card is their only surface in the timeline.
-            # NULL-safe: a plain `trigger_source == 'sub_agent'` is NULL for every
-            # ordinary row, and NOT NULL filters those rows out too.
-            (Completion.trigger_source.is_(None))
-            | (Completion.trigger_source != 'sub_agent')
-            | (Completion.role != 'system'),
-        )
+        # Sub-agent children are hidden as well (see visible_in_timeline).
+        from app.services.report_message_search import visible_in_timeline
+        conditions = [Completion.report_id == report_id, *visible_in_timeline()]
         if before:
             # Cursor is "<iso timestamp>~<completion id>" (see next_before below).
             # The id tiebreaker keeps pagination exact when several completions
@@ -1287,14 +1336,37 @@ class CompletionService:
                 ts_part, _, before_id = before.partition('~')
                 before_dt = _dt.fromisoformat(ts_part)
                 if before_id:
-                    completions_stmt = completions_stmt.where(
+                    conditions.append(
                         (Completion.created_at < before_dt)
                         | ((Completion.created_at == before_dt) & (Completion.id < before_id))
                     )
                 else:
-                    completions_stmt = completions_stmt.where(Completion.created_at < before_dt)
+                    conditions.append(Completion.created_at < before_dt)
             except Exception:
                 logger.warning(f"Ignoring unparseable completions cursor {before!r} for report {report_id}")
+        if until:
+            # Widen this page so it reaches down to (and includes) the
+            # completion `until`: the client jumps to an old message in one
+            # request instead of paging back N times. Capped; past the cap the
+            # page ends early and has_more/next_before let the client go on.
+            # An unknown or hidden id is ignored (a normal page comes back).
+            target = (await db.execute(
+                select(Completion.created_at, Completion.id).where(
+                    Completion.id == until,
+                    Completion.report_id == report_id,
+                    *visible_in_timeline(),
+                )
+            )).first()
+            if target is not None:
+                reach = await db.scalar(
+                    select(func.count(Completion.id)).where(
+                        *conditions,
+                        (Completion.created_at > target.created_at)
+                        | ((Completion.created_at == target.created_at) & (Completion.id >= target.id)),
+                    )
+                )
+                limit = max(limit, min(int(reach or 0), _UNTIL_MAX_COMPLETIONS))
+        completions_stmt = select(Completion).options(lazyload("*")).where(*conditions)
         # Order newest first (id desc as tiebreaker for identical timestamps so
         # page boundaries are deterministic), fetch one extra to determine has_more
         completions_stmt = completions_stmt.order_by(
@@ -1620,21 +1692,18 @@ class CompletionService:
                 completion_id_to_user_feedback[fb.completion_id] = CompletionFeedbackSchema.from_orm(fb)
 
         # 6c) Batch-load files attached to these completions (via report_file_association)
-        from app.models.file import File
-        from app.models.report_file_association import report_file_association
         from app.schemas.file_schema import FileSchema
 
         completion_id_to_files: dict[str, list[FileSchema]] = {cid: [] for cid in completion_ids}
         if completion_ids:
-            files_stmt = (
-                select(File, report_file_association.c.completion_id)
-                .join(report_file_association, File.id == report_file_association.c.file_id)
-                .where(report_file_association.c.completion_id.in_(completion_ids))
-            )
-            files_res = await db.execute(files_stmt)
-            for file, comp_id in files_res.all():
-                if comp_id:
-                    completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            for comp_id, comp_files in (await attached_files_by_completion(
+                db, completion_ids, completions=all_completions,
+            )).items():
+                completion_id_to_files.setdefault(comp_id, []).extend(
+                    FileSchema.from_orm(file) for file in comp_files
+                )
 
         # 6d) Batch-load instruction metadata for loaded_instructions references
         # Collect all instruction IDs stored in completion JSON across all system completions
@@ -1739,6 +1808,8 @@ class CompletionService:
                 parent_id=c.parent_id,
                 report_id=c.report_id,
                 message_type=getattr(c, 'message_type', None),
+                steering_applied_at=getattr(c, 'steering_applied_at', None),
+                steering_loop_index=getattr(c, 'steering_loop_index', None),
                 agent_execution_id=exec_obj.id if exec_obj else None,
                 total_duration_ms=exec_obj.total_duration_ms if exec_obj else None,
                 prompt=_redact_prompt_display(c.prompt),
@@ -2068,21 +2139,18 @@ class CompletionService:
                 })
 
         # Batch-load files attached to these completions (via report_file_association)
-        from app.models.file import File
-        from app.models.report_file_association import report_file_association
         from app.schemas.file_schema import FileSchema
 
         completion_id_to_files: dict[str, list[FileSchema]] = {cid: [] for cid in ids}
         if ids:
-            files_stmt = (
-                select(File, report_file_association.c.completion_id)
-                .join(report_file_association, File.id == report_file_association.c.file_id)
-                .where(report_file_association.c.completion_id.in_(ids))
-            )
-            files_res = await db.execute(files_stmt)
-            for file, comp_id in files_res.all():
-                if comp_id:
-                    completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            for comp_id, comp_files in (await attached_files_by_completion(
+                db, ids, completions=all_completions,
+            )).items():
+                completion_id_to_files.setdefault(comp_id, []).extend(
+                    FileSchema.from_orm(file) for file in comp_files
+                )
 
         # Batch-load instruction metadata for loaded_instructions references
         _all_instruction_ids: set[str] = set()
@@ -2178,6 +2246,8 @@ class CompletionService:
                 parent_id=c.parent_id,
                 report_id=c.report_id,
                 message_type=getattr(c, 'message_type', None),
+                steering_applied_at=getattr(c, 'steering_applied_at', None),
+                steering_loop_index=getattr(c, 'steering_loop_index', None),
                 agent_execution_id=exec_obj.id if exec_obj else None,
                 total_duration_ms=exec_obj.total_duration_ms if exec_obj else None,
                 prompt=c.prompt,
@@ -2405,31 +2475,10 @@ class CompletionService:
             _clamp_training_mode(completion_data, report)
             _log("report_fetched")
 
-            # Validate widget if provided
-            if completion_data.prompt.widget_id:
-                result = await db.execute(
-                    select(Widget)
-                    .options(lazyload("*"))
-                    .filter(Widget.id == completion_data.prompt.widget_id)
-                )
-                widget = result.scalar_one_or_none()
-                if not widget:
-                    raise HTTPException(status_code=404, detail="Widget not found")
-            else:
-                widget = None
-
-            # Validate step if provided
-            if completion_data.prompt.step_id:
-                step = await db.execute(
-                    select(Step)
-                    .options(lazyload("*"))
-                    .filter(Step.id == completion_data.prompt.step_id)
-                )
-                step = step.scalar_one_or_none()
-                if not step:
-                    raise HTTPException(status_code=404, detail="Step not found")
-            else:
-                step = None
+            # Validate widget / step if provided (must belong to this report)
+            widget, step = await self._prompt_widget_and_step(
+                db, report, completion_data.prompt, lazy=True
+            )
 
             span.add_event("validation_done")
             _log("validation_done")
@@ -2554,7 +2603,11 @@ class CompletionService:
             span.add_event("completions_saved")
 
             # Mark image files with this completion_id (so they show attached to this message)
-            await self._mark_images_with_completion(db, report.id, str(completion.id))
+            # A Rerun names its attachments (prompt.file_ids): it must not also
+            # claim uploads waiting in the composer for the next message.
+            from app.services.completion_attachments import names_its_attachments
+            if not names_its_attachments(completion_data.prompt):
+                await self._mark_images_with_completion(db, report.id, str(completion.id))
             _log("images_marked")
 
             # Store mentions associated with the user completion (best-effort, non-blocking)
@@ -3508,6 +3561,7 @@ class CompletionService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         self._assert_can_write_to_report(report, current_user)
+        await self._prompt_widget_and_step(db, report, completion_data.prompt, lazy=True)
 
         if completion_data.prompt and completion_data.prompt.model_id:
             model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
@@ -3675,7 +3729,14 @@ class CompletionService:
         except Exception:
             pass
 
-        return {"status": "steered", "completion_id": str(steering_row.id), "system_completion_id": str(target.id)}
+        return {
+            "status": "steered",
+            "completion_id": str(steering_row.id),
+            "system_completion_id": str(target.id),
+            # Server clock: the chat places a still-pending steer by this, so
+            # the client must not substitute its own (possibly skewed) clock.
+            "created_at": steering_row.created_at.isoformat() if steering_row.created_at else None,
+        }
 
     async def start_next_queued_if_idle(self, report_id: str, prev_system_completion_id: str | None = None):
         """Queue dispatcher. Called after every agent run finishes (and after
@@ -3828,8 +3889,7 @@ class CompletionService:
                     if not small_model:
                         small_model = model
 
-                    widget = await session.get(Widget, prompt['widget_id']) if prompt.get('widget_id') else None
-                    step = await session.get(Step, prompt['step_id']) if prompt.get('step_id') else None
+                    widget, step = await self._prompt_widget_and_step(session, report, prompt, strict=False)
 
                     run_agents, clients = await prepare_run_agents(
                         session, organization, user, report, self.data_source_service

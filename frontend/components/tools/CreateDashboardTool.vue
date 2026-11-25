@@ -1,27 +1,23 @@
 <template>
- <div class="mb-2">
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
-
-      <!-- Status icon -->
-      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
-
-      <!-- Action label with shimmer effect for running status -->
-      <span v-if="status === 'running'" class="tool-shimmer inline-flex items-center">
-        <Spinner class="w-3 h-3 me-1.5 text-ink-muted" />
-        {{ t('tools.createDashboard.creating') }}
-      </span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createDashboard.created') }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createDashboard.create') }}</span>
+ <div class="min-w-0">
+    <ToolCallHeader :expandable="false" :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.createDashboard.creating') }}</template>
+      <template v-else-if="status === 'success'">{{ t('tools.createDashboard.created') }}</template>
+      <template v-else>{{ t('tools.createDashboard.create') }}</template></template>
+    </ToolCallHeader>
+    
   </div>
-</div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { ref, computed } from 'vue'
-import Spinner from '~/components/Spinner.vue'
 interface ToolExecution { status: string }
 
 const props = defineProps<{

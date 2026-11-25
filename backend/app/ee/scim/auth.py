@@ -88,4 +88,7 @@ async def scim_auth(
     scim_token.last_used_at = datetime.utcnow()
     await db.commit()
 
+    # A SCIM token acts for exactly one organization.
+    from app.core.request_org import set_request_organization_id
+    set_request_organization_id(str(organization.id))
     return organization

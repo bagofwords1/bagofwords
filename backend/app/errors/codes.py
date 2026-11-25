@@ -36,6 +36,8 @@ class ErrorCode(str, Enum):
     # Authentication / authorization
     UNAUTHORIZED = "unauthorized"
     ACCESS_DENIED = "access.denied"
+    # An app user (a member without access_workspace) reached for the workspace.
+    WORKSPACE_ACCESS_REQUIRED = "workspace.access_required"
     ACCOUNT_DISABLED = "account.disabled"
     API_KEY_INVALID = "api_key.invalid"
     VERIFICATION_INVALID = "verification.invalid"
@@ -67,6 +69,12 @@ class ErrorCode(str, Enum):
     CONVERSATION_LIMIT = "conversation.limit"
     CONVERSATION_NO_AGENTS = "conversation.no_agents"
 
+    # Agent bundle import (the zip produced by "Export agent")
+    AGENT_IMPORT_INVALID_BUNDLE = "agent_import.invalid_bundle"
+    AGENT_IMPORT_NAME_TAKEN = "agent_import.name_taken"
+    AGENT_IMPORT_NO_CONNECTION = "agent_import.no_connection"
+    AGENT_IMPORT_FAILED = "agent_import.failed"
+
     # Licensing / features
     FEATURE_LOCKED = "feature.locked"
     ENTERPRISE_REQUIRED = "license.enterprise_required"
@@ -80,6 +88,7 @@ class ErrorCode(str, Enum):
 
     # Resources (common CRUD)
     REPORT_NOT_FOUND = "report.not_found"
+    REVIEW_ITEM_NOT_FOUND = "review_item.not_found"
     ENTITY_NOT_FOUND = "entity.not_found"
     ARTIFACT_NOT_FOUND = "artifact.not_found"
     DASHBOARD_NOT_PUBLISHED = "dashboard.not_published"
@@ -118,6 +127,11 @@ class ErrorCode(str, Enum):
     ACCESS_REQUEST_ALREADY_DECIDED = "access_request.already_decided"
     FILE_NOT_FOUND = "file.not_found"
     FILE_IN_USE = "file.in_use"
+    # System logs (Settings → System logs) are instance-wide
+    SYSTEM_LOGS_INSTANCE_ADMIN_REQUIRED = "system_logs.instance_admin_required"
+    SYSTEM_LOGS_INVALID_RANGE = "system_logs.invalid_range"
+    SYSTEM_LOGS_DELETE_FAILED = "system_logs.delete_failed"
+    SYSTEM_LOGS_DISABLED = "system_logs.disabled"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
@@ -129,6 +143,12 @@ class ErrorCode(str, Enum):
     CONNECTION_KMS_LOGIN_REJECTED = "connection.kms_login_rejected"
     CONNECTION_KMS_LOGIN_PAUSED = "connection.kms_login_paused"
     CONNECTION_KMS_SESSION_REFUSED = "connection.kms_session_refused"
+    # Confluence Data Center member credentials (raised only for type confluence_dc)
+    CONNECTION_CONFLUENCE_LOGIN_REJECTED = "connection.confluence_login_rejected"
+    CONNECTION_CONFLUENCE_LOGIN_CAPTCHA = "connection.confluence_login_captcha"
+    # Jira Data Center member credentials (raised only for type jira_dc)
+    CONNECTION_JIRA_LOGIN_REJECTED = "connection.jira_login_rejected"
+    CONNECTION_JIRA_LOGIN_CAPTCHA = "connection.jira_login_captcha"
     CONNECTION_TABLE_NOT_FOUND = "connection.table_not_found"
     # Connection Queries view (query_executions)
     CONNECTION_QUERY_NOT_FOUND = "connection.query_not_found"
@@ -141,11 +161,26 @@ class ErrorCode(str, Enum):
     ROLE_NOT_FOUND = "role.not_found"
     GROUP_NOT_FOUND = "group.not_found"
     GROUP_MANAGED_BY_SCIM = "group.managed_by_scim"
+    GROUP_MANAGED_EXTERNALLY = "group.managed_externally"
+    GROUP_MANAGER_NOT_MEMBER = "group.manager_not_member"
+    GROUP_MANAGER_PROTECTED = "group.manager_protected"
     INSTRUCTION_NOT_FOUND = "instruction.not_found"
     INSTRUCTION_VERSION_NOT_FOUND = "instruction.version_not_found"
     INSTRUCTION_LABEL_NOT_FOUND = "instruction.label_not_found"
     INSTRUCTION_DIRECTORY_NOT_FOUND = "instruction.directory_not_found"
     INTEGRATION_NOT_FOUND = "integration.not_found"
+    INTEGRATION_CONNECTED_ELSEWHERE = "integration.connected_elsewhere"
+
+    # Organizations
+    ORGANIZATION_MULTIPLE_NOT_ENABLED = "organization.multiple_not_enabled"
+    ORGANIZATION_CREATE_INSTANCE_ADMIN_REQUIRED = "organization.create_instance_admin_required"
+    ORGANIZATION_CREATE_LICENSE_REQUIRED = "organization.create_license_required"
+    ORGANIZATION_NAME_REQUIRED = "organization.name_required"
+    ORGANIZATION_NAME_TOO_LONG = "organization.name_too_long"
+    ORGANIZATION_NAME_TAKEN = "organization.name_taken"
+    ORGANIZATION_SIGNUP_DOMAINS_INSTANCE_ADMIN_REQUIRED = "organization.signup_domains_instance_admin_required"
+    ORGANIZATION_SIGNUP_DOMAIN_CLAIMED = "organization.signup_domain_claimed"
+    ORGANIZATION_MEMBER_INSTANCE_ADMIN = "organization.member_instance_admin"
 
     # User memory
     MEMORY_DISABLED = "memory.disabled"
@@ -177,6 +212,13 @@ class ErrorCode(str, Enum):
     LLM_MODEL_ID_DUPLICATE = "llm.model_id_duplicate"
     LLM_MODEL_IS_GROUP_DEFAULT = "llm.model_is_group_default"
     LLM_GROUP_DEFAULT_INVALID = "llm.group_default_invalid"
+    LLM_GROUP_DEFAULT_NOT_AVAILABLE = "llm.group_default_not_available"
+    LLM_GROUP_DEFAULT_PRIORITY_ADMIN_ONLY = "llm.group_default_priority_admin_only"
+    LLM_PROVIDER_HOLDS_DEFAULT = "llm.provider_holds_default"
+    LLM_PROVIDER_MANAGER_ADMIN_ONLY = "llm.provider_manager_admin_only"
+    LLM_PROVIDER_MANAGER_NOT_MEMBER = "llm.provider_manager_not_member"
+    LLM_PROVIDER_KEY_REQUIRED_FOR_NEW_DESTINATION = "llm.provider_key_required_for_new_destination"
+    LLM_PROVIDER_HOST_IDENTITY_ADMIN_ONLY = "llm.provider_host_identity_admin_only"
 
     # Member attributes
     MEMBER_ATTRIBUTES_INVALID = "member_attributes.invalid"
@@ -196,6 +238,11 @@ class ErrorCode(str, Enum):
     SHELL_CONFIRMATION_REPORT_REQUIRED = "shell_confirmation.report_required"
     SHELL_CONFIRMATION_RULE_MISMATCH = "shell_confirmation.rule_mismatch"
 
+    # Tool permission mode (Ask / Auto / Allow all)
+    TOOL_PERMISSION_MODE_ALLOW_ALL_OFF = "tool_permission_mode.allow_all_off"
+    TOOL_PERMISSION_MODE_ALLOW_ALL_DEFAULT_NEEDS_SWITCH = "tool_permission_mode.allow_all_default_needs_switch"
+    TOOL_PERMISSION_MODE_JUDGE_MODEL_UNAVAILABLE = "tool_permission_mode.judge_model_unavailable"
+
     SSH_KEY_DISCOVERY_FAILED = "ssh.key_discovery_failed"
 
     # Sites allowed to frame BOW (Settings → General)
@@ -205,3 +252,7 @@ class ErrorCode(str, Enum):
     # Connections
     CONNECTION_CONFIG_INVALID = "connection.config_invalid"
     CONNECTION_ATHENA_MODE_SWITCH = "connection.athena_mode_switch"
+    SLACK_CHANNELS_NOT_SLACK = "connection.slack_channels_not_slack"
+    SLACK_CHANNELS_TOO_MANY = "connection.slack_channels_too_many"
+    SLACK_CHANNELS_NOT_IDS = "connection.slack_channels_not_ids"
+    SLACK_CHANNELS_UNAVAILABLE = "connection.slack_channels_unavailable"

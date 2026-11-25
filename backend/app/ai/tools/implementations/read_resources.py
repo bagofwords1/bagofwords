@@ -59,6 +59,36 @@ class ReadResourcesTool(Tool):
     def output_model(self) -> Type[BaseModel]:
         return ReadResourcesOutput
 
+    @staticmethod
+    async def _run_data_source_ids(db, runtime_ctx: Dict[str, Any]) -> List[str]:
+        """Ids of the run's data sources that belong to the run's organization
+        and that the running user may access. No user means a trusted
+        system/scheduled run, which is not user-filtered (as construct_clients)."""
+        from app.core.permission_resolver import user_can_access_data_source
+
+        organization = runtime_ctx.get("organization")
+        if db is None or organization is None:
+            return []
+        org_id = str(organization.id)
+        hub = runtime_ctx.get("context_hub")
+        if "run_agents" in runtime_ctx:
+            sources = runtime_ctx.get("run_agents") or []
+        else:
+            sources = getattr(hub, "data_sources", None) or []
+        user = runtime_ctx.get("user") or getattr(hub, "user", None)
+
+        allowed: List[str] = []
+        for ds in sources:
+            ds_id = getattr(ds, "id", None)
+            if not ds_id or str(getattr(ds, "organization_id", "")) != org_id:
+                continue
+            if user is not None and not await user_can_access_data_source(
+                db, str(user.id), org_id, ds
+            ):
+                continue
+            allowed.append(str(ds_id))
+        return allowed
+
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = ReadResourcesInput(**tool_input)
 
@@ -128,16 +158,40 @@ class ReadResourcesTool(Tool):
             from app.models.metadata_resource import MetadataResource
             from app.models.metadata_indexing_job import MetadataIndexingJob
             from app.models.data_source import DataSource
-            # Build base query with optional filters
-            stmt = select(MetadataResource).where(MetadataResource.is_active == True)
-            if data.data_source_id:
-                stmt = stmt.where(MetadataResource.data_source_id == data.data_source_id)
-            if data.git_repository_id:
-                # Join via indexing job to filter by repository
-                stmt = stmt.join(MetadataIndexingJob, MetadataIndexingJob.id == MetadataResource.metadata_indexing_job_id)
-                stmt = stmt.where(MetadataIndexingJob.git_repository_id == data.git_repository_id)
+            # Two kinds of resources are searched, both inside the run's
+            # organization only:
+            #  - resources of the data sources attached to this run that the
+            #    running user may access;
+            #  - organization-level resources (indexed from an org-level
+            #    repository, so they carry no data source), which every run of
+            #    the organization reads.
+            # A data_source_id / git_repository_id outside that matches
+            # nothing, exactly like an unknown id.
+            allowed_ds_ids = await self._run_data_source_ids(db, runtime_ctx)
+            organization = runtime_ctx.get("organization")
+            rows = []
+            if organization is not None:
+                from sqlalchemy import or_
+                # Same placement rule as instruction references: one helper
+                # decides which organization a metadata resource belongs to.
+                from app.services.instruction_reference_service import _org_metadata_resources
 
-            rows = (await db.execute(stmt)).scalars().all()
+                org_id = str(organization.id)
+                scope = MetadataResource.data_source_id.is_(None)
+                if allowed_ds_ids:
+                    scope = or_(scope, MetadataResource.data_source_id.in_(allowed_ds_ids))
+                stmt = _org_metadata_resources(org_id).where(MetadataResource.is_active == True, scope)
+                if data.data_source_id:
+                    stmt = stmt.where(MetadataResource.data_source_id == data.data_source_id)
+                if data.git_repository_id:
+                    # The helper already joins the indexing job; the repository
+                    # must be one indexed for this organization.
+                    stmt = stmt.where(
+                        MetadataIndexingJob.git_repository_id == data.git_repository_id,
+                        MetadataIndexingJob.organization_id == org_id,
+                    )
+
+                rows = (await db.execute(stmt)).scalars().all()
 
             # Index by data_source for grouping and to compute names
             ds_id_to_resources: Dict[str, List[MetadataResource]] = {}

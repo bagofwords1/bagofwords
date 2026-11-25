@@ -20,6 +20,7 @@ EXPECTED_ORG_PERMS = {
     "manage_instructions",
     "manage_entities",
     "manage_evals",
+    "access_workspace",
     "view_code", "run_custom_code",
     "view_members", "manage_members", "manage_service_accounts",
     "manage_settings", "manage_llm",
@@ -29,7 +30,7 @@ EXPECTED_ORG_PERMS = {
 
 def test_all_permissions_is_exactly_expected_set():
     assert ALL_PERMISSIONS == EXPECTED_ORG_PERMS
-    assert len(ALL_PERMISSIONS) == 21
+    assert len(ALL_PERMISSIONS) == 22
 
 
 def test_full_admin_access_is_not_in_all_permissions():
@@ -140,3 +141,11 @@ def test_instructions_and_entities_are_separate_categories():
     assert "Entities" in PERMISSION_CATEGORIES
     assert PERMISSION_CATEGORIES["Instructions"] == ["manage_instructions"]
     assert PERMISSION_CATEGORIES["Entities"] == ["manage_entities"]
+
+
+def test_every_member_who_may_update_a_report_may_also_delete_it():
+    """`DELETE /artifacts/{id}` (one version) is gated on `delete_reports`,
+    where it was `update_reports`: no one loses it only while both stay
+    baseline -- granted to every member and absent from the role editor."""
+    assert {"update_reports", "delete_reports"} <= set(BASELINE_PERMISSIONS)
+    assert "delete_reports" in HIDDEN_PERMISSION_CATEGORIES["Reports"]

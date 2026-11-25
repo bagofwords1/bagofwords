@@ -29,6 +29,35 @@ logger = get_logger(__name__)
 # not reuse stored secrets. Value is the default when the key is absent.
 _DESTINATION_CONFIG_KEYS = {"base_url": None, "endpoint_url": None, "verify_ssl": True}
 
+# Auth modes that authenticate with the server's own cloud identity (no stored
+# secret): (modes, default mode, settings that decide where/what that identity
+# is used for). A provider manager may not move these or switch into them —
+# that would hand the host's identity to a destination or scope no org admin
+# approved. See LLMService._host_identity_change.
+_HOST_IDENTITY_MODES = {
+    "azure": ({"entra_default"}, "api_key", ("endpoint_url", "verify_ssl")),
+    "bedrock": ({"iam"}, "iam", ("region",)),
+    "vertex": ({"adc"}, "adc", ("project_id", "location")),
+}
+
+
+def _host_identity_change(provider_type: str, before_cfg: dict, after_cfg: dict) -> bool:
+    """True when ``after_cfg`` uses the host's cloud identity on settings an
+    admin didn't save: either it switches into a host-identity mode, or it
+    changes the destination/scope while in one."""
+    spec = _HOST_IDENTITY_MODES.get(provider_type)
+    if spec is None:
+        return False
+    modes, default_mode, scope_keys = spec
+    before_cfg, after_cfg = before_cfg or {}, after_cfg or {}
+    if (after_cfg.get("auth_mode") or default_mode) not in modes:
+        return False
+    if (before_cfg.get("auth_mode") or default_mode) not in modes:
+        return True
+    keys = set(scope_keys) | set(_DESTINATION_CONFIG_KEYS)
+    return any(before_cfg.get(k, _DESTINATION_CONFIG_KEYS.get(k)) != after_cfg.get(k, _DESTINATION_CONFIG_KEYS.get(k))
+               for k in keys)
+
 
 def _check_provider_url(url: str) -> None:
     try:
@@ -228,9 +257,17 @@ class LLMService:
         organization: Organization,
         current_user: User,
         provider_id: str,
-        provider_data
+        provider_data,
+        *,
+        as_manager: bool = False,
     ):
-        """Update provider settings"""
+        """Update provider settings.
+
+        ``as_manager``: the caller manages this provider but is not an org LLM
+        admin. They may change its name, credentials and connection settings,
+        and turn its existing models on or off (a model they turn on starts
+        restricted), but not add models or change pricing — see
+        ``_update_models``."""
         logger.info("Updating LLM provider: provider_id=%s, org_id=%s, user_id=%s", provider_id, organization.id, current_user.id)
         provider = await db.execute(
             select(LLMProvider).filter(
@@ -252,11 +289,54 @@ class LLMService:
 
         credentials = update_data.pop('credentials', None)
 
-        await self._update_models(db, organization, provider, current_user, models)
+        await self._update_models(db, organization, provider, current_user, models, as_manager=as_manager)
 
+        # Which connection settings changed (keys only, never values), so the
+        # audit trail shows who pointed a provider somewhere new.
+        before_config = dict(provider.additional_config or {})
+        before_secret = (provider.api_key, provider.api_secret)
         # Allow updating provider additional_config (e.g., base_url) without requiring api_key
         if credentials is not None:
             self._set_provider_credentials(provider, credentials)
+        after_config = dict(provider.additional_config or {})
+        # A stored key is bound to where it was saved for (same rule as
+        # test_connection). A provider manager who points the provider somewhere
+        # new must enter the key again, or the org's stored secret would be
+        # sent to a destination they chose.
+        if as_manager and _host_identity_change(provider.provider_type, before_config, after_config):
+            await db.rollback()
+            raise AppError.forbidden(
+                ErrorCode.LLM_PROVIDER_HOST_IDENTITY_ADMIN_ONLY,
+                "This provider signs in with the server's own cloud identity. Only an admin can change where it connects or switch it to that sign-in.",
+            )
+        moved = any(
+            before_config.get(k, default) != after_config.get(k, default)
+            for k, default in _DESTINATION_CONFIG_KEYS.items()
+        )
+        if as_manager and moved and (before_secret[0] or before_secret[1]):
+            # Like test_connection: no stored secret survives the move. Both
+            # slots are cleared and rebuilt from this submission alone (the
+            # credential merge would otherwise keep whichever one was omitted),
+            # then checked against what the provider's auth mode needs.
+            provider.api_key = None
+            provider.api_secret = None
+            self._set_provider_credentials(provider, credentials or {})
+            if provider.api_key is None:
+                # Nothing submitted: store empty credentials (as for a provider
+                # created without a key) so modes that need none still decrypt.
+                provider.encrypt_credentials(None, None)
+            missing = self._missing_secrets_for_auth_mode(provider)
+            if missing:
+                await db.rollback()
+                raise AppError.bad_request(
+                    ErrorCode.LLM_PROVIDER_KEY_REQUIRED_FOR_NEW_DESTINATION,
+                    "Enter the API key again when changing where this provider connects.",
+                    missing=", ".join(missing),
+                )
+        changed_settings = sorted(
+            k for k in set(before_config) | set(after_config) if before_config.get(k) != after_config.get(k)
+        )
+        secret_changed = before_secret != (provider.api_key, provider.api_secret)
 
         db.add(provider)
         try:
@@ -281,7 +361,12 @@ class LLMService:
                 user_id=str(current_user.id),
                 resource_type="llm_provider",
                 resource_id=str(provider.id),
-                details={"name": provider.name, "provider_type": provider.provider_type},
+                details={"name": provider.name, "provider_type": provider.provider_type,
+                         "as_provider_manager": bool(as_manager),
+                         # "key_rotated", not "credentials_*": the audit
+                         # sanitizer blanks any credential-named key.
+                         "key_rotated": bool(secret_changed),
+                         "settings_changed": changed_settings},
             )
         except Exception:
             pass
@@ -844,13 +929,19 @@ class LLMService:
             "small_default_model": _m(group.small_default_llm_model_id),
         }
 
-    async def list_group_defaults(self, db: AsyncSession, organization: Organization, current_user: User):
-        """Every group in the org with its LLM defaults and priority."""
+    async def list_group_defaults(
+        self, db: AsyncSession, organization: Organization, current_user: User, group_ids=None,
+    ):
+        """Groups in the org with their LLM defaults and priority — every group,
+        or only ``group_ids`` (a group manager sees the groups they manage)."""
         from app.models.group import Group
+        stmt = select(Group).where(Group.organization_id == str(organization.id))
+        if group_ids is not None:
+            if not group_ids:
+                return []
+            stmt = stmt.where(Group.id.in_([str(g) for g in group_ids]))
         groups = (await db.execute(
-            select(Group)
-            .where(Group.organization_id == str(organization.id))
-            .order_by(Group.default_llm_priority.asc(), Group.name.asc())
+            stmt.order_by(Group.default_llm_priority.asc(), Group.name.asc())
         )).scalars().unique().all()
         ids = {str(i) for g in groups for i in (g.default_llm_model_id, g.small_default_llm_model_id) if i}
         models_by_id = {}
@@ -861,6 +952,65 @@ class LLMService:
             models_by_id = {str(m.id): m for m in rows}
         return [self._group_defaults_row(g, models_by_id) for g in groups]
 
+    async def _group_usable_without_default(self, db: AsyncSession, organization: Organization, group_id: str):
+        """A predicate over models: may this group's members use the model
+        without it being the group's default (open, or granted to the group or
+        to a role assigned to the group)?"""
+        from app.core.permission_resolver import (
+            group_granted_model_ids, llm_access_control_active, model_open_to_all,
+        )
+        if not llm_access_control_active():
+            return lambda m: True
+        all_models, granted = await group_granted_model_ids(db, str(organization.id), str(group_id))
+        return lambda m: all_models or model_open_to_all(m) or str(m.id) in granted
+
+    async def _live_chat_models(self, db: AsyncSession, organization: Organization):
+        result = await db.execute(
+            select(LLMModel)
+            .join(LLMModel.provider)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.deleted_at == None)  # noqa: E711
+            .filter(LLMModel.is_enabled == True)  # noqa: E712
+            .filter(LLMModel.supports_image_generation == False)  # noqa: E712
+            .filter(LLMModel.model_kind != "decision")
+            .filter(LLMProvider.deleted_at == None)  # noqa: E711
+            .filter(LLMProvider.is_enabled == True)  # noqa: E712
+        )
+        return list(result.unique().scalars().all())
+
+    async def group_default_choices(
+        self, db: AsyncSession, organization: Organization, group_id: str, *, as_manager: bool,
+    ):
+        """The models that may be picked as this group's default / small default.
+
+        An org LLM admin may pick any live chat model (picking a restricted one
+        gives the group access to it). A group manager may only pick models the
+        group can already use without the default, so a default never widens
+        what the group may use.
+        """
+        from app.models.group import Group
+        group = (await db.execute(
+            select(Group).where(Group.id == str(group_id), Group.organization_id == str(organization.id))
+        )).scalars().first()
+        if group is None:
+            raise HTTPException(status_code=404, detail="Group not found")
+        models = await self._live_chat_models(db, organization)
+        if as_manager:
+            usable = await self._group_usable_without_default(db, organization, group.id)
+            models = [m for m in models if usable(m)]
+        models.sort(key=lambda m: ((getattr(m.provider, "name", "") or "").lower(), (m.name or m.model_id).lower()))
+        return [
+            {
+                "id": str(m.id),
+                "name": m.name or m.model_id,
+                "model_id": m.model_id,
+                "provider_name": getattr(m.provider, "name", None),
+                "provider_type": getattr(m.provider, "provider_type", None),
+                "is_restricted": bool(getattr(m, "is_restricted", False)),
+            }
+            for m in models
+        ]
+
     async def set_group_defaults(
         self,
         db: AsyncSession,
@@ -868,12 +1018,19 @@ class LLMService:
         current_user: User,
         group_id: str,
         fields: dict,
+        *,
+        as_manager: bool = False,
     ):
         """Set a group's default / small default model and priority.
 
         ``fields`` holds only the keys the caller sent; a None model id clears
         it (the group then inherits the org default). Setting a model makes it
         usable by the group's members even when restricted.
+
+        ``as_manager``: the caller is a manager of this group, not an org LLM
+        admin. They may change the default and small default only, and only to
+        a model the group can already use without the default (or keep the
+        current value); the priority decides between groups and stays admin-only.
         """
         from app.models.group import Group
         group = (await db.execute(
@@ -881,6 +1038,14 @@ class LLMService:
         )).scalars().first()
         if group is None:
             raise HTTPException(status_code=404, detail="Group not found")
+
+        if as_manager and fields.get("default_llm_priority") is not None \
+                and int(fields["default_llm_priority"]) != (group.default_llm_priority if group.default_llm_priority is not None else 100):
+            raise AppError.forbidden(
+                ErrorCode.LLM_GROUP_DEFAULT_PRIORITY_ADMIN_ONLY,
+                "Only an admin can change a group's priority.",
+            )
+        usable = await self._group_usable_without_default(db, organization, group.id) if as_manager else None
 
         for key in ("default_llm_model_id", "small_default_llm_model_id"):
             if key not in fields:
@@ -893,10 +1058,16 @@ class LLMService:
                         ErrorCode.LLM_GROUP_DEFAULT_INVALID,
                         "The model must exist in this organization, be enabled, and be a chat model.",
                     )
+                unchanged = str(getattr(group, key) or "") == str(model.id)
+                if usable is not None and not unchanged and not usable(model):
+                    raise AppError.forbidden(
+                        ErrorCode.LLM_GROUP_DEFAULT_NOT_AVAILABLE,
+                        "This group can't use that model. Ask an admin to give the group access first.",
+                    )
                 setattr(group, key, str(model.id))
             else:
                 setattr(group, key, None)
-        if "default_llm_priority" in fields and fields["default_llm_priority"] is not None:
+        if not as_manager and "default_llm_priority" in fields and fields["default_llm_priority"] is not None:
             group.default_llm_priority = int(fields["default_llm_priority"])
 
         db.add(group)
@@ -911,7 +1082,7 @@ class LLMService:
                 user_id=str(current_user.id),
                 resource_type="group",
                 resource_id=str(group.id),
-                details={k: fields[k] for k in fields},
+                details={**{k: fields[k] for k in fields}, "as_group_manager": bool(as_manager)},
             )
         except Exception:
             pass
@@ -1048,6 +1219,7 @@ class LLMService:
         provider.is_enabled = False
 
         await self._disable_models(db, organization, provider)
+        await self._delete_provider_manager_grants(db, organization, provider.id)
 
         db.add(provider)
         await db.commit()
@@ -1070,6 +1242,168 @@ class LLMService:
 
         return {"message": "Provider deleted successfully"}
 
+    # ── Provider managers (EE llm_access_control) ──────────────────────────
+    #
+    # An org LLM admin can let a member manage one provider: its name,
+    # credentials and connection settings, turning its models on or off, and
+    # those models' settings and routing hints. Everything org-wide (defaults,
+    # model access, pricing, fallback, the Auto router, adding/removing
+    # providers or models) stays with ``manage_llm``. The grant is a
+    # ``resource_grants`` row (resource_type "llm_provider", principal = one
+    # user, permissions ["manage"]) written only by these methods.
+
+    async def _get_live_provider(self, db: AsyncSession, organization: Organization, provider_id: str) -> LLMProvider:
+        provider = (await db.execute(
+            select(LLMProvider)
+            .filter(LLMProvider.id == str(provider_id))
+            .filter(LLMProvider.organization_id == organization.id)
+            .filter(LLMProvider.deleted_at == None)  # noqa: E711
+        )).unique().scalar_one_or_none()
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        return provider
+
+    async def _provider_manager_rows(self, db: AsyncSession, organization: Organization, provider_id: str):
+        from app.models.resource_grant import ResourceGrant
+        return list((await db.execute(
+            select(ResourceGrant).where(
+                ResourceGrant.organization_id == str(organization.id),
+                ResourceGrant.resource_type == "llm_provider",
+                ResourceGrant.resource_id == str(provider_id),
+                ResourceGrant.principal_type == "user",
+                ResourceGrant.deleted_at.is_(None),
+            )
+        )).scalars().all())
+
+    async def list_provider_managers(self, db: AsyncSession, organization: Organization, provider_id: str):
+        """The members who manage this provider."""
+        await self._get_live_provider(db, organization, provider_id)
+        rows = await self._provider_manager_rows(db, organization, provider_id)
+        ids = [r.principal_id for r in rows if "manage" in (r.permissions or [])]
+        if not ids:
+            return []
+        users = (await db.execute(select(User).where(User.id.in_(ids)))).scalars().all()
+        return sorted(
+            ({"user_id": str(u.id), "name": u.name, "email": u.email} for u in users),
+            key=lambda u: ((u["name"] or u["email"] or "").lower()),
+        )
+
+    async def add_provider_manager(
+        self, db: AsyncSession, organization: Organization, current_user: User, provider_id: str, user_id: str,
+    ):
+        """Make an org member a manager of this provider (idempotent)."""
+        from app.models.membership import Membership
+        from app.models.resource_grant import ResourceGrant
+        from app.core.permission_resolver import invalidate_rbac_memo
+        provider = await self._get_live_provider(db, organization, provider_id)
+        member_q = select(Membership).where(
+            Membership.user_id == str(user_id), Membership.organization_id == str(organization.id),
+        )
+        if hasattr(Membership, "deleted_at"):
+            member_q = member_q.where(Membership.deleted_at.is_(None))
+        if (await db.execute(member_q)).scalars().first() is None:
+            raise AppError.bad_request(
+                ErrorCode.LLM_PROVIDER_MANAGER_NOT_MEMBER,
+                "Only a member of this organization can manage a provider.",
+            )
+        rows = await self._provider_manager_rows(db, organization, provider.id)
+        if any(r.principal_id == str(user_id) for r in rows):
+            return {"success": True}
+        db.add(ResourceGrant(
+            organization_id=str(organization.id), resource_type="llm_provider", resource_id=str(provider.id),
+            principal_type="user", principal_id=str(user_id), permissions=["manage"],
+        ))
+        await db.commit()
+        invalidate_rbac_memo(db, str(user_id), str(organization.id))
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id), action="llm_provider.manager_added",
+                user_id=str(current_user.id), resource_type="llm_provider", resource_id=str(provider.id),
+                details={"name": provider.name, "manager_user_id": str(user_id)},
+            )
+        except Exception:
+            pass
+        return {"success": True}
+
+    async def remove_provider_manager(
+        self, db: AsyncSession, organization: Organization, current_user: User, provider_id: str, user_id: str,
+    ):
+        from app.core.permission_resolver import invalidate_rbac_memo
+        provider = await self._get_live_provider(db, organization, provider_id)
+        rows = [r for r in await self._provider_manager_rows(db, organization, provider.id)
+                if r.principal_id == str(user_id)]
+        for r in rows:
+            await db.delete(r)
+        await db.commit()
+        invalidate_rbac_memo(db, str(user_id), str(organization.id))
+        if rows:
+            try:
+                await audit_service.log(
+                    db=db, organization_id=str(organization.id), action="llm_provider.manager_removed",
+                    user_id=str(current_user.id), resource_type="llm_provider", resource_id=str(provider.id),
+                    details={"name": provider.name, "manager_user_id": str(user_id)},
+                )
+            except Exception:
+                pass
+        return {"success": True}
+
+    async def _delete_provider_manager_grants(self, db: AsyncSession, organization: Organization, provider_id: str):
+        for r in await self._provider_manager_rows(db, organization, provider_id):
+            await db.delete(r)
+
+    async def _check_manager_model_changes(
+        self, db: AsyncSession, organization: Organization, provider: LLMProvider, models,
+    ) -> None:
+        """What a provider manager may change through the provider's model list:
+        turn existing models on or off and their per-model settings. Not: add a
+        model, change a price, or turn off a model others start on."""
+        existing = {str(m.id): m for m in (provider.models or []) if m.deleted_at is None}
+        turning_off = []
+        for model in models or []:
+            # (Soft-deleted ids were already dropped by _update_models; an id
+            # from another provider is refused here.)
+            if not model.id or str(model.id) not in existing:
+                raise AppError.forbidden(
+                    ErrorCode.LLM_PROVIDER_MANAGER_ADMIN_ONLY,
+                    "Only an admin can add models to a provider.",
+                )
+            db_model = existing[str(model.id)]
+            for field in ("input_cost_per_million_tokens_usd", "output_cost_per_million_tokens_usd"):
+                sent = getattr(model, field, None)
+                if sent is not None and not db_model.is_preset and sent != getattr(db_model, field):
+                    raise AppError.forbidden(
+                        ErrorCode.LLM_PROVIDER_MANAGER_ADMIN_ONLY,
+                        "Only an admin can change a model's price.",
+                    )
+            if db_model.is_enabled and not model.is_enabled:
+                if db_model.is_default or db_model.is_small_default:
+                    raise HTTPException(status_code=400, detail="Cannot disable models that are set as default or small default")
+                turning_off.append(str(db_model.id))
+        if turning_off:
+            await self._ensure_not_group_default(db, organization, turning_off)
+
+    async def managed_provider_ids(self, db: AsyncSession, organization: Organization, user: User) -> set:
+        """Ids of the live providers ``user`` manages (not counting org admins).
+
+        Empty when the llm_access_control feature is off (e.g. a lapsed
+        license): stored grants then confer nothing, so no delegate keeps write
+        access an admin can't see or manage."""
+        from app.core.permission_resolver import resolve_permissions, llm_access_control_active
+        if not llm_access_control_active():
+            return set()
+        resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+        ids = {rid for (rtype, rid), perms in resolved.resource_permissions.items()
+               if rtype == "llm_provider" and "manage" in perms}
+        if not ids:
+            return set()
+        live = (await db.execute(
+            select(LLMProvider.id).filter(
+                LLMProvider.id.in_(ids), LLMProvider.organization_id == organization.id,
+                LLMProvider.deleted_at == None,  # noqa: E711
+            )
+        )).scalars().all()
+        return {str(i) for i in live}
+
     async def get_models(
         self, 
         db: AsyncSession,
@@ -1077,8 +1411,14 @@ class LLMService:
         current_user: User,
         is_enabled: bool = None,
         kind: str = "chat",
+        manage_scope=None,
     ):
         """Get all LLM models for an organization, optionally filtered by status.
+
+        ``manage_scope`` is for the settings table: "all" (an org LLM admin —
+        every model, restricted ones included, without the per-user access
+        filter) or a set of provider ids (a provider manager — only those
+        providers' models, unfiltered). None is the normal per-user list.
 
         ``kind`` is "chat" (default — every picker), "decision" (decision models
         only) or "all" (the admin table and name lookups). Decision models are
@@ -1125,14 +1465,21 @@ class LLMService:
         elif kind == "decision":
             query = query.filter(LLMModel.model_kind == "decision")
 
+        if manage_scope is not None and manage_scope != "all":
+            ids = [str(i) for i in manage_scope]
+            if not ids:
+                return []
+            query = query.filter(LLMModel.provider_id.in_(ids))
+
         result = await db.execute(query)
         models = result.unique().scalars().all()
 
         # Per-model access control: hide restricted models the user can't use
         # (a restricted org default included; group defaults count as grants).
         # No-op when the feature is unlicensed (fail open) or nothing is restricted.
+        # The management listing skips it: whoever manages a model sees it.
         from app.core.permission_resolver import filter_models_user_can_use
-        if current_user is not None:
+        if current_user is not None and manage_scope is None:
             models = await filter_models_user_can_use(db, current_user.id, organization.id, models)
 
         # Mark the caller's personal default so clients can preselect it without
@@ -1254,20 +1601,46 @@ class LLMService:
         organization: Organization,
         current_user: User,
         provider_id: str,
-        enabled: bool
+        enabled: bool,
+        *,
+        as_manager: bool = False,
     ):
-        """Enable/disable a provider"""
+        """Enable/disable a provider.
+
+        ``as_manager``: a provider manager (not an org LLM admin) may not turn
+        off a provider that holds the org's default, small default or a group
+        default — that would change which model other people start on."""
         provider = await db.execute(
             select(LLMProvider).filter(
                 LLMProvider.id == provider_id,
                 LLMProvider.organization_id == organization.id
             )
         )
-        provider = provider.scalar_one_or_none()
+        # unique(): LLMProvider.models is a joined eager load, and without it
+        # SQLAlchemy refuses the result — every toggle used to 500.
+        provider = provider.unique().scalar_one_or_none()
 
         if not provider:
             raise HTTPException(status_code=404, detail="Provider not found")
 
+        if as_manager and not enabled:
+            live = [m for m in (provider.models or []) if m.deleted_at is None]
+            if any(m.is_default or m.is_small_default for m in live):
+                raise AppError.forbidden(
+                    ErrorCode.LLM_PROVIDER_HOLDS_DEFAULT,
+                    "This provider holds the organization's default model. Ask an admin to change the default first.",
+                )
+            await self._ensure_not_group_default(db, organization, [str(m.id) for m in live])
+
+        # Turning a provider back on makes its enabled models available again.
+        # Like a model a manager turns on, those start restricted: a provider
+        # manager never opens a model to the whole org.
+        restricted_on_enable = []
+        if as_manager and enabled and not provider.is_enabled:
+            for m in provider.models or []:
+                if m.deleted_at is None and m.is_enabled and not m.is_restricted:
+                    m.is_restricted = True
+                    restricted_on_enable.append(str(m.id))
         provider.is_enabled = enabled
         await db.commit()
 
@@ -1282,7 +1655,8 @@ class LLMService:
                 user_id=str(current_user.id),
                 resource_type="llm_provider",
                 resource_id=str(provider.id),
-                details={"name": provider.name, "enabled": enabled},
+                details={"name": provider.name, "enabled": enabled, "as_provider_manager": bool(as_manager),
+                         "restricted_on_enable": restricted_on_enable},
             )
         except Exception:
             pass
@@ -1295,9 +1669,15 @@ class LLMService:
         organization: Organization,
         current_user: User,
         model_id: str,
-        enabled: bool
+        enabled: bool,
+        *,
+        as_manager: bool = False,
     ):
-        """Enable/disable a model"""
+        """Enable/disable a model.
+
+        ``as_manager``: a model a provider manager turns on starts restricted,
+        so turning it on never opens it to the whole org — an org LLM admin
+        decides who may use it."""
         model = await db.execute(
             select(LLMModel).join(LLMProvider).filter(
                 LLMModel.id == model_id,
@@ -1314,6 +1694,10 @@ class LLMService:
         if not enabled:
             await self._ensure_not_group_default(db, organization, [str(model.id)])
 
+        restricted_now = False
+        if as_manager and enabled and not model.is_enabled and not model.is_restricted:
+            model.is_restricted = True
+            restricted_now = True
         model.is_enabled = enabled
         await db.commit()
 
@@ -1328,7 +1712,8 @@ class LLMService:
                 user_id=str(current_user.id),
                 resource_type="llm_model",
                 resource_id=str(model.id),
-                details={"name": model.name, "model_id": model.model_id, "enabled": enabled},
+                details={"name": model.name, "model_id": model.model_id, "enabled": enabled,
+                         "as_provider_manager": bool(as_manager), "restricted_on_enable": restricted_now},
             )
         except Exception:
             pass
@@ -2253,6 +2638,35 @@ class LLMService:
 
         await db.commit()
 
+    @staticmethod
+    def _missing_secrets_for_auth_mode(provider: LLMProvider) -> list:
+        """The secret slots this provider's active auth mode needs but doesn't
+        have (mirrors how app.ai.llm.LLM reads them): Azure api_key → key,
+        Entra client secret → the secret slot, Entra default → none; Bedrock
+        api_key → key, access_keys → both, IAM → none; Vertex service account
+        → key, ADC → none; custom (OpenAI-compatible) → none (keyless local
+        endpoints are valid); every other provider → key."""
+        cfg = provider.additional_config if isinstance(provider.additional_config, dict) else {}
+        ptype = provider.provider_type
+        if ptype == "azure":
+            mode = cfg.get("auth_mode") or "api_key"
+            need = {"api_key": ["api_key"], "entra_client_secret": ["api_secret"]}.get(mode, [])
+        elif ptype == "bedrock":
+            mode = cfg.get("auth_mode") or "iam"
+            need = {"api_key": ["api_key"], "access_keys": ["api_key", "api_secret"]}.get(mode, [])
+        elif ptype == "vertex":
+            need = ["api_key"] if (cfg.get("auth_mode") or "adc") == "service_account" else []
+        elif ptype == "custom":
+            need = []
+        else:
+            need = ["api_key"]
+        try:
+            key, secret = provider.decrypt_credentials()
+        except Exception:
+            key, secret = None, None
+        have = {"api_key": bool(key), "api_secret": bool(secret)}
+        return [slot for slot in need if not have[slot]]
+
     def _set_provider_credentials(
         self, 
         provider: LLMProvider,
@@ -2498,8 +2912,17 @@ class LLMService:
         organization: Organization,
         provider: LLMProvider,
         current_user: User,
-        models: list[LLMModelSchema]
+        models: list[LLMModelSchema],
+        *,
+        as_manager: bool = False,
     ):
+        # A soft-deleted model of this provider (a stale dialog can echo one
+        # back) is dropped here, once, for both the manager check and the
+        # writes below — it must never be updated or re-enabled.
+        deleted_ids = {str(m.id) for m in (provider.models or []) if m.deleted_at is not None}
+        models = [m for m in (models or []) if not (m.id and str(m.id) in deleted_ids)]
+        if as_manager:
+            await self._check_manager_model_changes(db, organization, provider, models)
         # Check if org already has default models (needed for new model creation)
         existing_default = await db.execute(
             select(LLMModel)
@@ -2520,8 +2943,12 @@ class LLMService:
         for model in models:
             # If model has an ID, update existing model
             if model.id:
+                # Only this provider's own models can be edited through it.
                 db_model = await db.execute(
-                    select(LLMModel).filter(LLMModel.id == model.id)
+                    select(LLMModel).filter(
+                        LLMModel.id == model.id,
+                        LLMModel.provider_id == provider.id,
+                    )
                 )
                 db_model = db_model.scalar_one_or_none()
 
@@ -2534,6 +2961,9 @@ class LLMService:
                 # rename made through PATCH /llm/models/{id}. Renames go through
                 # update_model only; this path just leaves the stored name alone.
                 if db_model.is_enabled != model.is_enabled:
+                    # A model a provider manager turns on starts restricted.
+                    if as_manager and model.is_enabled and not db_model.is_restricted:
+                        db_model.is_restricted = True
                     db_model.is_enabled = model.is_enabled
                     db.add(db_model)
                 
@@ -2587,11 +3017,17 @@ class LLMService:
                         db_model.max_output_tokens = model.max_output_tokens
                     elif catalog and catalog.get("max_output_tokens") is not None:
                         db_model.max_output_tokens = catalog["max_output_tokens"]
-                    if getattr(model, "input_cost_per_million_tokens_usd", None) is not None:
+                    # Prices are an admin's call: a provider manager's save keeps
+                    # the stored prices (no catalog fallback over an admin-set price).
+                    if as_manager:
+                        pass
+                    elif getattr(model, "input_cost_per_million_tokens_usd", None) is not None:
                         db_model.input_cost_per_million_tokens_usd = model.input_cost_per_million_tokens_usd
                     elif catalog and catalog.get("input_cost_per_million_tokens_usd") is not None:
                         db_model.input_cost_per_million_tokens_usd = catalog["input_cost_per_million_tokens_usd"]
-                    if getattr(model, "output_cost_per_million_tokens_usd", None) is not None:
+                    if as_manager:
+                        pass
+                    elif getattr(model, "output_cost_per_million_tokens_usd", None) is not None:
                         db_model.output_cost_per_million_tokens_usd = model.output_cost_per_million_tokens_usd
                     elif catalog and catalog.get("output_cost_per_million_tokens_usd") is not None:
                         db_model.output_cost_per_million_tokens_usd = catalog["output_cost_per_million_tokens_usd"]
@@ -2691,7 +3127,9 @@ class LLMService:
                 if should_be_small_default:
                     has_small_default_model = True
 
-        await db.commit()
+        # No commit here: update_provider commits the whole save (provider
+        # settings + models) once, so a refused save leaves nothing behind.
+        await db.flush()
     
     async def set_default_model(
         self, 
@@ -3378,7 +3816,9 @@ class LLMService:
         db: AsyncSession,
         organization: Organization,
         current_user: User,
-        provider: LLMProviderTestConnection
+        provider: LLMProviderTestConnection,
+        *,
+        as_manager: bool = False,
     ):
         logger.info("Testing LLM connection: provider_type=%s, name=%s, provider_id=%s, org_id=%s, user_id=%s", provider.provider_type, provider.name, getattr(provider, 'provider_id', None), organization.id, current_user.id)
 
@@ -3419,6 +3859,17 @@ class LLMService:
 
         # Set credentials and merge provider-specific additional_config
         self._set_provider_credentials(provider_obj, provider.credentials or {})
+
+        # Same binding as a save: a provider manager can't test the host's own
+        # cloud identity against a destination or scope an admin didn't save.
+        if as_manager and stored_provider is not None and _host_identity_change(
+            stored_provider.provider_type, dict(stored_provider.additional_config or {}),
+            dict(provider_obj.additional_config or {}),
+        ):
+            raise AppError.forbidden(
+                ErrorCode.LLM_PROVIDER_HOST_IDENTITY_ADMIN_ONLY,
+                "This provider signs in with the server's own cloud identity. Only an admin can change where it connects or switch it to that sign-in.",
+            )
 
         # Never send a stored secret somewhere other than where it was saved
         # for: if the payload moved the destination (endpoint, base URL,

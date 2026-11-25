@@ -34,7 +34,7 @@ _CODE_FENCE_RE = re.compile(r"(```[\s\S]*?```)")
 # or image in a web/PDF document. WhatsApp has nowhere to render them, so the
 # agent occasionally leaks the raw token into a chat reply — strip it (and the
 # whitespace it sat on) so the user never sees "{{viz:...}}".
-_DOC_PLACEHOLDER_RE = re.compile(r"[ \t]*\{\{\s*(?:viz|image)\s*:[^}]*\}\}[ \t]*")
+_DOC_PLACEHOLDER_RE = re.compile(r"[ \t]*\{\{\s*(?:viz|image|cite)\s*:[^}]*\}\}[ \t]*")
 # 3+ newlines (e.g. left by a removed placeholder on its own line) -> one blank line.
 _EXTRA_BLANKS_RE = re.compile(r"\n{3,}")
 
@@ -142,22 +142,32 @@ class WhatsAppAdapter(PlatformAdapter):
             "Content-Type": "application/json",
         }
 
-    async def _post_message(self, payload: Dict[str, Any]) -> bool:
+    async def _post_message_status(self, payload: Dict[str, Any]) -> Optional[int]:
+        """POST to /messages; the HTTP status, or None when it never got one."""
         phone_number_id = self._phone_number_id()
         if not phone_number_id or not self._access_token():
             print("WhatsApp: missing phone_number_id or access_token")
-            return False
+            return None
         url = f"{_graph_base_url()}/{phone_number_id}/messages"
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(url, headers=self._auth_headers(), json=payload)
-                if resp.status_code == 200:
-                    return True
-                print(f"WhatsApp API error: {resp.status_code} - {resp.text}")
-                return False
         except Exception as e:
             print(f"Error posting WhatsApp message: {e}")
-            return False
+            return None
+        if resp.status_code == 200:
+            # A message (not a reaction or read receipt) dismisses the
+            # "typing…" indicator on WhatsApp; let it come back shortly if
+            # a run is still going.
+            if payload.get("to") and payload.get("type") not in (None, "reaction"):
+                from . import whatsapp_typing
+                whatsapp_typing.note_outbound(phone_number_id, payload["to"])
+        else:
+            print(f"WhatsApp API error: {resp.status_code} - {resp.text}")
+        return resp.status_code
+
+    async def _post_message(self, payload: Dict[str, Any]) -> bool:
+        return await self._post_message_status(payload) == 200
 
     # ---------- PlatformAdapter interface ----------
 
@@ -333,6 +343,36 @@ class WhatsAppAdapter(PlatformAdapter):
         }
         return await self._post_message(payload)
 
+    def phone_number_id(self) -> Optional[str]:
+        """The business number this adapter sends from."""
+        return self._phone_number_id()
+
+    async def send_typing_indicator(self, message_id: str) -> str:
+        """Show "typing…" to the user who sent ``message_id``.
+
+        WhatsApp couples the indicator to a read receipt, so this also marks
+        that message (and earlier ones in the chat) as read — blue ticks.
+        Meta dismisses it when we send a message or after 25 seconds.
+
+        Returns ``whatsapp_typing.SENT``, ``REFUSED`` (a 4xx other than 429:
+        WhatsApp won't take it — stop asking) or ``TRANSIENT`` (no answer,
+        429 or 5xx: worth trying again).
+        """
+        from . import whatsapp_typing
+        if not message_id:
+            return whatsapp_typing.REFUSED
+        status = await self._post_message_status({
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": message_id,
+            "typing_indicator": {"type": "text"},
+        })
+        if status == 200:
+            return whatsapp_typing.SENT
+        if status is not None and 400 <= status < 500 and status != 429:
+            return whatsapp_typing.REFUSED
+        return whatsapp_typing.TRANSIENT
+
     async def send_dm(self, user_id: str, text: str) -> bool:
         return await self.send_response({"to": user_id, "text": text})
 
@@ -386,8 +426,16 @@ class WhatsAppAdapter(PlatformAdapter):
         title: str,
         thread_ts: str = None,
         channel_id: str = None,
+        filename: str = None,
     ) -> bool:
-        """Upload a file and send it as a document/image message."""
+        """Upload a file and send it as a document/image message.
+
+        ``filename`` is the display name WhatsApp shows on a document bubble.
+        The on-disk basename is a storage-safe name (the uploads store prefixes
+        a uuid, e.g. ``<uuid>_lease.pdf``), which the recipient should never
+        see — so callers pass the clean report filename here; it falls back to
+        the basename only when none is given.
+        """
         to = channel_id or user_id
         media_id = await self._upload_media(file_path)
         if not media_id:
@@ -398,7 +446,7 @@ class WhatsAppAdapter(PlatformAdapter):
         msg_type = "image" if is_image else "document"
         media_obj: Dict[str, Any] = {"id": media_id, "caption": title[:1024]}
         if not is_image:
-            media_obj["filename"] = os.path.basename(file_path)
+            media_obj["filename"] = (filename or os.path.basename(file_path))[:240]
         payload: Dict[str, Any] = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",

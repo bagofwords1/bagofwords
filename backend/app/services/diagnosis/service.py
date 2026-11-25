@@ -22,7 +22,7 @@ from app.models.connection import Connection
 from app.models.data_source import DataSource
 from app.models.domain_connection import domain_connection
 from app.models.report import Report
-from app.services.folder_monitoring import agent_links, detail_condition, execution_links
+from app.services.folder_monitoring import agent_links, detail_condition, execution_links, reports_in_scope, visible_runs
 from app.models.table_usage_event import TableUsageEvent as TUE
 from app.models.tool_execution import ToolExecution as TE
 from app.models.user import User
@@ -97,19 +97,9 @@ def _dialect(db: AsyncSession) -> str:
 
 
 def _reports_in_scope(scope_ids: Optional[List[str]]):
-    """Reports drawing ONLY on agents in scope (mirrors
+    """Reports whose every run is in scope (mirrors
     ConsoleService._reports_of_data_sources with no caller filter)."""
-    if scope_ids is None:
-        return None
-    return (
-        select(assoc.c.report_id)
-        .where(
-            assoc.c.data_source_id.in_(scope_ids),
-            ~assoc.c.report_id.in_(
-                select(assoc.c.report_id).where(assoc.c.data_source_id.notin_(scope_ids))
-            ),
-        )
-    )
+    return reports_in_scope(scope_ids)
 
 
 def _one_line(text: Optional[str], limit: int) -> Optional[str]:
@@ -158,9 +148,11 @@ class DiagnosisService:
             AE.created_at >= start,
             AE.created_at <= end,
         ]
-        reports = _reports_in_scope(scope_ids)
-        if reports is not None:
-            clauses.append(AE.report_id.in_(reports))
+        # Per run: an in-scope run stays visible even when a LATER turn of its
+        # report reached an agent outside scope (folder_monitoring.visible_runs).
+        runs = visible_runs(scope_ids)
+        if runs is not None:
+            clauses.append(AE.id.in_(runs))
         if not mentions_field(ast, "eval"):
             clauses.append(AE.is_eval_run == False)  # noqa: E712
         return clauses
@@ -272,7 +264,7 @@ class DiagnosisService:
         agents: Dict[str, List[Dict[str, Any]]] = {}
         turns: Dict[str, int] = {}
         if report_ids:
-            agents = await self._agents_for_runs(db, [r.id for r in rows])
+            agents = await self.agents_for_runs(db, [r.id for r in rows])
             for rid, n in (await db.execute(
                 select(AE.report_id, func.count(AE.id))
                 .where(AE.report_id.in_(report_ids), AE.is_eval_run == False)  # noqa: E712
@@ -352,7 +344,7 @@ class DiagnosisService:
             next_cursor = self._encode_cursor(sort_value, str(last.id))
         return {"items": items, "next_cursor": next_cursor, "total": total}
 
-    async def _agents_for_runs(self, db, run_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    async def agents_for_runs(self, db, run_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """Agents per report as the UI renders them: name plus what the
         DataSourceIcon needs (type of the first connection, connector key,
         custom icon). One query; a data source with several connections
@@ -534,9 +526,9 @@ class DiagnosisService:
         if not ids:
             return {}
         visible = select(AE.id).where(detail_condition(AE.report_id, folder_report_ids), AE.organization_id == str(organization_id), AE.id.in_(ids))
-        reports = _reports_in_scope(scope_ids)
-        if reports is not None:
-            visible = visible.where(AE.report_id.in_(reports))
+        runs = visible_runs(scope_ids)
+        if runs is not None:
+            visible = visible.where(AE.id.in_(runs))
         stmt = (
             select(TE)
             .where(TE.agent_execution_id.in_(visible))

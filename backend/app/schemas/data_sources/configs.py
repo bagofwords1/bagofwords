@@ -438,6 +438,59 @@ class PostgreSQLConfig(BaseModel):
     )
 
 
+class PostgreSQLMultiConfig(BaseModel):
+    host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
+    port: int = Field(5432, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
+    databases: str = Field(
+        ...,
+        title="Databases",
+        description="Comma-separated database names, globs and !-exclusions, e.g. 'tenant_*, !tenant_test'. Matching is case-sensitive. Every matching database is unified into one set of tables with a tenant_db column.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.postgresqlMulti.databasesTitle",
+                           "ui:descriptionKey": "data.postgresqlMulti.databasesDescription"},
+    )
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas",
+        json_schema_extra={"ui:type": "string"},
+    )
+    sslmode: str = Field(
+        "prefer",
+        title="SSL Mode",
+        description="libpq sslmode: disable, allow, prefer, require, verify-ca, verify-full. Use 'require' for IAM-authenticated connections (e.g. AWS RDS), which reject unencrypted logins.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]},
+    )
+    discovery_database: str = Field(
+        "postgres",
+        title="Discovery Database",
+        description="Database used to list the server's databases. Default: postgres.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.postgresqlMulti.discoveryDatabaseTitle",
+                           "ui:descriptionKey": "data.postgresqlMulti.discoveryDatabaseDescription"},
+    )
+    table_exclude_pattern: Optional[str] = Field(
+        None,
+        title="Table Exclude Pattern",
+        description="Optional regular expression; tables whose name matches are not indexed, e.g. '^day_\\d{2}'. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.postgresqlMulti.tableExcludeTitle",
+                           "ui:descriptionKey": "data.postgresqlMulti.tableExcludeDescription"},
+    )
+
+    @field_validator("table_exclude_pattern")
+    @classmethod
+    def _check_table_exclude_pattern(cls, value):
+        return validate_table_exclude_pattern(value)
+
+    @model_validator(mode="after")
+    def _check_databases_spec(self):
+        entries = [e.strip() for e in self.databases.split(",")]
+        if any(not e or e == "!" for e in entries):
+            raise ValueError("databases must not contain empty entries")
+        includes, _, _ = parse_athena_database_spec(self.databases)
+        if not includes:
+            raise ValueError("databases needs at least one database name or pattern, not only !-exclusions")
+        return self
+
+
 # SQLite (local file database)
 class SQLiteCredentials(BaseModel):
     class Config:
@@ -595,6 +648,50 @@ class BigQueryCredentials(BaseModel):
         description="Google OAuth 2.0 Client Secret for user sign-in",
         json_schema_extra={"ui:type": "password"}
     )
+
+
+class BigQueryDefaultCredentials(BaseModel):
+    """Keyless auth: the connection runs as the deployment's own Google
+    identity (Application Default Credentials) and stores no secret. What that
+    identity is — an attached service account, GKE Workload Identity, or a
+    Workload Identity Federation config named by GOOGLE_APPLICATION_CREDENTIALS
+    — is set up by the operator on the server, never through this form.
+    """
+    # The marker the client switches on. It travels with the credentials so
+    # every code path that builds a client sees it; the form never shows it.
+    use_application_default_credentials: bool = Field(
+        True,
+        title="Use Application Default Credentials",
+        description="Authenticate as the identity configured on the server instead of a service account key.",
+        json_schema_extra={"ui:type": "boolean", "ui:hidden": True},
+    )
+    target_service_account: Optional[str] = Field(
+        None,
+        max_length=254,
+        title="Service account to impersonate (optional)",
+        description="Email of a service account to run queries as, e.g. reader@my-project.iam.gserviceaccount.com. The server's identity needs the Service Account Token Creator role on it. Leave blank to query as the server's identity itself.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID",
+        description="Google OAuth 2.0 Client ID for user sign-in (from Google Cloud Console > Credentials > OAuth 2.0 Client IDs)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret",
+        description="Google OAuth 2.0 Client Secret for user sign-in",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+    @model_validator(mode="after")
+    def validate_default_credentials(cls, model: "BigQueryDefaultCredentials") -> "BigQueryDefaultCredentials":
+        if not model.use_application_default_credentials:
+            raise ValueError("Application Default Credentials must remain enabled for this authentication method.")
+        from app.data_sources.google_default_credentials import normalize_target_service_account
+        model.target_service_account = normalize_target_service_account(model.target_service_account)
+        return model
 
 
 class BigQueryConfig(BaseModel):
@@ -1663,6 +1760,17 @@ def parse_athena_database_spec(spec) -> tuple[list[str], list[str], bool]:
     return includes, excludes, multi
 
 
+def validate_table_exclude_pattern(value):
+    from app.utils.safe_regex import compile_bounded, pattern_cost_problem
+    if value is not None and value.strip():
+        problem = pattern_cost_problem(value.strip())
+        if problem:
+            raise ValueError(f"table_exclude_pattern is too costly: {problem}")
+        if compile_bounded(value.strip()) is None:
+            raise ValueError("table_exclude_pattern is not a valid regular expression")
+    return value
+
+
 class AWSAthenaConfig(BaseModel):
     region: str = Field(..., title="Region", description="", json_schema_extra={"ui:type": "string"})
     database: str = Field(
@@ -1685,14 +1793,7 @@ class AWSAthenaConfig(BaseModel):
     @field_validator("table_exclude_pattern")
     @classmethod
     def _check_table_exclude_pattern(cls, value):
-        from app.utils.safe_regex import compile_bounded, pattern_cost_problem
-        if value is not None and value.strip():
-            problem = pattern_cost_problem(value.strip())
-            if problem:
-                raise ValueError(f"table_exclude_pattern is too costly: {problem}")
-            if compile_bounded(value.strip()) is None:
-                raise ValueError("table_exclude_pattern is not a valid regular expression")
-        return value
+        return validate_table_exclude_pattern(value)
 
     @model_validator(mode="after")
     def _check_database_spec(self):
@@ -3110,6 +3211,111 @@ class SharePointOnpremKerberosCredentials(BaseModel):
         return self
 
 
+# SharePoint Server lists — read-only tables over the on-premises REST API.
+class SharePointOnpremListsConfig(BaseModel):
+    site_url: str = Field(
+        ..., title="Site URL",
+        description="SharePoint Server site URL, including /sites/name (e.g. https://sharepoint.example.com/sites/finance). Not the Central Administration URL.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    lists: Optional[str] = Field(
+        "*", title="Lists",
+        description=(
+            "Lists to expose as tables: '*' (default) for every list on the site, or a "
+            "comma-separated set of list names (e.g. 'Expenses, Vendors'). Document "
+            "libraries are never included — use SharePoint Server (on-prem) for those."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    include_hidden: bool = Field(
+        False, title="Include Hidden Lists",
+        description="Also expose lists SharePoint marks as hidden (site plumbing). Usually off.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_items: int = Field(
+        20000, ge=1, le=100000, title="Max items per query",
+        description=(
+            "How many list items one query may read. SharePoint Server cannot filter "
+            "unindexed columns on lists over 5,000 items, so filters run after reading; "
+            "on a larger list, a filtered query covers this many items and says so."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_http: bool = Field(
+        False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+    @field_validator("site_url")
+    @classmethod
+    def _site_url(cls, value: str) -> str:
+        value = (value or "").strip().rstrip("/")
+        if not value.lower().startswith(("https://", "http://")):
+            raise ValueError("Site URL must start with https://")
+        return value
+
+
+# Exchange Server (on-premises) mail — read-only, over Exchange Web Services.
+class ExchangeOnpremConfig(BaseModel):
+    ews_url: str = Field(
+        ...,
+        title="Exchange server URL",
+        description=(
+            "Address of your Exchange server, e.g. https://mail.example.com. "
+            "The Exchange Web Services path (/EWS/Exchange.asmx) is added when you leave it out."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.exchangeOnprem.urlTitle",
+                           "ui:descriptionKey": "data.exchangeOnprem.urlDescription"},
+    )
+    shared_mailboxes: Optional[str] = Field(
+        None,
+        title="Shared mailboxes",
+        description=(
+            "Optional. Addresses of shared or team mailboxes to include, separated by commas, "
+            "e.g. support@example.com, sales@example.com. Exchange decides who may open each one: "
+            "people only see the mailboxes their account already has access to."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.exchangeOnprem.sharedTitle",
+                           "ui:descriptionKey": "data.exchangeOnprem.sharedDescription"},
+    )
+    include_own_mailbox: bool = Field(
+        True,
+        title="Include the account's own mailbox",
+        description=(
+            "Turn off when signing in with a service account whose own mailbox is not relevant. "
+            "The first shared mailbox then becomes the default."
+        ),
+        json_schema_extra={"ui:type": "boolean", "ui:titleKey": "data.exchangeOnprem.ownTitle",
+                           "ui:descriptionKey": "data.exchangeOnprem.ownDescription"},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)", description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.", json_schema_extra={"ui:type": "boolean"})
+
+    @model_validator(mode="after")
+    def check_mailboxes(self):
+        from app.data_sources.clients.exchange_onprem_client import normalize_ews_url, parse_shared_mailboxes
+        normalize_ews_url(self.ews_url, self.allow_http)
+        if not parse_shared_mailboxes(self.shared_mailboxes) and not self.include_own_mailbox:
+            raise ValueError("List at least one shared mailbox, or include the account's own mailbox.")
+        return self
+
+
+class ExchangeOnpremNtlmCredentials(BaseModel):
+    username: str = Field(..., min_length=1, title="Domain username", description="DOMAIN\\username or user@domain. Mail is read with this account's own permissions.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class ExchangeOnpremKerberosCredentials(BaseModel):
+    kerberos: bool = Field(True, json_schema_extra={"ui:hidden": True})
+    principal: Optional[str] = Field(None, title="Service principal", description="Optional service-account UPN. Administrators must mount krb5.conf and the client keytab (KRB5_CLIENT_KTNAME), or provide a ticket cache. This authenticates as the service account, not as the signed-in BOW user.", json_schema_extra={"ui:type": "string"})
+
+    @model_validator(mode="after")
+    def require_kerberos(self):
+        if not self.kerberos:
+            raise ValueError("Kerberos must be enabled for this authentication variant.")
+        return self
+
+
 # OpenText Documentum (Documentum REST Services, read-only file connector).
 class DocumentumConfig(BaseModel):
     rest_url: str = Field(
@@ -3316,6 +3522,230 @@ class KmsLighthouseTokenCredentials(BaseModel):
         if not KMS_TOKEN_RE.fullmatch(value):
             raise ValueError(KMS_TOKEN_FORMAT_MESSAGE)
         return value
+
+
+# Confluence Data Center / Server (on-prem wiki, read-only live file connector).
+class ConfluenceDcConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Confluence URL",
+        description=(
+            "Your Confluence Data Center or Server address, including the context path if it has one, "
+            "e.g. https://confluence.example.com or https://intranet.example.com/confluence."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    spaces: Optional[str] = Field(
+        None,
+        title="Spaces",
+        description=(
+            "Optional comma-separated space keys to limit this connection to, e.g. ENG, HR. Search, browsing "
+            "and reads never leave these spaces. Leave blank for every space the identity can see."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    include_blogposts: bool = Field(
+        True, title="Include blog posts",
+        description="Also search and list blog posts, not only pages.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_results: int = Field(
+        200, ge=1, le=1000, title="Max results",
+        description="Upper bound on pages returned by one search or listing.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for real deployments.",
+        json_schema_extra={"ui:type": "boolean"})
+    # No catalog (live only): keeps the index_mode consumers reporting "Live".
+    index_mode: str = Field("none", title="Indexing", json_schema_extra={"ui:hidden": True})
+
+    @field_validator("spaces")
+    @classmethod
+    def _space_keys(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        keys = [k for k in re.split(r"[,\s]+", str(value)) if k]
+        if not all(re.fullmatch(r"~?[A-Za-z0-9_.@-]{1,255}", k) for k in keys):
+            raise ValueError("Use space keys separated by commas, e.g. ENG, HR (the key from the space's URL).")
+        return ", ".join(keys)
+
+    @field_validator("index_mode")
+    @classmethod
+    def _live_only(cls, value):
+        if value != "none":
+            raise ValueError("Confluence connections are live only (no indexing).")
+        return value
+
+
+# Visible ASCII only: a token goes into an HTTP header as-is.
+CONFLUENCE_TOKEN_RE = re.compile(r"\A[\x21-\x7e]+\Z")
+CONFLUENCE_TOKEN_FORMAT_MESSAGE = (
+    "The Confluence personal access token can contain only plain letters, digits and punctuation, with no "
+    "spaces. Copy it again from Confluence (Profile > Personal Access Tokens) and paste it as plain text."
+)
+
+
+class ConfluenceDcTokenCredentials(BaseModel):
+    """A Confluence Data Center personal access token (7.9+), sent as a Bearer token."""
+    # A validation error must not echo the rejected token.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    personal_access_token: str = Field(..., min_length=1, title="Personal access token",
+        description="Create one in Confluence under Profile > Personal Access Tokens. It reads as that user.",
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("personal_access_token")
+    @classmethod
+    def _plain_token(cls, value):
+        value = value.strip()
+        if not CONFLUENCE_TOKEN_RE.fullmatch(value):
+            raise ValueError(CONFLUENCE_TOKEN_FORMAT_MESSAGE)
+        return value
+
+
+class ConfluenceDcUserPassCredentials(BaseModel):
+    """A Confluence username and password, sent as HTTP Basic."""
+    # A validation error must not echo the rejected input (it may be the password).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    username: str = Field(..., min_length=1, title="Username",
+        description="Confluence username.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password",
+        description=("Confluence password. Sites that sign in through SSO usually refuse passwords on the API: "
+                     "use a personal access token there."),
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("username", "password")
+    @classmethod
+    def _not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a value, not only spaces.")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _trim_username(cls, value):
+        return value.strip()
+
+
+# Jira Data Center / Server (on-prem issue tracker: tables + issues as documents, read-only, live).
+JIRA_DC_TABLES = (
+    "issues", "issue_changelog", "issue_comments", "worklogs", "issue_links", "attachments",
+    "projects", "versions", "components", "boards", "sprints",
+    "statuses", "priorities", "resolutions", "issue_types", "fields",
+)
+
+
+class JiraDcConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Jira URL",
+        description=(
+            "Your Jira Data Center or Server address, including the context path if it has one, "
+            "e.g. https://jira.example.com or https://intranet.example.com/jira."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    projects: Optional[str] = Field(
+        None,
+        title="Projects",
+        description=(
+            "Optional comma-separated project keys to limit this connection to, e.g. OPS, HR. Every query, "
+            "search and read stays inside these projects. Leave blank for every project the identity can see."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    tables: Optional[str] = Field(
+        None,
+        title="Tables",
+        description=(
+            "Optional comma-separated subset of tables to expose. Leave blank for all: "
+            + ", ".join(JIRA_DC_TABLES) + "."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    max_rows: int = Field(
+        2000, ge=1, le=10000, title="Max rows",
+        description="Upper bound on rows one query returns. Filter with JQL (a project and a date range) to stay under it.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    include_issue_documents: bool = Field(
+        True, title="Read issues as documents",
+        description="Let the agent search issues and read one issue (description, comments, links) as a document.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for real deployments.",
+        json_schema_extra={"ui:type": "boolean"})
+
+    @field_validator("projects")
+    @classmethod
+    def _project_keys(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        keys = [k for k in re.split(r"[,\s]+", str(value)) if k]
+        if not all(re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,254}", k) for k in keys):
+            raise ValueError("Use project keys separated by commas, e.g. OPS, HR (the key in an issue key like OPS-123).")
+        return ", ".join(k.upper() for k in keys)
+
+    @field_validator("tables")
+    @classmethod
+    def _table_names(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        names = [t.strip().lower() for t in re.split(r"[,\s]+", str(value)) if t.strip()]
+        unknown = [t for t in names if t not in JIRA_DC_TABLES]
+        if unknown:
+            raise ValueError("Unknown table(s): " + ", ".join(unknown) + ". Choose from: " + ", ".join(JIRA_DC_TABLES) + ".")
+        return ", ".join(names)
+
+
+JIRA_TOKEN_FORMAT_MESSAGE = (
+    "The Jira personal access token can contain only plain letters, digits and punctuation, with no spaces. "
+    "Copy it again from Jira (Profile > Personal Access Tokens) and paste it as plain text."
+)
+
+
+class JiraDcTokenCredentials(BaseModel):
+    """A Jira Data Center personal access token (8.14+), sent as a Bearer token."""
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    personal_access_token: str = Field(..., min_length=1, title="Personal access token",
+        description="Create one in Jira under Profile > Personal Access Tokens. It reads as that user.",
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("personal_access_token")
+    @classmethod
+    def _plain_token(cls, value):
+        value = value.strip()
+        if not CONFLUENCE_TOKEN_RE.fullmatch(value):
+            raise ValueError(JIRA_TOKEN_FORMAT_MESSAGE)
+        return value
+
+
+class JiraDcUserPassCredentials(BaseModel):
+    """A Jira username and password, sent as HTTP Basic."""
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    username: str = Field(..., min_length=1, title="Username",
+        description="Jira username.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password",
+        description=("Jira password. Sites that sign in through SSO usually refuse passwords on the API: "
+                     "use a personal access token there."),
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("username", "password")
+    @classmethod
+    def _not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a value, not only spaces.")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _trim_username(cls, value):
+        return value.strip()
 
 
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
@@ -3594,7 +4024,43 @@ class OutlookMailConfig(BaseModel):
 class TeamsMessagesConfig(BaseModel):
     """Microsoft Teams needs no admin-side scope: each user's Microsoft sign-in
     decides which channels and chats are visible, and messages are always
-    searched live (nothing is copied into BOW)."""
+    searched live (nothing is copied into BOW).
+
+    ``allowed_post_channels`` only matters once a connection admin turns on
+    the post_message action: posts may then go only to these channels."""
+    allowed_post_channels: Optional[str] = Field(
+        None,
+        title="Channels agents may post to",
+        description=("Comma- or newline-separated channel names (e.g. 'SOC › Alerts' or 'Alerts') or "
+                     "channel ids. Empty: any channel the signed-in user can post in."),
+        json_schema_extra={"ui:type": "textarea"},
+    )
+
+
+# Slack
+class SlackCredentials(BaseModel):
+    """The organization's own internal Slack app. Each user then signs in with
+    Slack and BOW reads with that user's token, so they see only their own
+    channels and DMs."""
+    oauth_client_id: str = Field(
+        ...,
+        title="Slack App Client ID",
+        description="From your Slack app's Basic Information page (api.slack.com/apps).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_secret: str = Field(
+        ...,
+        title="Slack App Client Secret",
+        description="From your Slack app's Basic Information page.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class SlackMessagesConfig(BaseModel):
+    """Slack needs no admin-side configuration: each user's own sign-in decides
+    which channels and DMs are visible, and messages are always read live.
+    Which channels an AGENT reads is set per agent (the agent's Slack
+    "Channels" picker, stored in data_source_connection_settings)."""
     pass
 
 
@@ -3999,6 +4465,22 @@ class QlikSenseConfig(BaseModel):
         title="Space Filter",
         description="Optional comma-separated list of space IDs or names. If empty, all visible spaces are crawled.",
         json_schema_extra={"ui:type": "string"},
+    )
+
+    app_filter: Optional[str] = Field(
+        None,
+        title="App Filter",
+        description="Optional comma-separated app names or IDs within the selected spaces. Use IDs for names containing commas.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.qlikOnPrem.appFilterTitle",
+                           "ui:descriptionKey": "data.qlikCloud.appFilterDescription"},
+    )
+    max_concurrency: int = Field(
+        4, ge=1, le=4,
+        title="Concurrent Apps",
+        description="Maximum apps opened at once during indexing (1–4). Choose 1 for large apps.",
+        json_schema_extra={"ui:type": "select", "ui:options": [1, 2, 3, 4],
+                           "ui:titleKey": "data.qlikOnPrem.concurrencyTitle",
+                           "ui:descriptionKey": "data.qlikOnPrem.concurrencyDescription"},
     )
 
 
@@ -5114,6 +5596,7 @@ __all__ = [
     "AWSCostCredentials",
     "AWSAthenaCredentials",
     "AWSAthenaDefaultCredentials",
+    "BigQueryDefaultCredentials",
     "VerticaCredentials",
     "AwsRedshiftCredentials",
     "TableauCredentials",

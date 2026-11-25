@@ -2,14 +2,27 @@
 // boundaries replaced. No server or database is required.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import ts from 'typescript'
+
+// The frame's payload helpers (utils/artifactFramePayload.ts), as it imports them.
+const framePayload = { exports: {} }
+new Function('exports', 'module', 'require', ts.transpileModule(
+  fs.readFileSync(new URL('../../utils/artifactFramePayload.ts', import.meta.url), 'utf8'),
+  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
+)(framePayload.exports, framePayload, createRequire(import.meta.url))
+const rowCounts = { exports: {} }
+new Function('exports', 'module', ts.transpileModule(
+  fs.readFileSync(new URL('../../utils/artifactRowCounts.ts', import.meta.url), 'utf8'),
+  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
+)(rowCounts.exports, rowCounts)
 
 const path = new URL('../../components/dashboard/ArtifactFrame.vue', import.meta.url)
 const source = fs.readFileSync(process.env.ARTIFACT_FRAME_SOURCE || path, 'utf8')
 const script = source.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
 const ast = ts.createSourceFile('frame.ts', script, ts.ScriptTarget.Latest, true)
-const functions = new Set(['paramSubsetForQuery', 'runParamQueries', 'sendDataToIframe'])
+const functions = new Set(['paramSubsetForQuery', 'runParamQueries', 'sendDataToIframe', 'replaceVisualizationsData'])
 const selected = ast.statements.filter(s =>
   ts.isFunctionDeclaration(s) && functions.has(s.name?.text) ||
   ts.isVariableStatement(s) && s.declarationList.declarations.some(d => d.name.getText(ast) === 'verificationRequests'))
@@ -29,7 +42,7 @@ const state = {
   reportData:{value:{}},filesData:{value:[]},effectiveViewerContext:{value:{}},
   window:{location:{origin:'https://preview.test'}},console:{log(){},error(){}},
   iframeRef:{value:{contentWindow:{postMessage(m){messages.push(m)}}}},
-  toRaw:v=>v, paramsPayload:()=>({}),artifactRuntime:()=>({}),syncParamsToUrl(){},postParamsStatus(){},
+  toRaw:v=>v, ...framePayload.exports, ...rowCounts.exports, paramsPayload:()=>({}),artifactRuntime:()=>({}),tableLayoutKey:()=>'',loadTableLayouts:()=>({}),syncParamsToUrl(){},postParamsStatus(){},
   logActivity:null,previewConversationPolicy:null,verificationEvent:(kind,fields)=>events.push({kind,...fields}),useMyFetch:(...args)=>respond(...args),
 }
 vm.createContext(state)

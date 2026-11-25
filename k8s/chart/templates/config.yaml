@@ -42,6 +42,13 @@ data:
   BOW_ALLOW_UNINVITED_SIGNUPS: {{ .Values.config.allowUninvitedSignups | quote }}
   BOW_ALLOW_MULTIPLE_ORGANIZATIONS: {{ .Values.config.allowMultipleOrganizations | quote }}
   BOW_VERIFY_EMAILS: {{ .Values.config.verifyEmails | quote }}
+  {{- if .Values.config.superuserEmails }}
+  BOW_SUPERUSER_EMAILS: {{ join "," .Values.config.superuserEmails | quote }}
+  {{- end }}
+
+  # Settings → System logs: off unless turned on; log files on the uploads volume (see values.yaml).
+  BOW_SYSTEM_LOGS_ENABLED: {{ .Values.systemLogs.enabled | default false | quote }}
+  BOW_SYSTEM_LOGS_DIR: {{ .Values.systemLogs.directory | default "/app/backend/uploads/system-logs" | quote }}
 
   # File storage (secrets such as S3 keys / Azure client secret come from config.secretRef)
   {{- with .Values.storage }}
@@ -67,6 +74,14 @@ data:
   {{- end }}
   {{- end }}
   {{- end }}
+  {{- end }}
+
+  # PII detection service (names / locations): an external analyzer URL wins;
+  # otherwise the bundled Presidio analyzer when pii.presidio.enabled.
+  {{- if .Values.pii.presidio.url }}
+  BOW_PII_PRESIDIO_URL: {{ .Values.pii.presidio.url | quote }}
+  {{- else if .Values.pii.presidio.enabled }}
+  BOW_PII_PRESIDIO_URL: {{ printf "http://%s-presidio.%s.svc:3000" (include "bowapp.name" .) .Release.Namespace | quote }}
   {{- end }}
 
   # Sensitive values: emit to ConfigMap only when set as a literal (not a ${VAR} placeholder).
@@ -165,6 +180,12 @@ data:
 
     auth:
       mode: ${BOW_AUTH_MODE}
+{{- with .Values.config.security }}
+
+    # Server-wide security settings, passed through as written.
+    security:
+{{ toYaml . | indent 6 }}
+{{- end }}
 
     google_oauth:
       enabled: ${BOW_GOOGLE_AUTH_ENABLED}
@@ -272,6 +293,21 @@ data:
         sync_groups: {{ default false $p.syncGroups }}
         group_claim: {{ default "groups" $p.groupClaim | quote }}
         resolve_group_names: {{ default false $p.resolveGroupNames }}
+{{- if not (kindIs "invalid" $p.trustEmailForLinking) }}
+        trust_email_for_linking: {{ $p.trustEmailForLinking }}
+{{- end }}
+{{- if $p.orgMapping }}
+        org_mapping:
+{{- range $rule := $p.orgMapping }}
+{{- if kindIs "string" $rule }}
+          - {{ $rule | quote }}
+{{- else }}
+          - group: {{ required "config.oidcProviders[].orgMapping[].group is required" $rule.group | quote }}
+            organization: {{ required "config.oidcProviders[].orgMapping[].organization is required" $rule.organization | quote }}
+            role: {{ default "member" $rule.role | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- else }}
       []

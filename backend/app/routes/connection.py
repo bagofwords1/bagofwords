@@ -20,7 +20,7 @@ from app.models.connection_table import ConnectionTable, KIND_BOW, KIND_TABLE
 from app.models.connection_tool import ConnectionTool
 from app.models.data_source import DataSource
 from app.dependencies import get_current_organization
-from app.services.connection_service import ConnectionService
+from app.services.connection_service import ConnectionService, connectors_deleted_with
 from app.services.ssh_host_keys import SSHHostKeyRequest, discover_host_keys
 from app.core.permissions_decorator import (
     requires_permission, requires_resource_permission, check_resource_permissions, require_org_permission,
@@ -59,6 +59,9 @@ from app.schemas.custom_query_schema import (
     CustomQueryRlsUpdate,
     CustomQuerySchema,
     RlsPrincipal,
+    CustomQueryCapability,
+    CustomQueryFromResult,
+    CustomQueryProgress,
     CustomQueryTarget,
     CustomTableRunDetail,
     CustomTableRunList,
@@ -150,8 +153,8 @@ async def _user_can_access_connection(
     from app.core.permission_resolver import user_can_access_data_source
     org_id = str(connection.organization_id) if getattr(connection, 'organization_id', None) else None
     for ds in (connection.data_sources or []):
-        if getattr(ds, "is_public", False):
-            return True
+        # Public data sources are open to members of the owning organization
+        # only; user_can_access_data_source enforces that binding.
         if org_id and await user_can_access_data_source(db, str(user.id), org_id, ds):
             return True
     return False
@@ -536,6 +539,9 @@ async def get_connection(
                     "user", "username", "principal", "oauth_tenant_id", "oauth_client_id",
                     # Qlik on-prem: which account the certificate acts as.
                     "user_directory", "user_id",
+                    # Keyless Google auth: which service account is impersonated,
+                    # and the marker, so an unchanged form sends no credentials.
+                    "target_service_account", "use_application_default_credentials",
                     # What DCR discovery derived from the server, so the edit
                     # form can show "Detected: …" next to the override field.
                     "discovered_scopes", "scopes_source",
@@ -577,6 +583,7 @@ async def get_connection(
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         agent_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
+        connectors_deleted_with_it=[name for _, name in await connectors_deleted_with(db, connection)],
         has_credentials=has_credentials,
         management_auth="user" if personal_management else "system",
         last_connection_status=None if personal_management else connection.last_connection_status,
@@ -709,7 +716,8 @@ async def delete_connection(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Delete a connection. Fails if connection is linked to any agents."""
+    """Delete a connection. Agents linked to it are unlinked and kept; one that
+    had no other connection is left with none."""
     return await connection_service.delete_connection(
         db=db,
         connection_id=connection_id,
@@ -1595,11 +1603,16 @@ async def list_custom_queries(
     await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     rows = await custom_query_service.list_custom_queries(db, str(connection.id))
+    # Only tables with a refresh in flight are looked up, so the common case
+    # (nothing running) costs no extra query.
+    busy = [r.id for r in rows if r.last_refresh_status in ("pending", "running")]
+    live = await custom_table_runs.live_progress(db, busy) if busy else {}
     return [
         CustomQuerySchema.from_model(
             r,
             await _active_agent_count(db, r.id),
             next_run_at=custom_query_service.next_run_at(str(r.id)),
+            refresh_progress=live.get(str(r.id)),
         )
         for r in rows
     ]
@@ -1621,6 +1634,8 @@ async def preview_custom_query(
     return await custom_query_service.preview(
         db, connection, payload.definition_sql, current_user, target=payload.target,
         refresh_config=payload.refresh_config.model_dump() if payload.refresh_config else None,
+        schedule=payload.model_dump(
+            include={"refresh_schedule_mode", "refresh_interval_minutes", "refresh_at_time"}),
     )
 
 
@@ -1637,6 +1652,71 @@ async def list_custom_query_targets(
     await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     return await custom_query_service.list_targets(db, connection)
+
+
+@router.get("/{connection_id}/custom-queries/capability", response_model=CustomQueryCapability)
+@requires_resource_permission('connection', 'manage_connection')
+async def custom_query_capability(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Whether this connection can host a custom table right now. For callers
+    deciding whether to offer one (the result card's "save as cached table"):
+    answered from the connection alone, so a connection admin gets an answer
+    without also managing an agent that uses it."""
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    try:
+        await custom_query_service.ensure_enabled(db, organization)
+    except HTTPException:
+        # Switched off for the organization: an answer, not an error, so the
+        # caller simply does not offer the action.
+        return custom_query_service.capability(connection, enabled=False)
+    return custom_query_service.capability(connection, enabled=True)
+
+
+@router.get("/{connection_id}/custom-queries/progress", response_model=CustomQueryProgress)
+@requires_resource_permission('connection', 'manage_connection')
+async def custom_query_progress(
+    connection_id: str,
+    name: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """One custom table's load state, by name. What a saving dialog polls: its
+    cost does not grow with the number of custom tables on the connection."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    return await custom_query_service.progress_of(db, str(connection.id), name)
+
+
+@router.get("/{connection_id}/custom-queries/from-result/{tool_execution_id}",
+            response_model=CustomQueryFromResult)
+@requires_resource_permission('connection', 'manage_connection')
+async def custom_query_from_result(
+    connection_id: str,
+    tool_execution_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """The query behind a result the agent produced, to start a custom table
+    from ("save as cached table"). Nothing is created here."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    definition = await custom_query_service.definition_from_result(
+        db, connection, organization, current_user, tool_execution_id)
+    return CustomQueryFromResult(definition_sql=definition)
+
+
+def _column_edits(payload):
+    """The admin's column edits as plain dicts holding only the fields that
+    were actually sent, or None when the payload does not carry any."""
+    if payload.columns is None:
+        return None
+    return [c.model_dump(exclude_unset=True) for c in payload.columns]
 
 
 @router.post("/{connection_id}/custom-queries", response_model=CustomQuerySchema)
@@ -1664,6 +1744,7 @@ async def create_custom_query(
         target=payload.target,
         refresh_mode=payload.refresh_mode,
         refresh_config=payload.refresh_config.model_dump(exclude_unset=True) if payload.refresh_config else None,
+        columns=_column_edits(payload),
     )
     try:
         await audit_service.log(
@@ -1706,6 +1787,7 @@ async def update_custom_query(
         organization_timezone=await custom_query_service._org_timezone(db, organization),
         refresh_mode=payload.refresh_mode,
         refresh_config=payload.refresh_config.model_dump(exclude_unset=True) if payload.refresh_config else None,
+        columns=_column_edits(payload),
         **({"target": payload.target} if "target" in payload.model_fields_set else {}),
     )
     try:
@@ -1937,6 +2019,22 @@ async def preview_custom_query_as_user(
 
 # ==================== Tool Management Routes (MCP / Custom API) ====================
 
+
+def _tool_schema(t) -> ConnectionToolSchema:
+    return ConnectionToolSchema(
+        id=str(t.id),
+        name=t.name,
+        description=t.description,
+        is_enabled=t.is_enabled,
+        policy=t.policy,
+        policy_locked=bool(getattr(t, "policy_locked", False)),
+        effect=getattr(t, "effect", None),
+        source=getattr(t, "source", None),
+        connection_id=str(t.connection_id),
+        input_schema=t.input_schema,
+        output_schema=t.output_schema,
+    )
+
 @router.post("/{connection_id}/refresh-tools", response_model=List[ConnectionToolSchema])
 @requires_resource_permission('connection', 'manage_connection')
 async def refresh_connection_tools(
@@ -1949,16 +2047,7 @@ async def refresh_connection_tools(
     connection = await connection_service.get_connection(db, connection_id, organization)
     tools = await connection_service.refresh_tools(db, connection, current_user)
     return [
-        ConnectionToolSchema(
-            id=str(t.id),
-            name=t.name,
-            description=t.description,
-            is_enabled=t.is_enabled,
-            policy=t.policy,
-            connection_id=str(t.connection_id),
-            input_schema=t.input_schema,
-            output_schema=t.output_schema,
-        )
+        _tool_schema(t)
         for t in tools
     ]
 
@@ -1974,19 +2063,52 @@ async def get_connection_tools_list(
     connection = await connection_service.get_connection(db, connection_id, organization)
     await _ensure_can_read_connection(db, organization, current_user, connection)
     tools = await connection_service.get_connection_tools(db, connection_id)
+    # A built-in action the code no longer has stays as a switched-off row
+    # (history points at it) but is not offered for management.
     return [
-        ConnectionToolSchema(
-            id=str(t.id),
-            name=t.name,
-            description=t.description,
-            is_enabled=t.is_enabled,
-            policy=t.policy,
-            connection_id=str(t.connection_id),
-            input_schema=t.input_schema,
-            output_schema=t.output_schema,
-        )
+        _tool_schema(t)
         for t in tools
+        if not (t.metadata_json or {}).get("stale")
     ]
+
+
+@router.get("/{connection_id}/tools/permissions")
+async def get_connection_tool_permissions(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Which permissions each built-in write action is missing for the caller.
+
+    Reads the scopes on the token the caller's calls would use (their own
+    Microsoft sign-in, or the connection's app). ``known`` is False when no
+    token is available yet (not signed in) or it cannot be read; nothing is
+    refused on that basis — the call itself reports the provider's answer.
+    """
+    import asyncio
+    from app.data_sources.clients.connector_actions import (
+        NATIVE_ACTION_TYPES, actions_for_type, missing_scopes,
+    )
+    from app.errors.redact import redact_error
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, current_user, connection)
+    if connection.type not in NATIVE_ACTION_TYPES:
+        return {"known": False, "granted": [], "missing": {}}
+    try:
+        client = await connection_service.construct_client(db, connection, current_user)
+        if hasattr(client, "_token"):
+            await asyncio.to_thread(client._token)
+        granted = client.granted_scopes() if hasattr(client, "granted_scopes") else None
+    except Exception as e:
+        return {"known": False, "granted": [], "missing": {}, "reason": redact_error(e)[:200]}
+    if granted is None:
+        return {"known": False, "granted": [], "missing": {}}
+    return {
+        "known": True,
+        "granted": sorted(granted),
+        "missing": {a.name: missing_scopes(a, granted) for a in actions_for_type(connection.type)},
+    }
 
 
 @router.put("/{connection_id}/tools/batch", response_model=List[ConnectionToolSchema])
@@ -2014,16 +2136,7 @@ async def batch_update_connection_tools(
     except Exception:
         pass
     return [
-        ConnectionToolSchema(
-            id=str(t.id),
-            name=t.name,
-            description=t.description,
-            is_enabled=t.is_enabled,
-            policy=t.policy,
-            connection_id=str(t.connection_id),
-            input_schema=t.input_schema,
-            output_schema=t.output_schema,
-        )
+        _tool_schema(t)
         for t in tools
     ]
 
@@ -2043,27 +2156,19 @@ async def update_tool(
     await connection_service.get_connection(db, connection_id, organization)
     tool = await connection_service.update_connection_tool(
         db, tool_id, is_enabled=data.is_enabled, policy=data.policy,
-        connection_id=str(connection_id),
+        policy_locked=data.policy_locked, connection_id=str(connection_id),
     )
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="connection.tool_updated",
             user_id=current_user.id, resource_type="connection", resource_id=str(connection_id),
-            details={"tool_id": str(tool_id), "is_enabled": data.is_enabled, "policy": data.policy},
+            details={"tool_id": str(tool_id), "is_enabled": data.is_enabled, "policy": data.policy,
+                     "policy_locked": data.policy_locked},
             request=request,
         )
     except Exception:
         pass
-    return ConnectionToolSchema(
-        id=str(tool.id),
-        name=tool.name,
-        description=tool.description,
-        is_enabled=tool.is_enabled,
-        policy=tool.policy,
-        connection_id=str(tool.connection_id),
-        input_schema=tool.input_schema,
-        output_schema=tool.output_schema,
-    )
+    return _tool_schema(tool)
 
 
 # ── Queries view: what BOW is running / has run on this connection ──────────

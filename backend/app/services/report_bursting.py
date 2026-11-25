@@ -147,6 +147,7 @@ async def classify_recipients(
         select(User.id, User.email)
         .join(Membership, Membership.user_id == User.id)
         .where(Membership.organization_id == org_id)
+        .where(Membership.deleted_at.is_(None))
     )
     uids = [str(u) for u in user_ids if u]
     if uids:

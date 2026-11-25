@@ -1,5 +1,6 @@
 """MCP Tool: create_report - Creates a new analysis session (report)."""
 
+import logging
 from typing import Dict, Any, List
 
 from fastapi import HTTPException
@@ -12,6 +13,8 @@ from app.services.report_service import ReportService
 from app.services.data_source_service import DataSourceService
 from app.schemas.report_schema import ReportCreate
 from app.settings.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _ids(value) -> List[str]:
@@ -48,6 +51,65 @@ async def report_scope(db, organization, user, report) -> Dict[str, Any]:
     return {"mode": mode, "folders": folders, "hidden_folder_count": hidden, "pinned_agent_ids": pinned_ids}
 
 
+# At most this many folders are reported as missing from a report's scope.
+MISSING_FOLDER_RULES_LIMIT = 20
+
+
+async def missing_folder_rules(db, organization, user, report, agents) -> List[Dict[str, Any]]:
+    """Folders whose live rules this report does NOT apply, though it uses
+    agents filed in them.
+
+    Folder rules apply only in reports scoped to that folder. A report pinned
+    to an agent (or a title-only report, which pins every agent) runs without
+    the rules of the agent's folder, and nothing else tells the client. Only
+    folders the caller can query (the folder ``view`` right) are named, so a
+    direct grant on one agent reveals nothing about its folder.
+    """
+    from sqlalchemy import select
+    from app.models.folder import folder_instructions
+    from app.models.report import report_folder_ids
+    from app.services.folder_knowledge import readable_folder_rules
+    from app.services.folder_service import browsable_folder_tree, folder_path
+
+    selected = set(report_folder_ids(report))
+    homes: Dict[str, List[str]] = {}
+    for a in agents or []:
+        home = getattr(a, "folder_id", None)
+        if home and home not in selected:
+            homes.setdefault(home, []).append(str(a.id))
+    if not homes:
+        return []
+    # One query for the folders that have any rule attached: a title-only
+    # report spans every agent, and most folders have none to load.
+    with_rules = set(await db.scalars(
+        select(folder_instructions.c.folder_id).where(folder_instructions.c.folder_id.in_(homes)).distinct()
+    ))
+    if not with_rules:
+        return []
+    tree, rights = await browsable_folder_tree(db, organization, user)
+    out = []
+    for fid in sorted(with_rules, key=lambda f: folder_path(tree, f).lower() if f in tree else ""):
+        if fid not in tree or not rights.has_resource_permission("folder", fid, "view"):
+            continue
+        rules = await readable_folder_rules(db, organization, user, fid)
+        if rules:
+            out.append({"folder_id": fid, "path": folder_path(tree, fid), "rule_count": len(rules),
+                        "agent_ids": homes[fid]})
+        if len(out) >= MISSING_FOLDER_RULES_LIMIT:
+            break
+    return out
+
+
+def missing_folder_rules_hint(missing: List[Dict[str, Any]]) -> str:
+    paths = ", ".join(f"{m['path']} ({m['rule_count']})" for m in missing)
+    return (
+        f"Rules attached to these folders do NOT apply in this report: {paths}. Folder rules apply only "
+        "in reports scoped to the folder. If the user's question is about these agents, create the report "
+        "with agent_folder_ids set to these folder ids (keep data_source_ids for any other agents) so the "
+        "folder's rules are followed."
+    )
+
+
 class CreateReportTool(MCPTool):
     """Create a new analysis session (report).
 
@@ -62,7 +124,10 @@ class CreateReportTool(MCPTool):
         "Use that report_id in all subsequent create_data, inspect_data, and get_context calls. "
         "With only a title, the report uses every agent you can access. To scope it, pass "
         "agent_folder_ids (a folder covers every agent in its branch) and/or data_source_ids "
-        "(single agents) — find the ids with browse_agents."
+        "(single agents) — find the ids with browse_agents. Rules attached to a folder apply "
+        "only in reports scoped to that folder: when the user's agents live in a folder, scope by "
+        "the folder. The response lists missing_folder_rules when the report uses agents whose "
+        "folder rules it does not apply."
     )
 
     @property
@@ -122,6 +187,20 @@ class CreateReportTool(MCPTool):
             usable = {str(ds.id): ds for ds in data_sources}
             unknown = [i for i in picked_ids if i not in usable]
             if unknown:
+                # An agent the user can use once they sign in is not "not
+                # found": say what is missing, by name. Anything else stays
+                # undisclosed.
+                connectable = {
+                    str(ds.id): ds.name for ds in await ds_service.get_active_data_sources(
+                        db, organization, current_user=user, include_unconnected=True, channel="mcp"
+                    )
+                }
+                needs_signin = [connectable[i] for i in unknown if i in connectable]
+                if needs_signin:
+                    raise ValueError(
+                        f"Sign-in required for: {', '.join(needs_signin)}. The user must connect their own "
+                        "account to it in Bag of Words (agent selector, Connect), then retry."
+                    )
                 raise ValueError(
                     f"Agent(s) not found or not available to you: {', '.join(unknown)}. "
                     "Use browse_agents to find the agents you can use."
@@ -173,6 +252,7 @@ class CreateReportTool(MCPTool):
             if picked_ids:
                 result["scope"] = {"mode": "agents", "folders": [], "hidden_folder_count": 0,
                                    "pinned_agent_ids": [str(ds.id) for ds in attached]}
+            await self._add_missing(result, db, organization, user, report, attached)
             return result
 
         # Folder scope: report what the run will actually use — the folders'
@@ -187,5 +267,22 @@ class CreateReportTool(MCPTool):
              "folder_path": paths.get(str(ds.id))}
             for ds in effective
         ]
+        await self._add_missing(result, db, organization, user, loaded, effective)
         await db.commit()
         return result
+
+    @staticmethod
+    async def _add_missing(result: Dict[str, Any], db, organization, user, report, agents) -> None:
+        """Add the missing-folder-rules note. It is advice: the report already
+        exists, so a failure here must not fail the call (the client would
+        retry and create a second report). Runs in a savepoint so a failed
+        read leaves the caller's transaction usable."""
+        try:
+            async with db.begin_nested():
+                missing = await missing_folder_rules(db, organization, user, report, agents)
+        except Exception:
+            logger.exception("create_report: listing missing folder rules failed")
+            return
+        if missing:
+            result["missing_folder_rules"] = missing
+            result["missing_folder_rules_hint"] = missing_folder_rules_hint(missing)

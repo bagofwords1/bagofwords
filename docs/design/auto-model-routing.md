@@ -197,6 +197,17 @@ disclosed as a `route_model` step with `cause: "decision"`. Anything else
 The decision call is recorded on scope `model_routing.decision`, never as a
 routed call, and its cost is netted out of the savings KPI.
 
+**The decision model follows model access.** It reads the user's request, so
+it is held to the same rule as any model they chat with
+(`model_router.user_may_use_model`): a user who may not use it (e.g. it is
+restricted to Finance and they are in Marketing) skips the decision step
+(reason `decision_model_not_allowed`) and starts on the small model. The MCP
+tool-safety judge, which reuses the router's decision model, falls back to the
+small model the same way. The routing candidates were already filtered per
+user, so the router never offers a model a user can't use; per-group routing
+is therefore done with model access, not a per-group switch. See
+`docs/feedback-loops/llm-delegation.md`.
+
 Implementation and evidence: `backend/app/ai/llm/decisions.py`,
 `backend/app/ai/model_router.py` (`decide_starting_model`),
 `docs/feedback-loops/2026-11-14-decision-model-routing.md`.

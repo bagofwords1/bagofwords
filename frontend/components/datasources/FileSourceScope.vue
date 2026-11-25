@@ -96,7 +96,9 @@ const isKms = (c: any) => c.type === 'kms_lighthouse'
 const baseOf = (c: any) => {
   const g = cfg(c)
   if (c.type === 'sharepoint_onprem') return [g.site_url, g.drive_name, g.folder_path].filter(Boolean).join(' / ')
+  if (c.type === 'exchange_onprem') return [g.ews_url, g.shared_mailboxes].filter(Boolean).join(' / ')
   if (c.type === 'documentum') return [g.rest_url, g.repository, g.root_path].filter(Boolean).join(' / ')
+  if (c.type === 'confluence_dc') return [g.base_url, g.spaces].filter(Boolean).join(' / ')
   // Root folder 0 is a real folder id: test for blank, not truthiness (as the backend builder does).
   if (c.type === 'kms_lighthouse') {
     const root = g.root_folder_id != null && g.root_folder_id !== '' ? 'folder ' + g.root_folder_id : ''

@@ -20,6 +20,7 @@ from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, Frozen
 from app.ai.http.safe_client import SafeHttpClient
 from app.ai.data_visibility import allow_llm_see_data, cut_before_value, names_only_structure, redact_error_text
 from app.ai.code_execution.sandbox.config import MODE_INPROCESS, sandbox_mode
+from app.ai.code_execution.sandbox.search_results import exec_dataframe_code
 from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exported
     # READ_TEXT_* and _build_read_text stay importable from this module: tests
     # and callers reference them here, the sandbox child imports them from
@@ -1166,6 +1167,14 @@ class QueryCapturingClientWrapper:
                     "rows": rows,
                     "result_bytes": result_bytes,
                     "sql": capture[:500] if isinstance(capture, str) else None,
+                    # Which connection answered, so the result's viewer can
+                    # offer to cache this query on that connection.
+                    "client_key": self._client_key or getattr(self._original, "_bow_client_key", None),
+                    "connection_id": self._connection_id(),
+                    "data_source_id": (
+                        str(getattr(self._original, "_bow_data_source_id", None))
+                        if getattr(self._original, "_bow_data_source_id", None) else None
+                    ),
                 }
                 _attrs = getattr(result, "attrs", None)
                 sent = _attrs.get(SENT_REQUEST_ATTR) if isinstance(_attrs, dict) else None
@@ -1736,6 +1745,12 @@ class StreamingCodeExecutor:
                 captured_column_titles=_column_titles,
                 query_attribution=query_attribution,
             )
+            # Keys the clients had before their agent or connection was
+            # renamed: saved code that spells an old name still reaches them
+            # by direct lookup, while iteration sees each client once.
+            from app.ai.code_execution.sandbox.namespace import ClientsDict
+            from app.services.client_keys import former_key_map
+            wrapped_clients = ClientsDict(wrapped_clients, former_key_map(ds_clients))
 
             # Inject a sync HTTP client when the org allows web fetch in code.
             # The client owns concurrency internally so model code never
@@ -1824,6 +1839,8 @@ class StreamingCodeExecutor:
             loadables=loadables,
             params=params,
             client_keys=[str(k) for k in (wrapped_clients or {}).keys()],
+            search_summaries=any(getattr(c, "search_summary_results", False) is True for c in wrapped_clients.values()),
+            client_aliases=dict(getattr(wrapped_clients, "former", None) or {}),
             http_enabled=http_client is not None,
             load_step_enabled=load_step_enabled,
             lists_enabled=lists_sink is not None,
@@ -1892,7 +1909,9 @@ class StreamingCodeExecutor:
             with _tracer.start_as_current_span("code_execution.stdout_lock") as lock_span:
                 lock_span.set_attribute("code_execution.lock_wait_ms", round((capture_started_at - wait_started) * 1000.0, 3))
                 lock_span.set_attribute("code_execution.code_chars", len(code or ""))
-                exec(code, local_namespace)
+                exec_dataframe_code(code, local_namespace, search_summaries=any(
+                    getattr(c, "search_summary_results", False) is True for c in wrapped_clients.values()
+                ))
                 generate_df = local_namespace.get('generate_df')
                 if not generate_df:
                     raise Exception("No generate_df function found in code")

@@ -37,7 +37,7 @@
                         <div class="flex flex-col items-start py-0.5">
                             <div class="flex items-center gap-2">
                                 <span class="font-medium">{{ selectedOption?.label }}</span>
-                                <span v-if="selectedOption?.recommended" class="text-2xs font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                <span v-if="selectedOption?.recommended" class="text-2xs font-medium px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
                                     Recommended
                                 </span>
                             </div>
@@ -48,7 +48,7 @@
                         <div class="py-1.5">
                             <div class="flex items-center gap-2">
                                 <p class="text-sm font-medium text-gray-900 dark:text-white">{{ option.label }}</p>
-                                <span v-if="option.recommended" class="text-2xs font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                <span v-if="option.recommended" class="text-2xs font-medium px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
                                     Recommended
                                 </span>
                             </div>

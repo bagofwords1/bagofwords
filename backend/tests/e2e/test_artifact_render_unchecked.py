@@ -212,3 +212,32 @@ def test_a_page_that_takes_only_react_exports_is_saved_as_written(report, browse
     assert payload["output"].get("artifact_id"), payload
     assert code in _run(_latest_code(report))
     assert "warnings" not in payload["observation"]
+
+
+@pytest.mark.e2e
+def test_invalid_jsx_fails_creation_without_chromium(report, monkeypatch):
+    monkeypatch.setenv("BOW_CHROMIUM_EXECUTABLE", "/missing/chromium")
+    viz = _run(_seed_viz(report))
+    code = _page(viz)
+    invalid = '<h1 data-count={1 + }>Example</h1>'
+    payload = _run(_tool_end(CreateArtifactTool(), report, {
+        "prompt": "build", "title": "Sales", "mode": "page",
+        "code": code.replace("<h1>Sales</h1>", invalid), "visualization_ids": [viz],
+    }))
+    assert payload["output"]["success"] is False
+    assert payload["observation"]["error"]["type"] == "parse_error"
+
+
+@pytest.mark.e2e
+def test_invalid_edit_preserves_last_version_without_chromium(report, monkeypatch):
+    monkeypatch.setenv("BOW_CHROMIUM_EXECUTABLE", "/missing/chromium")
+    viz = _run(_seed_viz(report))
+    code = _page(viz)
+    invalid = "<h1>Sales</h2>"
+    artifact_id = _run(_seed_page(report, viz, code))
+    edit = _run(_tool_end(EditArtifactTool(), report, {
+        "artifact_id": artifact_id,
+        "edits": [{"find": "<h1>Sales</h1>", "replace": invalid}],
+    }))
+    assert edit["output"]["success"] is False
+    assert _run(_latest_code(report)) == code

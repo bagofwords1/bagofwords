@@ -12,32 +12,25 @@
     validation errors the agent was asked to fix (it retries on its own).
 -->
 <template>
-  <div class="mt-1" data-testid="submit-list-tool">
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" data-testid="submit-list-header" @click="isExpanded = !isExpanded">
-      <span v-if="running" class="tool-shimmer flex items-center min-w-0">
-        <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1.5 text-ink-muted shrink-0" />
-        <span dir="auto" class="truncate" :class="canOpenPane ? 'hover:underline decoration-dotted underline-offset-2' : ''" data-testid="submit-list-name" @click="onNameClick">{{ listName ? t('tools.submitList.savingTo', { name: listName }) : t('tools.submitList.saving') }}</span>
-        <span v-if="progress" class="ms-1.5 shrink-0 text-ink-muted" data-testid="submit-list-progress">· {{ t('tools.submitList.writing', { n: progress }, progress) }}</span>
-      </span>
-      <span v-else-if="ok" class="text-gray-600 dark:text-gray-400 flex items-center min-w-0">
-        <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1.5 text-emerald-500 shrink-0" />
-        <span dir="auto" class="truncate" :class="canOpenPane ? 'hover:underline decoration-dotted underline-offset-2 hover:text-gray-900 dark:hover:text-white' : ''" data-testid="submit-list-name" @click="onNameClick">{{ t('tools.submitList.saved', { name: listName }) }}</span>
-        <span v-for="c in counts" :key="c" class="ms-1.5 shrink-0 text-ink-muted">· {{ c }}</span>
-        <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
-        <button v-if="canOpenPane" type="button" class="ms-2 shrink-0 inline-flex items-center gap-0.5 text-ink-muted hover:text-gray-700 dark:hover:text-gray-200" :title="t('tools.submitList.openInPane')" data-testid="submit-list-open-pane" @click.stop="openPane">
-          <Icon name="heroicons-arrows-pointing-out" class="w-3 h-3" />
-        </button>
-      </span>
-      <span v-else class="text-gray-600 dark:text-gray-400 flex items-center min-w-0">
-        <Icon name="heroicons-arrow-path" class="w-3 h-3 me-1.5 text-amber-500 shrink-0" />
-        <span dir="auto" class="truncate">{{ t('tools.submitList.failed', { name: listName }) }}</span>
-        <span class="ms-1.5 shrink-0 text-ink-muted">· {{ t('tools.submitList.errorsCount', { n: errors.length }, errors.length) }} · {{ t('tools.submitList.retry') }}</span>
-        <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
-      </span>
-    </div>
+  <div class="min-w-0" data-testid="submit-list-tool">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="running">{{ listName ? t('tools.submitList.savingTo', { name: listName }) : t('tools.submitList.saving') }}</template>
+      <template v-else-if="ok">{{ t('tools.submitList.saved', { name: listName }) }}</template>
+      <template v-else>{{ t('tools.submitList.failed', { name: listName }) }}</template></template>
+      <template #actions>
+      <template v-if="running"></template>
+      <template v-else-if="ok"><button v-if="canOpenPane" type="button" class="ms-2 shrink-0 inline-flex items-center gap-0.5 text-ink-muted hover:text-gray-700 dark:hover:text-gray-200" :title="t('tools.submitList.openInPane')" data-testid="submit-list-open-pane" @click.stop="openPane"><Icon name="heroicons-arrows-pointing-out" class="w-3 h-3" /></button></template>
+      <template v-else></template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="running"><span v-if="progress" class="ms-1.5 shrink-0 text-ink-muted" data-testid="submit-list-progress">· {{ t('tools.submitList.writing', { n: progress }, progress) }}</span></template>
+      <template v-else-if="ok"><span v-for="c in counts" :key="c" class="ms-1.5 shrink-0 text-ink-muted">· {{ c }}</span></template>
+      <template v-else><span class="ms-1.5 shrink-0 text-ink-muted">· {{ t('tools.submitList.errorsCount', { n: errors.length }, errors.length) }} · {{ t('tools.submitList.retry') }}</span></template></div>
 
     <Transition name="slide">
-      <div v-if="isExpanded && !running" class="mt-2 ms-[18px] space-y-2" data-testid="submit-list-body">
+      <div v-if="toolHeaderExpanded && !running" class="mt-2 ms-[18px] space-y-2" data-testid="submit-list-body">
         <div v-if="rows.length" class="rounded-md border border-gray-100 dark:border-gray-800 overflow-auto max-h-80">
           <table class="min-w-full text-chat-2">
             <thead class="sticky top-0 bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400">
@@ -104,10 +97,18 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+// Open by default: the rows written (and their counts) are the result of
+// this call, not a detail of it.
+const toolHeaderExpanded = activityRef(true)
+
 import { computed, ref, watch } from 'vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 

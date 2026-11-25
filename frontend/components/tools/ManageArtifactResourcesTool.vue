@@ -1,12 +1,11 @@
 <template>
-  <div class="mb-2 text-chat-2 text-gray-600 dark:text-gray-300">
-    <button type="button" class="flex items-center gap-1.5 text-start" :aria-expanded="expanded" @click="expanded = !expanded">
-      <UIcon :name="expanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
-      <UIcon :name="failed ? 'i-heroicons-exclamation-circle' : 'i-heroicons-circle-stack'" :class="failed ? 'text-amber-500' : 'text-blue-500'" class="w-4 h-4" />
-      <span>{{ label }}<template v-if="name"> · {{ name }}</template></span>
-      <span v-if="result.revision" class="text-ink-muted">r{{ result.revision }}</span>
-    </button>
-    <div v-if="expanded" class="ms-5 mt-2 space-y-2 rounded-md border border-gray-200 dark:border-gray-700 p-3 max-w-xl">
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-book-open" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>{{ label }}<template v-if="name"> · {{ name }}</template>
+      <template v-if="result.revision">r{{ result.revision }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+    <div v-if="toolHeaderExpanded" class="ms-5 mt-2 space-y-2 rounded-md border border-gray-200 dark:border-gray-700 p-3 max-w-xl">
       <p v-if="failed" role="alert">{{ result.error || toolExecution.error_message || t('tools.resource.failed') }}</p>
       <p v-if="result.committed === false">{{ t('tools.resource.noChanges') }}</p>
       <p v-else-if="result.records_preserved">{{ t('tools.resource.preserved') }}</p>
@@ -16,9 +15,15 @@
       <UButton v-if="artifactId" size="xs" color="gray" variant="ghost" icon="i-heroicons-circle-stack" @click="inspect = true">{{ t('artifactResources.data') }}</UButton>
     </div>
     <ArtifactResourceExplorer v-if="inspect && artifactId" :artifact-id="artifactId" @close="inspect = false" />
+  
+    </div>
   </div>
 </template>
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const props = defineProps<{toolExecution: any}>()
 const {t} = useResponseI18n()
 const expanded = ref(false), inspect = ref(false)

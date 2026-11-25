@@ -7,7 +7,7 @@
     <div class="flex-shrink-0 min-h-9 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700 px-2 sm:px-4 py-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
         data-testid="version-bar">
         <div class="flex items-center gap-1.5 min-w-0 text-gray-600 dark:text-gray-300">
-            <Icon name="heroicons:eye" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+            <Icon name="heroicons:eye" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
             <span class="truncate" data-testid="version-bar-label">
                 <template v-if="meta.version_number">{{ $t('dashboardCollab.page.previewingVersion', { n: meta.version_number }) }}</template>
                 <template v-else>{{ $t('dashboardCollab.page.previewingDraft') }}</template>
@@ -96,6 +96,8 @@ const props = defineProps<{
     showingAuthorData?: boolean;
     // Charts withheld from the reader until they run them (e.g. RLS).
     withheldCount?: number;
+    // Bumped by the page when a newer version was saved: the list reloads.
+    refreshKey?: number;
 }>();
 defineEmits<{
     (e: 'toggle-changes'): void;
@@ -128,6 +130,7 @@ async function loadHistory() {
     if (!error.value) history.value = data.value;
 }
 onMounted(loadHistory);
+watch(() => props.refreshKey, loadHistory);
 
 const versionOptions = computed(() => {
     const h = history.value;

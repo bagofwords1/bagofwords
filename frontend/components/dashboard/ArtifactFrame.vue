@@ -36,7 +36,7 @@
                 :disabled="isSavingRename || !renameDraft.trim()"
                 class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
               >
-                <Spinner v-if="isSavingRename" class="w-3.5 h-3.5 text-gray-500" />
+                <Spinner v-if="isSavingRename" class="w-3.5 h-3.5 text-ink-muted" />
                 <Icon v-else name="heroicons:check" class="w-3.5 h-3.5 text-emerald-600" />
               </button>
             </UTooltip>
@@ -113,7 +113,7 @@
           <button
             v-if="offeredArtifactId"
             @click="acceptOfferedArtifact"
-            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors flex items-center gap-1"
+            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 rounded border border-emerald-200 transition-colors flex items-center gap-1"
           >
             <Icon name="heroicons:sparkles" class="w-3 h-3" />
             New artifact — view
@@ -155,7 +155,7 @@
           :rename="canRename ? renameTo : undefined"
           :resources-available="resourcesAvailable && !verificationPreview"
           :show-analytics="(isReportOwner || dashboardCaps.includes('analytics')) && !verificationPreview"
-          @history-changed="onHistoryChanged" @saved="onSettingsSaved" />
+          @history-changed="onHistoryChanged" @saved="onSettingsSaved" @deleted="onDashboardDeleted" />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -361,7 +361,7 @@
         class="absolute inset-0 z-30 flex items-center justify-center overflow-y-auto py-8 px-4 bg-white/95 dark:bg-gray-900/95"
       >
         <div v-if="hydration.phase === 'running'" class="flex flex-col items-center gap-3 text-center max-w-sm">
-          <Spinner class="w-6 h-6 text-gray-400" />
+          <Spinner class="w-6 h-6 text-ink-muted" />
           <div class="text-sm text-gray-700 dark:text-gray-200">{{ t('artifactFrame.hydrating.title') }}</div>
           <div class="text-xs text-gray-500 dark:text-gray-400">
             {{ t('artifactFrame.hydrating.progress', { done: hydration.done, total: hydration.total }) }}
@@ -522,13 +522,22 @@
 
       <!-- Iframe (shown when artifact exists and data is ready) -->
       <iframe
-        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !showViewerGate && !iframeError && iframeSrcdoc"
+        v-if="iframeSrcdoc"
+        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !showViewerGate && !iframeError"
         ref="iframeRef"
         data-artifact-frame
         :srcdoc="iframeSrcdoc"
         :sandbox="sandboxAttr"
         class="absolute inset-0 w-full h-full border-0 bg-white dark:bg-gray-900 z-0"
         @load="onIframeLoad"
+      />
+
+      <NewerVersionOverlay
+        v-if="newerOffer && !verificationPreview"
+        :version="newerOffer.number"
+        :current="selectedArtifactItem?.version"
+        @refresh="acceptNewerOffer"
+        @dismiss="dismissNewerOffer"
       />
 
       <!-- Polish Mode Button (dashboards only — docs have no JSX to polish, and
@@ -562,7 +571,7 @@
         <div class="flex items-center gap-2 mb-2">
           <Icon name="heroicons:paint-brush" class="w-3.5 h-3.5 text-indigo-500" />
           <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Polish this element</span>
-          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-gray-600">
+          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-ink-2">
             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
           </button>
         </div>
@@ -650,14 +659,18 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
+import { handleTableLayoutMessage, loadTableLayouts } from '~/utils/artifactTableLayout';
 import type { ActivityEvent } from '~/composables/useArtifactRuntime'
-import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick, provide } from 'vue';
+import { ref, shallowRef, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick, provide } from 'vue';
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
 import { artifactSandbox } from '~/utils/artifactSandbox'
 import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import DashboardSettingsModal from './DashboardSettingsModal.vue';
 import ArtifactActivityLog from './ArtifactActivityLog.vue';
 import DashboardStart from './DashboardStart.vue';
+import NewerVersionOverlay from './NewerVersionOverlay.vue';
+import { useVisiblePoll } from '~/composables/useVisiblePoll';
+import { newerPaneVersion, type NewerOffer } from '~/utils/newerDashboardVersion';
 import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
 import PresenceAvatars from './collab/PresenceAvatars.vue';
@@ -673,6 +686,7 @@ import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from 
 import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt } from '~/utils/polishPrompt';
 import { newestVersionOf } from '~/utils/artifactVersionLatest';
 import { artifactRowCounts } from '~/utils/artifactRowCounts';
+import { artifactFramePayload, postWithJsonFallback } from '~/utils/artifactFramePayload';
 import { viewingPath } from '~/utils/dashboardViewing';
 
 // A dashboard keeps its own dense chart and grid sizes even when it sits
@@ -756,8 +770,10 @@ const props = defineProps<{
 const useMyFetch: typeof useApplicationFetch = (async (request: any, options: any = {}) => {
   if (!props.verificationPreview) return useApplicationFetch(request, options);
   const path = String(request).startsWith('/api/') ? String(request) : `/api${request}`;
+  // noClone is useMyFetch's own option (the broker's answer is never shared).
+  const { noClone: _noClone, ...fetchOptions } = options || {};
   try {
-    const value = await $fetch(path, options);
+    const value = await $fetch(path, fetchOptions);
     return { data: ref(value), error: ref(null), pending: ref(false), status: ref('success'), refresh: () => {} };
   } catch (error) {
     return { data: ref(null), error: ref(error), pending: ref(false), status: ref('error'), refresh: () => {} };
@@ -1261,7 +1277,8 @@ let paramRunCounter = 0;
 const latestParamRunForQid: Record<string, number> = {};
 // Snapshot embedded in the iframe's srcdoc; frozen per data load so live
 // param/view-as updates (postMessage) never trigger an iframe reload.
-const srcdocSeed = ref<any>(null);
+// Shallow: plain data (artifactFramePayload), set once per load, never edited.
+const srcdocSeed = shallowRef<any>(null);
 
 // Which sandbox runtime generation the selected artifact was authored for.
 // Read from content.runtime_version so a legacy row keeps its legacy look.
@@ -1489,7 +1506,7 @@ async function runParamQueries(
           ...(runAs ? { run_as_user_id: runAs } : {}),
         },
       });
-      const res: any = runRes.value;
+      const res: any = toRaw(runRes.value);
       if (error.value || !res || res.status !== 'success') {
         const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
         if (!firstError) firstError = String(msg);
@@ -1499,21 +1516,26 @@ async function runParamQueries(
       logRun('ok', { rows: Array.isArray(res.data?.rows) ? res.data.rows.length : undefined });
       if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
       if (props.verificationPreview && res.verification_request_id) verificationRequests.set(qid, res.verification_request_id);
-      for (const viz of visualizationsData.value) {
-        if (viz.queryId === qid) {
-          viz.rows = res.data?.rows || [];
-          Object.assign(viz, artifactRowCounts(res.data));
-          viz.columns = res.data?.columns || [];
-          viz.stepStatus = 'success';
-        }
-      }
+      // Written as it lands, into the list as it is now (a reload since this
+      // query landed keeps its own rows), with a new chart object for each
+      // chart of this query. Not sent yet: the run sends once, at its end.
+      replaceVisualizationsData(visualizationsData.value.map((chart: any) => {
+        if (chart.queryId !== qid) return chart;
+        const viz = { ...chart };
+        viz.rows = res.data?.rows || [];
+        Object.assign(viz, artifactRowCounts(res.data));
+        viz.columns = res.data?.columns || [];
+        viz.stepStatus = 'success';
+        return viz;
+      }), { send: false });
     } catch (e: any) {
       if (!firstError) firstError = e?.message || 'Query run failed';
       logRun('error', { message: String(e?.message || 'Query run failed').slice(0, 300) });
     }
   }));
-  // New array identity so watchers fire and the fresh rows reach the iframe.
-  visualizationsData.value = [...visualizationsData.value];
+  // New list identity so the watcher fires and the fresh rows reach the
+  // iframe (once per run, with this run's ack).
+  replaceVisualizationsData([...visualizationsData.value]);
   // A fully superseded run stays quiet: the newer run owns the status line
   // and will push its own (fresher) data.
   if (myRun === paramRunCounter) {
@@ -1549,7 +1571,19 @@ function readParamsFromUrl(): Record<string, any> {
   return out;
 }
 const iframeReady = ref(false);
-const visualizationsData = ref<any[]>([]);
+// The dashboard's data: every chart with its rows. Shallow on purpose: Vue
+// tracks the list, not the values inside it, so a large dashboard is not
+// wrapped row by row. The rule that comes with it: the list is replaced, never
+// edited in place (a chart or row changed inside it reaches neither the frame
+// nor the page). Every write goes through replaceVisualizationsData.
+const visualizationsData = shallowRef<any[]>([]);
+// send: false (a filter run's query as it lands) keeps the data watcher from
+// sending this list to the frame; the run sends once, at its end.
+let visualizationsSendDue = false;
+function replaceVisualizationsData(next: any[], { send = true }: { send?: boolean } = {}) {
+  if (send) visualizationsSendDue = true;
+  visualizationsData.value = next;
+}
 const filesData = ref<any[]>([]);
 const reportData = ref<any>(null);
 
@@ -1635,7 +1669,7 @@ async function loadAllVersions() {
   if (dashboardId !== selectedArtifactItem.value?.artifact_id) return;
   allVersions.value = error.value ? [] : (((data.value as any)?.versions) || []);
 }
-watch(() => [selectedArtifactItem.value?.artifact_id, artifactsList.value.length, liveVersionId.value], loadAllVersions);
+watch([() => selectedArtifactItem.value?.artifact_id, () => artifactsList.value.length, liveVersionId], loadAllVersions);
 const pickerOptions = computed(() => {
   const several = dashboardGroups.value.length > 1;
   const out: any[] = [];
@@ -1681,8 +1715,11 @@ const viewingSrc = computed(() => {
   return viewing.value && dashboardId ? viewingPath(dashboardId, viewing.value) : null;
 });
 const pickerValue = computed(() => (viewing.value ? `${ELSEWHERE}${viewing.value.versionId}` : selectedArtifactId.value));
+// An explicit version selection may already have a newer sibling in history.
+let pickedVersionId: string | null = null;
 function onPick(value: string) {
   if (value === ALL_VERSIONS) { settingsModalRef.value?.open('versions'); return; }
+  pickedVersionId = String(value).replace(/^elsewhere:/, '');
   if (value && String(value).startsWith(ELSEWHERE)) {
     const option = pickerOptions.value.find(o => o.value === value);
     if (option) viewing.value = { versionId: option.versionId, version: option.version, author: option.author, live: option.live };
@@ -1805,6 +1842,67 @@ watch(() => selectedArtifactItem.value?.artifact_id, (id, previous) => {
   if (id && id !== previous && !props.verificationPreview) checkLiveAhead();
 });
 
+// A newly completed dashboard version follows the same selection path as a
+// live edit. Docs and slides keep the explicit offer (a doc may be mid-edit).
+const newerOffer = ref<NewerOffer | null>(null);
+const newerDismissed = ref<Set<string>>(new Set());
+async function checkForNewerVersions() {
+  const item = selectedArtifactItem.value;
+  const viewed = viewing.value;
+  if (!item) return;
+  const isDashboard = item.mode === 'page';
+  const completed = (a: ArtifactItem) => !a.status || a.status === 'completed';
+  const knownHere = new Set(artifactsList.value.filter(completed).map(a => a.id));
+  const knownElsewhere = new Set(allVersions.value.map((v: any) => String(v.id)));
+  await fetchArtifactsList(true);
+  if (item.artifact_id) await loadAllVersions();
+  // The reader or stream may have switched versions while the requests ran.
+  if (selectedArtifactId.value !== item.id || viewing.value !== viewed) return;
+  if (viewed && !isDashboard) return;
+  const offer = newerPaneVersion({
+    selected: viewed ? { id: viewed.versionId, version: viewed.version } : item,
+    newestHere: dashboardGroups.value.find(g => g.key === dashboardKeyOf(item))?.versions.find(completed),
+    knownHere,
+    elsewhere: allVersions.value,
+    knownElsewhere,
+    reportId: String(props.reportId),
+    followLatest: isDashboard && !liveAhead.value && !paramRoute.query.version &&
+      (viewed?.versionId || item.id) !== (pickedVersionId || props.requestedArtifactId),
+  });
+  if (!offer) {
+    if (retryVersionId === item.id ||
+        (selectedArtifact.value?.status === 'pending' && selectedArtifactItem.value?.status === 'completed')) {
+      await loadSelectedVersion(item.id);
+    }
+    return;
+  }
+  if (isDashboard) {
+    if (offer.elsewhere) await openVersionById(offer.id);
+    else {
+      viewing.value = null;
+      selectedArtifactId.value = offer.id;
+    }
+  } else if (!newerDismissed.value.has(offer.id)) newerOffer.value = offer;
+}
+useVisiblePoll(checkForNewerVersions, 15000, () => !props.verificationPreview && artifactsList.value.length > 0);
+async function acceptNewerOffer() {
+  const offer = newerOffer.value;
+  newerOffer.value = null;
+  if (!offer) return;
+  if (offer.elsewhere) await openVersionById(offer.id);
+  else await switchToArtifact(offer.id);
+}
+function dismissNewerOffer() {
+  if (newerOffer.value) newerDismissed.value.add(newerOffer.value.id);
+  newerOffer.value = null;
+}
+// Picking any version (or the agent's own run moving the pane) answers it.
+watch([selectedArtifactId, viewing], () => {
+  const offer = newerOffer.value;
+  const item = selectedArtifactItem.value;
+  if (offer && (viewing.value || !item || item.version >= offer.number || item.id === offer.id)) newerOffer.value = null;
+});
+
 // "Use this version" appears when the selection is not the newest version of
 // its dashboard (utils/artifactVersionLatest.ts; old versions with no tie to
 // their dashboard keep the rule by mode).
@@ -1920,6 +2018,25 @@ function reviewChanges() {
 
 // The settings window: its History tabs open from the ⋯ menu too.
 const settingsModalRef = ref<any>(null);
+// "Refresh failing" on the dashboards list deep-links to
+// ?dashboard=<id>&settings=refreshes: once that dashboard's settings window
+// is mounted, it opens on Refreshes with the failure shown, and the query
+// goes so a reload does not reopen it.
+const settingsPromptHandled = ref(false);
+watch(
+  () => [paramRoute.query.settings, paramRoute.query.dashboard, selectedArtifact.value?.artifact_id, !!settingsModalRef.value] as const,
+  ([settings, dashboard, shown, ready]) => {
+    if (settings !== 'refreshes' || !ready || settingsPromptHandled.value) return;
+    // Another of the conversation's dashboards is showing: wait for the one asked for.
+    if (typeof dashboard === 'string' && dashboard && shown !== dashboard) return;
+    settingsPromptHandled.value = true;
+    settingsModalRef.value?.open?.('refreshes', { focusFailure: true });
+    const q = { ...paramRoute.query };
+    delete q.settings;
+    navigateTo({ query: q }, { replace: true });
+  },
+  { immediate: true },
+);
 // An access-request notification deep-links to ?share=access_requests: open
 // the share settings once the modal is mounted, then drop the query so a
 // reload does not reopen it.
@@ -1946,6 +2063,14 @@ const publishKey = ref(0);
 function onHistoryChanged() {
   publishKey.value += 1;
   loadDashboardMeta(true);
+}
+
+// The owner deleted the dashboard from its settings: the conversation stays,
+// the pane goes on with whatever artifact is left (or none).
+async function onDashboardDeleted() {
+  selectedArtifactId.value = undefined;
+  selectedArtifact.value = null;
+  await fetchArtifactsList(true);
 }
 
 // Viewer settings saved: re-render the canvas for the display-only ones that
@@ -2562,15 +2687,13 @@ async function acceptOfferedArtifact() {
 }
 
 async function switchToArtifact(artifactId: string) {
-  // Reset dataReady BEFORE selecting the new artifact so iframeSrcdoc doesn't
-  // render new code (with viz[N] refs) against stale visualization data.
-  dataReady.value = false;
   await fetchArtifactsList(true);
-  selectedArtifactId.value = artifactId;
-  // Force refetch in case same artifact transitioned from pending to completed
-  await fetchSelectedArtifact();
-  // Fetch visualization data for the new artifact before rendering
-  await fetchData(artifactId);
+  if (selectedArtifactId.value !== artifactId) {
+    selectedArtifactId.value = artifactId; // The selection watcher loads it once.
+  } else if (selectedArtifact.value?.id === artifactId && selectedArtifact.value.status === 'pending') {
+    // Completion can update a pending version in place without changing its id.
+    await loadSelectedVersion(artifactId);
+  }
 }
 
 // Handle artifact:created event (refresh list; select the new artifact only
@@ -2726,40 +2849,59 @@ watch(selectedArtifactId, (id) => {
 });
 
 // Fetch the full artifact content when selection changes
-async function fetchSelectedArtifact() {
+async function fetchSelectedArtifact(forSelection = false) {
   if (!selectedArtifactId.value) {
     selectedArtifact.value = null;
     return;
   }
 
   try {
-    const { data } = await useMyFetch(`/api/artifacts/${selectedArtifactId.value}`);
-    if (data.value) {
+    const id = selectedArtifactId.value;
+    const { data } = await useMyFetch(`/api/artifacts/${id}`);
+    if (data.value && selectedArtifactId.value === id) {
+      if (forSelection) {
+        // Withhold the new code until its own query rows are ready.
+        dataReady.value = false;
+        iframeReady.value = false;
+      }
       selectedArtifact.value = data.value;
       console.log('[ArtifactFrame] Loaded artifact:', (data.value as any).title);
       // Broadcast active artifact viz IDs so ToolWidgetPreview can show "Added to Dashboard"
       const vizIds = (data.value as any)?.content?.visualization_ids || [];
       window.dispatchEvent(new CustomEvent('artifact:viz-ids', { detail: { visualization_ids: vizIds } }));
+      return true;
     }
   } catch (e) {
     console.error('[ArtifactFrame] Failed to fetch artifact:', e);
   }
 }
 
-// Watch for artifact selection changes - refetch data filtered by new artifact
-watch(selectedArtifactId, async (newId, oldId) => {
-  // Initial selection is loaded explicitly by onMounted so artifact detail and
-  // query data have one deterministic request each.
-  if (oldId === undefined) return;
-  iframeError.value = null;
-  iframeReady.value = false;
-  viewAsMode.value = 'you';
-  if (isPolishMode.value) exitPolishMode();
-  await fetchSelectedArtifact();
-  // Only refetch data if this is a user-initiated change (not initial load)
-  if (oldId !== undefined) {
-    await fetchData(newId);
+// A stream completion and a poll can discover the same version together.
+let loadingVersionId: string | null = null;
+let retryVersionId: string | null = null;
+async function loadSelectedVersion(id: string) {
+  if (loadingVersionId === id) return;
+  loadingVersionId = id;
+  retryVersionId = null;
+  try {
+    const loaded = await fetchSelectedArtifact(true);
+    if (selectedArtifactId.value !== id) return;
+    if (!loaded) {
+      retryVersionId = id;
+      return;
+    }
+    iframeError.value = null;
+    viewAsMode.value = 'you';
+    if (isPolishMode.value) exitPolishMode();
+    await fetchData(id);
+  } finally {
+    if (loadingVersionId === id) loadingVersionId = null;
   }
+}
+
+watch(selectedArtifactId, (newId, oldId) => {
+  // Mount owns the initial load, the watcher owns subsequent selections.
+  if (oldId !== undefined && newId) return loadSelectedVersion(newId);
 });
 
 onUnmounted(() => {
@@ -2769,9 +2911,14 @@ onUnmounted(() => {
   if (isPolishMode.value) exitPolishMode();
 });
 
+// The dashboard (artifact_id), not the version: a viewer's table layouts
+// survive a new version and are shared with the published view.
+const tableLayoutKey = () => selectedArtifact.value?.artifact_id || selectedArtifact.value?.id || selectedArtifactId.value || '';
+
 // Handle messages from iframe
 function handleIframeMessage(event: MessageEvent) {
   if (event.source !== iframeRef.value?.contentWindow && event.source !== fullscreenRuntimeFrame.value?.contentWindow) return;
+  if (handleTableLayoutMessage(event.data, tableLayoutKey())) return;
   if (event.data?.type === 'ARTIFACT_DATA_RECEIVED') {
     verificationEvent('data_received', { data_revision: event.data.revision });
     return;
@@ -2811,24 +2958,28 @@ function sendDataToIframe() {
   ].filter((w): w is Window => !!w);
   if (!targets.length) return;
 
-  const payload = JSON.parse(JSON.stringify({
+  // Without a copy of the rows; each frame's postMessage makes its own
+  // (utils/artifactFramePayload).
+  const payload = artifactFramePayload({
     report: toRaw(reportData.value),
-    visualizations: toRaw(visualizationsData.value),
+    visualizations: visualizationsData.value,
     files: toRaw(filesData.value),
     current_user: toRaw(effectiveViewerContext.value),
     params: paramsPayload(),
     runtime: artifactRuntime(),
+    // This viewer's DataTable layouts — hand-set widths, column order (utils/artifactTableLayout).
+    table_layouts: loadTableLayouts(tableLayoutKey()),
     ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {}),
     // Each push replaces the app's data: keep the preview's real policy in it.
     ...(props.verificationPreview && previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
-  }));
+  }, { separateRows: true });
 
   verificationEvent('data_sent', {
     data_revision: verificationRevision,
     request_ids: [...new Set(visualizationsData.value.map(v => verificationRequests.get(v.queryId)).filter(Boolean))],
   });
   try {
-    for (const target of targets) target.postMessage({ type: 'ARTIFACT_DATA', payload }, '*');
+    for (const target of targets) postWithJsonFallback(target, { type: 'ARTIFACT_DATA', payload });
   } catch (err: any) {
     console.error('[ArtifactFrame] Failed to send data to iframe:', err);
     iframeError.value = err?.message || 'Failed to send data to dashboard iframe';
@@ -2886,8 +3037,11 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       prefetched = await pf.queries;
       if (prefetched?.error?.value || !Array.isArray(prefetched?.data?.value)) prefetched = null;
     }
-    const { data: queriesRes } = prefetched || await useMyFetch(`/api/queries${queryParams}`);
-    const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
+    // The rows are used as they came (noClone, toRaw): no copy, and nothing
+    // here writes into the answer.
+    const { data: queriesRes } = prefetched || await useMyFetch(`/api/queries${queryParams}`, { noClone: true } as any);
+    if (artifactId !== selectedArtifactId.value) return;
+    const queries = Array.isArray(queriesRes.value) ? toRaw(queriesRes.value) : [];
 
     // Build visualization data array
     const vizData: any[] = [];
@@ -2996,6 +3150,8 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       return Array.isArray(data.value) ? (data.value as any[]) : [];
     });
 
+    if (artifactId !== selectedArtifactId.value) return;
+
     // Initialize applied values: declaration defaults, overridden by any
     // qp_<name> URL state (shareable dashboards). Identity params carry no
     // client value — the server binds them per viewer. An in-place refresh
@@ -3029,9 +3185,9 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       for (const v of vizData) {
         if (!orderedIds.has(v.id)) ordered.push(v);
       }
-      visualizationsData.value = ordered;
+      replaceVisualizationsData(ordered);
     } else {
-      visualizationsData.value = vizData;
+      replaceVisualizationsData(vizData);
     }
     snapshotWithheld.value = anyWithheld;
     withheldCharts.value = nextWithheldCharts;
@@ -3046,7 +3202,9 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
 
     // Resolve embedded files (generated images / uploaded images/PDFs) to data URIs.
     try {
-      filesData.value = await fetchArtifactFiles();
+      const files = await fetchArtifactFiles();
+      if (artifactId !== selectedArtifactId.value) return;
+      filesData.value = files;
       if (filesData.value.length) {
         console.log('[ArtifactFrame] Fetched', filesData.value.length, 'embedded file(s)');
       }
@@ -3070,6 +3228,8 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       console.error('[ArtifactFrame] Initial param run failed:', e);
     }
 
+    if (artifactId !== selectedArtifactId.value) return;
+
     // Freeze the srcdoc seed: the iframe's initial document embeds THIS
     // snapshot. Later updates (param runs, view-as swaps) flow via
     // postMessage into the live data store — never by recomputing srcdoc,
@@ -3081,15 +3241,15 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       const { data } = await useMyFetch(`/api/artifacts/${selectedArtifact.value.artifact_id}/runtime/conversations/policy`);
       previewConversationPolicy = data.value || null;
     }
-    if (!inPlace) srcdocSeed.value = JSON.parse(JSON.stringify({
+    if (!inPlace) srcdocSeed.value = artifactFramePayload({
       ...(previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
       report: toRaw(reportData.value),
-      visualizations: toRaw(visualizationsData.value),
+      visualizations: visualizationsData.value,
       files: toRaw(filesData.value),
       current_user: toRaw(effectiveViewerContext.value),
       params: paramsPayload(),
       runtime: artifactRuntime(),
-    }));
+    });
 
     // The iframe libraries were requested at mount, in parallel with the data
     // above — usually they are here already. Waiting keeps the loading
@@ -3102,14 +3262,14 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
     }
 
     // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
-    dataReady.value = true;
+    if (artifactId === selectedArtifactId.value) dataReady.value = true;
 
   } catch (e) {
     console.error('[ArtifactFrame] Failed to fetch data:', e);
   } finally {
-    isLoading.value = false;
-    if (iframeReady.value) {
-      sendDataToIframe();
+    if (artifactId === selectedArtifactId.value) {
+      isLoading.value = false;
+      if (iframeReady.value) sendDataToIframe();
     }
   }
 }
@@ -3429,7 +3589,7 @@ const iframeSrcdoc = computed(() => {
   if (slidesPreviewsMissing.value) return undefined;
 
   // If artifacts exist, wait for the selected artifact to be fully loaded
-  if (artifactsList.value.length > 0 && !selectedArtifact.value?.content?.code) return undefined;
+  if (hasArtifact.value && !selectedArtifact.value?.content?.code) return undefined;
 
   // Priority: props > selected artifact from DB > sample code
   const artifactCode = props.artifactCode
@@ -3472,8 +3632,11 @@ function frameIframeOptions(seed: any, artifactCode: string) {
   };
 }
 
-// Re-send data when it changes
-watch([visualizationsData, filesData, iframeReady], () => {
+// Re-send data when it changes (not for a list written with send: false alone)
+watch([visualizationsData, filesData, iframeReady], ([, files, ready], [, prevFiles, prevReady]) => {
+  const due = visualizationsSendDue || files !== prevFiles || ready !== prevReady;
+  visualizationsSendDue = false;
+  if (!due) return;
   if (iframeReady.value && (visualizationsData.value.length > 0 || filesData.value.length > 0)) {
     sendDataToIframe();
   }

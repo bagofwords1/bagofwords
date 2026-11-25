@@ -51,6 +51,11 @@ def _source(value):
     return value
 
 
+# The role a host application gives the users its sign-in creates: an app
+# user (the apps shared with them only) or a workspace member.
+NewUserRole = Literal["app_user", "member"]
+
+
 class HostApplicationCreate(BaseModel):
     application_id: Optional[str] = None
     name: str = Field(min_length=1, max_length=255)
@@ -58,6 +63,7 @@ class HostApplicationCreate(BaseModel):
     identity_mode: IdentityMode = "assertion"
     identity_source: Optional[str] = None
     create_users: bool = False
+    new_user_role: NewUserRole = "app_user"
     issuer: Optional[str] = Field(default=None, max_length=255)
     audience: Optional[str] = Field(default=None, max_length=255)
     enabled: bool = True
@@ -86,6 +92,7 @@ class HostApplicationUpdate(BaseModel):
     identity_mode: Optional[IdentityMode] = None
     identity_source: Optional[str] = None
     create_users: Optional[bool] = None
+    new_user_role: Optional[NewUserRole] = None
     issuer: Optional[str] = Field(default=None, max_length=255)
     audience: Optional[str] = Field(default=None, max_length=255)
     enabled: Optional[bool] = None
@@ -110,6 +117,7 @@ class HostApplicationSchema(BaseModel):
     identity_mode: IdentityMode
     identity_source: Optional[str] = None
     create_users: bool
+    new_user_role: NewUserRole = "app_user"
     issuer: Optional[str] = None
     audience: Optional[str] = None
     key_fingerprint: Optional[str] = None

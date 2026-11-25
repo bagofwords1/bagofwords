@@ -29,7 +29,7 @@
                                         :indeterminate="isSomeSelected && !isAllPageSelected"
                                         @change="$emit('toggle-page')"
                                         :class="compact ? 'h-3.5 w-3.5' : 'h-4 w-4'"
-                                        class="rounded border-gray-300 dark:border-gray-600 text-gray-800 focus:ring-gray-500"
+                                        class="rounded border-gray-300 dark:border-gray-600 text-ink-2 focus:ring-gray-500"
                                     />
                                 </th>
                                 <th :class="[compact ? 'px-2 py-1.5 text-2xs' : 'px-3 py-2 text-xs', 'text-start font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
@@ -71,7 +71,7 @@
                                         @change.stop="$emit('toggle-select', instruction.id)"
                                         @click.stop
                                         :class="compact ? 'h-3.5 w-3.5' : 'h-4 w-4'"
-                                        class="rounded border-gray-300 dark:border-gray-600 text-gray-800 focus:ring-gray-500"
+                                        class="rounded border-gray-300 dark:border-gray-600 text-ink-2 focus:ring-gray-500"
                                     />
                                 </td>
 
@@ -165,6 +165,16 @@
                                             +{{ instruction.data_sources.length - 1 }}
                                         </span>
                                     </div>
+                                    <!-- Folder-scoped: no agents of its own, so name the folder instead of "—" -->
+                                    <UTooltip v-else-if="instruction.folders?.length" :text="instruction.folders.map((f: any) => f.name).join(', ')">
+                                        <div data-testid="instruction-row-folder" class="flex items-center gap-1">
+                                            <Icon name="heroicons:folder" :class="compact ? 'h-3 w-3' : 'h-3.5 w-3.5'" class="flex-shrink-0 text-ink-muted" />
+                                            <span :class="[compact ? 'text-2xs max-w-[60px]' : 'text-2xs max-w-[70px]', 'text-gray-600 dark:text-gray-400 truncate']">
+                                                {{ instruction.folders[0]?.name }}
+                                            </span>
+                                            <span v-if="instruction.folders.length > 1" class="text-2xs text-ink-muted">+{{ instruction.folders.length - 1 }}</span>
+                                        </div>
+                                    </UTooltip>
                                     <span v-else :class="compact ? 'text-2xs' : 'text-2xs'" class="text-gray-300 dark:text-gray-600">—</span>
                                 </td>
 

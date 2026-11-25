@@ -11,6 +11,7 @@ from app.core.console_access import ConsoleScope, console_identity
 from app.schemas.agent_execution_schema import ContextSnapshotSchema
 from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse, ConversationTraceResponse
 from app.services.console_service import ConsoleService
+from app.services.diagnosis.service import diagnosis_service
 
 import logging
 
@@ -26,8 +27,9 @@ async def _assert_execution_visible(
 ) -> None:
     """Gate an execution-level drill-down by the report it belongs to.
 
-    Org-wide callers short-circuit; a scoped agent manager may only open runs on
-    reports that draw on an agent they manage.
+    Org-wide callers short-circuit; a scoped agent manager may only open a run
+    that reached only agents they manage, with no earlier turn of its report
+    that reached another one (ConsoleScope.assert_run_visible).
     """
     report_id = (await db.execute(
         select(AgentExecution.report_id).where(
@@ -37,7 +39,7 @@ async def _assert_execution_visible(
     )).scalar_one_or_none()
     if not report_id:
         raise HTTPException(status_code=404, detail="Agent execution not found")
-    await scope.assert_report_visible(db, str(report_id))
+    await scope.assert_run_visible(db, agent_execution_id, str(report_id))
 
 
 async def _trace(db, organization, user, execution_id):
@@ -47,6 +49,7 @@ async def _trace(db, organization, user, execution_id):
     from app.models.agent_execution import folder_execution_agents
 
     trace = await console_service.get_agent_execution_trace(db, organization, execution_id)
+    trace.agents = (await diagnosis_service.agents_for_runs(db, [execution_id])).get(str(execution_id), [])
     primary, folders = (await db.execute(select(AgentExecution.starting_folder_id, AgentExecution.starting_folder_ids)
         .where(AgentExecution.id == execution_id))).one()
     if primary:
@@ -117,7 +120,7 @@ async def get_report_conversation(
     scope: ConsoleScope = Depends(console_identity)
 ):
     """Get the whole report conversation as ordered turns for the trace modal."""
-    await scope.assert_report_visible(db, report_id)
+    runs = await scope.assert_report_partly_visible(db, report_id)
     return await console_service.get_report_conversation(
-        db, organization, report_id, viewer_id=str(current_user.id)
+        db, organization, report_id, viewer_id=str(current_user.id), visible_run_ids=runs
     )

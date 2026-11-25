@@ -62,6 +62,8 @@ _active: Dict[Tuple[int, int], Any] = {}
 def track(client: Any, sa_conn: Any):
     """Register `sa_conn` as this thread's live connection for `client`.
 
+    Also accepts a DuckDB connection or cursor, cancelled with `interrupt()`.
+
     Wraps the `yield` in every pooled client's `connect()`. Registration is
     cheap (a dict write) and unconditional; the per-driver work only happens if
     somebody actually calls `cancel_thread`.
@@ -154,7 +156,17 @@ def _dbapi_connection(sa_conn: Any):
     return getattr(fairy, "dbapi_connection", None) or fairy
 
 
+def _is_duckdb(obj: Any) -> bool:
+    import sys
+    duckdb = sys.modules.get("duckdb")
+    return duckdb is not None and isinstance(obj, duckdb.DuckDBPyConnection)
+
+
 def _cancel(sa_conn: Any, client: Any = None) -> str:
+    if _is_duckdb(sa_conn):
+        sa_conn.interrupt()
+        return "cancelled (duckdb interrupt)"
+
     dialect = _dialect_name(sa_conn)
     raw = _dbapi_connection(sa_conn)
     if raw is None:

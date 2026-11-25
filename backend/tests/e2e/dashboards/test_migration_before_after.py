@@ -185,6 +185,12 @@ def test_every_reader_lists_the_same_conversations(migrated_corpus, corpus_rows,
                 # on existing dashboards too.
                 if field == "show_widget_info" and old is None and new is False:
                     continue
+                # Added to every agent on a card after main's record: the
+                # agent's cap on the run permission mode, null here as no
+                # corpus agent has one. Nothing else about the agents may move.
+                if field == "data_sources" and isinstance(new, list) and old == [
+                        {k: v for k, v in ds.items() if (k, v) != ("max_permission_mode", None)} for ds in new]:
+                    continue
                 if old != new:
                     problems.append(f"{reader}: {key[0]} {key[1]}: {field} {old!r} -> {new!r}")
     assert not problems, "\n".join(problems[:40])

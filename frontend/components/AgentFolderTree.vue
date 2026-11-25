@@ -8,7 +8,7 @@
       </button>
       <span v-else-if="!query" class="w-6 shrink-0" />
       <button type="button" class="flex min-w-0 flex-1 items-center gap-2 rounded px-1.5 py-1.5 text-start text-sm hover:bg-surface-muted"
-        :disabled="disabled || disabledIds.includes(row.folder.id)" :aria-pressed="selected.includes(row.folder.id)" :title="row.folder.path" @click="$emit('select', row.folder.id)">
+        :disabled="disabled || disabledIds.includes(row.folder.id)" :aria-pressed="selected.includes(row.folder.id)" :title="row.folder.path" data-kbd-option @click="$emit('select', row.folder.id)">
         <UIcon name="i-heroicons-folder" class="size-4 shrink-0 text-ink-muted" />
         <span class="min-w-0 flex-1">
           <span class="block truncate">{{ row.folder.name }}</span>

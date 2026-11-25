@@ -427,7 +427,7 @@ const ensureResources = async () => {
     const [ds, conns, directory] = await Promise.all([
         useMyFetch('/data_sources/active?show_all=true'),
         useMyFetch('/connections'),
-        useMyFetch<{folders: {id:string, name:string, parent_id:string | null, can_manage:boolean}[]}>('/folders'),
+        useMyFetch<{folders: {id:string, name:string, parent_id:string | null, can_manage:boolean}[]}>('/folders', { query: { show_all: true } }),
     ])
     if (ds.error.value) throw ds.error.value
     if (conns.error.value) throw conns.error.value
@@ -459,6 +459,7 @@ const ensureEditorData = () => Promise.all([ensureRegistry(), ensureResources(),
 // Display groups. Anything the server registers that isn't listed here shows
 // under "Other", so a new permission is never hidden from the editor.
 const GROUPS: { key: string; perms: string[] }[] = [
+    { key: 'workspace', perms: ['access_workspace'] },
     { key: 'agents', perms: ['create_data_source', 'create_connections', 'manage_connections'] },
     { key: 'knowledge', perms: ['manage_instructions', 'manage_entities', 'manage_evals'] },
     { key: 'code', perms: ['view_code', 'run_custom_code'] },
@@ -495,7 +496,7 @@ function togglePermission(perm: string, on: boolean) {
 }
 
 const KNOWN_PERMISSIONS = new Set([
-    'manage_files', 'view_code', 'run_custom_code', 'create_data_source', 'create_connections',
+    'access_workspace', 'manage_files', 'view_code', 'run_custom_code', 'create_data_source', 'create_connections',
     'manage_connections', 'manage_instructions', 'manage_entities', 'manage_evals', 'view_members',
     'manage_members', 'manage_service_accounts', 'manage_settings', 'manage_llm', 'view_audit_logs',
     'manage_identity_providers', 'view', 'view_schema', 'create_entities', 'manage',
@@ -687,7 +688,7 @@ async function runLoad(loader: () => Promise<void>) {
 const retryLoad = () => pendingLoad && runLoad(pendingLoad)
 
 // Mirrors permissions_registry.DEFAULT_ON_PERMISSIONS.
-const DEFAULT_ON_PERMISSIONS = ['view_code', 'run_custom_code']
+const DEFAULT_ON_PERMISSIONS = ['access_workspace', 'view_code', 'run_custom_code']
 
 function openModal(role: RoleData | null, source: RoleData | null) {
     editingRole.value = role

@@ -22,7 +22,6 @@ out and internal → display on the way back.
 from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 
-import json
 import logging
 import re
 import time
@@ -32,6 +31,7 @@ import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
 from app.data_sources.clients.base import Capability
+from app.data_sources.clients._sharepoint_list_spec import parse_list_spec, select_columns, spec_limit
 from app.data_sources.clients.graph_drive_client import GRAPH_BASE, GraphDriveClient
 
 logger = logging.getLogger(__name__)
@@ -324,19 +324,7 @@ class SharepointListsClient(GraphDriveClient):
 
     @staticmethod
     def _parse_spec(query) -> dict:
-        if isinstance(query, dict):
-            return dict(query)
-        text = str(query or "").strip()
-        if text.startswith("{"):
-            try:
-                spec = json.loads(text)
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON query spec: {e}")
-            if not isinstance(spec, dict):
-                raise ValueError("Query spec must be a JSON object.")
-            return spec
-        # A bare string is treated as a list name — fetch everything.
-        return {"list": text}
+        return parse_list_spec(query)
 
     def _translate_fields_expr(self, expr: str, cols: List[dict]) -> str:
         """Rewrite display names to internal names inside a $filter/$orderby.
@@ -377,34 +365,10 @@ class SharepointListsClient(GraphDriveClient):
             spec["list"] = table_name
         target = self._resolve_list(spec.get("list") or "")
         cols = self._fetch_columns(target["id"])
-        by_display = {c["display"].lower(): c for c in cols}
-        by_internal = {c["internal"].lower(): c for c in cols}
-
-        def _col(ref: str) -> Optional[dict]:
-            r = (ref or "").strip().lower()
-            return by_display.get(r) or by_internal.get(r)
-
         # Columns to fetch / return (display order preserved).
-        selected: List[dict]
-        if spec.get("select"):
-            raw_sel = spec["select"]
-            if isinstance(raw_sel, str):
-                raw_sel = [s.strip() for s in raw_sel.split(",") if s.strip()]
-            selected, unknown = [], []
-            for ref in raw_sel:
-                c = _col(ref)
-                (selected.append(c) if c else unknown.append(ref))
-            if unknown:
-                known = ", ".join(c["display"] for c in cols)
-                raise ValueError(
-                    f"Unknown column(s) {unknown} on list '{target.get('displayName')}'. "
-                    f"Available columns: {known}"
-                )
-        else:
-            selected = list(cols)
+        selected = select_columns(spec.get("select"), cols, target.get("displayName"))
 
-        limit = int(spec.get("limit") or DEFAULT_LIMIT)
-        limit = max(1, min(limit, self.max_items))
+        limit = spec_limit(spec, DEFAULT_LIMIT, self.max_items)
 
         site_id = self._resolve_site_id()
         internal_sel = ",".join(dict.fromkeys(c["internal"] for c in selected))

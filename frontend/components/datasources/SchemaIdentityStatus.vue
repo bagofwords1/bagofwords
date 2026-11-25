@@ -8,8 +8,8 @@
       {{ identityLabel }}<UIcon name="i-heroicons-chevron-down" class="h-3 w-3" />
     </button>
     <span v-else class="rounded-full border px-2 py-0.5 text-2xs font-medium" :class="identityPillClass">{{ identityLabel }}</span>
-    <span v-if="displayScope !== scope" class="text-2xs text-gray-500">{{ displayedScopeLabel }}</span>
-    <span class="inline-flex items-center gap-1 text-2xs text-gray-500" :title="notice || refreshedLabel">
+    <span v-if="displayScope !== scope" class="text-2xs text-ink-muted">{{ displayedScopeLabel }}</span>
+    <span class="inline-flex items-center gap-1 text-2xs text-ink-muted" :title="notice || refreshedLabel">
       <span class="h-1.5 w-1.5 rounded-full" :class="busy ? 'bg-blue-500' : warning ? 'bg-amber-500' : job?.status === 'completed' ? 'bg-green-500' : 'bg-gray-400'" />
       <time v-if="timestamp" :datetime="job?.finished_at || undefined">{{ timestamp }}</time>
       <span v-else>—</span>
@@ -44,8 +44,8 @@ const identityLabel = computed(() => t(props.connection.auth_policy !== 'user_re
 const identityPillClass = computed(() => props.connection.auth_policy !== 'user_required'
   ? 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
   : personal.value || disconnected.value
-    ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'
-    : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300')
+    ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/50 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'
+    : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:hover:bg-violet-900/50 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300')
 const displayedScopeLabel = computed(() => t(props.connection.auth_policy !== 'user_required'
   ? 'schemaIdentity.sharedConnection'
   : displayScope.value === 'user' ? 'schemaIdentity.myAccount' : 'schemaIdentity.sharedSchema'))

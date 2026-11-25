@@ -44,6 +44,19 @@ services:
     networks:
       - bow-network
 
+  # Optional: Presidio analyzer for PII protection (names, locations,
+  # organizations). Not needed for pattern rules (emails, cards, IDs…).
+  # presidio:
+  #   image: mcr.microsoft.com/presidio-analyzer:2.2.362
+  #   container_name: bow-presidio
+  #   restart: unless-stopped
+  #   environment:
+  #     - PORT=3000
+  #   expose:
+  #     - "3000"
+  #   networks:
+  #     - bow-network
+
   app:
     image: bagofwords/bagofwords:latest
     pull_policy: always
@@ -60,6 +73,10 @@ services:
       # Enterprise license key (optional). An admin can also paste a key in
       # Settings → License; that one is stored in the database and wins over this.
       - BOW_LICENSE_KEY=${BOW_LICENSE_KEY:-}
+      # PII detection service (optional, enterprise PII protection): the URL of a
+      # Presidio analyzer for detecting names and locations. Uncomment the
+      # `presidio` service below and set BOW_PII_PRESIDIO_URL=http://presidio:3000
+      - BOW_PII_PRESIDIO_URL=${BOW_PII_PRESIDIO_URL:-}
       # SMTP credentials (optional — only needed if smtp_settings in bow-config.yaml uses these)
       # - BOW_SMTP_USERNAME=${BOW_SMTP_USERNAME:-}
       # - BOW_SMTP_PASSWORD=${BOW_SMTP_PASSWORD:-}

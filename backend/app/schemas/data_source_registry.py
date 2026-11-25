@@ -50,9 +50,11 @@ from app.schemas.data_sources.lakehouse import (
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
+    PostgreSQLMultiConfig,
     BrocadeConfig,
     BrocadeCredentials,
     SharePointOnpremConfig,
+    SharePointOnpremListsConfig,
     SharePointOnpremNtlmCredentials,
     DocumentumConfig,
     DocumentumUserPassCredentials,
@@ -62,7 +64,16 @@ from app.schemas.data_sources.configs import (
     KmsLighthouseConfig,
     KmsLighthouseUserPassCredentials,
     KmsLighthouseTokenCredentials,
+    ConfluenceDcConfig,
+    ConfluenceDcTokenCredentials,
+    ConfluenceDcUserPassCredentials,
+    JiraDcConfig,
+    JiraDcTokenCredentials,
+    JiraDcUserPassCredentials,
     SharePointOnpremKerberosCredentials,
+    ExchangeOnpremConfig,
+    ExchangeOnpremNtlmCredentials,
+    ExchangeOnpremKerberosCredentials,
     SQLiteConfig,
     OracleConfig,
     SapHanaConfig,
@@ -223,6 +234,9 @@ from app.schemas.data_sources.configs import (
     GoogleDriveServiceAccountCredentials,
     GmailConfig,
     GmailCredentials,
+    # Slack
+    SlackMessagesConfig,
+    SlackCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
     # Teradata
@@ -272,6 +286,7 @@ from app.schemas.data_sources.configs import (
     SnowflakeCredentials,
     SnowflakeKeypairCredentials,
     BigQueryCredentials,
+    BigQueryDefaultCredentials,
     NetSuiteCredentials,
     SQLCredentials,
     PrestoCredentials,
@@ -339,6 +354,16 @@ class AuthVariant(BaseModel):
     # in) and a shared mode (one service identity, one admin-side catalog) —
     # e.g. Google Drive via user OAuth vs. a service account.
     catalog_ownership: Optional[str] = None
+    # One line of help shown under the auth selector when this variant is
+    # picked — for variants whose setup happens outside the form. English
+    # default; the frontend prefers the locale catalog key
+    # `data.authDescriptions.<type>.<auth>` when it exists.
+    description: Optional[str] = None
+    # Name of a boolean on `bow_config.security` that must be true for this
+    # variant to be offered or used. For variants that borrow the deployment's
+    # own identity instead of a credential the admin supplies: only the
+    # operator can opt in. None = always available.
+    requires_security_flag: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -353,6 +378,11 @@ class AuthOptions(BaseModel):
 
     default: str
     by_auth: Dict[str, AuthVariant]
+    # When the admin switches auth method, drop the stored fields that belong
+    # only to the method being left (see `credentials_after_auth_switch`).
+    # Needed wherever two methods would contradict each other if both were
+    # present in the saved credentials. Opt-in per connector.
+    exclusive_methods: bool = False
 
     class Config:
         arbitrary_types_allowed = True
@@ -374,6 +404,20 @@ class SetupStep(BaseModel):
     body: str = ""
     code: Optional[str] = None
     language: str = "bash"
+
+
+SETUP_GUIDE_REDIRECT_URI = "{oauth_redirect_uri}"
+
+
+def resolve_setup_guide(steps: list[SetupStep] | None) -> list[dict] | None:
+    if not steps:
+        return None
+    from app.core.base_url import connection_oauth_redirect_uri
+    redirect_uri = connection_oauth_redirect_uri()
+    return [
+        {**s.model_dump(), "code": s.code.replace(SETUP_GUIDE_REDIRECT_URI, redirect_uri) if s.code else s.code}
+        for s in steps
+    ]
 
 
 class DataSourceRegistryEntry(BaseModel):
@@ -433,6 +477,14 @@ class DataSourceRegistryEntry(BaseModel):
     data_shape: str = "tables"          # tables | files | objects | tools
     catalog_ownership: str = "shared"   # shared | per_user | none
     ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
+
+    # A source whose content is each person's own when they sign in themselves
+    # (a mailbox on a mail server), but which uses the regular connection form
+    # rather than the sign-in integration form. With per-user authentication it
+    # is a connector — offered in the prompt box, never picked by Auto, always
+    # run as that person; with a shared account it is an agent like any curated
+    # source. See app/services/data_source_kind.py.
+    personal_connector: bool = False
 
     # Optional (singular, plural) noun override for catalog items when the
     # data_shape default reads wrong — e.g. Power BI catalogs semantic-model
@@ -653,6 +705,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         client_path=None
     ),
+    "postgresql_multi": DataSourceRegistryEntry(
+        type="postgresql_multi",
+        title="PostgreSQL (multi-database)",
+        description="Query many single-tenant databases on one PostgreSQL server as unified tables with a tenant_db column.",
+        config_schema=PostgreSQLMultiConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=PostgreSQLCredentials, scopes=["system"])
+        }),
+        client_path="app.data_sources.clients.postgresql_multi_client.PostgresqlMultiClient",
+    ),
     "sqlite": DataSourceRegistryEntry(
         type="sqlite",
         title="SQLite",
@@ -812,9 +874,23 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Google BigQuery",
         description="Serverless, highly scalable, and cost-effective multi-cloud data warehouse.",
         config_schema=BigQueryConfig,
-        credentials_auth=AuthOptions(default="service_account", by_auth={
+        # A pasted key and "use the server's identity" contradict each other,
+        # so switching between them clears the other's fields.
+        credentials_auth=AuthOptions(default="service_account", exclusive_methods=True, by_auth={
             "service_account": AuthVariant(title="Service Account JSON", schema=BigQueryCredentials, scopes=["system", "user"]),
             "oauth": AuthVariant(title="Sign in with Google", schema=OAuthDelegatedCredentials, scopes=["user"]),
+            # Keyless: the deployment's own Google identity. System scope only —
+            # it is the server's identity, never something a member supplies.
+            "adc": AuthVariant(
+                title="Application Default Credentials",
+                schema=BigQueryDefaultCredentials,
+                scopes=["system"],
+                description=(
+                    "No key is stored. Queries run as the Google identity configured on the server: "
+                    "an attached service account or a Workload Identity Federation configuration."
+                ),
+                requires_security_flag="allow_google_default_credentials",
+            ),
         }),
         client_path=None,
     ),
@@ -897,6 +973,29 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
+        version="beta",
+    ),
+    "jira_dc": DataSourceRegistryEntry(
+        type="jira_dc",
+        category="services",
+        title="Jira Data Center (on-prem)",
+        description=(
+            "Query issues, change history, comments, worklogs, sprints and releases from a self-hosted Jira "
+            "Data Center or Server as tables, and read one issue as a document (read-only, live). Jira "
+            "permissions apply; per-user access with each person's own personal access token or login."
+        ),
+        config_schema=JiraDcConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="Personal access token (Bearer)", schema=JiraDcTokenCredentials,
+                                     scopes=["system", "user"]),
+                "userpass": AuthVariant(title="Username and password (Basic)", schema=JiraDcUserPassCredentials,
+                                        scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.jira_dc_client.JiraDcClient",
+        requires_license="enterprise",
         version="beta",
     ),
     "monday": DataSourceRegistryEntry(
@@ -2284,6 +2383,34 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         requires_license="enterprise",
         version="beta",
     ),
+    "confluence_dc": DataSourceRegistryEntry(
+        type="confluence_dc",
+        category="files",
+        title="Confluence Data Center (on-prem)",
+        description=(
+            "Search and read pages and blog posts from a self-hosted Confluence Data Center or Server "
+            "(read-only, live). Confluence permissions apply to every call; per-user access with each "
+            "person's own personal access token or login."
+        ),
+        config_schema=ConfluenceDcConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="Personal access token (Bearer)", schema=ConfluenceDcTokenCredentials,
+                                     scopes=["system", "user"]),
+                "userpass": AuthVariant(title="Username and password (Basic)", schema=ConfluenceDcUserPassCredentials,
+                                        scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.confluence_dc_client.ConfluenceDcClient",
+        is_document_based=True,
+        data_shape="files",
+        # No catalog: search (CQL) and browse are live, per identity, like KMS Lighthouse.
+        catalog_ownership="none",
+        catalog_nouns=("page", "pages"),
+        requires_license="enterprise",
+        version="beta",
+    ),
     "sharepoint_onprem": DataSourceRegistryEntry(
         type="sharepoint_onprem",
         category="files",
@@ -2298,6 +2425,28 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",
+        requires_license="enterprise",
+    ),
+    "sharepoint_onprem_lists": DataSourceRegistryEntry(
+        type="sharepoint_onprem_lists",
+        category="files",
+        title="SharePoint Server Lists (on-prem)",
+        description="Query SharePoint Server lists as tables using NTLM or Kerberos — every list on a site becomes a table with typed columns. No Microsoft Graph or Entra app required.",
+        config_schema=SharePointOnpremListsConfig,
+        # Same Windows sign-in as the on-prem files connector: a service
+        # account for the whole organization, or each user's own domain login
+        # so SharePoint's list permissions apply per person.
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=SharePointOnpremNtlmCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=SharePointOnpremKerberosCredentials, scopes=["system"]),
+        }),
+        client_path="app.data_sources.clients.sharepoint_onprem_lists_client.SharepointOnpremListsClient",
+        # Tables shape, like `sharepoint_lists`: lists carry typed columns and
+        # are queried with execute_query specs. The site's lists are one
+        # universe; per-user overlays are permission-filtered subsets.
+        data_shape="tables",
+        catalog_ownership="shared",
+        catalog_nouns=("list", "lists"),
         requires_license="enterprise",
     ),
     "sharepoint": DataSourceRegistryEntry(
@@ -2469,6 +2618,26 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         category="services",
         title="Outlook Mail",
         description="Read and search your Outlook / Microsoft 365 email — messages become available to the agent to search and read.",
+        setup_guide=[
+            SetupStep(
+                title="Register an app in Microsoft Entra",
+                body="In the Microsoft Entra admin center go to App registrations > New registration. Choose \"Accounts in this organizational directory only\". From the app's Overview, copy the Directory (tenant) ID and the Application (client) ID into the fields below.",
+            ),
+            SetupStep(
+                title="Add the redirect URI",
+                body="In the app go to Authentication > Add a platform > Web and paste this redirect URI.",
+                code=SETUP_GUIDE_REDIRECT_URI,
+                language="text",
+            ),
+            SetupStep(
+                title="Grant Microsoft Graph permissions",
+                body="In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app. Use Delegated permissions only, not Application permissions: the connector reads only the signed-in user's mailbox.",
+            ),
+            SetupStep(
+                title="Create a client secret",
+                body="In Certificates & secrets > New client secret, create a secret and copy its Value (not the Secret ID) into Client Secret below. You can't view the value again later.",
+            ),
+        ],
         config_schema=OutlookMailConfig,
         credentials_auth=AuthOptions(
             default="service_principal",
@@ -2494,6 +2663,32 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ui_form="integration",
         catalog_nouns=("message", "messages"),
     ),
+    "exchange_onprem": DataSourceRegistryEntry(
+        type="exchange_onprem",
+        category="services",
+        title="Exchange Server (on-prem)",
+        description="Read and search mail on your own Exchange server, including shared team mailboxes, using NTLM or Kerberos. No cloud tenant or app registration required.",
+        config_schema=ExchangeOnpremConfig,
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=ExchangeOnpremNtlmCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=ExchangeOnpremKerberosCredentials, scopes=["system"]),
+        }),
+        # Mail vocabulary: the client declares the mail capabilities, so the
+        # agent gets list_emails / search_email / read_email. Messages reuse
+        # the file-payload transport internally, like the other mail sources.
+        client_path="app.data_sources.clients.exchange_onprem_client.ExchangeOnpremClient",
+        is_document_based=True,
+        data_shape="files",
+        # Nothing is indexed or copied: every list, search and read is live,
+        # with the connection's Windows identity.
+        catalog_ownership="none",
+        catalog_nouns=("message", "messages"),
+        # Each user signing in reads their own mailbox: a connector. A service
+        # account reading a team inbox is the org's curated source: an agent.
+        personal_connector=True,
+        requires_license="enterprise",
+        version="beta",
+    ),
     "teams_messages": DataSourceRegistryEntry(
         type="teams_messages",
         category="services",
@@ -2518,6 +2713,36 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # Messages reuse the file-payload transport internally (like Outlook);
         # capability gating exposes the chat-named agent tools instead.
         client_path="app.data_sources.clients.graph_teams_client.GraphTeamsClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
+        catalog_nouns=("message", "messages"),
+    ),
+    "slack_messages": DataSourceRegistryEntry(
+        type="slack_messages",
+        category="services",
+        title="Slack",
+        description="Search and read Slack channels and DMs, live, with each user's own access — nothing is copied or indexed.",
+        config_schema=SlackMessagesConfig,
+        credentials_auth=AuthOptions(
+            default="oauth_app",
+            by_auth={
+                "oauth_app": AuthVariant(
+                    title="Slack App (OAuth)",
+                    schema=SlackCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Slack",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        # Messages reuse the file-payload transport internally (like Teams);
+        # capability gating exposes the chat-named agent tools instead.
+        client_path="app.data_sources.clients.slack_messages_client.SlackMessagesClient",
         is_document_based=True,
         data_shape="files",
         catalog_ownership="per_user",
@@ -2995,6 +3220,12 @@ _TOOLS_SENTRY = [
     "update_project", "create_dsn", "find_dsns", "analyze_issue_with_seer", "search_docs",
     "get_doc",
 ]
+_TOOLS_FATHOM = [
+    "get_identity", "list_teams", "list_meetings", "get_meeting_summary",
+    "get_meeting_transcript", "find_person", "find_relevant_meetings",
+    "get_relevant_meetings_result", "scan_meeting_summaries", "search_meetings",
+    "get_recording_by_call_id", "get_recording_by_url",
+]
 _TOOLS_GOOGLE_DRIVE = [
     "search_files", "list_recent_files", "read_file_content", "download_file_content",
     "get_file_metadata", "get_file_permissions", "create_file",
@@ -3059,6 +3290,9 @@ MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
               allowed_auth=["dcr"], sample_tools=_TOOLS_SENTRY, category="infra",
               description="Errors, issues and releases from Sentry."),
+    McpPreset(key="fathom", title="Fathom", server_url="https://api.fathom.ai/mcp",
+              allowed_auth=["dcr"], sample_tools=_TOOLS_FATHOM,
+              description="Meetings, summaries and transcripts from Fathom."),
     McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
               auth="oauth_app", allowed_auth=["oauth_app"],
               oauth_defaults=McpAuthDefaults(
@@ -3218,8 +3452,9 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "catalog_nouns": list(e.catalog_nouns) if e.catalog_nouns else None,
             "catalog_ownership": e.catalog_ownership,
             "ui_form": e.ui_form,
+            "personal_connector": e.personal_connector,
             "category": e.category,
-            "setup_guide": [s.model_dump() for s in e.setup_guide] if e.setup_guide else None,
+            "setup_guide": resolve_setup_guide(e.setup_guide),
         }
         for e in REGISTRY.values()
         if (
@@ -3394,6 +3629,74 @@ def credentials_schema_for(ds_type: str, auth_type: Optional[str]) -> Type[BaseM
     if not variant:
         raise ValueError("Unsupported authentication method for this data source")
     return variant.schema
+
+
+def auth_variant_enabled(variant: Optional[AuthVariant]) -> bool:
+    """False when the variant depends on a deployment opt-in that is off."""
+    flag = getattr(variant, "requires_security_flag", None)
+    if not flag:
+        return True
+    try:
+        return bool(getattr(settings.bow_config.security, flag, False))
+    except Exception:
+        return False
+
+
+def disabled_auth_variant(ds_type: Optional[str], auth_type: Optional[str]) -> Optional[AuthVariant]:
+    """The variant `auth_type` names when the deployment has not enabled it,
+    else None (enabled, unknown type, or no auth_type given)."""
+    if not ds_type or not auth_type:
+        return None
+    try:
+        variant = get_entry(ds_type).credentials_auth.by_auth.get(auth_type)
+    except ValueError:
+        return None
+    if variant is None or auth_variant_enabled(variant):
+        return None
+    return variant
+
+
+def credentials_for_auth_method(
+    ds_type: Optional[str],
+    auth_type: Optional[str],
+    credentials: Optional[dict],
+) -> dict:
+    """System credentials with the fields of *other* auth methods removed.
+
+    Credential edits are merged over the saved blob so one secret can be
+    rotated without resending the rest. When the method itself changes, that
+    merge leaves the old method's fields behind — a pasted key next to a
+    "use the server's identity" marker, or the reverse — and the client would
+    have to guess which one is meant. The connection's `auth_type` is the
+    answer, so keep only what that method (or no method in particular) owns.
+
+    Conservative on purpose: nothing is removed unless the connector opted in
+    (`AuthOptions.exclusive_methods`) and the selected method is a known
+    system-scope variant that declares its fields (a schema accepting extras
+    keeps everything). Only fields declared by another system-scope variant
+    are dropped; `oauth_*` sign-in overrides are shared and always kept.
+    """
+    creds = dict(credentials or {})
+    if not ds_type:
+        return creds
+    try:
+        options = get_entry(ds_type).credentials_auth
+    except ValueError:
+        return creds
+    if not options.exclusive_methods:
+        return creds
+    selected = options.by_auth.get(auth_type or options.default)
+    if selected is None or "system" not in (selected.scopes or []):
+        return creds
+    if (getattr(selected.schema, "model_config", None) or {}).get("extra") == "allow":
+        return creds
+    own = set(selected.schema.model_fields)
+    foreign: set[str] = set()
+    for name, variant in options.by_auth.items():
+        if variant is selected or "system" not in (variant.scopes or []):
+            continue
+        foreign |= set(variant.schema.model_fields) - own
+    return {k: v for k, v in creds.items() if k not in foreign or k.startswith("oauth_")}
 
 
 def tool_provider_types() -> set[str]:

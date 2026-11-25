@@ -57,10 +57,10 @@ def directory(test_client, create_user, login_user, whoami, monkeypatch):
     return {"org_id": org_id, "headers": headers, "person": person, "people": people}
 
 
-def _host(client, directory, create_users):
+def _host(client, directory, create_users, **more):
     r = client.post("/api/host_applications", headers=directory["headers"], json={
         "name": "Intranet", "allowed_origins": ["https://intranet.example.com"], "identity_mode": "assertion",
-        "identity_source": "ldap", "issuer": "intranet", "create_users": create_users})
+        "identity_source": "ldap", "issuer": "intranet", "create_users": create_users, **more})
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -72,8 +72,13 @@ def _sign_in(client, host, guid):
     return client.post(f"/api/embed/{host['public_id']}/session", json={"assertion": assertion})
 
 
-def test_a_directory_person_joins_on_first_sign_in_and_stays_the_same_person(test_client, directory):
-    host = _host(test_client, directory, create_users=True)
+@pytest.mark.parametrize("new_user_role,joins_as", [(None, "app_user"), ("member", "member")])
+def test_a_directory_person_joins_on_first_sign_in_and_stays_the_same_person(test_client, directory, new_user_role,
+                                                                              joins_as):
+    """They join with the role the host application gives new people: an app
+    user unless it says member (tests/e2e/dashboards/test_app_users.py)."""
+    host = _host(test_client, directory, create_users=True,
+                 **({"new_user_role": new_user_role} if new_user_role else {}))
     guid = directory["person"]("maria")
     first = _sign_in(test_client, host, guid)
     assert first.status_code == 200, first.text
@@ -81,7 +86,8 @@ def test_a_directory_person_joins_on_first_sign_in_and_stays_the_same_person(tes
     assert again.status_code == 200 and again.json()["user"]["id"] == first.json()["user"]["id"]
     members = test_client.get(f"/api/organizations/{directory['org_id']}/members", headers=directory["headers"]).json()
     joined = [m for m in members if m.get("user_id") == first.json()["user"]["id"]]
-    assert len(joined) == 1 and joined[0]["role"] == "member"
+    assert len(joined) == 1 and joined[0]["role"] == joins_as
+    assert joined[0]["created_via_host_application"] == "Intranet"
 
 
 @pytest.mark.parametrize("case", ["refused_by_directory", "unknown_to_directory", "not_a_guid"])

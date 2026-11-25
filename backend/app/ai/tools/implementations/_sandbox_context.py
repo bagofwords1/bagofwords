@@ -100,7 +100,9 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
   <DataTable viz={…} rows={filtered} columns={[{field:'album_title',headerName:'Album'},…] } pageSize={15} density="compact" searchable striped sortable exportable selectable rowKey="id" onRowClick={(row)=>…}
     Pass `columns` with a readable `headerName` (and only the columns worth showing) whenever the raw field names are database-shaped
     (TOTALDURATIONMS, unit_price); the table title-cases what it can but cannot invent "Duration" from "TOTALDURATIONMILLISECONDS".
-             renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — sort, paginate, RTL, CSV, print-safe.
+             renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — sort, paginate, RTL, CSV, print-safe;
+    columns size to their content (long text on one line with …, full value on hover) and the viewer can drag a column's width.
+    autoWidth={false} only for a prose column that must wrap.
   <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder /> (FilterSearch onChange receives the text string, not an event)
              <FilterDateRange label value onChange type="date|month|datetime-local" /> </FilterBar>
   CONTROLS: build record tables, search boxes and filter dropdowns from these. DataTable for rows of records (renderCell for custom cells,

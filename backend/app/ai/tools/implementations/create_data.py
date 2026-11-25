@@ -842,6 +842,102 @@ class CreateDataTool(Tool):
             profile["head_rows"] = (formatted.get("rows") or [])[:5]
         return profile
 
+    @staticmethod
+    def _finalize_visualization(
+        fallback_type: str,
+        inferred_dm: Optional[Dict[str, Any]],
+        formatted: Dict[str, Any],
+        *,
+        title: Optional[str],
+        runtime_ctx: Dict[str, Any],
+    ):
+        """Build the final ``data_model`` and ``view`` for a result.
+
+        The chart is derived deterministically from the result set, then the
+        inference (when there is one) refines it one validated field at a time.
+        The chart type stays pinned to the early/user-requested type; anything
+        inference names that isn't a real column is dropped rather than allowed
+        to blank the chart (app/ai/tools/chart_spec.py). Pure: the inline path
+        and the background refinement share it, so both produce the same spec
+        for the same inference.
+
+        Returns ``(final_dm, view_payload, spec_meta)``.
+        """
+        final_dm, spec_meta = build_final_data_model(fallback_type, inferred_dm, formatted)
+        if spec_meta.get("dropped") or spec_meta.get("demoted"):
+            logger.warning(
+                "create_data.viz_spec type=%s source=%s applied=%s dropped=%s demoted=%s",
+                spec_meta.get("type"),
+                spec_meta.get("source"),
+                spec_meta.get("applied"),
+                spec_meta.get("dropped"),
+                spec_meta.get("demoted"),
+            )
+        else:
+            logger.info(
+                "create_data.viz_spec type=%s source=%s applied=%s",
+                spec_meta.get("type"), spec_meta.get("source"), spec_meta.get("applied"),
+            )
+        # Deterministic guard: a single-value card must resolve to one numeric
+        # cell (value column + row selector). It repairs what it can (missing
+        # value column, series-name row filter via derive_kpi_row_filter) and
+        # demotes the type to table when unresolvable — a card must never
+        # render an arbitrary cell (the date row or a metric label).
+        final_dm = ensure_single_value_card_renderable(final_dm, formatted)
+        palette_theme = _infer_palette_theme(runtime_ctx) or "default"
+        available_columns = [c.get("field") for c in formatted.get("columns", []) if c.get("field")]
+        view_schema = build_view_from_data_model(
+            final_dm, title=title, palette_theme=palette_theme,
+            available_columns=available_columns, rows=formatted.get("rows") or [],
+        )
+        view_payload = view_schema.model_dump(exclude_none=True) if view_schema else None
+        if not view_payload and final_dm.get("type"):
+            view_payload = {"version": "v2", "view": {"type": final_dm.get("type")}}
+        return final_dm, view_payload, spec_meta
+
+    async def _refine_visualization(
+        self,
+        *,
+        runtime_ctx: Dict[str, Any],
+        user_prompt: str,
+        messages_context: str,
+        formatted: Dict[str, Any],
+        allow_llm_see_data: bool,
+        fallback_type: str,
+        title: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Background half of a deferred inference.
+
+        Runs the inference pass, then the same finalization the inline path
+        runs. Returns ``{"data_model", "view", "spec_meta"}``, or None when the
+        inference produced nothing usable — the deterministic spec the tool
+        already returned then stands. Never raises (except cancellation).
+        """
+        try:
+            inference = await self._infer_visualization_model(
+                runtime_ctx=runtime_ctx,
+                user_prompt=user_prompt,
+                messages_context=messages_context,
+                formatted=formatted,
+                allow_llm_see_data=allow_llm_see_data,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("create_data.viz_refine: inference failed", exc_info=True)
+            return None
+        inferred_dm = (inference or {}).get("data_model")
+        if not inferred_dm:
+            return None
+        try:
+            final_dm, view_payload, spec_meta = self._finalize_visualization(
+                fallback_type, inferred_dm, formatted, title=title, runtime_ctx=runtime_ctx,
+            )
+        except Exception:
+            logger.warning("create_data.viz_refine: finalization failed", exc_info=True)
+            return None
+        return {"data_model": final_dm, "view": view_payload, "spec_meta": spec_meta}
+
     async def _infer_visualization_model(
         self,
         runtime_ctx: Dict[str, Any],
@@ -1957,6 +2053,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     len(ds_scope or []),
                     len(name_patterns or []),
                 )
+                # Columns the planner named (e.g. found with describe_tables
+                # `columns`) lead each wide table's column list for the coder.
+                from app.ai.context.column_ranking import promote_mentioned_columns
+                promote_mentioned_columns(ctx, data.interpreted_prompt, data.user_prompt)
                 schemas_excerpt = ctx.render_combined(top_k_per_ds=20, index_limit=0, include_index=False)
             except Exception as e:
                 # Fallback to keyword-based excerpt if resolution-based build fails
@@ -2324,21 +2424,51 @@ Do not use generic placeholders like "value" unless that is the actual column na
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         data_preview = build_data_preview(formatted, allow_llm_see_data=allow_llm_see_data)
 
-        # Optional: infer minimal visualization model (type + series) using the existing DataModel schema
+        # Visualization inference: a small LLM pass that refines the encoding
+        # (series / group_by / filters / display) of a non-table chart. Inside
+        # the agent v2 loop it runs in the BACKGROUND (`defer_viz_inference`):
+        # the tool ends with the deterministic spec, `viz_pending: True`, and
+        # hands the refinement task to the agent through
+        # runtime_ctx["viz_refinement"]; the agent applies it to the step, the
+        # visualization and the tool result when it lands (see
+        # AgentV2._settle_viz_refinements). Elsewhere (MCP, harness) it stays
+        # inline because nothing would pick the task up.
         inferred_dm = None
+        requested_type = None
         try:
+            requested_type = str((tool_input or {}).get("visualization_type") or "").strip()
+        except Exception:
             requested_type = None
+        effective_type = requested_type if requested_type else "table"
+        fallback_type = effective_type or "table"
+        viz_user_prompt = (data.user_prompt or data.interpreted_prompt or "")
+        viz_messages_context = codegen_context.messages_context
+        defer_viz = bool(runtime_ctx.get("defer_viz_inference")) and effective_type != "table"
+        viz_pending = False
+        if defer_viz:
+            runtime_ctx["viz_refinement"] = asyncio.create_task(
+                self._refine_visualization(
+                    runtime_ctx=runtime_ctx,
+                    user_prompt=viz_user_prompt,
+                    messages_context=viz_messages_context,
+                    formatted=formatted,
+                    allow_llm_see_data=allow_llm_see_data,
+                    fallback_type=fallback_type,
+                    title=data.title,
+                ),
+                name="create_data.viz_refine",
+            )
+            viz_pending = True
+            yield ToolProgressEvent(type="tool.progress", payload={
+                "stage": "inferring_visualization", "background": True,
+            })
+        elif effective_type != "table":
             try:
-                requested_type = str((tool_input or {}).get("visualization_type") or "").strip()
-            except Exception:
-                requested_type = None
-            effective_type = requested_type if requested_type else "table"
-            if effective_type != "table":
                 yield ToolProgressEvent(type="tool.progress", payload={"stage": "inferring_visualization"})
                 inference = await self._infer_visualization_model(
                     runtime_ctx=runtime_ctx,
-                    user_prompt=(data.user_prompt or data.interpreted_prompt or ""),
-                    messages_context=codegen_context.messages_context,
+                    user_prompt=viz_user_prompt,
+                    messages_context=viz_messages_context,
                     formatted=formatted,
                     allow_llm_see_data=allow_llm_see_data,
                 )
@@ -2357,62 +2487,25 @@ Do not use generic placeholders like "value" unless that is the actual column na
                         "timing": False,
                     }
                     yield ToolProgressEvent(type="tool.progress", payload=viz_payload)
-        except Exception as viz_exc:
-            inferred_dm = None
-            progress_event = None
-            # Emit visualization error event for UI
-            viz_error_msg = str(viz_exc) if viz_exc else "Visualization inference failed"
-            yield ToolProgressEvent(type="tool.progress", payload={
-                "stage": "visualization_error",
-                "error": viz_error_msg
-            })
+            except Exception as viz_exc:
+                inferred_dm = None
+                # Emit visualization error event for UI
+                viz_error_msg = str(viz_exc) if viz_exc else "Visualization inference failed"
+                yield ToolProgressEvent(type="tool.progress", payload={
+                    "stage": "visualization_error",
+                    "error": viz_error_msg
+                })
 
         current_step_id = runtime_ctx.get("current_step_id")
-        # Always provide a minimal data_model in observation/output
-        try:
-            fallback_type = effective_type if 'effective_type' in locals() and effective_type else "table"
-        except Exception:
-            fallback_type = "table"
-        # Build the chart deterministically from the result set, then let
-        # inference refine it one validated field at a time. The chart type
-        # stays pinned to the early/user-requested type; inference contributes
-        # the encoding (series/group_by/filters/display), and anything it names
-        # that isn't a real column is dropped rather than allowed to blank the
-        # chart. See app/ai/tools/chart_spec.py.
-        final_dm, spec_meta = build_final_data_model(fallback_type, inferred_dm, formatted)
-        if spec_meta.get("dropped") or spec_meta.get("demoted"):
-            logger.warning(
-                "create_data.viz_spec type=%s source=%s applied=%s dropped=%s demoted=%s",
-                spec_meta.get("type"),
-                spec_meta.get("source"),
-                spec_meta.get("applied"),
-                spec_meta.get("dropped"),
-                spec_meta.get("demoted"),
-            )
-        else:
-            logger.info(
-                "create_data.viz_spec type=%s source=%s applied=%s",
-                spec_meta.get("type"), spec_meta.get("source"), spec_meta.get("applied"),
-            )
+        final_dm, view_payload, spec_meta = self._finalize_visualization(
+            fallback_type, inferred_dm, formatted, title=data.title, runtime_ctx=runtime_ctx,
+        )
         run_span.set_attribute("viz.spec_source", str(spec_meta.get("source")))
         run_span.set_attribute("viz.overrides_applied", len(spec_meta.get("applied") or []))
         run_span.set_attribute("viz.overrides_dropped", len(spec_meta.get("dropped") or []))
+        run_span.set_attribute("viz.deferred", viz_pending)
         if spec_meta.get("demoted"):
             run_span.set_attribute("viz.demoted", str(spec_meta.get("demoted")))
-        # Deterministic guard: a single-value card must resolve to one numeric
-        # cell (value column + row selector). It repairs what it can (missing
-        # value column, series-name row filter via derive_kpi_row_filter) and
-        # demotes the type to table when unresolvable — a card must never
-        # render an arbitrary cell (the date row or a metric label).
-        final_dm = ensure_single_value_card_renderable(final_dm, formatted)
-        palette_theme = _infer_palette_theme(runtime_ctx) or "default"
-        # Extract available column names from formatted data for fallback inference
-        available_columns = [c.get("field") for c in formatted.get("columns", []) if c.get("field")]
-        view_schema = build_view_from_data_model(final_dm, title=data.title, palette_theme=palette_theme, available_columns=available_columns,
-                                                 rows=formatted.get("rows") or [])
-        view_payload = view_schema.model_dump(exclude_none=True) if view_schema else None
-        if not view_payload and final_dm.get("type"):
-            view_payload = {"version": "v2", "view": {"type": final_dm.get("type")}}
 
         row_count = info.get("total_rows", len(formatted.get("rows", [])))
         column_names = [
@@ -2508,6 +2601,9 @@ Do not use generic placeholders like "value" unless that is the actual column na
                         if surviving_params else None
                     ),
                     "sandbox_activity": sandbox_activity or None,
+                    # The background inference will refine data_model/view
+                    # (key present only while it is pending).
+                    **({"viz_pending": True} if viz_pending else {}),
                 },
                 "observation": observation,
             },

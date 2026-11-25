@@ -405,7 +405,7 @@ async def fork_report(
 ):
     """Fork a published/shared report into the current user's workspace."""
     new_report = await fork_service.fork_report(
-        db, report_id, current_user, title=body.title,
+        db, report_id, current_user, title=body.title, organization=organization,
     )
     # A fork of a delegated source lands with its queries empty — no rows and
     # no SQL — and is filled in by running them under the forker's own
@@ -662,7 +662,23 @@ async def get_public_conversation(
         if report_obj:
             eligibility = await fork_service.check_eligibility(db, report_obj, user)
             result["fork_eligibility"] = eligibility.to_dict()
+            # The share page renders outside the app layout, so it never learns
+            # the org's language on its own: an anonymous viewer of a Hebrew
+            # org's conversation would get an English, LTR page. Hand it the
+            # sharing org's effective locale (org override → system default).
+            # A viewer's personal choice still wins on the client.
+            result["locale"] = await _org_effective_locale(db, str(report_obj.organization_id))
     return result
+
+
+async def _org_effective_locale(db: AsyncSession, organization_id: str) -> str:
+    from app.models.organization_settings import OrganizationSettings
+    i18n = app_settings.bow_config.i18n
+    cfg = (await db.execute(
+        select(OrganizationSettings.config).where(OrganizationSettings.organization_id == organization_id)
+    )).scalar_one_or_none()
+    candidate = cfg.get("locale") if isinstance(cfg, dict) else None
+    return candidate if candidate in i18n.enabled_locales else i18n.default_locale
 
 
 @router.get("/r/{report_id}/files/{file_id}/embed_token")
@@ -1172,6 +1188,11 @@ async def export_public_report_html(
         headers={
             "Content-Disposition": disposition,
             "Cache-Control": "no-store",
+            # Public share-link export: pin the declared text/html type so no
+            # browser sniffs this user-influenced download into another type.
+            # Matches the header on other content routes; inline execution in
+            # the app origin is already prevented by the attachment disposition.
+            "X-Content-Type-Options": "nosniff",
         },
     )
 

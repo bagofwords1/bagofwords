@@ -1,3 +1,9 @@
+/** A tool that has not finished: the live stream says 'running', a row
+ *  loaded after a reload says 'in_progress'. */
+export function isToolRunning(status?: string | null): boolean {
+  return ['running', 'in_progress'].includes(status || '')
+}
+
 /** Structured outcomes win; legacy rows remain readable without changing history. */
 export function toolOutcome(result: Record<string, any>, status: string, stage = '', runStatus = ''): string {
   if (result.outcome) return result.outcome
@@ -9,7 +15,7 @@ export function toolOutcome(result: Record<string, any>, status: string, stage =
   if (['stopped', 'cancelled'].includes(status)) return 'cancelled'
   if (/remote operation timed out/i.test(result.error_message || result.error || '')) return 'execution_timed_out'
   if (result.success === false || status === 'error') return 'failed'
-  if (['running', 'in_progress'].includes(status)) {
+  if (isToolRunning(status)) {
     if (runStatus === 'stopped') return 'cancelled'
     return ['awaiting_confirmation', 'awaiting_approval'].includes(stage) ? 'awaitingApproval' : 'running'
   }

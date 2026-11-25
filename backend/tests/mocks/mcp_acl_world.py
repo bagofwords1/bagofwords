@@ -80,6 +80,11 @@ class World:
         return {t["name"] for t in r.json() if t.get("is_active")}
 
     def create_instruction_as(self, persona: str, text: str, agents: list[str]) -> str:
+        return self.seed_instruction_as(persona, text, agents)["id"]
+
+    def seed_instruction_as(self, persona: str, text: str, agents: list[str]) -> dict:
+        """Create a published instruction; returns the created row as the API
+        answered it (the same shape ``GET /api/instructions/{id}`` returns)."""
         ds_ids = [self.agent_id(a) for a in agents]
         route = "/api/instructions/global" if not ds_ids or persona in (M.ORG_ADMIN, M.INSTRUCTION_ADMIN) else "/api/instructions"
         r = self.http.post(route, json={
@@ -87,7 +92,7 @@ class World:
             "category": "general", "data_source_ids": ds_ids,
         }, headers=self.personas[persona].headers())
         assert r.status_code == 200, f"seed instruction as {persona}: {r.status_code} {r.text}"
-        return r.json()["id"]
+        return r.json()
 
 
 def _ok(resp, what: str):

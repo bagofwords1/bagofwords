@@ -2,8 +2,9 @@ from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress
 
 import logging
-import re
+import os
 import sqlite3
+import urllib.parse
 from contextlib import contextmanager
 from functools import cached_property
 from typing import Generator, List, Optional
@@ -17,6 +18,24 @@ from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.data_sources.fk_reflection import attach_foreign_keys
 
 logger = logging.getLogger(__name__)
+
+
+# PRAGMAs that take an argument and only report (the argument names an object).
+_READ_PRAGMAS = frozenset({
+    "table_info", "table_xinfo", "table_list", "index_list", "index_info", "index_xinfo",
+    "foreign_key_list", "foreign_key_check", "integrity_check", "quick_check",
+})
+
+
+def _authorize_read(action, arg1, arg2, _db, _source):
+    """Engine-side backstop for the read-only open: a read-only handle can
+    still attach a second database read-write, and `PRAGMA name(value)` sets
+    `name`."""
+    if action in (sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH):
+        return sqlite3.SQLITE_DENY
+    if action == sqlite3.SQLITE_PRAGMA and arg2 is not None and (arg1 or "").lower() not in _READ_PRAGMAS:
+        return sqlite3.SQLITE_DENY
+    return sqlite3.SQLITE_OK
 
 
 class SqliteClient(DataSourceClient):
@@ -65,7 +84,12 @@ class SqliteClient(DataSourceClient):
             # An in-memory database is private to the connection that made it,
             # so a second handle would open a *different*, empty database.
             return ""
-        return f"sqlite:///{self.database}"
+        from app.data_sources.clients._duckdb_lockdown import unrestricted
+
+        if unrestricted():
+            return f"sqlite:///{self.database}"
+        # Extraction and FK reflection only read: same read-only open as connect().
+        return f"sqlite:///{self._read_only_file_uri()}&uri=true"
 
     @contextmanager
     def extraction_connect(self):
@@ -83,14 +107,54 @@ class SqliteClient(DataSourceClient):
                 "An in-memory SQLite database cannot be materialized: a second "
                 "handle opens a different, empty database."
             )
+        self._check_file()
         with get_engine(self.sqlite_uri).connect() as conn:
             yield conn
+
+    def check_config_paths(self) -> None:
+        """Path policy for the configured database file. Raises ValueError."""
+        if self.database and self.database != ":memory:":
+            from app.data_sources.clients._duckdb_lockdown import check_local_path
+
+            # The owning organization, when whoever built the client knew it.
+            check_local_path(self.database, organization_id=getattr(self, "_bow_organization_id", None))
+
+    def _read_only_file_uri(self) -> str:
+        return "file:" + urllib.parse.quote(os.path.abspath(self.database)) + "?mode=ro"
+
+    def _check_file(self) -> None:
+        """Path policy, then a clear error for a file that is not there: a
+        read-only open does not create one, and SQLite's own message
+        ("unable to open database file") does not say why."""
+        from app.data_sources.clients._duckdb_lockdown import unrestricted
+
+        if unrestricted():
+            return
+        self.check_config_paths()
+        if not os.path.isfile(self.database):
+            raise FileNotFoundError(f"database file not found: {self.database}")
+
+    def _open(self) -> sqlite3.Connection:
+        from app.data_sources.clients._duckdb_lockdown import unrestricted
+
+        if unrestricted():
+            return sqlite3.connect(self.database, check_same_thread=False)
+        if not self.database or self.database == ":memory:":
+            conn = sqlite3.connect(self.database, check_same_thread=False)
+            conn.set_authorizer(_authorize_read)
+            return conn
+        self._check_file()
+        # A data source is only ever read: open the file read-only, so no
+        # statement can change it, whatever the SQL guard let through.
+        conn = sqlite3.connect(self._read_only_file_uri(), uri=True, check_same_thread=False)
+        conn.set_authorizer(_authorize_read)
+        return conn
 
     @contextmanager
     def connect(self) -> Generator[sqlite3.Connection, None, None]:
         conn: sqlite3.Connection | None = None
         try:
-            conn = sqlite3.connect(self.database, check_same_thread=False)
+            conn = self._open()
             conn.row_factory = sqlite3.Row
             yield conn
         except Exception as exc:
@@ -121,12 +185,12 @@ class SqliteClient(DataSourceClient):
                 tables: List[Table] = []
                 for table_name in names:
                     reporter.item(table_name)
-                    # PRAGMA does not accept bound parameters for object names,
-                    # so validate the name shape before interpolating to guard
-                    # against any odd values from sqlite_master.
-                    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table_name):
-                        continue
-                    cursor.execute(f'PRAGMA table_info("{table_name}")')
+                    # The table-valued form takes the name as a bound
+                    # parameter, so any name sqlite_master holds (spaces,
+                    # hyphens, quotes, non-ASCII) is read as data, never SQL.
+                    cursor.execute(
+                        "SELECT name, type FROM pragma_table_info(?)", (table_name,)
+                    )
                     columns = [
                         TableColumn(name=row["name"], dtype=row["type"] or "unknown")
                         for row in cursor.fetchall()

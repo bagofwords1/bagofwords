@@ -319,6 +319,24 @@ _PARALLEL_SAFE_TOOLS = frozenset({"inspect_data", "create_data"})
 # every write_csv in a session renders the same stale widget preview.
 _INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_entity", "write_csv"})
 
+
+def resolve_created_step_id(tool_name: str, observation, current_step_id) -> Optional[str]:
+    """The Step a finished tool created, for its tool_executions row.
+
+    A tool that reports its step (``step_id`` in the observation) wins. The
+    invocation's current step is only a fallback for the tools that create
+    their step through progress events — the invocation-reset data tools.
+    Every other tool (create_artifact, edit_artifact, generate_image, ...)
+    created no step: stamping the invocation's last chart on it made chat
+    channels send that chart again as the tool's output, in place of a
+    dashboard link or a generated picture.
+    """
+    if isinstance(observation, dict) and observation.get("step_id"):
+        return observation["step_id"]
+    if tool_name in _INVOCATION_RESET_TOOLS and current_step_id:
+        return current_step_id
+    return None
+
 # How long a tool-supplied image (a rendered page, a screenshot, a picture
 # read with read_file) stays attached as a vision block on the legacy
 # (non-transcript) channel.
@@ -473,6 +491,24 @@ _CONTEXT_OVERFLOW_PATTERNS = (
 MAX_OVERFLOW_COMPACTIONS = 3
 
 
+# Classified LLM error codes for which re-running the planner on the same model
+# cannot help: the identical prompt is rejected identically every time.
+_PLANNER_NO_RETRY_CODES = ("content_filter", "pii_blocked")
+
+
+def _planner_retry_is_pointless(llm_err_payload: Optional[dict]) -> bool:
+    """True when a planner LLM error must end the turn instead of retrying.
+
+    A provider content filter (e.g. Azure Prompt Shields flagging the prompt as
+    a jailbreak) blocks the same request on every attempt; retrying
+    only delays the error and hides its cause behind a generic retry notice.
+    A PII block is the same kind of refusal: the org's policy for this provider
+    would refuse the identical prompt again, and it is never fallback-eligible
+    (another provider must not receive what this one's policy refused).
+    """
+    return bool(llm_err_payload) and llm_err_payload.get("code") in _PLANNER_NO_RETRY_CODES
+
+
 def _shrunk_context_factor(current: float, provider_message: Optional[str]) -> float:
     """Next trim-budget factor after a context_length rejection.
 
@@ -529,6 +565,17 @@ from app.schemas.completion_v2_schema import ArtifactChangeSchema
 from app.schemas.report_api_settings import report_disabled_tools
 from app.streaming.text_streamer import PlanningTextStreamer
 from app.streaming.completion_stream import CompletionEventQueue
+from app.ai.viz_refinement import (
+    VizRefinement,
+    VizRefinementTracker,
+    apply_refinement_to_result_json,
+    merge_refined_data_model,
+    stored_chart_still_provisional,
+)
+
+# How long a settle waits for the background tool_executions INSERT
+# (Postgres) before treating the write as not ready yet and retrying.
+VIZ_PERSIST_WAIT_S = 30.0
 from app.streaming.completion_event_bus import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
@@ -607,6 +654,21 @@ _CONTEXT_FREE_TOOLS = frozenset({
 })
 
 
+def _viz_inference_deferred() -> bool:
+    """Whether create_data runs its visualization inference in the background.
+
+    On by default; ``BOW_VIZ_INFERENCE_INLINE=1`` restores the old inline pass
+    (the tool awaits it before ending)."""
+    return os.environ.get("BOW_VIZ_INFERENCE_INLINE", "").lower() not in ("1", "true", "yes")
+
+
+# Tools that never read a visualization or a step's data_model, so a batch made
+# only of them runs without waiting for create_data's background inference.
+# Anything else (artifacts, docs, dashboards, query reads...) waits for it, so
+# it reads the refined chart, never one about to change under it.
+_TOOLS_INDEPENDENT_OF_VIZ_REFINEMENT = frozenset({"create_data", "inspect_data"})
+
+
 def _tool_ignores_turn_context(tool_name) -> bool:
     name = str(tool_name or "")
     return name in _CONTEXT_FREE_TOOLS or name.startswith("mcp__")
@@ -619,6 +681,10 @@ class AgentV2:
     # is built in __init__; the default keeps any earlier reader safe.
     _disabled_tools: frozenset = frozenset()
     _report_opt_outs: dict = {}
+    # Agents needing the user's sign-in (see _signin_required_agents).
+    # Assigned in __init__; the defaults keep any earlier reader safe.
+    _signin_candidates: tuple = ()
+    _signin_required: Optional[list] = None
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
@@ -804,6 +870,11 @@ class AgentV2:
                               else (getattr(report, 'data_sources', []) or []))
                 if DataSourceService.is_execution_live(ds)
             ]
+            # The working set before the client filter below: an agent the user
+            # must sign in to has no client and is dropped there, but the
+            # planner is still told it exists (see _signin_required_agents).
+            self._signin_candidates = list(self.data_sources)
+            self._signin_required: Optional[list] = None
             self.clients = clients
             # Drop data sources that produced no client. The caller builds
             # `clients` via DataSourceService.construct_clients, which now 403s
@@ -816,6 +887,12 @@ class AgentV2:
             # clients were supplied (some non-query callers pass none).
             if clients:
                 def _has_client(ds):
+                    # An agent with no connection never has a client and has
+                    # nothing to query; it stays for its description,
+                    # instructions and files. (One the user cannot access is
+                    # already left out by prepare_run_agents.)
+                    if not (getattr(ds, 'connections', None) or []):
+                        return True
                     name = getattr(ds, 'name', None)
                     if not name:
                         return False
@@ -884,6 +961,8 @@ class AgentV2:
             ])
         else:
             self.data_sources = []
+            self._signin_candidates = []
+            self._signin_required = None
             self.clients = {}
             self.image_files = []
             self.analysis_files = []
@@ -1003,6 +1082,14 @@ class AgentV2:
         # by design — so tool bodies overlap only on their LLM/codegen and
         # code-execution awaits, never on DB work.
         self._tool_db_lock = asyncio.Lock()
+
+        # create_data's visualization inference runs in the background
+        # (runtime_ctx["defer_viz_inference"]); this tracks each pass until
+        # its result is announced and written. See app/ai/viz_refinement.py.
+        self._viz_refinements = VizRefinementTracker(
+            announce=self._announce_viz_refinement,
+            apply=self._apply_viz_refinement,
+        )
 
         # create_dashboard streaming state (in-memory, no layout persistence)
         self._dashboard_blocks: list[dict] = []
@@ -1373,6 +1460,7 @@ class AgentV2:
                 select(Membership.note, Membership.profile_attributes).where(
                     Membership.user_id == user.id,
                     Membership.organization_id == self.organization.id,
+                    Membership.deleted_at.is_(None),
                 )
             )
             row = result.first()
@@ -1502,15 +1590,23 @@ class AgentV2:
             logger.debug("memory trace stamp failed", exc_info=True)
 
     def _current_focus_key(self) -> tuple:
-        """Stable key of (persisted focus, run working set) for change
-        detection between planner iterations — set_report_agents mutates the
-        former, search_agents grows the latter."""
+        """Stable key of (persisted focus, run working set, report attachments)
+        for change detection between planner iterations — set_report_agents
+        mutates the first, search_agents grows the second, and create_agent
+        attaches a new agent to the report without touching either."""
         try:
             focus = tuple(sorted(str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or []))) if self.report else ()
             loaded = tuple(sorted(getattr(self, "loaded_agent_ids", ()) or ()))
-            return (focus, loaded)
         except Exception:
             return ()
+        # On its own: a failed read of the attachments must not hide a focus
+        # or working-set change from the comparison.
+        try:
+            attached = tuple(sorted(str(getattr(d, "id", "")) for d in (getattr(self.report, "data_sources", None) or []))) if self.report else ()
+        except Exception:
+            logger.debug("focus key: report attachments unreadable", exc_info=True)
+            attached = ()
+        return (focus, loaded, attached)
 
     def _mlog(self, label: str) -> None:
         """Run-progress log line, timestamped against the start of the run.
@@ -1539,6 +1635,40 @@ class AgentV2:
         elapsed = f" +{(_time.monotonic() - t0) * 1000:.0f}ms" if t0 else ""
         logger.info(f"[agent:{rid}] {label}{elapsed}")
 
+    async def _record_exposure(self) -> None:
+        """Record every agent this run has been given — its working set plus the
+        report's pins (a pin's schema reaches the trace via set_report_agents /
+        create_agent even when no client could be built for it). Monitoring uses
+        it to decide which agent managers may see the run; see
+        app.services.folder_monitoring.record_exposed_agents. Best-effort: a
+        failure leaves the run unattributed, which hides it from scoped managers."""
+        execution = getattr(self, "current_execution", None)
+        if execution is None:
+            return
+        try:
+            ids = [d.id for d in (self.data_sources or [])]
+            if self.report is not None:
+                ids += [d.id for d in (getattr(self.report, "data_sources", None) or [])]
+            from app.services.folder_monitoring import record_exposed_agents
+            await record_exposed_agents(self.db, execution.id, ids)
+        except Exception:
+            logger.exception("recording run exposure failed")
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
+
+    def _extend_pii_agent_scope(self, data_sources) -> None:
+        """Add agents to this run's PII agent scope (in place: the list is
+        shared with the usage attribution every LLM call reads)."""
+        scope = getattr(self, "_pii_agent_scope", None)
+        if scope is None:
+            return
+        for ds in data_sources or []:
+            ds_id = ds if isinstance(ds, str) else str(getattr(ds, "id", "") or "")
+            if ds_id and ds_id not in scope:
+                scope.append(ds_id)
+
     async def _ensure_clients_for_attached(self) -> None:
         """Build query clients for agents attached AFTER run start (approved
         set_report_agents expansion) — without this create_data against the new
@@ -1547,6 +1677,7 @@ class AgentV2:
             return
         try:
             from app.services.data_source_service import DataSourceService
+            from app.ai.tools.implementations.agent_focus_common import construct_agent_clients
             svc = DataSourceService()
             user = getattr(self.head_completion, "user", None) if self.head_completion else None
             known = {str(d.id) for d in (self.data_sources or [])}
@@ -1554,10 +1685,19 @@ class AgentV2:
                 if str(ds.id) in known or not DataSourceService.is_execution_live(ds):
                     continue
                 try:
-                    built = await svc.construct_clients(self.db, ds, user)
-                    if built:
-                        self.clients.update(built)
+                    # Per connection, as at run start (prepare_run_agents).
+                    from app.ai.tools.implementations.agent_focus_common import run_agents_context
+                    built = await construct_agent_clients(
+                        svc, self.db, ds, user, where="mid-run",
+                        run_agents=run_agents_context([*(self.data_sources or []), ds], self.report))
+                    # An agent with no connection builds no client and is
+                    # attached all the same (construct_agent_clients raised
+                    # if this user may not use it).
+                    if built or not (getattr(ds, "connections", None) or []):
+                        self.clients.update(built or {})
                         self.data_sources.append(ds)
+                        self._extend_pii_agent_scope([ds])
+                        await self._record_exposure()
                         self._mlog(f"mid-run client built for {ds.name}")
                 except Exception:
                     logger.exception("mid-run client construction failed for %s", getattr(ds, "name", "?"))
@@ -1745,22 +1885,140 @@ class AgentV2:
                 logger.warning("[agent] connector check failed for %r", getattr(ds, "id", None), exc_info=True)
         return out
 
+    async def _signin_required_agents(self) -> list:
+        """Agents and connectors in this run's scope the user must sign in to.
+
+        ``user_required`` auth with no personal credentials and no service
+        account fallback: construct_clients 403s for them, so they carry no
+        client and never reach the schema or the <connectors> block. The scope
+        is the run's working set plus, for a folder-scoped report, the folder's
+        agents that resolve_run_agents left out for the same reason (see
+        agent_focus_common.signin_scope_agents). Resolved once per run: signing
+        in happens between turns, and the next turn is a new run.
+        """
+        if self._signin_required is not None:
+            return self._signin_required
+        self._signin_required = []
+        try:
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            if user is None or self.report is None:
+                return self._signin_required
+            from app.ai.tools.implementations.agent_focus_common import signin_required_ids, signin_scope_agents
+            candidates = await signin_scope_agents(
+                self.db, self.organization, user, self.report,
+                working_set=list(getattr(self, "_signin_candidates", None) or []),
+            )
+            candidates = [
+                ds for ds in candidates
+                if any(
+                    (getattr(c, "auth_policy", None) or "system_only") == "user_required"
+                    for c in (getattr(ds, "connections", None) or [])
+                )
+            ]
+            if not candidates:
+                return self._signin_required
+            ids = await signin_required_ids(self.db, candidates, user)
+            self._signin_required = [ds for ds in candidates if str(ds.id) in ids]
+        except Exception:
+            logger.exception("[agent] sign-in-required resolution failed")
+            self._signin_required = []
+        return self._signin_required
+
+    async def _signin_required_block(self) -> tuple:
+        """``(ids, xml)`` for the planner's <agents_needing_signin> block."""
+        agents = await self._signin_required_agents()
+        if not agents:
+            return set(), ""
+        try:
+            from app.ai.context.agent_roster import load_agent_one_liners, render_signin_required_xml
+            from app.services.data_source_kind import is_connector
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            one_liners = await load_agent_one_liners(self.db, agents, self.organization, user)
+            xml = render_signin_required_xml([
+                (str(ds.id), getattr(ds, "name", "") or "", one_liners.get(str(ds.id), ""),
+                 "connector" if is_connector(ds) else None)
+                for ds in agents
+            ])
+            return {str(ds.id) for ds in agents}, xml
+        except Exception:
+            logger.exception("[agent] sign-in-required block render failed")
+            return {str(ds.id) for ds in agents}, ""
+
+    async def _unreachable_block(self, skip_ids: set) -> tuple:
+        """``(ids, xml)`` for the planner's <agents_unreachable> block: agents
+        in the working set whose every connection is flagged unreachable.
+
+        construct_clients builds no client for such a connection, so the agent
+        is dropped from the run. A sign-in the user has not done yet comes
+        first (``skip_ids``): that one they can fix.
+        """
+        try:
+            from app.ai.tools.implementations.agent_focus_common import (
+                agent_is_unreachable, agent_unreachable_since, format_since,
+            )
+            agents = [
+                ds for ds in (getattr(self, "_signin_candidates", None) or [])
+                if str(ds.id) not in skip_ids and agent_is_unreachable(ds)
+            ]
+        except Exception:
+            logger.exception("[agent] unreachable-agent resolution failed")
+            return set(), ""
+        if not agents:
+            return set(), ""
+        ids = {str(ds.id) for ds in agents}
+        try:
+            from app.ai.context.agent_roster import load_agent_one_liners, render_unreachable_agents_xml
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            one_liners = await load_agent_one_liners(self.db, agents, self.organization, user)
+            xml = render_unreachable_agents_xml([
+                (str(ds.id), getattr(ds, "name", "") or "", one_liners.get(str(ds.id), ""),
+                 format_since(agent_unreachable_since(ds)))
+                for ds in agents
+            ])
+            return ids, xml
+        except Exception:
+            logger.exception("[agent] unreachable-agent block render failed")
+            return ids, ""
+
     async def _render_schemas_with_roster(self, schemas_ctx):
+        """Agents (roster/focus policy) + the run's connectors, followed by
+        the agents this run could not load: the ones this user must sign in
+        to, and the ones whose connection is unreachable."""
+        signin_ids, signin_xml = await self._signin_required_block()
+        unreachable_ids, unreachable_xml = await self._unreachable_block(signin_ids)
+        withheld_ids = signin_ids | unreachable_ids
+        if withheld_ids and schemas_ctx and getattr(schemas_ctx, "data_sources", None):
+            # Never advertise a schema the run cannot query (no client): this
+            # matters when EVERY agent failed, where AgentV2.__init__ skips its
+            # client filter and the agent would otherwise stay in context.
+            import copy as _copy
+            schemas_ctx = _copy.copy(schemas_ctx)
+            schemas_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) not in withheld_ids]
+        excerpt, roster = await self._render_schemas_with_agents_and_connectors(schemas_ctx, withheld_ids)
+        for block in (signin_xml, unreachable_xml):
+            if block:
+                roster = f"{roster}\n{block}" if roster else block
+        return excerpt, roster
+
+    async def _render_schemas_with_agents_and_connectors(self, schemas_ctx, signin_ids: set):
         """Agents (roster/focus policy) + the run's connectors.
 
         Connectors are split out first: the roster, focus and Auto "pick" logic
         only ever see agents, and every connected connector renders, always, as
         a separate ``<connectors>`` block appended after the agents' schemas.
         """
-        connector_ids = self._connector_ids()
+        # Agents needing sign-in stay out of the roster too: it merges in the
+        # report's own attachments, which can still hold one.
+        signin_ids = set(signin_ids or ())
+        connector_ids = self._connector_ids() - signin_ids
         if not schemas_ctx or not getattr(schemas_ctx, "data_sources", None) or not connector_ids:
-            return await self._render_agent_schemas_with_roster(schemas_ctx, set())
+            return await self._render_agent_schemas_with_roster(schemas_ctx, signin_ids)
         import copy as _copy
         agent_ctx = _copy.copy(schemas_ctx)
         agent_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) not in connector_ids]
         conn_ctx = _copy.copy(schemas_ctx)
         conn_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) in connector_ids]
-        excerpt, roster = await self._render_agent_schemas_with_roster(agent_ctx, connector_ids)
+        excerpt, roster = await self._render_agent_schemas_with_roster(agent_ctx, connector_ids | signin_ids)
         try:
             connectors_xml = conn_ctx.render_connectors(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
         except Exception:
@@ -2139,22 +2397,16 @@ class AgentV2:
         """
         import base64
         import aiofiles
-        from app.models.report_file_association import report_file_association
 
         # Load images that belong to the current completion
         current_cid = str(self.head_completion.id) if self.head_completion else None
         eligible_files = []
         if current_cid and self.image_files and self.db and self.report:
             try:
-                image_file_ids = [str(f.id) for f in self.image_files]
-                result = await self.db.execute(
-                    select(report_file_association.c.file_id).where(
-                        report_file_association.c.report_id == str(self.report_id),
-                        report_file_association.c.file_id.in_(image_file_ids),
-                        report_file_association.c.completion_id == current_cid,
-                    )
-                )
-                current_ids = {row[0] for row in result.fetchall()}
+                # Upload links and Rerun links (prompt.file_ids) alike.
+                from app.services.completion_attachments import attached_files_by_completion
+                attached = await attached_files_by_completion(self.db, [current_cid], images_only=True)
+                current_ids = {str(f.id) for f in attached.get(current_cid, [])}
                 eligible_files = [f for f in self.image_files if str(f.id) in current_ids]
             except Exception as e:
                 logger.warning(f"Failed to filter images by completion, attaching none: {e}")
@@ -2817,14 +3069,23 @@ class AgentV2:
                             completion_id=str(self.system_completion_id),
                             agent_execution_id=str(self.current_execution.id),
                             seq=seq_ts,
-                            data={"tool_name": tool_name, "arguments": tool_input},
+                            data={
+                                "tool_name": tool_name,
+                                "arguments": tool_input,
+                                "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
+                            },
                         ))
                     except Exception:
                         pass
 
                     # Forward tool streaming events (tool.progress / stdout / partial / error)
-                    # to the UI, same as the main loop.
-                    async def _harness_emit(ev: dict, _tn=tool_name, _ti=tool_input):
+                    # to the UI, same as the main loop. Keyed by tool_execution_id so the
+                    # frontend routes them to this tool, not whatever block is last (the
+                    # harness block only links its tool_execution once the tool finishes,
+                    # so there is no block_id to send yet).
+                    _harness_te_id = str(tool_execution.id) if tool_execution is not None else None
+
+                    async def _harness_emit(ev: dict, _tn=tool_name, _ti=tool_input, _te_id=_harness_te_id):
                         try:
                             await self._handle_streaming_event(_tn, ev, _ti)
                         except Exception:
@@ -2837,7 +3098,7 @@ class AgentV2:
                                     completion_id=str(self.system_completion_id),
                                     agent_execution_id=str(self.current_execution.id),
                                     seq=seq_ev,
-                                    data={"tool_name": _tn, "payload": ev.get("payload", {})},
+                                    data={"tool_name": _tn, "payload": ev.get("payload", {}), "tool_execution_id": _te_id},
                                 ))
                             except Exception:
                                 pass
@@ -3984,7 +4245,9 @@ class AgentV2:
         except Exception:
             pass
 
-    async def _collect_steering_messages(self, poll_db: bool = True) -> list[str]:
+    async def _collect_steering_messages(
+        self, applies_to_loop_index: int | None = None, poll_db: bool = True
+    ) -> list[str]:
         """Drain steering messages that arrived since the last checkpoint.
 
         Merges the in-process websocket fast path with a DB backstop (needed
@@ -3992,6 +4255,13 @@ class AgentV2:
         completion id, appends new texts to self._steering_texts (which
         _effective_user_message renders into every subsequent planner input),
         and acks over SSE so the UI can show "steering applied".
+
+        ``applies_to_loop_index`` is the first loop step that plans with the
+        new steers. It is stamped on the steering rows (with the pickup time)
+        and sent in the ack, so the chat renders each steer right above the
+        step that acted on it — live, after reload, and on share links.
+        ``None`` means no step will act on them (the step limit is reached):
+        nothing is stamped or acked, so they stay shown as pending.
         """
         fresh: dict[str, str] = dict(self._steering_pending)
         self._steering_pending.clear()
@@ -4030,16 +4300,56 @@ class AgentV2:
             new_texts.append(content)
             new_ids.append(cid)
 
-        if new_texts:
+        if new_texts and applies_to_loop_index is not None:
+            applied_at = datetime.utcnow()
+            data = {"count": len(new_texts), "messages": new_texts, "ids": new_ids}
+            # Send the position only when it was saved, so the live view and a
+            # reload (or the share link) place the steer the same way.
+            if await self._stamp_steering_applied(new_ids, applied_at, applies_to_loop_index):
+                data["loop_index"] = applies_to_loop_index
+                data["applied_at"] = applied_at.isoformat()
             try:
                 await self._emit_sse_event(SSEEvent(
                     event="completion.steering.applied",
                     completion_id=str(self.system_completion_id),
-                    data={"count": len(new_texts), "messages": new_texts, "ids": new_ids},
+                    data=data,
                 ))
             except Exception:
                 pass
         return new_texts
+
+    async def _stamp_steering_applied(
+        self, ids: list[str], applied_at, loop_index: int
+    ) -> bool:
+        """Persist where the agent picked these steers up; True when saved.
+        Best effort: a failure only costs the chat its precise placement (it
+        falls back to send time), never the run."""
+        if not ids:
+            return False
+        try:
+            from sqlalchemy import update as _update
+            # The run's write path: one shared session in single-writer mode,
+            # a short-lived one otherwise. A Core UPDATE fires no ORM listeners,
+            # so the bus does not re-announce these rows (the subscriber would
+            # skip them as seen anyway).
+            async with self._writes_session() as _stamp_session:
+                result = await _stamp_session.execute(
+                    _update(Completion)
+                    .where(
+                        Completion.id.in_(ids),
+                        Completion.message_type == 'steering',
+                        Completion.steering_applied_at.is_(None),
+                    )
+                    .values(steering_applied_at=applied_at, steering_loop_index=loop_index)
+                )
+                await _stamp_session.commit()
+            # 0 rows when the steer's own insert has not committed yet (the bus
+            # announces it at flush time): report it unsaved, so the live view
+            # does not place it differently from a reload.
+            return bool(result.rowcount)
+        except Exception:
+            logger.exception("steering: failed to stamp applied position")
+            return False
 
     def _render_steering_context(self) -> str | None:
         """Rendered <steering_updates> block for PlannerInput.steering_context.
@@ -4412,6 +4722,7 @@ class AgentV2:
             self.db, self.organization, self.organization_settings,
             candidates=candidates, small_model=self.model, prompt_text=prompt_text,
             usage_context=self.usage_limit_context,
+            user=getattr(self.head_completion, "user", None),
         )
         if outcome.model is None:
             logger.info("[routing] upfront decision kept small model (%s)", outcome.reason)
@@ -4742,6 +5053,204 @@ class AgentV2:
         task = asyncio.create_task(_runner(), name=f"agent.bg_write.{label}")
         self._pending_writes.append(task)
         return task
+
+    # ---- create_data background visualization inference ------------------
+
+    def _track_viz_refinement(
+        self,
+        task,
+        *,
+        tool_execution_id: Optional[str],
+        step_id: Optional[str],
+        visualization_id: Optional[str],
+        persist_task: Optional[asyncio.Task],
+        provisional_view: Optional[dict] = None,
+        provisional_data_model: Optional[dict] = None,
+    ) -> None:
+        """Take over a create_data inference task handed back by the tool."""
+        self._viz_refinements.track(VizRefinement(
+            task=task,
+            tool_execution_id=tool_execution_id,
+            step_id=step_id,
+            visualization_id=visualization_id,
+            persist_task=persist_task,
+            provisional_view=provisional_view if isinstance(provisional_view, dict) else None,
+            provisional_data_model=provisional_data_model if isinstance(provisional_data_model, dict) else None,
+        ))
+
+    async def _announce_viz_refinement(self, rec: VizRefinement) -> None:
+        """SSE ``visualization.refined`` — runs from the watcher task as soon
+        as the inference lands, and again after the write commits. In-memory
+        only (seq counter + queue put), so it never touches a DB session."""
+        if not (self.system_completion and self.current_execution):
+            return
+        refined = rec.refined
+        seq = await self.project_manager.next_seq(None, self.current_execution)
+        await self._emit_sse_event(SSEEvent(
+            event="visualization.refined",
+            completion_id=str(self.system_completion_id),
+            agent_execution_id=str(self.current_execution.id),
+            seq=seq,
+            data={
+                "tool_execution_id": rec.tool_execution_id,
+                "step_id": rec.step_id,
+                "visualization_id": rec.visualization_id,
+                "refined": refined,
+                "data_model": (rec.result or {}).get("data_model") if refined else None,
+                "view": (rec.result or {}).get("view") if refined else None,
+            },
+        ))
+
+    async def _apply_viz_refinement(self, rec: VizRefinement) -> None:
+        """Write a landed refinement in one commit: step data_model,
+        visualization view, and the tool execution's result_json and
+        context_summary_json (what report loads serve), pending flag cleared.
+
+        Called only from a settle on the loop's own coroutine — in
+        single-writer mode the write session IS the loop's session, which no
+        background task may use. Raises (nothing modified) when the write
+        can't be made yet; the tracker retries it.
+
+        - Postgres: the tool_executions INSERT runs in the background; its
+          own retry loop bounds it. The UPDATE needs that row, so a missing
+          row raises before anything changes — never a refined step and
+          visualization next to a provisional tool result.
+        - A chart the user changed after the tool ended (saved axis or chart
+          type) is not overwritten: the refinement is dropped for it, and the
+          report projection takes the user's stored view.
+        """
+        from sqlalchemy.orm import load_only
+        from sqlalchemy.orm.attributes import flag_modified
+        from app.models.visualization import Visualization as _Viz
+        from app.schemas.view_schema import ViewSchema as _ViewSchema
+
+        if rec.persist_task is not None and not rec.persist_task.done():
+            await asyncio.wait([rec.persist_task], timeout=VIZ_PERSIST_WAIT_S)
+            if not rec.persist_task.done():
+                raise RuntimeError("tool execution row not persisted yet")
+        refinement = rec.result if rec.refined else None
+        user_edited = False
+        stored_view = None
+        stored_dm = None
+        async with self._single_writer_guard():
+            async with self._writes_session() as db:
+                # Reads and checks first: nothing is modified before a raise.
+                step_obj = None
+                if refinement and rec.step_id:
+                    # Only the chart metadata (+ status, read by the Step
+                    # after_update hook): Step.data is the full, encrypted
+                    # result and nothing here needs it.
+                    step_obj = (await db.execute(
+                        select(Step).options(lazyload("*"), load_only(Step.id, Step.data_model, Step.status))
+                        .where(Step.id == rec.step_id)
+                    )).scalar_one_or_none()
+                viz_obj = None
+                if refinement and rec.visualization_id:
+                    viz_obj = (await db.execute(
+                        select(_Viz).options(lazyload("*")).where(_Viz.id == rec.visualization_id)
+                    )).scalar_one_or_none()
+                te_obj = None
+                if rec.tool_execution_id:
+                    te_obj = (await db.execute(
+                        select(ToolExecution).options(lazyload("*")).where(ToolExecution.id == rec.tool_execution_id)
+                    )).scalar_one_or_none()
+                    if te_obj is None:
+                        raise RuntimeError("tool execution row not found")
+                if refinement:
+                    stored_view = viz_obj.view if viz_obj is not None else None
+                    stored_dm = step_obj.data_model if step_obj is not None else None
+                    provisional_view = None
+                    if rec.provisional_view:
+                        try:
+                            provisional_view = _ViewSchema(**rec.provisional_view).model_dump(exclude_none=True)
+                        except Exception:
+                            provisional_view = None
+                    user_edited = not stored_chart_still_provisional(
+                        stored_view=stored_view,
+                        provisional_view=provisional_view,
+                        stored_data_model=stored_dm,
+                        provisional_data_model=rec.provisional_data_model,
+                    )
+                try:
+                    if refinement and not user_edited:
+                        if step_obj is not None:
+                            step_obj.data_model = merge_refined_data_model(
+                                step_obj.data_model or {}, refinement["data_model"],
+                            )
+                            db.add(step_obj)
+                        if viz_obj is not None and isinstance(refinement.get("view"), dict):
+                            viz_obj.view = _ViewSchema(**refinement["view"]).model_dump(exclude_none=True)
+                            db.add(viz_obj)
+                    if te_obj is not None and isinstance(te_obj.result_json, dict):
+                        if user_edited:
+                            # Keep the user's chart in what reloads serve.
+                            projection = {"data_model": stored_dm, "view": stored_view} if stored_view else None
+                        else:
+                            projection = refinement
+                        te_obj.result_json = apply_refinement_to_result_json(te_obj.result_json, projection)
+                        flag_modified(te_obj, "result_json")
+                        summary = te_obj.context_summary_json
+                        if projection and isinstance(summary, dict):
+                            te_obj.context_summary_json = apply_refinement_to_result_json(summary, projection)
+                            flag_modified(te_obj, "context_summary_json")
+                        db.add(te_obj)
+                    await db.commit()
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    raise
+        logger.info(
+            "create_data.viz_refine applied refined=%s user_edited=%s step=%s viz=%s",
+            bool(refinement), user_edited, rec.step_id, rec.visualization_id,
+        )
+        if refinement:
+            if user_edited:
+                # The browser was told the refinement; give it the user's chart.
+                rec.result = {"data_model": stored_dm, "view": stored_view} if stored_view else None
+            # Re-announce after the commit: it lands after any provisional
+            # block snapshot the background persist emitted, so the live page
+            # ends on what the database holds.
+            await self._announce_viz_refinement(rec)
+
+    def _defer_viz_inference_for_run(self) -> bool:
+        """Whether this run's create_data refines its chart in the background.
+
+        Web report runs only: a chat channel (Slack, Teams, WhatsApp...) sends
+        the chart image as soon as the tool block succeeds — before a
+        refinement could land — so channel runs keep the inline pass. Same
+        test the planner uses for figures (no external platform)."""
+        return _viz_inference_deferred() and not self.platform
+
+    async def _viz_barrier(self, tool_name: Optional[str]) -> None:
+        """Before an action runs: a tool that may read a chart waits for the
+        background refinements already tracked (and their writes), so it
+        never reads a provisional chart. create_data / inspect_data don't
+        read charts and pass straight through."""
+        if tool_name in _TOOLS_INDEPENDENT_OF_VIZ_REFINEMENT:
+            return
+        await self._settle_viz_refinements(wait=True, reason="pre_tool")
+
+    async def _settle_viz_refinements(self, *, wait: bool, reason: str, timeout_s: Optional[float] = None) -> None:
+        """Write the background inferences that landed; with ``wait``, wait
+        for (or cancel) the rest first. See app/ai/viz_refinement.py."""
+        if not self._viz_refinements.pending:
+            return
+        _t0 = _time.monotonic()
+        try:
+            if timeout_s is None:
+                applied = await self._viz_refinements.settle(wait=wait)
+            else:
+                applied = await self._viz_refinements.settle(wait=wait, timeout_s=timeout_s)
+        except Exception:
+            logger.error("[agent] viz refinement settle failed (%s)", reason, exc_info=True)
+            return
+        if applied:
+            logger.info(
+                "create_data.viz_refine settle reason=%s wait=%s applied=%d waited_ms=%.0f",
+                reason, wait, applied, (_time.monotonic() - _t0) * 1000.0,
+            )
 
     def _single_writer_guard(self):
         """Serialize a writer against the shared session only when it writes
@@ -5315,6 +5824,9 @@ class AgentV2:
             for _ti, _act in enumerate(actions_list):
                 if self.sigkill_event.is_set():
                     break
+                # Per action, not per batch: in [create_data, read_query] the
+                # refinement only exists once create_data has run.
+                await self._viz_barrier(_act.name)
                 _outcome = await run_one(
                     _ti, _act,
                     block_ids[_ti] if _ti < len(block_ids) else None,
@@ -5345,6 +5857,7 @@ class AgentV2:
                         "action": _act, "skipped": True, "inv": None,
                         "observation": {"summary": "Stopped before execution", "stopped": True},
                     }
+                await self._viz_barrier(_act.name)
                 return await run_one(
                     _ti, _act, _bid, self._new_invocation_state(_act.name),
                 )
@@ -5457,16 +5970,41 @@ class AgentV2:
         # cost console can compute realized savings (see app.ai.model_router).
         _attr_routed = bool(self._routing_meta.get("routed"))
         _attr_baseline = self._routing_meta.get("baseline_model_id") if _attr_routed else None
-        _attribution_token = set_usage_attribution(
-            {
-                "organization_id": _attr_org,
-                "user_id": _attr_user,
-                "report_id": _attr_report,
-                "data_source_id": _attr_ds,
-                "routed": _attr_routed,
-                "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
-            }
+        # Per-agent PII policies (app.ai.llm.pii.policy, for_call): every agent
+        # whose data or context can reach this run's prompts. One list object,
+        # shared by every snapshot of this attribution, that only grows:
+        # agents attached mid-run are added (_extend_pii_agent_scope), never
+        # removed, so a policy can't fall away while its data is in context.
+        self._pii_agent_scope: list = []
+        self._extend_pii_agent_scope(
+            [*(self.data_sources or []), *(getattr(self, "_signin_candidates", None) or []),
+             *((getattr(self.report, "data_sources", None) or []) if self.report else [])]
         )
+        # Earlier turns reloaded into this run may carry rows from agents since
+        # detached: their policies keep applying. None = the history's
+        # provenance is incomplete, so the scope is left unknown (every agent
+        # policy applies). See app.ai.llm.pii.history_scope.
+        _pii_scope_known = True
+        if self.report:
+            from app.ai.llm.pii.history_scope import historical_agent_ids
+            _hist = await historical_agent_ids(
+                self.db, str(self.report_id), exclude_completion_id=self.system_completion_id
+            )
+            if _hist is None:
+                _pii_scope_known = False
+            else:
+                self._extend_pii_agent_scope(_hist)
+        _attribution = {
+            "organization_id": _attr_org,
+            "user_id": _attr_user,
+            "report_id": _attr_report,
+            "data_source_id": _attr_ds,
+            "routed": _attr_routed,
+            "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
+        }
+        if _pii_scope_known:
+            _attribution["data_source_ids"] = self._pii_agent_scope
+        _attribution_token = set_usage_attribution(_attribution)
         # Tag the warehouse queries this run sends (Snowflake QUERY_TAG, see
         # app/data_sources/query_tag.py) with the run's reply completion, so a
         # warehouse admin can find this exact turn. Org/user/report/run id come
@@ -5542,6 +6080,7 @@ class AgentV2:
                 self.current_execution.starting_folder_ids = report_folder_ids(self.report)
                 self.current_execution.starting_folder_id = self.report.agent_folder_id
                 await self.db.commit()
+            await self._record_exposure()
             # Sub-agent child: bind the execution to its row, narrow the catalog to
             # the profile, and load the budget. Must precede the first planner call.
             if self._is_sub_agent:
@@ -5659,6 +6198,11 @@ class AgentV2:
             # Pass prompt_text to enable intelligent instruction search
             try:
                 self.context_hub.message_builder.use_durable_transcript = True
+                # A scheduled run re-fetches live data each time: earlier runs'
+                # results replay as digests, so the prompt stays flat run over run.
+                self.context_hub.message_builder.durable_digest_prior_results = bool(
+                    getattr(self.head_completion, "scheduled_prompt_id", None)
+                )
             except Exception:
                 pass
             with tracer.start_as_current_span("agent.context_initial_load") as span:
@@ -5984,7 +6528,8 @@ class AgentV2:
                     # _effective_user_message().
                     _new_steers = []
                     try:
-                        _new_steers = await self._collect_steering_messages()
+                        # This iteration is the first to plan with them.
+                        _new_steers = await self._collect_steering_messages(applies_to_loop_index=loop_index)
                     except Exception:
                         pass
 
@@ -6088,6 +6633,10 @@ class AgentV2:
                         _focus_key = self._current_focus_key()
                         if _focus_key != getattr(self, "_rendered_focus_key", _focus_key):
                             await self._ensure_clients_for_attached()
+                            # An agent that joined the working set brings its
+                            # MCP tools; the schema render below then lists
+                            # them under <mcp_tools> from the new catalog.
+                            await self._refresh_native_mcp_tools()
                             schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
                             # Re-scope the standing <instructions> block too: it was
                             # built at run start for the initial agents, so a mid-run
@@ -6408,7 +6957,11 @@ class AgentV2:
                         # set observation, break, outer loop continues).
                         if self._steering_interrupt.is_set():
                             self._steering_interrupt.clear()
-                            _steers = await self._collect_steering_messages()
+                            # This decision is cancelled; the re-plan in the
+                            # next iteration is the first step to act on them.
+                            _steers = await self._collect_steering_messages(
+                                applies_to_loop_index=loop_index + 1 if loop_index + 1 < step_limit else None
+                            )
                             if _steers:
                                 await _cancel_skeleton_block("steering")
                                 observation = {
@@ -6730,6 +7283,12 @@ class AgentV2:
                                     except Exception:
                                         pass
 
+                                # Deterministic rejections (a provider content
+                                # filter) repeat on every re-run: fail the turn
+                                # now, with the cause named, not after two more.
+                                if _planner_retry_is_pointless(llm_err_payload):
+                                    invalid_retry_count = max_invalid_retries
+
                                 if invalid_retry_count >= max_invalid_retries:
                                     # Too many retries, treat as final error.
                                     # Also flip completion to error status with a
@@ -7027,7 +7586,10 @@ class AgentV2:
                                 # final plan streamed. Don't finalize over it — pick
                                 # it up and give the planner another iteration.
                                 try:
-                                    _late_steers = await self._collect_steering_messages()
+                                    # Not finalized: the next iteration re-plans with them.
+                                    _late_steers = await self._collect_steering_messages(
+                                        applies_to_loop_index=loop_index + 1 if loop_index + 1 < step_limit else None
+                                    )
                                 except Exception:
                                     _late_steers = []
                                 if _late_steers:
@@ -7040,6 +7602,10 @@ class AgentV2:
                                     break
                                 # Final answer path (no tool to execute)
                                 invalid_retry_count = 0
+
+                                # The answer has streamed; its charts must be final before
+                                # the run reports done (usually already landed meanwhile).
+                                await self._settle_viz_refinements(wait=True, reason="final_answer")
 
                                 # === IMMEDIATE: Emit completion.finished so UI updates instantly ===
                                 # This unblocks thumbs up/debug icons and stop→submit button.
@@ -7529,6 +8095,10 @@ class AgentV2:
                                         # Same gate as the submit_<list> tools (conversation switch,
                                         # sub-agent profile): create_data offers `lists` to code only then.
                                         "list_writes_allowed": bool(getattr(self, "_list_tool_routing", None)),
+                                        # create_data ends with the deterministic chart and
+                                        # hands its visualization inference back as a task
+                                        # (runtime_ctx["viz_refinement"]), tracked below.
+                                        "defer_viz_inference": self._defer_viz_inference_for_run(),
                                         "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                                         "response_locale": getattr(self, "response_locale", None),
@@ -7651,6 +8221,11 @@ class AgentV2:
                                 if runtime_ctx.get("training_build_id") and not self.training_build_id:
                                     self.training_build_id = runtime_ctx["training_build_id"]
 
+                                # create_data's deferred visualization inference (if any).
+                                # Tracked once the step/visualization/tool execution it
+                                # refines are known (after tool.finished below).
+                                _viz_refine_task = runtime_ctx.pop("viz_refinement", None)
+
                                 # create_list / edit_list changed this report's lists: swap the
                                 # submit_<slug> tools so the model can fill the new schema in
                                 # THIS run. Deliberate exception to the register-once rule
@@ -7684,14 +8259,11 @@ class AgentV2:
                                 async with self._tool_db_lock:
                                     # Extract created objects from observation, with fallback to orchestrator state
                                     created_widget_id = None
-                                    created_step_id = None
                                     if observation and "widget_id" in observation:
                                         created_widget_id = observation["widget_id"]
-                                    if observation and "step_id" in observation:
-                                        created_step_id = observation["step_id"]
-                                    # Fallback to orchestrator's current_step_id for tools that trigger step creation via progress events
-                                    if not created_step_id and _inv.current_step_id:
-                                        created_step_id = _inv.current_step_id
+                                    created_step_id = resolve_created_step_id(
+                                        tool_name, observation, _inv.current_step_id,
+                                    )
 
                                     # No per-tool warm refresh here: its view only fed the token
                                     # meter and the post-tool snapshot, and a batch of N tools
@@ -7816,6 +8388,7 @@ class AgentV2:
 
                                     # Bind per-action block_id eagerly so the bg closure sees this iteration's value
                                     _bg_block_id_local = _block_id_for_action
+                                    _persist_tool_task = None
                                     async def _bg_persist_tool(_block_id=_bg_block_id_local):
                                         from app.models.agent_execution import AgentExecution as _AE
                                         from app.models.completion import Completion as _Comp
@@ -7902,7 +8475,7 @@ class AgentV2:
                                                 exc_info=True,
                                             )
                                     else:
-                                        self._schedule_bg_write("persist_tool", _bg_persist_tool())
+                                        _persist_tool_task = self._schedule_bg_write("persist_tool", _bg_persist_tool())
                                     # Rebuild transcript — coalesced with any pending
                                     # rebuild from the post-plan_decision path above.
                                     # Single-writer mode runs sync on self._writes.
@@ -7943,6 +8516,21 @@ class AgentV2:
                                             "created_visualization_ids": created_visualization_ids,
                                         }
                                     ))
+
+                                    if _viz_refine_task is not None:
+                                        self._track_viz_refinement(
+                                            _viz_refine_task,
+                                            tool_execution_id=str(tool_execution.id) if tool_execution is not None else None,
+                                            step_id=created_step_id if _success_flag else None,
+                                            visualization_id=(
+                                                str(created_visualization_ids[0])
+                                                if _success_flag and created_visualization_ids else None
+                                            ),
+                                            persist_task=_persist_tool_task,
+                                            provisional_view=(tool_output or {}).get("view") if isinstance(tool_output, dict) else None,
+                                            provisional_data_model=(tool_output or {}).get("data_model") if isinstance(tool_output, dict) else None,
+                                        )
+                                        _viz_refine_task = None
 
                                     # Emit instructions.context if the tool loaded related instructions
                                     try:
@@ -8190,6 +8778,7 @@ class AgentV2:
                                             except Exception:
                                                 pass
 
+                                    await self._settle_viz_refinements(wait=True, reason="tool_final_answer")
                                     # Emit completion.finished immediately so UI updates.
                                     # Drain pending bg writes in the BACKGROUND — the
                                     # user-visible content has already streamed; the
@@ -8235,10 +8824,15 @@ class AgentV2:
                                     await self._persist_focus_on_use(_tn, _ti_args, _obs)
                                 except Exception:
                                     logger.exception("focus-on-use persist failed")
-                            if getattr(self.report, "agent_folder_id", None):
-                                from app.services.folder_monitoring import record_used_agents
-                                await record_used_agents(self.db, self.current_execution.id, self.data_sources,
-                                                         outcomes, self.used_agent_ids)
+                            # Every run, not only folder runs: an Auto run has no
+                            # pins, so observed use is what lets the console's
+                            # agent filter ("runs involving X") find it.
+                            from app.services.folder_monitoring import record_used_agents
+                            await record_used_agents(self.db, self.current_execution.id, self.data_sources,
+                                                     outcomes, self.used_agent_ids)
+                            # A tool may have attached an agent (set_report_agents,
+                            # create_agent): it is part of the run's exposure now.
+                            await self._record_exposure()
                             self._note_question_agents(outcomes)
 
                             observation = self._carry_substantive_observation(
@@ -8386,7 +8980,8 @@ class AgentV2:
                             await self._handle_context_overflow(_loop_err_payload.get("provider_message"))
                         except Exception:
                             logger.warning("[agent] context overflow handling failed", exc_info=True)
-                    if loop_error_retry_count < max_loop_retries:
+                    # A PII block would be refused again: never retried.
+                    if loop_error_retry_count < max_loop_retries and _loop_err_payload.get("code") != "pii_blocked":
                         loop_error_retry_count += 1
                         try:
                             seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -8628,6 +9223,15 @@ class AgentV2:
             except Exception:
                 pass
             
+            # Background visualization inferences still in flight (a run that
+            # ended through the step limit, a stop, a terminal tool...).
+            # A stop doesn't wait: what is still running is cancelled and its
+            # pending flag cleared, so no figure keeps waiting for it.
+            await self._settle_viz_refinements(
+                wait=True, reason="run_end",
+                timeout_s=0.0 if self.sigkill_event.is_set() else None,
+            )
+
             # Update system completion status and emit event if not already done.
             # Success case is typically handled earlier in the analysis_complete block for faster UI response.
             # Drain runs in the background (post-finished) — see comment in
@@ -8741,6 +9345,10 @@ class AgentV2:
                     self.system_completion, 
                     'error'
                 )
+            try:
+                await self._viz_refinements.cancel_all()
+            except Exception:
+                pass
             # Emit a final completion.finished event with error details for UI consumption.
             # Best-effort drain of bg writes — bounded so we don't hang the error path.
             try:
@@ -8762,6 +9370,7 @@ class AgentV2:
             raise
         finally:
             self._presence(False)
+            await self._record_exposure()
             # Sub-agent child: close the sub_agents row exactly once (record +
             # envelope, write-back to the parent's delegate tool execution,
             # wave decrement, fan-in when last). Runs on every exit path.
@@ -8790,6 +9399,12 @@ class AgentV2:
             # lifecycle is owned by the caller (FastAPI dependency); we
             # only ever aliased to it, never opened/owned a separate
             # session. So nothing to close here.
+            # Safety net: no background inference outlives the run (each
+            # end path above has already settled; this only catches leaks).
+            try:
+                await self._viz_refinements.cancel_all()
+            except Exception:
+                pass
             self._writes = None
             # Cleanup
             try:
@@ -9680,7 +10295,7 @@ class AgentV2:
     # call takes, whatever name the model used.
     _mcp_offered: bool = True
 
-    async def _register_native_mcp_tools(self) -> None:
+    async def _register_native_mcp_tools(self, *, rebuild: bool = False) -> None:
         """Register the run's MCP / custom-API tools, capped by ``tools_max``.
 
         Runs in the async post-init phase (``__init__`` is sync and has no DB
@@ -9691,11 +10306,25 @@ class AgentV2:
         """
         from app.ai.tools.mcp_tool_registry import build_mcp_tool_catalog
 
+        # A rebuild (_refresh_native_mcp_tools) drops the previous build's
+        # native tools first, and reuses the gateway descriptors the first
+        # build took out of the catalog.
+        previous = set(getattr(self, "_native_mcp_names", None) or ())
+        # What a failed rebuild puts back (see the except below).
+        kept = (
+            self.planner.tool_catalog, getattr(self, "_native_mcp_routing", None), previous,
+            getattr(self, "_deferred_mcp_tools", None), getattr(self, "_mcp_agent_key", None),
+        )
         self._native_mcp_routing = {}
         self._native_mcp_names = set()
         self._deferred_mcp_tools = []
-        catalog_tools = list(self.planner.tool_catalog or [])
+        catalog_tools = [t for t in (self.planner.tool_catalog or []) if t.name not in previous]
         gateway = {t.name: t for t in catalog_tools if t.name in self._MCP_GATEWAY_TOOLS}
+        if getattr(self, "_mcp_gateway_tools", None) is None:
+            self._mcp_gateway_tools = dict(gateway)
+        else:
+            gateway = {**self._mcp_gateway_tools, **gateway}
+        self._mcp_agent_key = tuple(sorted(self._run_agent_ids()))
         self.planner.tool_catalog = [t for t in catalog_tools if t.name not in self._MCP_GATEWAY_TOOLS]
         try:
             mcp_on = getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", True)
@@ -9726,6 +10355,16 @@ class AgentV2:
             existing = {t.name for t in base_catalog}
             added = [ToolDescriptor(**d) for d in catalog.native if d["name"] not in existing]
         except Exception as e:
+            if rebuild:
+                # The run already has a working catalog: one failed rebuild
+                # (the new agent's server timing out) must not take the other
+                # agents' tools away. Keep it, and the old agent key, so the
+                # next working-set change tries again.
+                logger.warning("[agent] MCP tool rebuild failed, keeping the current tools: %s", e)
+                (self.planner.tool_catalog, self._native_mcp_routing, self._native_mcp_names,
+                 self._deferred_mcp_tools, self._mcp_agent_key) = kept
+                self._mcp_context_changed = False
+                return
             # Tools unknown, not absent: keep the gateway, which <mcp_tools>
             # (connection ids, and schemas when they fit) is enough to call.
             logger.warning("[agent] MCP tool registration failed, offering execute_mcp: %s", e)
@@ -9742,6 +10381,27 @@ class AgentV2:
         if catalog.native or catalog.deferred:
             logger.info("[agent] MCP tools: %d native, %d behind search_tools",
                         len(catalog.native), len(catalog.deferred))
+
+    async def _refresh_native_mcp_tools(self) -> None:
+        """Rebuild the MCP tools when the run's agents changed mid-run.
+
+        An agent attached to the report during the run (create_agent) joins
+        ``self.data_sources`` through ``_ensure_clients_for_attached``;
+        without a rebuild its MCP tools were never offered, though its schema
+        was. Only rebuilds when the working
+        set differs from the one the catalog was built for, so the tool list
+        (the first prompt-cache breakpoint) stays stable otherwise.
+        """
+        if getattr(self, "_mcp_agent_key", None) is None:
+            return  # never registered (no report / not reached yet)
+        if tuple(sorted(self._run_agent_ids())) == self._mcp_agent_key:
+            return
+        before = len(self._native_mcp_names or ()), len(self._deferred_mcp_tools or ())
+        await self._register_native_mcp_tools(rebuild=True)
+        self._mlog(
+            f"mcp tools rebuilt for mid-run agents: native {before[0]}->{len(self._native_mcp_names)}, "
+            f"deferred {before[1]}->{len(self._deferred_mcp_tools)}"
+        )
 
     def _set_mcp_context(self, available, *, gateway: bool = False) -> None:
         """Point <mcp_tools> at what was registered; re-render on the next
@@ -9830,7 +10490,7 @@ class AgentV2:
             self._list_tool_routing = {}
 
     async def _refresh_browser_tool_catalog(self):
-        from app.ai.tools.artifact_verification import refresh_browser_tool_catalog
+        from app.ai.tools.artifact_verification import is_browser_tool, refresh_browser_tool_catalog
 
         ctx = {"session_maker": self._session_maker, "organization": self.organization,
                "report": self.report,
@@ -9841,8 +10501,16 @@ class AgentV2:
         if allowed is not None:
             # Never advertise a browser tool the sub-agent dispatch check would refuse.
             candidates = [t for t in candidates if t.name in allowed]
-        self.planner.tool_catalog = await refresh_browser_tool_catalog(
-            self.planner.tool_catalog, candidates, ctx)
+        refreshed = await refresh_browser_tool_catalog(self.planner.tool_catalog, candidates, ctx)
+        # This runs as a background task alongside the loop head, and the
+        # policy check above awaits I/O. Apply only the browser decision to the
+        # catalog as it is NOW: assigning the list derived from the snapshot
+        # taken before the await overwrote changes made meanwhile (the MCP
+        # tools rebuilt for an agent attached mid-run).
+        browser = [t for t in refreshed if is_browser_tool(t.name)]
+        self.planner.tool_catalog = [
+            t for t in (self.planner.tool_catalog or []) if not is_browser_tool(t.name)
+        ] + browser
 
     # How many callable MCP names an unknown-tool refusal lists.
     _UNKNOWN_TOOL_SUGGESTIONS = 25
@@ -9863,6 +10531,20 @@ class AgentV2:
             return observation
         native = sorted(getattr(self, "_native_mcp_names", None) or ())
         deferred = bool(getattr(self, "_deferred_mcp_tools", None))
+        # A connector's write actions are named mcp__<connection>__<action>,
+        # its read tools are not (list_emails, search_email, ...). A model that
+        # generalises the prefix (mcp__Outlook__search_email) is pointed at the
+        # real tool by name instead of only at the MCP list.
+        bare = name.rsplit("__", 1)[-1]
+        offered = {t.name for t in (getattr(self.planner, "tool_catalog", None) or [])}
+        if bare and bare in offered and not bare.startswith("mcp__"):
+            observation["error"]["message"] += (
+                f". '{bare}' is a built-in tool: call it as '{bare}' (with the connection's id), "
+                "without the mcp__ prefix."
+            )
+            observation["suggested_tool"] = bare
+            logger.warning("[agent] unknown tool %s → suggested %s", name, bare)
+            return observation
         if native or deferred:
             shown = native[: self._UNKNOWN_TOOL_SUGGESTIONS]
             observation["available_mcp_tools"] = shown
@@ -10050,8 +10732,12 @@ class AgentV2:
                         # Update current step's data model with new column
                         column = payload.get("column", {})
                         if cur_step and column:
-                            current_data_model = getattr(cur_step, "data_model", {}) or {}
-                            current_data_model.setdefault("columns", [])
+                            # A NEW dict, as in series_configured below (only
+                            # create_widget emits column_added): Step.data_model
+                            # is a plain JSON column, so an in-place edit
+                            # assigned back is not seen as a change.
+                            current_data_model = dict(getattr(cur_step, "data_model", None) or {})
+                            current_data_model["columns"] = list(current_data_model.get("columns") or [])
                             # Add column if not already present
                             if not any(col.get("generated_column_name") == column.get("generated_column_name")
                                      for col in current_data_model["columns"]):
@@ -10084,7 +10770,15 @@ class AgentV2:
                         # Update current step's data model with series
                         series = payload.get("series", [])
                         if cur_step and series:
-                            current_data_model = getattr(cur_step, "data_model", {}) or {}
+                            # Build a NEW dict: Step.data_model is a plain JSON
+                            # column, so mutating the loaded dict in place and
+                            # assigning it back is not seen as a change. The
+                            # write was skipped, and in a single-writer run the
+                            # tool's final data_model was then compared against
+                            # the mutated dict and skipped too — the stored
+                            # chart had no series, and chat channels sent no
+                            # chart image.
+                            current_data_model = dict(getattr(cur_step, "data_model", None) or {})
                             current_data_model["series"] = series
                             await self.project_manager.update_step_with_data_model(
                                 fresh_db, cur_step, current_data_model, refresh=False
@@ -10222,31 +10916,58 @@ class AgentV2:
             logger.error(f"Error handling streaming event {stage} for {tool_name}: {e}")
             # Don't re-raise; this is streaming and shouldn't break the main flow
 
-    async def _record_step_table_usage(self, db, report_obj, step_obj, data_model, tables_by_source, user_id):
-        """Emit TableUsageEvents for a finished step (data model first, then
-        tables_by_source; the recorder dedupes). Best-effort, never raises."""
+    async def _record_failed_step_usage(self, tool_name, tool_input, tool_output, inv) -> None:
+        """A failed create_data still says which tables and columns the agent
+        reached for: record them as a failure (it weighs less than a success
+        in table and column stats). Only when a query actually ran against the
+        source; a code-generation error or a user stop used nothing. Same
+        session routing as the success path: inline on the single writer
+        (SQLite), else a background write drained before completion.finished."""
         try:
-            await self.project_manager.emit_table_usage(
-                db=db, report=report_obj, step=step_obj, data_model=data_model,
-                user_id=user_id, user_role=None,
+            if tool_name != "create_data" or not isinstance(tool_output, dict) or tool_output.get("success"):
+                return
+            queries = [str(q) for q in (tool_output.get("executed_queries") or []) if q]
+            step_id = getattr(inv, "current_step_id", None)
+            report_id = str(self.report_id) if self.report else None
+            if not queries or not step_id or not report_id:
+                return
+            user_id = str(getattr(self.head_completion, 'user_id', None)) if (
+                self.head_completion and getattr(self.head_completion, 'user_id', None)
+            ) else None
+            tbs = copy.deepcopy(tool_input.get("tables_by_source")) if isinstance(tool_input, dict) else None
+            record = self._record_step_table_usage_bg(
+                report_id, str(step_id), {}, tbs, user_id, executed_queries=queries, success=False,
+                session_cm=self._writes_session if self._use_single_write_session() else None,
+            )
+            if self._use_single_write_session():
+                await record
+            else:
+                self._schedule_bg_write("table_usage", record)
+        except Exception:
+            pass
+
+    async def _record_step_table_usage(self, db, report_obj, step_obj, data_model, tables_by_source, user_id,
+                                       executed_queries=None, success=None):
+        """Record a finished step's table and column usage (data model,
+        tables_by_source and the executed queries; the recorder dedupes per
+        step and table). ``success`` overrides the step status — the failure
+        path records before the step is marked. Best-effort, never raises."""
+        try:
+            await self.project_manager.emit_step_usage(
+                db, report_obj, step_obj, data_model=data_model, tables_by_source=tables_by_source,
+                executed_queries=executed_queries, success=success, user_id=user_id, user_role=None,
             )
         except Exception:
             pass
-        if tables_by_source:
-            try:
-                await self.project_manager.emit_table_usage_from_tables_by_source(
-                    db=db, report=report_obj, step=step_obj, tables_by_source=tables_by_source,
-                    user_id=user_id, user_role=None, source_type="sql",
-                )
-            except Exception:
-                pass
 
-    async def _record_step_table_usage_bg(self, report_id, step_id, data_model, tables_by_source, user_id):
-        """Background variant on a short-lived session of its own. The step's
+    async def _record_step_table_usage_bg(self, report_id, step_id, data_model, tables_by_source, user_id,
+                                          executed_queries=None, success=None, session_cm=None):
+        """Background variant on a short-lived session of its own (or the
+        given session context, e.g. the single writer). The step's
         status/data were committed before this was scheduled."""
         if not report_id or not step_id:
             return
-        async with self._session_maker() as db:
+        async with (session_cm or self._session_maker)() as db:
             report_obj = (await db.execute(
                 select(Report)
                 .options(lazyload("*"), selectinload(Report.data_sources).options(lazyload("*")))
@@ -10257,7 +10978,8 @@ class AgentV2:
             )).scalar_one_or_none()
             if report_obj is None or step_obj is None:
                 return
-            await self._record_step_table_usage(db, report_obj, step_obj, data_model, tables_by_source, user_id)
+            await self._record_step_table_usage(db, report_obj, step_obj, data_model, tables_by_source, user_id,
+                                                executed_queries=executed_queries, success=success)
 
     async def _handle_tool_output(self, tool_name: str, tool_input: dict, observation: dict, tool_output: dict = None, inv=None):
         """Handle tool outputs and manage final state updates.
@@ -10277,6 +10999,7 @@ class AgentV2:
         if inv is None:
             inv = _AgentStateProxy(self)
         if not observation or _observation_failed(observation):
+            await self._record_failed_step_usage(tool_name, tool_input, tool_output, inv)
             return  # Don't process failed tool executions
 
         # Only these tools have a state-finalization branch below. Read-only
@@ -10402,9 +11125,12 @@ class AgentV2:
                         if tool_name == "create_data" and isinstance(tool_input, dict):
                             _tbs = tool_input.get("tables_by_source") or None
                         _usage_data_model = getattr(step_obj, "data_model", {}) or {}
+                        # Executed queries: the column-usage signal.
+                        _usage_queries = [str(q) for q in (tool_output.get("executed_queries") or []) if q]
                         if self._use_single_write_session():
                             await self._record_step_table_usage(
                                 fresh_db, report_obj, step_obj, _usage_data_model, _tbs, head_user_id,
+                                executed_queries=_usage_queries, success=True,
                             )
                         else:
                             self._schedule_bg_write(
@@ -10412,6 +11138,7 @@ class AgentV2:
                                 self._record_step_table_usage_bg(
                                     report_id, str(step_obj.id), copy.deepcopy(_usage_data_model),
                                     copy.deepcopy(_tbs), head_user_id,
+                                    executed_queries=_usage_queries, success=True,
                                 ),
                             )
 

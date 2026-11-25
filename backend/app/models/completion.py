@@ -42,6 +42,13 @@ class Completion(BaseSchema):
 
     # message type
     message_type = Column(String, nullable=False, default='ai_completion')
+
+    # Steering rows only (message_type='steering'): when the agent picked the
+    # steer up, and the loop step that first acted on it. The chat renders the
+    # steer right above the first block with loop_index >= steering_loop_index.
+    # NULL while pending / never picked up -> send-time placement.
+    steering_applied_at = Column(DateTime, nullable=True, default=None)
+    steering_loop_index = Column(Integer, nullable=True, default=None)
     role = Column(String, nullable=False, default='system')
 
     # report
@@ -105,6 +112,16 @@ class Completion(BaseSchema):
     # timeline via trigger_source IS NOT NULL AND role='user'), and the
     # agent's role='system' reply. Null for human-initiated turns.
     trigger_source = Column(String, nullable=True, index=True)
+
+    # How this run was started, when it matters to the tool permission rules.
+    # 'api_key': a prompt created by an API-key request (nobody is in the loop
+    # to answer an approval), stamped at insert on role='user' rows by
+    # app/core/request_origin.py. On a machine turn (wait wake, check-in,
+    # sub-agent, wave or message reply) the mark of the turn that started it:
+    # 'api_key', 'unattended' (a scheduled, webhook or eval run) or 'channel'
+    # (a Slack, Teams, email or app-surface run); see
+    # app/services/machine_turn.py. NULL for every other run.
+    started_via = Column(String(16), nullable=True)
 
     external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null
     external_message_id = Column(String, nullable=True)  # Platform-specific message ID
@@ -257,6 +274,15 @@ def after_update_completion(mapper, connection, target):
             spawn(teams_stream.end_run(
                 target.external_channel_id, str(target.id), failed=target.status == "error",
             ))
+
+        # WhatsApp "typing…": the run is over, stop refreshing it. (Also
+        # reported from the run's finally; end_run counts each run once.)
+        if (target.external_platform == "whatsapp" and
+            target.role == "system" and
+            target.status in _RUN_ENDED_STATUSES and
+            inspect(target).attrs.status.history.has_changes()):
+            from app.services.platform_adapters import whatsapp_typing
+            whatsapp_typing.end_run(target.external_channel_id, str(target.id))
 
         spawn(broadcast_event(_bus_event("update_completion", target)))
 

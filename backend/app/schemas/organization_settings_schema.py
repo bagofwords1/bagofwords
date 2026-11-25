@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator, Field
+from pydantic import BaseModel, validator, Field, model_validator
 from typing import Dict, Any, Optional, Union, List
 import json
 from datetime import datetime
@@ -102,36 +102,84 @@ class PiiRule(BaseModel):
     # "replace" swaps matches with ``replacement``; "block" refuses the whole
     # request if this rule matches (block always wins over replace).
     action: Optional[str] = None
+    # Optional conditions (custom rules; see app.ai.llm.pii.checks):
+    # exact words/phrases matched whole-word, case-insensitive;
+    terms: List[str] = []
+    # a checksum each match must pass: luhn | iban | il_id | aba;
+    checksum: Optional[str] = None
+    # words, one of which must appear near a match.
+    context: List[str] = []
 
     @validator('action', pre=True, always=True)
     def validate_action(cls, v):
-        if v in (None, "replace", "block"):
+        if v in (None, "replace", "mask", "block", "pseudonymize"):
             return v
         return None
 
 
-class PiiProtectionConfig(BaseModel):
-    """Org-level configuration for redacting PII from prompts before they are
-    sent to any LLM provider. Enterprise-gated (``pii_protection`` feature) —
-    when the instance is unlicensed the redactor is a no-op regardless of this
-    config, so nothing here can turn the feature on in a community build.
+class PiiRuleOptions(BaseModel):
+    """One policy's options for one rule. A missing field keeps the rule's
+    default: enabled, the policy's mode, the rule's own token."""
+    enabled: Optional[bool] = None
+    action: Optional[str] = None
+    replacement: Optional[str] = None
 
-    Only overrides + custom rules live here; the built-in rule catalogue lives
-    in ``app.ai.llm.pii.builtin_rules`` so patterns can be improved in code
-    without a migration.
-    """
-    enabled: bool = False  # master switch (still requires an enterprise license)
-    mode: str = "replace"  # "replace" (swap with token) | "block" (refuse the call)
-    # Per-builtin overrides keyed by rule id -> {"enabled": bool, "replacement": str}
+
+class PiiPolicyConfig(BaseModel):
+    """A named set of options over the shared rule list."""
+    name: str = "Default"
+    mode: str = "replace"  # default action for rules without their own
+    # False: instructions, schemas and other platform context are left as they
+    # are; only the user's prompt and the data are redacted.
+    redact_context: bool = False
     builtin_overrides: Dict[str, Dict[str, Any]] = {}
-    # Fully user-defined rules
-    custom_rules: List[PiiRule] = []
+    custom_overrides: Dict[str, Dict[str, Any]] = {}
+    # Detector entities (PERSON, LOCATION…): {enabled, action, replacement,
+    # min_score}. Off unless enabled here.
+    detector_overrides: Dict[str, Dict[str, Any]] = {}
+    # "block": refuse the request when the detector cannot run;
+    # "regex_only": send it with the pattern rules only (audited).
+    on_detector_error: str = "block"
 
-    @validator('mode', pre=True, always=True)
-    def validate_mode(cls, v):
-        if v not in ("replace", "block"):
-            return "replace"
-        return v
+
+class PiiProtectionConfig(BaseModel):
+    """Org-level PII protection for prompts sent to LLM providers.
+    Enterprise-gated (``pii_protection``): when the instance is unlicensed the
+    redactor is a no-op regardless of this config.
+
+    * ``custom_rules`` is one shared rule list (patterns live in one place);
+      the built-in catalogue lives in ``app.ai.llm.pii.builtin_rules``.
+    * ``policies`` holds named option sets over those rules; ``default`` always
+      exists. ``provider_policies`` assigns a policy (or ``exempt``) to an LLM
+      provider; unassigned providers use ``default``.
+    * ``mode``, ``builtin_overrides``, each custom rule's ``enabled`` /
+      ``action`` / ``replacement`` and ``exempt_provider_ids`` are the
+      pre-policy fields, mirrored from the Default policy so older clients keep
+      reading (and writing) what they expect.
+
+    Any stored shape is normalized by ``app.ai.llm.pii.policy.normalize``.
+    """
+    enabled: bool = False
+    mode: str = "replace"
+    builtin_overrides: Dict[str, Dict[str, Any]] = {}
+    custom_rules: List[PiiRule] = []
+    exempt_provider_ids: List[str] = []
+    policies: Dict[str, PiiPolicyConfig] = {}
+    provider_policies: Dict[str, str] = {}
+    # Agent (data source) -> policy id or ":none"; unassigned agents use
+    # default_agent_policy. See docs/design/pii-agent-policies.md.
+    agent_policies: Dict[str, str] = {}
+    default_agent_policy: str = ":none"
+    display_policy: str = "default"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, values):
+        from app.ai.llm.pii.policy import legacy_view, normalize
+        if isinstance(values, BaseModel):
+            values = values.model_dump()
+        cfg = normalize(values if isinstance(values, dict) else {})
+        return {**cfg, **legacy_view(cfg)}
 
 
 # Microsoft Graph /me fields that are readable with the default-granted
@@ -226,7 +274,6 @@ class OrganizationSettingsConfig(BaseModel):
     class GeneralConfig(BaseModel):
         ai_analyst_name: str = "AI Analyst"
         bow_credit: bool = True
-        show_world: bool = False
         # Icon storage fields (disk/object storage)
         icon_key: Optional[str] = None
         icon_url: Optional[str] = None
@@ -331,6 +378,9 @@ class OrganizationSettingsConfig(BaseModel):
     # browser vendor's speech service may receive it. Frontend-only gate:
     # when off, the microphone button is hidden. Off by default: an admin
     # opts the organization in once they accept that trade-off.
+    # World view of agents and knowledge at /agents/world. Was general.show_world
+    # (moved by migration worldai01, which carries existing orgs' choice over).
+    show_world: FeatureConfig = FeatureConfig(value=False, name="World view", description="Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access.", is_lab=False, editable=True)
     enable_voice_input: FeatureConfig = FeatureConfig(value=False, name="Voice input", description="Show a microphone button in the chat composer so users can dictate a prompt. Transcription runs in the user's browser (Chrome, Edge and Safari); audio never reaches this server, but the browser vendor's speech service may process it.", is_lab=False, editable=True)
     enable_file_upload: FeatureConfig = FeatureConfig(value=True, name="Allow file upload", description="Allow users to upload spreadsheets and documents (xls/pdf) and push their content to the LLM", is_lab=False, editable=True)
     enable_llm_judgement: FeatureConfig = FeatureConfig(value=True, name="Enable LLM Judge", description="Enable LLM to judge the quality of the analysis and user queries", is_lab=False, editable=True)
@@ -364,6 +414,7 @@ class OrganizationSettingsConfig(BaseModel):
     query_timeout_seconds: FeatureConfig = FeatureConfig(value=180, name="Query timeout (seconds)", description="Default per-query wall-clock timeout when the agent runs SQL via create_data / inspect_data. A connection's config can override this with its own 'query_timeout_seconds' value.", is_lab=False, editable=True)
     max_concurrent_queries_per_connection: FeatureConfig = FeatureConfig(value=12, name="Concurrent queries per connection", description="How many queries BOW may run against one connection at the same time, across all workers and replicas. A burst above this waits its turn rather than failing. Lower it for fragile on-prem sources (Oracle, SQL Server) that cannot take parallel scans. A connection's config can override this with its own 'max_concurrent_queries' value.", is_lab=False, editable=True)
     top_k_schema: FeatureConfig = FeatureConfig(value=10, name="Top K schema", description="The number of schema to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
+    top_k_schema_columns: FeatureConfig = FeatureConfig(value=60, name="Top K columns per table", description="How many columns of a wide table the agent sees in full in its context, ranked by column usage, instruction references and keys/timestamps. The rest are summarized by prefix and stay searchable with describe_tables. 0 = no limit.", is_lab=False, editable=True)
     top_k_metadata_resources: FeatureConfig = FeatureConfig(value=10, name="Top K metadata resources", description="The number of metadata resources to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
     agent_roster_top_k: FeatureConfig = FeatureConfig(value=10, name="Agent roster top K", description="When a report has many agents, how many appear as full roster lines in the AI context (ranked by the asker's recent usage; the rest are listed by name only in a more_agents tail). Clamped to 1-100.", is_lab=False, editable=True)
     # Off = no new "anyone with the link" shares (dashboards or conversations),
@@ -397,6 +448,13 @@ class OrganizationSettingsConfig(BaseModel):
     enable_ml_training: FeatureConfig = FeatureConfig(value=True, name="Machine learning (scikit-learn)", description="Let generated code train scikit-learn models (classification, regression, clustering, feature importance) on query results and uploaded files. Training runs in-process on the server; turn off to keep generated code to pandas/numpy analysis only.", is_lab=False, editable=True)
     ml_training_row_limit: FeatureConfig = FeatureConfig(value=50000, name="ML training row limit", description="Maximum number of rows generated code should train a model on. Larger sources are sampled down to this size before fitting. Minimum 1000.", is_lab=False, editable=True)
     enable_custom_queries: FeatureConfig = FeatureConfig(value=False, name="Custom tables (beta)", description="Let connection admins define a query (SQL, or DAX on Power BI) that BOW materializes to an encrypted local copy on a schedule, so agents answer from the cached result instead of querying the source on every turn. Beta: off by default.", is_lab=True, editable=True)
+    # Limits for custom tables, shown under the switch above. Defaults are the
+    # values the feature shipped with; the ranges are enforced in
+    # app/data_sources/fast/limits.py (refused on write, clamped on read).
+    custom_table_max_rows: FeatureConfig = FeatureConfig(value=5000000, name="Custom table row limit", description="Most rows one custom table may hold. A query estimated or found to return more is refused and the previous data keeps being served. 1,000 to 100,000,000.", is_lab=False, editable=True)
+    custom_table_max_gb: FeatureConfig = FeatureConfig(value=2, name="Custom table size limit (GB)", description="Largest estimated result, and largest cached file, for one custom table. 1 to 64.", is_lab=False, editable=True)
+    custom_table_max_scan_gb: FeatureConfig = FeatureConfig(value=100, name="Custom table source scan limit (GB)", description="Most data the source may read for one refresh, where the source reports it before running (BigQuery, Snowflake). 1 to 10,240.", is_lab=False, editable=True)
+    custom_table_max_requests: FeatureConfig = FeatureConfig(value=512, name="Custom table request limit", description="Most requests one refresh may make to a source that is read page by page (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Raise it together with the row limit: Power BI returns at most 100,000 rows per request and allows about 120 requests a minute. 16 to 10,000.", is_lab=False, editable=True)
     enable_agent_notes: FeatureConfig = FeatureConfig(value=True, name="Agent Notes", description="Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context.", is_lab=True, editable=True)
     # Agent check-ins (lab): after a chat turn, the agent may quietly plan ONE
     # follow-up in the same report; a judge decides at fire time whether to run
@@ -432,6 +490,10 @@ class OrganizationSettingsConfig(BaseModel):
     # candidates (falls back to small_model when unconfident or unavailable);
     # the planner can still escalate. Validated in OrganizationSettingsService.
     model_routing_decision: FeatureConfig = FeatureConfig(value={"method": "small_model", "decision_model_id": None, "min_confidence": 0.7}, name="Auto router method", description="Enterprise. How the Auto model router picks the model a request starts on: the small model (escalating if needed), or a decision model that picks upfront.", is_lab=True, editable=True)
+    # Run-level permission mode for connection tools and remote shell (the
+    # prompt box's Auto / Ask / Allow all chip). Validated and normalized in
+    # OrganizationSettingsService; read via app.services.tool_permission_mode.
+    tool_permission_mode: FeatureConfig = FeatureConfig(value={"default_mode": "ask", "allow_all_enabled": False, "unattended": "refuse", "judge_decision_model_id": None, "allow_threshold": 0.85, "refuse_threshold": 0.3}, name="Tool permission mode", description="How the agent decides whether to run connection tools and remote shell commands: Ask (the per-tool settings), Auto (a model decides, asking when unsure) or Allow all (no prompts; needs the switch below). Also sets what happens to a prompt in runs nobody is watching.", is_lab=False, editable=True)
     llm_fallback: FeatureConfig = FeatureConfig(value=False, name="LLM fallback", description="Enterprise. When the active model fails with a rate limit, provider overload, or network error, automatically retry the request on the next model in the fallback order (configured on the LLM page) for the rest of the run. The substitution is always disclosed in the chat. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
     # Ordered LLMModel db ids tried top-to-bottom on failure. Managed via
     # POST /llm/fallback_order (EE-gated); stored as a bare list, not a

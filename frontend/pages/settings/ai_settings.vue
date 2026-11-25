@@ -82,6 +82,13 @@
                                     {{ $t('settings.aiSettingsPage.llmAccessWarning') }}
                                 </p>
                             </div>
+                            <!-- Permission mode: several fields in one setting -->
+                            <ToolPermissionModeSetting
+                                v-else-if="key === 'tool_permission_mode'"
+                                :feature="configFeatures.tool_permission_mode"
+                                :disabled="!configFeatures.tool_permission_mode.editable || configFeatures.tool_permission_mode.state === 'locked'"
+                                @updated="(f: any) => { configFeatures.tool_permission_mode = f }"
+                            />
                             <AiSettingRow
                                 v-else
                                 :setting-key="key"
@@ -182,6 +189,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useToast } from '#imports'
 import AiSettingRow from '~/components/settings/AiSettingRow.vue'
+import ToolPermissionModeSetting from '~/components/settings/ToolPermissionModeSetting.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 
@@ -253,6 +261,10 @@ const pendingLlmValue = ref(false)
 const FEATURE_PARENT: Record<string, string> = {
     enable_artifact_verification: 'allow_llm_see_data',
     enable_demo_data_generation: 'enable_training_mode',
+    custom_table_max_rows: 'enable_custom_queries',
+    custom_table_max_gb: 'enable_custom_queries',
+    custom_table_max_scan_gb: 'enable_custom_queries',
+    custom_table_max_requests: 'enable_custom_queries',
     ml_training_row_limit: 'enable_ml_training',
     sandbox_web_fetch_max_urls: 'enable_sandbox_web_fetch',
     sandbox_browser_allow_mutating_requests: 'enable_sandbox_browser',
@@ -271,13 +283,13 @@ const FEATURE_PARENT: Record<string, string> = {
 // A backend setting not listed here lands in "other" so it never disappears.
 const SECTIONS: { id: string, keys: string[] }[] = [
     { id: 'data', keys: ['allow_llm_see_data', 'enable_web_fetch'] },
-    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_custom_queries', 'enable_artifact_resources', 'enable_follow_ups', 'enable_voice_input'] },
+    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_custom_queries', 'enable_artifact_resources', 'enable_follow_ups', 'enable_voice_input', 'show_world'] },
     // What generated code (create_data) may do beyond querying. All off by default.
     { id: 'sandbox', keys: ['enable_sandbox_web_fetch', 'enable_sandbox_browser', 'enable_sandbox_lists', 'enable_load_step', 'enable_ml_training'] },
     { id: 'learning', keys: ['enable_user_memory', 'suggest_instructions', 'enable_llm_judgement', 'auto_suggest_evals', 'enable_agent_dreaming', 'enable_agent_checkins'] },
-    { id: 'tools', keys: ['enable_mcp_tools', 'tools_max'] },
+    { id: 'tools', keys: ['enable_mcp_tools', 'tools_max', 'tool_permission_mode'] },
     { id: 'sub_agents', keys: ['enable_sub_agents', 'sub_agent_posture', 'sub_agent_max_steps', 'sub_agent_max_tokens', 'sub_agent_deadline_minutes', 'sub_agent_concurrency', 'sub_agent_max_per_wave', 'sub_agent_model', 'sub_agent_allow_model_override', 'sub_agent_allow_create_data'] },
-    { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'smart_instructions_on_demand', 'top_k_schema', 'top_k_metadata_resources', 'agent_roster_top_k'] },
+    { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'smart_instructions_on_demand', 'top_k_schema', 'top_k_schema_columns', 'top_k_metadata_resources', 'agent_roster_top_k'] },
     { id: 'workspace', keys: ['allow_public_sharing', 'allow_access_requests', 'allow_report_webhooks', 'allow_forks', 'step_retention_days', 'file_retention_days'] },
 ]
 
@@ -358,6 +370,11 @@ const toggleSection = (id: string) => {
 
 const toast = useToast()
 
+// The app-wide settings cache (useOrgSettings) is fetched once per session and
+// drives what other pages show (e.g. the World switch on Agents). Write each
+// saved feature into it so the change shows up without a reload.
+const { settings: orgSettings } = useOrgSettings()
+
 // Fetch organization settings
 const fetchSettings = async () => {
     loading.value = true
@@ -427,6 +444,7 @@ const updateConfigFeature = async (featureKey: string, feature: Feature) => {
         const updatedConfig = (response.data?.value as SettingsResponse)?.config
         if (updatedConfig?.[featureKey]) {
             configFeatures.value[featureKey] = updatedConfig[featureKey] as Feature
+            if (orgSettings.value?.config) orgSettings.value.config[featureKey] = updatedConfig[featureKey]
         } else {
             // Fallback: manually update state based on new value
             configFeatures.value[featureKey].state = configFeatures.value[featureKey].value ? 'enabled' : 'disabled'

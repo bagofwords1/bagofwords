@@ -52,7 +52,7 @@
                                 <button type="button" class="flex items-center gap-1 text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.automations = !sectionOpen.automations">
                                     <UIcon :name="sectionOpen.automations ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                     {{ $t('projects.overview.automations') }}
-                                    <span v-if="automations.length" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ automations.length }}</span>
+                                    <span v-if="automations.length" class="normal-case font-normal text-ink-muted">{{ automations.length }}</span>
                                 </button>
                             </div>
                             <template v-if="sectionOpen.automations">
@@ -78,7 +78,7 @@
                                 <button type="button" class="flex items-center gap-1 text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.reports = !sectionOpen.reports">
                                     <UIcon :name="sectionOpen.reports ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                     {{ $t('projects.tabs.reports') }}
-                                    <span v-if="reportsMeta.total" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ reportsMeta.total }}</span>
+                                    <span v-if="reportsMeta.total" class="normal-case font-normal text-ink-muted">{{ reportsMeta.total }}</span>
                                 </button>
                                 <div v-if="sectionOpen.reports && reportsMeta.total_pages > 1" class="flex items-center gap-1 text-2xs text-ink-muted">
                                     <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage <= 1" @click="changeReportsPage(reportsPage - 1)" :aria-label="$t('common.previous')">
@@ -95,10 +95,10 @@
                                     <div v-for="i in 4" :key="i" class="h-11 rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse"></div>
                                 </div>
                                 <ul v-else-if="reports.length" class="divide-y divide-gray-100 dark:divide-gray-800">
-                                    <li v-for="report in sortedReports" :key="report.id">
+                                    <li v-for="report in sortedReports" :key="report.id" class="group/row flex items-center rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60">
                                         <NuxtLink
                                             :to="`/reports/${report.id}`"
-                                            class="flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer"
+                                            class="flex-1 min-w-0 flex items-center gap-3 px-2 py-2.5 cursor-pointer"
                                         >
                                             <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-ink-muted" />
                                             <span class="flex-1 truncate text-sm text-gray-800 dark:text-gray-200">{{ report.title || $t('reports.untitled') }}</span>
@@ -114,6 +114,23 @@
                                                 </div>
                                             </UTooltip>
                                         </NuxtLink>
+                                        <!-- Owner-only: file a report back out of the project. The backend
+                                             gates the move on report ownership, so non-owners get no menu.
+                                             Subtle ⋮ (no filled box) that only appears on row hover. -->
+                                        <UDropdown
+                                            v-if="isOwn(report)"
+                                            :items="rowMenu(report)"
+                                            :popper="{ placement: 'bottom-end' }"
+                                            :ui="{ width: 'w-44', padding: 'p-1', item: { size: 'text-xs', padding: 'px-2 py-1.5', icon: { base: 'flex-shrink-0 w-3.5 h-3.5' } } }"
+                                        >
+                                            <button
+                                                type="button"
+                                                class="flex items-center justify-center w-6 h-6 me-1.5 rounded text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-300 opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity"
+                                                :aria-label="$t('projects.removeFromProject')"
+                                            >
+                                                <UIcon name="i-heroicons-ellipsis-vertical" class="w-4 h-4" />
+                                            </button>
+                                        </UDropdown>
                                     </li>
                                 </ul>
                                 <div v-else class="mt-4 flex flex-col items-center text-center py-10 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
@@ -135,7 +152,7 @@
                                 <button type="button" class="flex items-center gap-1 text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.dashboards = !sectionOpen.dashboards">
                                     <UIcon :name="sectionOpen.dashboards ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                     {{ $t('projects.tabs.dashboards') }}
-                                    <span v-if="dashboardsMeta.total" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ dashboardsMeta.total }}</span>
+                                    <span v-if="dashboardsMeta.total" class="normal-case font-normal text-ink-muted">{{ dashboardsMeta.total }}</span>
                                 </button>
                                 <div v-if="sectionOpen.dashboards && dashboardsMeta.total_pages > 1" class="flex items-center gap-1 text-2xs text-ink-muted">
                                     <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="dashboardsPage <= 1" @click="changeDashboardsPage(dashboardsPage - 1)" :aria-label="$t('common.previous')">
@@ -203,7 +220,7 @@
                                         {{ (member.user_name || member.user_email || '?').charAt(0).toUpperCase() }}
                                     </div>
                                     <span class="flex-1 truncate text-xs text-gray-600 dark:text-gray-300">{{ member.user_name || member.user_email }}</span>
-                                    <span v-if="member.permissions.includes('owner')" class="text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.share.roleOwner') }}</span>
+                                    <span v-if="member.permissions.includes('owner')" class="text-2xs text-ink-muted">{{ $t('projects.share.roleOwner') }}</span>
                                     <button
                                         v-else-if="project.can_manage"
                                         class="flex items-center justify-center w-4 h-4 rounded text-gray-300 hover:text-red-500 opacity-0 group-hover/member:opacity-100 transition-opacity"
@@ -216,7 +233,7 @@
                                 </div>
                                 <p v-if="!projectMembers.length" class="text-xs text-ink-muted">{{ $t('projects.overview.onlyYou') }}</p>
                             </div>
-                            <p v-if="project.can_manage" class="mt-2 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.share.hint') }}</p>
+                            <p v-if="project.can_manage" class="mt-2 text-2xs text-ink-muted">{{ $t('projects.share.hint') }}</p>
                         </div>
 
                         <!-- Agents -->
@@ -272,7 +289,7 @@
                                 </div>
                             </div>
                             <p v-else class="text-xs text-ink-muted">{{ $t('projects.overview.noAgents') }}</p>
-                            <p class="mt-2 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.settings.defaultsHint') }}</p>
+                            <p class="mt-2 text-2xs text-ink-muted">{{ $t('projects.settings.defaultsHint') }}</p>
                         </div>
 
                         <!-- Files (drag & drop) -->
@@ -309,7 +326,7 @@
                                 v-if="project.can_manage"
                                 type="button"
                                 class="mt-2 w-full py-3 rounded-md border border-dashed text-2xs transition-colors"
-                                :class="isDraggingFiles ? 'border-blue-400 text-blue-500' : 'border-gray-200 dark:border-gray-700 text-ink-muted hover:text-gray-600 hover:border-gray-300'"
+                                :class="isDraggingFiles ? 'border-blue-400 text-blue-500' : 'border-gray-200 dark:border-gray-700 text-ink-muted hover:text-ink-2 hover:border-gray-300'"
                                 @click="fileInputRef?.click()"
                             >
                                 <template v-if="uploadingFiles">{{ $t('projects.overview.uploading') }}</template>
@@ -332,12 +349,12 @@
                                     data-testid="instructions-editor"
                                 ></textarea>
                                 <div v-if="instructionsDirty" class="mt-1.5 flex items-center justify-end gap-1.5">
-                                    <button class="px-2 py-1 text-2xs rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800" @click="instructionsDraft = project.instructions || ''">{{ $t('common.cancel') }}</button>
+                                    <button class="px-2 py-1 text-2xs rounded border border-gray-200 dark:border-gray-700 text-ink-muted hover:bg-gray-50 dark:hover:bg-gray-800" @click="instructionsDraft = project.instructions || ''">{{ $t('common.cancel') }}</button>
                                     <button class="px-2 py-1 text-2xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="savingInstructions" @click="saveInstructions">
                                         {{ savingInstructions ? $t('common.loading') : $t('common.save') }}
                                     </button>
                                 </div>
-                                <p v-else class="mt-1 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.settings.instructionsHint') }}</p>
+                                <p v-else class="mt-1 text-2xs text-ink-muted">{{ $t('projects.settings.instructionsHint') }}</p>
                             </template>
                             <p v-text-dir.align v-else class="text-xs text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-6">{{ project.instructions }}</p>
                         </div>
@@ -418,6 +435,21 @@
                 </div>
             </div>
         </UModal>
+
+        <!-- Remove a report from the project (back to the owner's personal list) -->
+        <UModal v-model="removeOpen">
+            <div class="p-4">
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.removeFromProject') }}</h3>
+                <!-- In a shared project, members lose access; say so plainly. -->
+                <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                    {{ isShared ? $t('projects.removeImpactShared') : $t('projects.removeImpact') }}
+                </p>
+                <div class="flex justify-end gap-2 mt-4">
+                    <button class="px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="removeTarget = null">{{ $t('common.cancel') }}</button>
+                    <button class="px-3 py-1.5 text-sm rounded-md bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-100 disabled:opacity-50" :disabled="removing" @click="confirmRemoveFromProject">{{ $t('projects.removeFromProject') }}</button>
+                </div>
+            </div>
+        </UModal>
     </div>
 </template>
 
@@ -434,7 +466,7 @@ const { fetchActivity, sortByActivity } = useReportActivity()
 const { getCronLabel } = useCronLabel()
 const toast = useToast()
 const { data: currentUser } = useAuth()
-const { fetchProjects, updateProject, deleteProject } = useProjects()
+const { fetchProjects, updateProject, deleteProject, moveReport } = useProjects()
 const { organization } = useOrganization()
 
 const projectId = computed(() => String(route.params.id))
@@ -739,6 +771,43 @@ const fetchProject = async (opts: { silent?: boolean } = {}) => {
 // Collaborators open any project report read-only; the eye badge marks
 // reports owned by someone else.
 const isOwn = (report: any) => report.user?.id === (currentUser.value as any)?.id
+
+// ── Remove a report from this project (owner only) ───────────────────────
+// Reuses the sentinel-aware move (project_id = "" clears to the personal
+// root); the row menu only renders for owned reports, matching the backend's
+// owner-only gate on the report update.
+const removeTarget = ref<any>(null)
+const removing = ref(false)
+const removeOpen = computed({
+    get: () => !!removeTarget.value,
+    set: (v: boolean) => { if (!v) removeTarget.value = null },
+})
+const rowMenu = (report: any) => [[
+    {
+        label: t('projects.removeFromProject'),
+        icon: 'i-heroicons-folder-minus',
+        click: () => { removeTarget.value = report },
+    },
+]]
+const confirmRemoveFromProject = async () => {
+    if (!removeTarget.value || removing.value) return
+    const id = removeTarget.value.id
+    removing.value = true
+    try {
+        await moveReport(id, null)
+        // Drop it from the visible list at once; keep the section count honest.
+        reports.value = reports.value.filter((r: any) => r.id !== id)
+        reportsMeta.value = { ...reportsMeta.value, total: Math.max(0, (reportsMeta.value.total || 1) - 1) }
+        removeTarget.value = null
+        toast.add({ title: t('projects.removedFromProject'), color: 'green' })
+        // Counts (header, automations) may shift when a report leaves.
+        await Promise.all([fetchProject({ silent: true }), fetchAutomations()])
+    } catch (e: any) {
+        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+        removing.value = false
+    }
+}
 
 const reportTypeIcon = (report: any): string => {
     const modes = report?.artifact_modes || []

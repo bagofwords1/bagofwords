@@ -11,7 +11,7 @@
                         v-for="option in metricOptions"
                         :key="option.value"
                         class="px-2.5 py-0.5 text-xs font-medium rounded-full transition"
-                        :class="selectedMetric === option.value ? 'bg-white shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'"
+                        :class="selectedMetric === option.value ? 'bg-surface shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'"
                         @click="selectedMetric = option.value"
                     >
                         {{ option.label }}
@@ -187,19 +187,23 @@ const chartOptions = computed((): EChartsOption | null => {
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'shadow' },
+            // ECharts' dark theme keeps a white tooltip box; match it to the
+            // mode so the token text classes below stay readable.
+            backgroundColor: colorMode.value === 'dark' ? '#111827' : '#ffffff',
+            borderColor: colorMode.value === 'dark' ? '#374151' : '#e5e7eb',
             formatter: (params: any) => {
                 if (!params?.length) return ''
                 const item = ranked[params[0].dataIndex]
                 return `
                     <div class="text-sm">
-                        <div class="font-semibold text-gray-900">${item.model_name || item.model_id}</div>
-                        <div class="text-gray-600">Provider: ${item.provider_type}</div>
-                        <div class="text-gray-600">Calls: ${item.total_calls.toLocaleString()}</div>
-                        <div class="text-gray-600">Input tokens: ${item.prompt_tokens.toLocaleString()}</div>
-                        <div class="text-gray-600">Output tokens: ${item.completion_tokens.toLocaleString()}</div>
-                        <div class="text-gray-600">Input cost: $${item.input_cost_usd.toFixed(4)}</div>
-                        <div class="text-gray-600">Output cost: $${item.output_cost_usd.toFixed(4)}</div>
-                        <div class="font-semibold text-gray-900 mt-1">Total: ${formatter(isCost ? item.total_cost_usd : item.total_tokens)}</div>
+                        <div class="font-semibold text-ink">${item.model_name || item.model_id}</div>
+                        <div class="text-ink-muted">Provider: ${item.provider_type}</div>
+                        <div class="text-ink-muted">Calls: ${item.total_calls.toLocaleString()}</div>
+                        <div class="text-ink-muted">Input tokens: ${item.prompt_tokens.toLocaleString()}</div>
+                        <div class="text-ink-muted">Output tokens: ${item.completion_tokens.toLocaleString()}</div>
+                        <div class="text-ink-muted">Input cost: $${item.input_cost_usd.toFixed(4)}</div>
+                        <div class="text-ink-muted">Output cost: $${item.output_cost_usd.toFixed(4)}</div>
+                        <div class="font-semibold text-ink mt-1">Total: ${formatter(isCost ? item.total_cost_usd : item.total_tokens)}</div>
                     </div>
                 `
             }
