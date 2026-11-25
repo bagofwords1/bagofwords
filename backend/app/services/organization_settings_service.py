@@ -996,9 +996,11 @@ class OrganizationSettingsService:
         current_user: User,
     ) -> DefaultMemberRoleSchema:
         """Return the org-wide default role for new members (defaults to member)."""
-        settings = await self.get_settings(db, organization, current_user)
-        raw = (settings.config or {}).get("default_member_role")
-        role = str(raw).strip() if raw and str(raw).strip() else "member"
+        # The role new members actually get (a deleted or renamed default
+        # reads as "member", as provisioning falls back), never a sign-in's
+        # embedded host role.
+        await self.get_settings(db, organization, current_user)
+        role = await stored_default_member_role(db, str(organization.id))
         return DefaultMemberRoleSchema(role=role)
 
     async def update_default_member_role(
@@ -1882,8 +1884,8 @@ async def resolve_default_member_role(db: AsyncSession, organization_id: str) ->
     The single source of truth for the role a person gets when they join an
     organization without an admin choosing one: the Add-member modal and API,
     the CSV import, SSO/SAML/LDAP first sign-in, SCIM and directory group
-    sync, OIDC org mapping's ``member`` rule, and (unless overridden) domain
-    signup. The stored name may be a system role or one of the org's custom
+    sync, and (unless overridden) domain signup. Inside a host application's
+    embedded sign-in window the host's role wins instead. The stored name may be a system role or one of the org's custom
     roles. A name that no longer resolves (the custom role was deleted) falls
     back to "member" rather than provisioning someone with no role at all.
 
@@ -1894,6 +1896,13 @@ async def resolve_default_member_role(db: AsyncSession, organization_id: str) ->
     embedded = _embedded_signup_role(organization_id)
     if embedded is not None:
         return embedded
+    return await stored_default_member_role(db, organization_id)
+
+
+async def stored_default_member_role(db: AsyncSession, organization_id: str) -> str:
+    """The org's configured default member role as provisioning applies it:
+    the stored name if it still resolves to an assignable role, else "member".
+    No request context: the settings read shows exactly this."""
     res = await db.execute(
         select(OrganizationSettings).where(
             OrganizationSettings.organization_id == organization_id
