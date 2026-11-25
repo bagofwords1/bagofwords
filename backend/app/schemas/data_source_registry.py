@@ -3309,13 +3309,13 @@ MCP_PRESETS: List[McpPreset] = [
     # preset by exact server_url, adding a path also breaks preset recognition in
     # edit mode. Endpoints are the MCP-specific pair HubSpot advertises, not the
     # classic app.hubspot.com/api.hubapi.com ones; it takes client_secret_post
-    # (our default → left unset) and PKCE S256. Scopes are declared on the app and
-    # gated by portal tier (scopes_supported is empty). NOTE: for a HubSpot *MCP
-    # Connector* app the `scope` parameter is not what grants access — a live
-    # sign-in (2026-09) returned a fixed 37-scope bundle from the app's own
-    # config, unrelated to the 4 scopes requested here. The value below is kept
-    # only as documentation of the minimum an admin should configure on the app;
-    # it neither widens nor narrows what HubSpot actually grants. No audience:
+    # (our default → left unset) and PKCE S256. scopes_supported is empty: an MCP
+    # connector has no admin-set scopes; HubSpot derives them from its tools and
+    # the signing-in user's permissions. The `scope` parameter is not what grants
+    # access — a live sign-in (2026-09) returned a fixed 37-scope bundle,
+    # unrelated to the 4 scopes requested here. The value below is kept only as
+    # documentation of what the connector reads; it neither widens nor narrows
+    # what HubSpot actually grants. No audience:
     # HubSpot doesn't advertise RFC 8707, so we must not send `resource` on the
     # token request. See docs/feedback-loops/hubspot-mcp-preset.md.
     McpPreset(key="hubspot", title="HubSpot", server_url="https://mcp.hubspot.com",

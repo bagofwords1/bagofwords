@@ -189,6 +189,12 @@ def test_hubspot_catalog_guide_shows_the_oauth_redirect_uri():
     assert [step["code"] for step in guide if step["code"]] == [connection_oauth_redirect_uri()]
 
 
+def test_presets_with_a_guide_do_not_share_a_registry_type_name():
+    from app.schemas.data_source_registry import REGISTRY
+    guided = {p["key"] for p in mcp_presets() if p["setup_guide"]}
+    assert guided and not guided & set(REGISTRY)
+
+
 def test_presets_without_a_guide_serialize_it_as_none():
     assert next(p for p in mcp_presets() if p["key"] == "notion")["setup_guide"] is None
 
