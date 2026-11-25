@@ -129,7 +129,8 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
   Icons: any lucide name (trending-up, users, globe, music, disc-3, calendar, filter, alert-triangle, check-circle, clock, map-pin, package, …).
 
 PROVENANCE (required — the ⓘ popover lets readers inspect the data behind every number):
-  Pass viz={vizById("…")} (plus rows={…} when filtered and calc="…" when derived) to every KPICard, SectionCard and bare EChart.
+  Pass viz={vizById("…")} (plus rows={…} when filtered and calc="…" when derived) to every KPICard, SectionCard, TrendChart, RankChart and bare EChart —
+  a chart inside a SectionCard too (a card with the same viz keeps the only ⓘ). Only a page with no visualizations (static or resource-backed) has no viz to pass.
   For custom markup, put data-bow-viz="<uuid>" (and data-bow-calc="…") on the item's outer element — the card, tile,
   chart or table container, never a label or short inline text (the ⓘ is drawn at that element's corner).
   EVERY metric, chart and table must be reachable one of these two ways. UUIDs live in code only — never in visible text.
@@ -137,7 +138,7 @@ PROVENANCE (required — the ⓘ popover lets readers inspect the data behind ev
 CHARTS: build every chart of a measure over time with <TrendChart> and every ranking with <RankChart>; do not write an EChart
   line or bar chart for them yourself. Use EChart (below) only for other types (scatter, pie,
   heatmap, sankey…) or what these cannot show (a target line). Two measures with different units are two TrendCharts side by
-  side, not one chart with two value axes. They work inside a SectionCard or on their own.
+  side, not one chart with two value axes. They work inside a SectionCard or on their own, with their own viz= either way.
   <TrendChart viz={…} rows={filtered} x="month" y="revenue" series="rep" unit="currency" additive kind="line|bar|area" stacked
               grain="month" maxPoints={24} overflow="latest|rollup" colors={{North:'#…'}} height={300} onClick={p => …} />
   <RankChart viz={…} rows={filtered} label="country" value="revenue" unit="currency" additive top={10} order="desc|asc" onClick={p => …} />
@@ -146,7 +147,7 @@ CHARTS: build every chart of a measure over time with <TrendChart> and every ran
     headcount, inventory, running totals), rates, averages or distinct counts.
     Over 24 points with several series (60 with one), TrendChart shows the latest window and says so under the chart: title it to match
     ("last 24 months"). overflow="rollup" (additive only) shows the whole range at a coarser grain instead.
-    Pass rows={filterRows(...)} when filters apply, and the same rows to the card. onClick gets raw keys: {x, series, value} / {label, value, other}.
+    Pass rows={filterRows(...)} when filters apply, next to the chart's viz, and the same rows and viz to the card. onClick gets raw keys: {x, series, value} / {label, value, other}.
 OTHER CHARTS: <EChart option={{ xAxis:{type:'value'}, yAxis:{type:'value'}, series:[{type:'scatter',data:[[x, y], …]}] }} /> — the 'bow' theme sets palette, fonts, axes,
   grid and tooltip; write only the data mapping unless the design needs more. Building `option` inline is fine: the chart redraws only when its content
   changes, and a data-only change animates the marks to their new values. All other ECharts types work (scatter, pie, heatmap, treemap, sankey, radar, gauge, calendar…); trends and rankings are TrendChart and RankChart.
