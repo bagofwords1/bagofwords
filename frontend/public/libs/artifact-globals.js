@@ -46,9 +46,13 @@
 
   // ── Live data store ─────────────────────────────────────────────────────────
   window.__artifactDataListeners = [];
-  function notifyArtifactData() {
+  // skipHooks: not useArtifactData's own re-render (its listener is tagged
+  // __bowHook) — for ARTIFACT_DATA_CURRENT, whose data its first render had.
+  function notifyArtifactData(skipHooks) {
     for (var i = 0; i < window.__artifactDataListeners.length; i++) {
-      try { window.__artifactDataListeners[i](); } catch (e) {}
+      var fn = window.__artifactDataListeners[i];
+      if (skipHooks && fn && fn.__bowHook) continue;
+      try { fn(); } catch (e) {}
     }
   }
   window.__setArtifactData = function(data) {
@@ -67,6 +71,7 @@
     var forceUpdate = _s[1];
     React.useEffect(function() {
       var fn = function() { forceUpdate(function(c) { return c + 1; }); };
+      fn.__bowHook = true;
       window.__artifactDataListeners.push(fn);
       return function() {
         var idx = window.__artifactDataListeners.indexOf(fn);
@@ -835,6 +840,11 @@
       var tl = e.data.payload.table_layouts;
       window.__bowTableLayouts = tl && typeof tl === 'object' && !Array.isArray(tl) ? tl : {};
       window.__setArtifactData(e.data.payload);
+    } else if (e.data.type === 'ARTIFACT_DATA_CURRENT') {
+      // The in-app host's answer to ARTIFACT_READY when the seed is still the
+      // data (no push): subscribers fire as for a push; the data, params and
+      // layouts are the seed's already.
+      notifyArtifactData(true);
     } else if (e.data.type === 'ARTIFACT_PARAMS_STATUS') {
       window.__paramStore._status(e.data.payload || {});
     }
@@ -1613,7 +1623,12 @@ function _dtDetectDir(cols, rows) {
   function _dtSaveLayout(key, layout) {
     if (!key) return;
     try { window.parent.postMessage({ type: 'ARTIFACT_TABLE_LAYOUT', key: key, widths: layout.widths, order: layout.order }, '*'); } catch (e) { /* no host */ }
-    if (!window.__bowTableLayouts || typeof window.__bowTableLayouts !== 'object') window.__bowTableLayouts = {};
+    if (!window.__bowTableLayouts || typeof window.__bowTableLayouts !== 'object') {
+      // No push yet: start from (a copy of) the seed's layouts, so the other
+      // tables keep theirs.
+      var seeded = window.ARTIFACT_DATA && window.ARTIFACT_DATA.table_layouts;
+      window.__bowTableLayouts = seeded && typeof seeded === 'object' && !Array.isArray(seeded) ? Object.assign({}, seeded) : {};
+    }
     window.__bowTableLayouts[key] = layout;
   }
 
