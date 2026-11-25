@@ -238,6 +238,28 @@ def directory() -> Optional[str]:
     return d if d and os.path.isdir(d) else None
 
 
+_DEFAULT_LOAD = ("engines use DuckDB's default httpfs load (built-in read-only crypto "
+                 "or a download), so encrypted writes fail")
+
+_source_logged = False
+
+
+def log_httpfs_source() -> None:
+    """Say once per process where FAST's httpfs comes from, whatever the switch."""
+    global _source_logged
+    if _source_logged:
+        return
+    _source_logged = True
+    raw = os.environ.get(DIRECTORY_ENV, "").strip()
+    d = directory()
+    if d:
+        logger.info(f"FAST httpfs: loads from {d}")
+    elif not raw:
+        logger.warning(f"FAST httpfs: {DIRECTORY_ENV} is not set; {_DEFAULT_LOAD}")
+    else:
+        logger.warning(f"FAST httpfs: {DIRECTORY_ENV}={raw} is not a directory; {_DEFAULT_LOAD}")
+
+
 _layout_failure_logged = False
 
 
@@ -431,9 +453,14 @@ class _Verifier:
         if self._status == "trusted":
             logger.info(f"FAST verified extension load: trusted ({self._path})")
         else:
+            d = directory()
+            if installed_httpfs(d):
+                engines = f"engines load httpfs signature-checked from {d}"
+            else:
+                engines = "no usable extension directory: " + _DEFAULT_LOAD
             logger.warning(
                 f"FAST verified extension load: unavailable ({self._reason}); "
-                f"engines load httpfs signature-checked, re-checked in {int(RETRY_SECONDS)} s",
+                f"{engines}; re-checked in {int(RETRY_SECONDS)} s",
                 exc_info=exc_info,
             )
 

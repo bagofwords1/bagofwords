@@ -555,6 +555,38 @@ def test_the_unsigned_flag_is_set_only_in_open_engine():
         and "allow_unsigned_extensions" in (ast.get_source_segment(src, n) or "")
     ]
     assert holders == ["_open_engine"]
+    _assert_v_loads_httpfs_by_its_absolute_path(src)
+
+
+def _assert_v_loads_httpfs_by_its_absolute_path(src):
+    """The V branch of `_open_engine` loads the verified file by its path.
+
+    A by-name `LOAD httpfs` there would let DuckDB pick whatever httpfs the
+    extension directory holds, in the one engine that accepts unsigned files.
+    """
+    tree = ast.parse(src)
+    engine = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_open_engine")
+    v_branch = next(
+        n for n in ast.walk(engine)
+        if isinstance(n, ast.If) and isinstance(n.test, ast.Name) and n.test.id == "trusted_extension"
+    )
+    executes = [
+        n for n in ast.walk(v_branch)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "execute"
+    ]
+    statements = [ast.get_source_segment(src, c.args[0]) for c in executes if c.args]
+    by_path = [
+        c for c in executes
+        if c.args and any(isinstance(x, ast.Name) and x.id == "trusted_extension" for x in ast.walk(c.args[0]))
+        and any(isinstance(x, ast.Constant) and isinstance(x.value, str) and x.value.startswith("LOAD '")
+                for x in ast.walk(c.args[0]))
+    ]
+    assert len(by_path) == 1, statements
+    by_name = [
+        s for s in statements
+        if __import__("re").search(r"(?i)\bLOAD\s+['\"]?httpfs\b", s or "")
+    ]
+    assert by_name == [], by_name
 
 
 def test_every_switch_set_still_refuses_a_directory_the_test_user_owns(
@@ -882,6 +914,80 @@ def test_a_broken_directory_at_serving_falls_back_with_one_warning(extract, tmp_
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1, [r.getMessage() for r in warnings]
     assert "not a DuckDB extension" in warnings[0].getMessage()
+
+
+@pytest.fixture
+def startup_log(monkeypatch, caplog):
+    """The extension logger's records, with the process's once-only flag reset.
+
+    alembic's fileConfig disables loggers that exist when it runs, so an
+    earlier test in the worker could hide these records.
+    """
+    monkeypatch.setattr(extension, "_source_logged", False, raising=False)
+    monkeypatch.setattr(extension.logger, "disabled", False)
+    caplog.set_level(logging.DEBUG, logger=extension.logger.name)
+    caplog.clear()
+    return lambda: [r for r in caplog.records if r.name == extension.logger.name]
+
+
+@pytest.mark.parametrize("switch", [None, "1"])
+def test_startup_says_once_that_the_directory_is_not_set(startup_log, monkeypatch, switch):
+    if switch:
+        monkeypatch.setenv(extension.SWITCH_ENV, switch)
+    extension.log_httpfs_source()
+    extension.log_httpfs_source()
+    lines = startup_log()
+    assert [r.levelno for r in lines] == [logging.WARNING], [r.getMessage() for r in lines]
+    message = lines[0].getMessage()
+    assert f"{FAST_DIRECTORY_ENV} is not set" in message
+    assert "DuckDB's default" in message and "read-only" in message
+    assert MULTI_ENGINE_ENV not in message
+
+
+def test_startup_says_once_that_the_directory_does_not_exist(startup_log, tmp_path, monkeypatch):
+    missing = str(tmp_path / "no-such-dir")
+    monkeypatch.setenv(extension.DIRECTORY_ENV, missing)
+    extension.log_httpfs_source()
+    extension.log_httpfs_source()
+    lines = startup_log()
+    assert [r.levelno for r in lines] == [logging.WARNING], [r.getMessage() for r in lines]
+    message = lines[0].getMessage()
+    assert f"{FAST_DIRECTORY_ENV}={missing} is not a directory" in message
+    assert "DuckDB's default" in message and "read-only" in message
+
+
+def test_startup_says_once_where_httpfs_comes_from(startup_log, tmp_path, monkeypatch):
+    monkeypatch.setenv(extension.DIRECTORY_ENV, str(tmp_path))
+    extension.log_httpfs_source()
+    extension.log_httpfs_source()
+    lines = startup_log()
+    assert [r.levelno for r in lines] == [logging.INFO], [r.getMessage() for r in lines]
+    assert f"from {tmp_path}" in lines[0].getMessage()
+
+
+def test_unavailable_without_a_directory_says_engines_use_duckdbs_default(startup_log, monkeypatch):
+    monkeypatch.setenv(extension.SWITCH_ENV, "1")
+    assert extension.current() is None
+    lines = startup_log()
+    assert [r.levelno for r in lines] == [logging.WARNING], [r.getMessage() for r in lines]
+    message = lines[0].getMessage()
+    assert "unavailable" in message
+    assert "signature-checked" not in message
+    assert "DuckDB's default" in message and "read-only" in message
+
+
+def test_unavailable_with_httpfs_in_the_directory_says_signature_checked_from_it(
+    prepared_extensions_dir, startup_log, tmp_path, monkeypatch
+):
+    # The test user owns the directory, so V refuses it; httpfs is still there.
+    directory = tmp_path / "ext"
+    make_httpfs_dir(prepared_extensions_dir, directory)
+    monkeypatch.setenv(extension.DIRECTORY_ENV, str(directory))
+    monkeypatch.setenv(extension.SWITCH_ENV, "1")
+    assert extension.current() is None
+    lines = startup_log()
+    assert [r.levelno for r in lines] == [logging.WARNING], [r.getMessage() for r in lines]
+    assert f"signature-checked from {directory}" in lines[0].getMessage()
 
 
 def test_directory_is_the_variable_when_it_names_a_directory(tmp_path, monkeypatch):
