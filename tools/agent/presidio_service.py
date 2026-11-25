@@ -20,8 +20,7 @@ own environment. Run it from a venv that has:
     python tools/agent/presidio_service.py --engine gliner --model urchade/gliner_multi_pii-v1 --port 5003
 
 Served: the NER entities (PERSON, LOCATION, ORGANIZATION, NRP) and the
-checksum-validated pattern recognizers BoW offers (credit card, IBAN, national
-IDs…; keep PATTERN_RECOGNIZERS in step with
+pattern recognizers BoW offers (credit card, IBAN, national IDs, passports…; keep PATTERN_RECOGNIZERS in step with
 backend/app/ai/llm/pii/detectors/catalog.py).
 """
 import argparse
@@ -39,7 +38,13 @@ PATTERN_RECOGNIZERS = [
     "EsNifRecognizer", "EsNieRecognizer", "ItFiscalCodeRecognizer", "DeTaxIdRecognizer", "PlPeselRecognizer",
     "FiPersonalIdentityCodeRecognizer", "SePersonnummerRecognizer", "TrNationalIdRecognizer",
     "AuTfnRecognizer", "AuAbnRecognizer", "AuMedicareRecognizer", "InAadhaarRecognizer", "KrRrnRecognizer",
-    "ZaIdNumberRecognizer",
+    "ZaIdNumberRecognizer", "ItVatCodeRecognizer", "DeVatIdRecognizer",
+    # no checksum: match mostly with a context word nearby
+    "PhoneRecognizer", "UsSsnRecognizer", "UsItinRecognizer", "UsPassportRecognizer", "UsLicenseRecognizer",
+    "UsBankRecognizer", "UsMbiRecognizer", "UkNinoRecognizer", "UkPassportRecognizer", "UkDrivingLicenceRecognizer",
+    "UkPostcodeRecognizer", "CaSinRecognizer", "SgFinRecognizer", "InPanRecognizer", "InPassportRecognizer",
+    "InVoterRecognizer", "EsPassportRecognizer", "ItDriverLicenseRecognizer", "ItPassportRecognizer",
+    "ItIdentityCardRecognizer", "KrPassportRecognizer", "PhPassportRecognizer",
 ]
 GLINER_LABELS = {"person": "PERSON", "location": "LOCATION", "organization": "ORGANIZATION",
                  "nationality or religious or political group": "NRP"}
@@ -77,7 +82,11 @@ def build_analyzer(engine: str, model: str, language: str = "en"):
         cls = getattr(predefined_recognizers, name, None)
         if cls is not None:
             registry.add_recognizer(cls(supported_language=language))
-    return AnalyzerEngine(nlp_engine=nlp, registry=registry, supported_languages=[language])
+    from presidio_analyzer.context_aware_enhancers import LemmaContextAwareEnhancer
+    # Whole-word context matching: by default "us" (a US passport context
+    # word) also matches inside "customer".
+    return AnalyzerEngine(nlp_engine=nlp, registry=registry, supported_languages=[language],
+                          context_aware_enhancer=LemmaContextAwareEnhancer(context_matching_mode="whole_word"))
 
 
 class AnalyzeRequest(BaseModel):

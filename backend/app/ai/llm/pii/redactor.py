@@ -2,7 +2,9 @@
 
 Design notes
 ------------
-* A rule carries several regex patterns; a match is any pattern hitting.
+* A rule carries several regex patterns; a match is any pattern hitting. A
+  rule may also require a checksum or nearby context words, and a custom rule
+  may list exact terms (see :mod:`.checks`).
 * ``replace`` mode swaps every match with the rule's replacement token.
 * ``block`` mode refuses the call (raises :class:`PiiPromptBlockedError`) if any
   rule matches — nothing is sent to the provider.
@@ -21,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from .builtin_rules import BUILTIN_PII_RULES
+from .checks import terms_pattern, wrap
 from .context import has_markers, split_segments, strip_markers
 
 logger = logging.getLogger(__name__)
@@ -596,12 +599,15 @@ def _resolve_rules(pii_config: Dict[str, Any], default_mode: str) -> List[Compil
     # Built-ins (code-defined patterns, org-overridable enable/replacement/action)
     for spec in BUILTIN_PII_RULES:
         ov = overrides.get(spec["id"], {}) if isinstance(overrides, dict) else {}
-        enabled = ov.get("enabled", True)
+        enabled = ov.get("enabled", spec.get("enabled_by_default", True))
         if not enabled:
             continue
         replacement = ov.get("replacement") or spec["replacement"]
         action = _resolve_action(ov.get("action"), default_mode)
-        compiled = _compile_patterns(spec["patterns"], rule_id=spec["id"])
+        compiled = wrap(
+            _compile_patterns(spec["patterns"], rule_id=spec["id"]),
+            validator=spec.get("checksum"), context=spec.get("context") or [],
+        )
         if compiled:
             rules.append(CompiledRule(spec["id"], spec["name"], replacement, compiled, action, token_label(spec["id"])))
 
@@ -615,7 +621,14 @@ def _resolve_rules(pii_config: Dict[str, Any], default_mode: str) -> List[Compil
         name = str(raw.get("name") or rid)
         replacement = raw.get("replacement") or "[REDACTED]"
         action = _resolve_action(raw.get("action"), default_mode)
-        compiled = _compile_patterns(raw.get("patterns") or [], rule_id=rid)
+        patterns = list(raw.get("patterns") or [])
+        terms = terms_pattern(raw.get("terms") or [])
+        if terms:
+            patterns.append(terms)
+        compiled = wrap(
+            _compile_patterns(patterns, rule_id=rid),
+            validator=raw.get("checksum"), context=raw.get("context") or [],
+        )
         if compiled:
             rules.append(CompiledRule(rid, name, replacement, compiled, action, token_label(name)))
 

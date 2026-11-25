@@ -18,7 +18,7 @@ from collections import OrderedDict
 from typing import List, Optional, Sequence, Tuple
 
 from .base import DetectedSpan, Detector, DetectorError
-from .catalog import DETECTOR_ENTITIES, detector_entity
+from .catalog import DEFAULT_MIN_SCORE, DETECTOR_ENTITIES, detector_entity
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ def detector_status() -> dict:
         "available": True,
         "name": detector.name,
         "entities": [
-            {k: e[k] for k in ("id", "name", "replacement", "kind")}
+            {**{k: e[k] for k in ("id", "name", "replacement", "kind")}, "min_score": e.get("min_score", DEFAULT_MIN_SCORE)}
             for e in DETECTOR_ENTITIES if not supported or e["id"] in supported
         ],
     }

@@ -10,8 +10,8 @@ Two engines:
 
 The model loads on first use, under a lock, so starting the backend costs
 nothing and each worker loads it at most once. Next to the NER recognizer, the
-checksum-validated pattern recognizers listed in :mod:`.catalog` are loaded
-(credit cards, IBANs, national IDs…); they need no model and run with either
+pattern recognizers listed in :mod:`.catalog` are loaded (credit cards,
+IBANs, national IDs, passports…); they need no model and run with either
 engine.
 """
 
@@ -23,7 +23,7 @@ import threading
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .base import DetectedSpan, DetectorError
-from .catalog import NER_ENTITY_IDS, PATTERN_ENTITIES
+from .catalog import NER_ENTITY_IDS, RECOGNIZER_ENTITIES
 
 logger = logging.getLogger(__name__)
 
@@ -60,12 +60,25 @@ def _pattern_recognizers() -> List[Tuple[Dict[str, str], type]]:
         except Exception:
             return []
         found = []
-        for spec in PATTERN_ENTITIES:
+        for spec in RECOGNIZER_ENTITIES:
             cls = getattr(pr, spec["recognizer"], None)
             if cls is not None:
                 found.append((spec, cls))
         _pattern_classes = found
     return _pattern_classes
+
+
+def _whole_word_context():
+    """Presidio's context enhancer, matching context words as whole words.
+    Its default substring mode lets short context words hit inside ordinary
+    ones ("us" in "customer" raises a 9-digit number to a US passport, "lic"
+    in "duplicate" a code to a driver's license)."""
+    from presidio_analyzer.context_aware_enhancers import LemmaContextAwareEnhancer
+
+    try:
+        return LemmaContextAwareEnhancer(context_matching_mode="whole_word")
+    except TypeError:  # pragma: no cover - a Presidio without the option
+        return None
 
 
 class PresidioInprocDetector:
@@ -145,7 +158,10 @@ class PresidioInprocDetector:
                 registry.add_recognizer(cls(supported_language=self.language))
             except Exception as exc:  # pragma: no cover - a recognizer changed upstream
                 logger.warning("PII detector: skipping %s (%s)", spec["recognizer"], exc)
-        return AnalyzerEngine(nlp_engine=nlp_engine, registry=registry, supported_languages=[self.language])
+        return AnalyzerEngine(
+            nlp_engine=nlp_engine, registry=registry, supported_languages=[self.language],
+            context_aware_enhancer=_whole_word_context(),
+        )
 
     def detect(self, text: str, entities: Sequence[str], language: Optional[str] = None) -> List[DetectedSpan]:
         analyzer = self._load()

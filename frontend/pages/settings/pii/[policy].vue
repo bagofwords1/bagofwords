@@ -65,7 +65,11 @@
                                     <div v-else-if="row.sample" class="text-xs text-ink-muted font-mono truncate" dir="ltr" data-testid="pii-rule-example">
                                         {{ row.sample }} → <span :class="action(row) === 'block' ? 'text-red-600 dark:text-red-400 font-sans' : 'text-ink-2'">{{ example(row) }}</span>
                                     </div>
-                                    <div v-else class="text-xs text-ink-muted">{{ $t('settings.pii.patternCount', { n: row.patternCount }, row.patternCount || 0) }}</div>
+                                    <div v-else class="text-xs text-ink-muted">
+                                        <template v-if="row.patternCount || !row.termCount">{{ $t('settings.pii.patternCount', { n: row.patternCount }, row.patternCount || 0) }}</template>
+                                        <template v-if="row.patternCount && row.termCount"> · </template>
+                                        <template v-if="row.termCount">{{ $t('settings.pii.termCount', { n: row.termCount }, row.termCount) }}</template>
+                                    </div>
                                 </div>
                                 <div class="flex items-center gap-3 shrink-0">
                                     <template v-if="enabled(row)">
@@ -190,7 +194,7 @@ const usedBy = computed(() => policyProviders.value.length
     : t('settings.pii.usedByNone'))
 
 // --- the rules list ---
-interface Row { kind: PiiRuleKind; id: string; name: string; replacement: string; sample?: string; patternCount?: number }
+interface Row { kind: PiiRuleKind; id: string; name: string; replacement: string; sample?: string; patternCount?: number; termCount?: number }
 
 // A value of each kind, to show what the chosen action does to it.
 const SAMPLES: Record<string, string> = {
@@ -214,6 +218,17 @@ const SAMPLES: Record<string, string> = {
     ABA_ROUTING_NUMBER: '011000015',
     UK_NHS: '943 476 5919',
     ES_NIF: '55555555K',
+    ipv6: '2001:db8::8a2e:370:7334',
+    mac_address: '00:1A:2B:3C:4D:5E',
+    il_id: '123456782',
+    // Shapes only, not real secrets (they must not trip secret scanners).
+    jwt: 'eyJhbGciOi….eyJzdWIi….sig',
+    private_key: '-----BEGIN PRIVATE KEY----- …',
+    api_key: 'ghp_…',
+    url_credentials: 'postgres://app:pw@db/',
+    US_PASSPORT: '912803456',
+    US_BANK_NUMBER: '123456789012',
+    UK_NINO: 'AB 12 34 56 C',
 }
 
 const groups = computed(() => {
@@ -224,7 +239,7 @@ const groups = computed(() => {
             kind: 'builtin' as const, id: r.id, name: r.name, replacement: r.replacement, sample: SAMPLES[r.id], patternCount: r.pattern_count,
         })),
     }]
-    const detectorRows = (kind: 'ner' | 'pattern') => detector.value.entities
+    const detectorRows = (kind: 'ner' | 'pattern' | 'context') => detector.value.entities
         .filter(r => (r.kind || 'ner') === kind)
         .map(r => ({
             kind: 'detector' as const, id: r.id, name: t(`settings.pii.entities.${r.id}`), replacement: r.replacement, sample: SAMPLES[r.id],
@@ -240,12 +255,18 @@ const groups = computed(() => {
     if (validated.length) {
         out.push({ key: 'validated', title: t('settings.pii.validatedTitle'), note: t('settings.pii.validatedNote'), rows: validated })
     }
+    // No checksum: these mostly match with a context word ("passport"…) nearby.
+    const contextual = detector.value.available ? detectorRows('context') : []
+    if (contextual.length) {
+        out.push({ key: 'contextual', title: t('settings.pii.contextualTitle'), note: t('settings.pii.contextualNote'), rows: contextual })
+    }
     if (pii.custom_rules.length) {
         out.push({
             key: 'custom',
             title: t('settings.pii.customTitle'),
             rows: pii.custom_rules.map(r => ({
                 kind: 'custom' as const, id: r.id, name: r.name, replacement: r.replacement, patternCount: r.patterns.filter(Boolean).length,
+                termCount: r.terms?.length || 0,
             })),
         })
     }
@@ -286,13 +307,18 @@ const detectorErrorOptions = computed(() => [
 ])
 const enabledEntities = computed(() =>
     detector.value.entities.filter(e => ruleEnabled(policy.value, 'detector', e.id)))
-const SENSITIVITY = [
-    { value: 0.5, key: 'sensitivityHigh' },
-    { value: PII_DEFAULT_MIN_SCORE, key: 'sensitivityBalanced' },
-    { value: 0.85, key: 'sensitivityLow' },
-]
-const sensitivity = (id: string) => ruleOption(policy.value, 'detector', id).min_score ?? PII_DEFAULT_MIN_SCORE
+// Presets around each entity's own default (0.7 for most; 0.4 for entities
+// that need a nearby context word, so "balanced" is that default).
+const entityDefault = (id: string) => detector.value.entities.find(e => e.id === id)?.min_score ?? PII_DEFAULT_MIN_SCORE
+const presets = (id: string) => {
+    const d = entityDefault(id)
+    return d === PII_DEFAULT_MIN_SCORE
+        ? [{ value: 0.5, key: 'sensitivityHigh' }, { value: d, key: 'sensitivityBalanced' }, { value: 0.85, key: 'sensitivityLow' }]
+        : [{ value: Math.max(0.1, Math.round((d - 0.15) * 100) / 100), key: 'sensitivityHigh' }, { value: d, key: 'sensitivityBalanced' }, { value: 0.85, key: 'sensitivityLow' }]
+}
+const sensitivity = (id: string) => ruleOption(policy.value, 'detector', id).min_score ?? entityDefault(id)
 const sensitivityOptions = (id: string) => {
+    const SENSITIVITY = presets(id)
     const options = SENSITIVITY.map(s => ({ label: t(`settings.pii.${s.key}`), value: s.value }))
     const current = sensitivity(id)
     // A score saved outside the three presets stays selectable as it is.

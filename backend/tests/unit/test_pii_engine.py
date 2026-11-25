@@ -49,7 +49,9 @@ def _reference_scan(config: dict, text: str):
     rules = []
     for spec in BUILTIN_PII_RULES:
         ov = overrides.get(spec["id"], {})
-        if not ov.get("enabled", True):
+        # Rules added later are off unless turned on: an existing config
+        # behaves exactly as it did before they existed.
+        if not ov.get("enabled", spec.get("enabled_by_default", True)):
             continue
         rules.append((spec["name"], ov.get("replacement") or spec["replacement"],
                       ov.get("action") if ov.get("action") in ("replace", "block") else mode,
@@ -397,6 +399,8 @@ VALIDATED_SAMPLES = {
     "IN_AADHAAR": "2345 6789 0124",
     "KR_RRN": "900101-1234568",
     "ZA_ID_NUMBER": "8001015009087",
+    "IT_VAT_CODE": "01114601006",
+    "DE_VAT_ID": "DE136695976",
 }
 
 

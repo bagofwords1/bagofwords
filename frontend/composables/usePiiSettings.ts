@@ -23,7 +23,9 @@ export interface PiiPolicy {
     detector_overrides: Record<string, PiiRuleOptions>
     on_detector_error: string
 }
-export interface PiiCustomRule { id: string; name: string; patterns: string[]; replacement: string }
+// terms: exact words/phrases; checksum: luhn | iban | il_id | aba; context: words one of which must be near a match.
+export interface PiiCustomRule { id: string; name: string; patterns: string[]; replacement: string; terms?: string[]; checksum?: string | null; context?: string[] }
+export const PII_CHECKSUMS = ['luhn', 'iban', 'il_id', 'aba'] as const
 
 const emptyPolicy = (name: string): PiiPolicy => ({
     name, mode: 'replace', redact_context: false, builtin_overrides: {}, custom_overrides: {},
@@ -51,9 +53,9 @@ const providers = ref<Array<{ id: string; name: string; provider_type: string }>
 const providersLoaded = ref(false)
 const agents = ref<Array<{ id: string; name: string; type: string }>>([])
 const agentsLoaded = ref(false)
-const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number }>>([])
+const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number; enabled_by_default?: boolean }>>([])
 // The detector (Presidio) on this instance, if any: names, locations, organizations.
-const detector = ref<{ available: boolean; name: string | null; entities: Array<{ id: string; name: string; replacement: string; kind?: 'ner' | 'pattern' }> }>(
+const detector = ref<{ available: boolean; name: string | null; entities: Array<{ id: string; name: string; replacement: string; kind?: 'ner' | 'pattern' | 'context'; min_score?: number }> }>(
     { available: false, name: null, entities: [] }
 )
 
@@ -106,9 +108,13 @@ export function usePiiSettings() {
             : kind === 'custom' ? policy.custom_overrides : policy.detector_overrides
     const ruleOption = (policy: PiiPolicy, kind: PiiRuleKind, id: string): PiiRuleOptions =>
         overridesOf(policy, kind)[id] || {}
-    // Pattern rules are on unless turned off; detector entities are off unless turned on.
-    const ruleEnabled = (policy: PiiPolicy, kind: PiiRuleKind, id: string) =>
-        kind === 'detector' ? ruleOption(policy, kind, id).enabled === true : ruleOption(policy, kind, id).enabled ?? true
+    // Pattern rules are on unless turned off (built-in rules added later ship
+    // off: enabled_by_default false); detector entities are off unless turned on.
+    const ruleEnabled = (policy: PiiPolicy, kind: PiiRuleKind, id: string) => {
+        if (kind === 'detector') return ruleOption(policy, kind, id).enabled === true
+        const byDefault = kind === 'builtin' ? (builtinRules.value.find(r => r.id === id)?.enabled_by_default ?? true) : true
+        return ruleOption(policy, kind, id).enabled ?? byDefault
+    }
     const ruleAction = (policy: PiiPolicy, kind: PiiRuleKind, id: string) =>
         ruleOption(policy, kind, id).action || policy.mode
     const setRuleOption = (policy: PiiPolicy, kind: PiiRuleKind, id: string, key: keyof PiiRuleOptions, val: any) => {
@@ -154,7 +160,7 @@ export function usePiiSettings() {
     const buildConfig = () => {
         const rules = pii.custom_rules
             .map(r => ({ ...r, patterns: r.patterns.map(p => p.trim()).filter(Boolean) }))
-            .filter(r => r.name.trim() || r.patterns.length)
+            .filter(r => r.name.trim() || r.patterns.length || r.terms?.length)
         const ids = new Set(rules.map(r => r.id))
         const policies: Record<string, PiiPolicy> = {}
         for (const [id, p] of Object.entries(pii.policies)) {
@@ -192,6 +198,10 @@ export function usePiiSettings() {
                     name: r.name || '',
                     patterns: r.patterns && r.patterns.length ? [...r.patterns] : [''],
                     replacement: r.replacement || '[REDACTED]',
+                    // Kept as saved, so the next save never drops them.
+                    terms: [...(r.terms || [])],
+                    checksum: r.checksum || null,
+                    context: [...(r.context || [])],
                 }))
                 const policies: Record<string, PiiPolicy> = {}
                 for (const [id, p] of Object.entries<any>(cfg.policies || {})) {

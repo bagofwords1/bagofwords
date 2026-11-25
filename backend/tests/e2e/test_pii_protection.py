@@ -142,6 +142,36 @@ def test_pii_dry_run_endpoint_preview(create_user, login_user, whoami):
     assert rc.status_code == 200
     ids = {r["id"] for r in rc.json()["rules"]}
     assert {"email", "credit_card", "us_ssn", "phone"} <= ids
+    by_id = {r["id"]: r for r in rc.json()["rules"]}
+    assert by_id["email"]["enabled_by_default"] is True and by_id["jwt"]["enabled_by_default"] is False
+
+
+@pytest.mark.e2e
+def test_custom_rule_conditions_save_and_apply(create_user, login_user, whoami):
+    """A rule with only terms saves (no regex needed); checksum and context
+    words come back as saved and decide what the preview redacts."""
+    client, H, _ = _admin(create_user, login_user, whoami)
+    rules = [
+        {"id": "names", "name": "Code names", "terms": ["Project Falcon", "Bluebird"], "replacement": "[CODENAME]"},
+        {"id": "ilid", "name": "Israeli ID", "patterns": [r"\b\d{9}\b"], "checksum": "il_id", "replacement": "[ID]"},
+        {"id": "pp", "name": "Passport", "patterns": [r"\b[A-Z]\d{7}\b"], "context": ["passport"], "replacement": "[PP]"},
+    ]
+    r = _put_pii(client, H, enabled=True, custom_rules=rules)
+    assert r.status_code == 200, r.text
+    saved = {x["id"]: x for x in r.json()["config"]["pii_protection"]["custom_rules"]}
+    assert saved["names"]["terms"] == ["Project Falcon", "Bluebird"] and saved["names"]["patterns"] == []
+    assert saved["ilid"]["checksum"] == "il_id" and saved["pp"]["context"] == ["passport"]
+
+    cfg = r.json()["config"]["pii_protection"]
+    text = "sku X7654321 is in stock in every warehouse this week. project falcon: ids 123456782 / 123456789, passport X1234567"
+    p = client.post("/api/organization/pii/test", json={"text": text, "config": cfg}, headers=H)
+    assert p.status_code == 200, p.text
+    assert p.json()["text"] == (
+        "sku X7654321 is in stock in every warehouse this week. [CODENAME]: ids [ID] / 123456789, passport [PP]")
+
+    # Neither a pattern nor a term: refused.
+    empty = _put_pii(client, H, enabled=True, custom_rules=[{"id": "e", "name": "Empty", "checksum": "luhn"}])
+    assert empty.status_code == 400, empty.text
 
 
 # --- enterprise gating -----------------------------------------------------

@@ -301,6 +301,35 @@ BoW-style text; numbers in the loop doc):
   treated as NER-only.
 - Settings page: a separate **Validated identifiers** group, off until enabled.
 
+### Phase 6 — more rules, and richer custom rules
+
+- **Presidio `context` entities** (`detectors/catalog.py`): Presidio's
+  recognizers without a checksum (US SSN/ITIN/passport/driver's license/bank
+  account/MBI, UK NINO/passport/driving licence/postcode, CA SIN, SG NRIC,
+  IN PAN/passport/voter, ES/IT passports, IT licence/ID card, KR/PH passports,
+  international phone numbers). Each carries its own default `min_score`
+  (0.4; 0.7 for phone and India voter ID): a context word adds 0.35, so weak
+  patterns need one nearby. Measured on synthetic order rows: 0 hits at the
+  defaults. Left out after measuring: India GSTIN (Presidio accepts a wrong
+  check character at 1.0), German passport / ID card (≈5% of letter+8-digit
+  SKUs score 1.0), dates, URLs, UUIDs.
+- The in-process detector matches context words **whole-word**
+  (`context_matching_mode="whole_word"`): Presidio's default substring mode
+  made "us" (a US passport context word) hit inside "customer". A Presidio
+  service keeps its own setting (the official image: substring).
+- **Built-in rules that ship off** (`enabled_by_default: False`): IPv6, MAC
+  address, Israeli ID (with checksum), JWT, PEM private key, API keys/tokens
+  (GitHub, Slack, Stripe, Google, OpenAI, Anthropic), password in a URL. An
+  existing policy redacts exactly what it did before the upgrade; the merge,
+  the resolver and the settings page all read the flag.
+- **Custom rule conditions** (`checks.py`), stored on the shared rule:
+  `terms` (exact words/phrases → one whole-word, case-insensitive
+  alternation, longest first; a rule may have terms and no regex), `checksum`
+  (`luhn`, `iban`, `il_id`, `aba`) and `context` (words, one within 60
+  characters of a match). Checksum and context wrap each compiled pattern in
+  a `FilteredPattern`, so model redaction, block detection, merged policies
+  and display masking all apply the same conditions.
+
 ## Not in scope
 
 - Policies per agent or data source: one prompt mixes several agents' content
