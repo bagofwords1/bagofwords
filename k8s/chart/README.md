@@ -95,7 +95,7 @@ BOW - a new ai data tool
 | extraVolumeMounts | list | `[]` | Extra volume mounts to add to the main app container. |
 | extraVolumes | list | `[]` | Extra volumes to add to the pod. |
 | host | string | `"app.bagofwords.com"` | Hostname for the Ingress rule (e.g. `app.example.com`). |
-| image | object | `{"registry":"docker.io","repository":"bagofwords/bagofwords","tag":"latest"}` | Docker image settings for the bagofwords application container. The image carries DuckDB's httpfs extension read-only at `/opt/duckdb_extensions`, so extract refreshes need no download and no volume. |
+| image | object | `{"registry":"docker.io","repository":"bagofwords/bagofwords","tag":"latest"}` | Docker image settings for the bagofwords application container. The image carries DuckDB's httpfs extension read-only at `/opt/duckdb_httpfs`, so extract refreshes need no download and no volume. |
 | image.registry | string | `"docker.io"` | Container image registry. |
 | image.repository | string | `"bagofwords/bagofwords"` | Container image repository. |
 | image.tag | string | `"latest"` | Image tag to deploy. Use a specific version (e.g. `v1.2.3`) in production. |

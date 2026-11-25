@@ -74,7 +74,7 @@ def new_artifact_path(connection_id: str) -> Path:
 
 
 def _open_writer_engine():
-    """An engine with httpfs loaded from the image's extension directory.
+    """An engine with httpfs loaded from httpfs's own directory.
 
     An encrypted write needs httpfs. When the image carries it
     (`extension.directory()`), it is loaded from there by name, with

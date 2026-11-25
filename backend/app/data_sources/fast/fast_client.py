@@ -169,13 +169,18 @@ class FastQueryClient(DataSourceClient):
         for this query. When its stat still matches the verified one, the
         engine opens with signature checks off and automatic install and load
         off, with that file's directory as its extension directory, and loads
-        the file by path. This is the only engine that accepts unsigned
-        extensions, and `_build_session` locks it before any agent SQL runs.
+        the file by its absolute path. This is the only engine that accepts
+        unsigned extensions, and `_build_session` locks it before any agent
+        SQL runs. The extension directory is httpfs's own
+        (`extension.directory()`), which holds nothing else: DuckDB 1.5.4's
+        encrypted ATTACH loads httpfs by name from there even with auto-load
+        off, so the explicit load comes first and that lookup finds only the
+        verified file. The encrypted read and write then use its crypto.
         When the stat differs or the load fails, V is marked unavailable and
         the engine opens as below.
 
-        Without V, when the image's extension directory holds httpfs, the
-        engine loads it from there by name with DuckDB's signature check;
+        Without V, when httpfs's directory holds it, the engine loads it from
+        there by name with DuckDB's signature check;
         otherwise, or when that load fails, it opens exactly as before.
         """
         from app.data_sources.fast import extension

@@ -11,9 +11,11 @@ What makes that acceptable is checked here, once, before the file is trusted:
 1. The file and its directories cannot be written by this process: they are
    owned by another user and grant this process no write access. A process
    running as root fails this rule and never trusts the file.
-2. The directory (BOW_DUCKDB_EXTENSION_DIR, in DuckDB's own layout
-   `<dir>/<version>/<platform>/`) holds httpfs and nothing else: the file, its
-   `.info` file and the hash record written at image build.
+2. The directory (BOW_FAST_EXTENSION_DIR, `/opt/duckdb_httpfs` in the image,
+   in DuckDB's own layout `<dir>/<version>/<platform>/`) holds httpfs and
+   nothing else: the file, its `.info` file and the hash record written at
+   image build. It is httpfs's own directory: the one the postgres multi
+   engine loads its extension from is never read here.
 3. The file's SHA-256 equals the hash record, when there is one.
 4. A scratch engine with default settings loads the file, so DuckDB checks its
    signature.
@@ -52,7 +54,7 @@ import duckdb
 logger = logging.getLogger(__name__)
 
 SWITCH_ENV = "BOW_FAST_VERIFIED_EXTENSION_LOAD"
-DIRECTORY_ENV = "BOW_DUCKDB_EXTENSION_DIR"
+DIRECTORY_ENV = "BOW_FAST_EXTENSION_DIR"
 
 EXTENSION_NAME = "httpfs.duckdb_extension"
 _INFO_SUFFIX = ".info"
@@ -231,7 +233,7 @@ def _enabled() -> bool:
 
 
 def directory() -> Optional[str]:
-    """BOW_DUCKDB_EXTENSION_DIR when it names an existing directory."""
+    """BOW_FAST_EXTENSION_DIR when it names an existing directory."""
     d = os.environ.get(DIRECTORY_ENV, "").strip()
     return d if d and os.path.isdir(d) else None
 

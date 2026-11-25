@@ -54,13 +54,15 @@ RUN mkdir -p /opt/duckdb_extensions && python -c "import duckdb; c=duckdb.connec
 # carried most of the image's critical/high CVEs (netty, jackson, avro, ...).
 RUN rm -rf /opt/venv/lib/python3*/site-packages/pyspark/jars
 
-# DuckDB's httpfs extension for the locked DuckDB version, installed into
-# /opt/duckdb_extensions, loaded once here so the build fails if its signature
-# does not check, and hashed (httpfs.duckdb_extension.sha256 beside it). The
-# app loads it from there (BOW_DUCKDB_EXTENSION_DIR, set in the final stage)
-# instead of fetching it at run time. A failed install fails the build.
+# DuckDB's httpfs extension for the locked DuckDB version, installed into its
+# own directory /opt/duckdb_httpfs (nothing else goes there; postgres stays in
+# /opt/duckdb_extensions above), loaded once here so the build fails if its
+# signature does not check, and hashed (httpfs.duckdb_extension.sha256 beside
+# it). FAST loads it from there (BOW_FAST_EXTENSION_DIR, set in the final
+# stage) instead of fetching it at run time. A failed install fails the build.
 RUN python3 -c "import duckdb, hashlib, os; \
-d = '/opt/duckdb_extensions'; \
+d = '/opt/duckdb_httpfs'; \
+os.makedirs(d); \
 con = duckdb.connect(config={'extension_directory': d}); \
 con.execute('INSTALL httpfs'); con.execute('LOAD httpfs'); \
 p = con.execute(\"SELECT install_path FROM duckdb_extensions() WHERE extension_name = 'httpfs' AND loaded\").fetchone()[0]; \
@@ -222,13 +224,15 @@ RUN groupadd -r app \
 
 # Copy the Python interpreter, virtual environment and application code
 COPY --from=backend-builder /opt/python /opt/python
-# Owned by root and read-only: the app user cannot change the extension file
-# or its directory (see backend/app/data_sources/fast/extension.py).
-COPY --from=backend-builder /opt/duckdb_extensions /opt/duckdb_extensions
-RUN chmod -R a-w /opt/duckdb_extensions
-ENV BOW_DUCKDB_EXTENSION_DIR=/opt/duckdb_extensions
 COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+COPY --from=backend-builder /opt/duckdb_extensions /opt/duckdb_extensions
+ENV BOW_DUCKDB_EXTENSION_DIR=/opt/duckdb_extensions
+# httpfs alone, owned by root and read-only: the app user cannot change the
+# extension file or its directory (see backend/app/data_sources/fast/extension.py).
+COPY --from=backend-builder /opt/duckdb_httpfs /opt/duckdb_httpfs
+RUN chmod -R a-w /opt/duckdb_httpfs
+ENV BOW_FAST_EXTENSION_DIR=/opt/duckdb_httpfs
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend
 # Administrator-installable remote readers; never auto-installed on target hosts.
 COPY ./tools/remote_server /app/tools/remote_server

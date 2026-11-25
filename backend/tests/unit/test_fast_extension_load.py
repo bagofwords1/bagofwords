@@ -42,6 +42,13 @@ def _fresh_verifier(monkeypatch):
     monkeypatch.setattr(extension, "_SIGNED_FAILURES", {}, raising=False)
     monkeypatch.delenv(extension.SWITCH_ENV, raising=False)
     monkeypatch.delenv(extension.DIRECTORY_ENV, raising=False)
+    monkeypatch.delenv(MULTI_ENGINE_ENV, raising=False)
+
+
+# The postgres multi engine's directory (postgresql_multi_engine.py). FAST code
+# never reads it; the tests set it to show that.
+MULTI_ENGINE_ENV = "BOW_DUCKDB_EXTENSION_DIR"
+FAST_DIRECTORY_ENV = "BOW_FAST_EXTENSION_DIR"
 
 
 def _write_extract(path, key, rows=(("EMEA", 10), ("EMEA", 20), ("APAC", 30), ("AMER", 40))):
@@ -511,10 +518,10 @@ def test_the_owner_rule_name_and_the_verifier_appear_nowhere_else_in_app():
     assert len(built) == 1  # the module's own singleton
 
 
-def test_only_two_environment_names_are_read_and_the_switch_only_in_extension_py():
-    # The directory is shared with the postgres multi engine, which loads its
-    # own extension from there by name, signature-checked; only extension.py
-    # reads V's switch.
+def test_fast_reads_its_own_two_names_and_never_the_multi_engines_directory():
+    # httpfs has its own directory (BOW_FAST_EXTENSION_DIR). The postgres
+    # multi engine's directory (BOW_DUCKDB_EXTENSION_DIR) is read by that
+    # engine alone, which loads postgres from it by name, signature-checked.
     multi_engine = "app/data_sources/clients/postgresql_multi_engine.py"
     found = {}
     for path, src in _app_sources():
@@ -522,9 +529,16 @@ def test_only_two_environment_names_are_read_and_the_switch_only_in_extension_py
             found.setdefault(name, set()).add(str(path.relative_to(BACKEND)))
     assert found == {
         "BOW_FAST_VERIFIED_EXTENSION_LOAD": {"app/data_sources/fast/extension.py"},
-        "BOW_DUCKDB_EXTENSION_DIR": {"app/data_sources/fast/extension.py", multi_engine},
+        "BOW_FAST_EXTENSION_DIR": {"app/data_sources/fast/extension.py"},
+        "BOW_DUCKDB_EXTENSION_DIR": {multi_engine},
     }
+    assert extension.DIRECTORY_ENV == FAST_DIRECTORY_ENV
     assert "allow_unsigned" not in (BACKEND / multi_engine).read_text(encoding="utf-8")
+    fast_sources = [
+        str(p.relative_to(BACKEND)) for p, src in _app_sources()
+        if "/data_sources/fast/" in str(p) and "/opt/duckdb_extensions" in src
+    ]
+    assert fast_sources == []
 
 
 def test_the_unsigned_flag_is_set_only_in_open_engine():
@@ -551,7 +565,7 @@ def test_every_switch_set_still_refuses_a_directory_the_test_user_owns(
     for name in [n for n in os.environ if n.startswith(("BOW_FAST_", "BOW_DUCKDB_"))]:
         monkeypatch.delenv(name)
     for name in (
-        "BOW_FAST_VERIFIED_EXTENSION_LOAD", "BOW_DUCKDB_EXTENSION_DIR",
+        "BOW_FAST_VERIFIED_EXTENSION_LOAD", "BOW_FAST_EXTENSION_DIR", "BOW_DUCKDB_EXTENSION_DIR",
         "BOW_FAST_TRUST_ANY_OWNER", "BOW_FAST_REQUIRE_FOREIGN_OWNER",
         "BOW_DUCKDB_ALLOW_UNSIGNED", "BOW_FAST_EXTENSION_OWNER_CHECK",
     ):
@@ -876,3 +890,148 @@ def test_directory_is_the_variable_when_it_names_a_directory(tmp_path, monkeypat
     assert extension.directory() is None
     monkeypatch.setenv(extension.DIRECTORY_ENV, str(tmp_path))
     assert extension.directory() == str(tmp_path)
+
+
+# --------------------------------------------------------------------- A1
+# httpfs in its own directory (BOW_FAST_EXTENSION_DIR, /opt/duckdb_httpfs in
+# the image), beside the postgres multi engine's (BOW_DUCKDB_EXTENSION_DIR,
+# /opt/duckdb_extensions), which FAST never reads.
+
+def _multi_engine_dir(prepared_extensions_dir, directory, with_httpfs: bool) -> str:
+    """The multi engine's directory: postgres, and httpfs too when asked
+    (the shape of the merged image before httpfs got its own directory)."""
+    if with_httpfs:
+        make_httpfs_dir(prepared_extensions_dir, directory)
+    src = extension_file(prepared_extensions_dir, "postgres_scanner")
+    dst = extension_file(directory, "postgres_scanner")
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copy2(src, dst)
+    return str(directory)
+
+
+def test_fast_ignores_the_multi_engines_directory(prepared_extensions_dir, tmp_path, monkeypatch):
+    shared = _multi_engine_dir(prepared_extensions_dir, tmp_path / "duckdb_extensions", with_httpfs=True)
+    monkeypatch.setenv(MULTI_ENGINE_ENV, shared)
+    monkeypatch.setenv(extension.SWITCH_ENV, "1")
+    assert extension.directory() is None
+    assert extension.current() is None
+    assert extension.state()["reason"] == f"no extension directory ({FAST_DIRECTORY_ENV})"
+    assert extension.open_with_signed_httpfs(purpose="writer") is None
+
+
+def test_the_dedicated_directory_serves_beside_the_multi_engines_one(
+    prepared_extensions_dir, extract, tmp_path, monkeypatch
+):
+    monkeypatch.setenv(
+        MULTI_ENGINE_ENV,
+        _multi_engine_dir(prepared_extensions_dir, tmp_path / "duckdb_extensions", with_httpfs=False),
+    )
+    dedicated = tmp_path / "duckdb_httpfs"
+    path = make_httpfs_dir(prepared_extensions_dir, dedicated)
+    monkeypatch.setenv(FAST_DIRECTORY_ENV, str(dedicated))
+    assert extension.directory() == str(dedicated)
+    assert extension.trusted_httpfs(extension.directory(), require_foreign_owner=False) == path
+    # The writer and a serving engine without V load httpfs from it, signed.
+    key = artifacts.new_artifact_key()
+    con = artifacts.connect_encrypted(tmp_path / "w.duckdb", key)
+    try:
+        assert _httpfs_of(con) == (True, path)
+    finally:
+        con.close()
+    con = FastQueryClient([_relation(*extract)])._open_engine()
+    try:
+        assert _httpfs_and_unsigned(con) == ((True, path), False)
+        assert con.execute("SELECT current_setting('extension_directory')").fetchone()[0] == str(dedicated)
+    finally:
+        con.close()
+
+
+def test_the_startup_checks_apply_to_the_dedicated_directory(prepared_extensions_dir, tmp_path, monkeypatch):
+    # Through the variable and the process's own verifier (owner rule on).
+    monkeypatch.setenv(extension.SWITCH_ENV, "1")
+    crowded = _multi_engine_dir(prepared_extensions_dir, tmp_path / "crowded", with_httpfs=True)
+    monkeypatch.setenv(FAST_DIRECTORY_ENV, crowded)
+    assert extension.current() is None
+    assert "holds more than httpfs (postgres_scanner" in extension.state()["reason"]
+
+    monkeypatch.setattr(extension, "_VERIFIER", extension._Verifier())
+    own = tmp_path / "own"
+    make_httpfs_dir(prepared_extensions_dir, own)
+    monkeypatch.setenv(FAST_DIRECTORY_ENV, str(own))
+    assert extension.current() is None
+    reason = extension.state()["reason"]
+    assert "owned by the process's own user" in reason or "runs as root" in reason, reason
+
+
+def test_the_v_engine_loads_httpfs_by_absolute_path_and_attach_uses_its_crypto(
+    trusted_extension_dir, tmp_path
+):
+    t = trusted_extension_dir
+    assert extension.current() == t.path and os.path.isabs(t.path)
+    con = FastQueryClient([])._open_engine(trusted_extension=t.path)
+    try:
+        assert con.execute(
+            "SELECT current_setting('autoload_known_extensions'), "
+            "current_setting('autoinstall_known_extensions'), "
+            "current_setting('extension_directory')"
+        ).fetchone() == (False, False, t.directory)
+        assert _httpfs_of(con) == (True, t.path)
+        # DuckDB's built-in crypto module only reads; an encrypted write works
+        # only with httpfs's, so this write proves the ATTACH uses the httpfs
+        # loaded by path, with auto-load off.
+        key = artifacts.new_artifact_key()
+        con.execute(f"ATTACH '{tmp_path / 'v.duckdb'}' AS w (ENCRYPTION_KEY '{key}')")
+        con.execute("CREATE TABLE w.t AS SELECT range AS i FROM range(10)")
+        assert con.execute("SELECT count(*) FROM w.t").fetchone()[0] == 10
+        assert _httpfs_of(con) == (True, t.path)
+    finally:
+        con.close()
+
+
+def test_without_the_explicit_load_an_encrypted_write_is_refused(tmp_path):
+    # The control for the test above: V's config, nothing loaded, nothing to
+    # load from.
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    con = duckdb.connect(":memory:", config={
+        "autoload_known_extensions": False, "autoinstall_known_extensions": False,
+        "extension_directory": str(empty),
+    })
+    try:
+        key = artifacts.new_artifact_key()
+        with pytest.raises(duckdb.Error, match="read-only crypto module"):
+            con.execute(f"ATTACH '{tmp_path / 'n.duckdb'}' AS w (ENCRYPTION_KEY '{key}')")
+            con.execute("CREATE TABLE w.t AS SELECT 1 AS i")
+    finally:
+        con.close()
+
+
+def _dockerfile_lines():
+    dockerfile = BACKEND.parent / "Dockerfile"
+    if not dockerfile.is_file():
+        pytest.skip("no Dockerfile beside the backend (an installed copy)")
+    return dockerfile.read_text(encoding="utf-8").splitlines()
+
+
+def test_the_image_puts_httpfs_in_its_own_read_only_directory_and_keeps_mains():
+    lines = _dockerfile_lines()
+    text = "\n".join(lines)
+    # Builder: httpfs installed, loaded signature-checked and hashed in its own
+    # directory; main's postgres step unchanged.
+    assert "d = '/opt/duckdb_httpfs'; \\" in lines
+    assert "con.execute('INSTALL httpfs'); con.execute('LOAD httpfs'); \\" in lines
+    assert text.count("open(p + '.sha256', 'w')") == 1
+    assert sum("INSTALL httpfs" in line for line in lines) == 1
+    assert lines.count(
+        "RUN mkdir -p /opt/duckdb_extensions && python -c \"import duckdb; c=duckdb.connect(); "
+        "c.execute(\\\"SET extension_directory='/opt/duckdb_extensions'\\\"); c.execute('INSTALL postgres')\" \\"
+    ) == 1
+    # Final stage: copied root-owned (no --chown), made read-only, named.
+    assert lines.count("COPY --from=backend-builder /opt/duckdb_httpfs /opt/duckdb_httpfs") == 1
+    assert lines.count("RUN chmod -R a-w /opt/duckdb_httpfs") == 1
+    assert lines.count("ENV BOW_FAST_EXTENSION_DIR=/opt/duckdb_httpfs") == 1
+    # Main's directory for the multi engine: one COPY, one ENV, as on main.
+    assert lines.count("COPY --from=backend-builder /opt/duckdb_extensions /opt/duckdb_extensions") == 1
+    assert lines.count("ENV BOW_DUCKDB_EXTENSION_DIR=/opt/duckdb_extensions") == 1
+    assert "chmod -R a-w /opt/duckdb_extensions" not in text
+    assert sum("duckdb_httpfs" in line for line in lines if "chown" in line) == 0

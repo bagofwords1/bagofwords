@@ -149,7 +149,7 @@ def make_httpfs_dir(source_dir: str, target: Path) -> str:
 def trusted_extension_dir(prepared_extensions_dir, tmp_path, monkeypatch) -> TrustedDir:
     from app.data_sources.fast import extension
 
-    directory = tmp_path / "duckdb_extensions"
+    directory = tmp_path / "duckdb_httpfs"
     path = make_httpfs_dir(prepared_extensions_dir, directory)
     clock = FakeClock()
     verifier = extension._Verifier(

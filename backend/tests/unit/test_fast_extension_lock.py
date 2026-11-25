@@ -7,7 +7,10 @@ in the way. Every row runs on a fresh serving engine opened and built by the
 product (`FastQueryClient._open_engine` with a trusted httpfs, then
 `_build_session`, which ends with `lock_query_session`), once on the root
 connection and once on a cursor. Six signed extensions sit installed but not
-loaded in the engine's extension directory, beside httpfs.
+loaded in the engine's extension directory, beside httpfs. As in the image,
+the postgres multi engine's own directory (BOW_DUCKDB_EXTENSION_DIR, postgres
+only) exists beside it and its variable is set; the rows also try to load
+from there, by name and by path.
 
 The assertion for every row: no name is added to the engine's whole function,
 setting and type catalogs. Each row's outcome is also compared with the
@@ -50,11 +53,14 @@ EXTENSION_LOAD = "extension-load gate"  # "Loading external extensions is disabl
 CATALOG = "catalog error"               # not a trigger in this DuckDB version
 ACCEPTED = "accepted"                   # only `LOAD httpfs` again, a no-op, on the locked engine
 
+MULTI_ENGINE_ENV = "BOW_DUCKDB_EXTENSION_DIR"
+
 
 @dataclass(frozen=True)
 class Row:
     name: str
-    sql: str            # {ext}: a file in the engine's extension directory; {garbage}; {work}
+    sql: str            # {ext}: a file in the engine's extension directory; {other}: postgres
+                        # in the multi engine's directory; {garbage}; {work}
     locked: str         # the expected outcome on V's locked engine
     trigger: bool       # loads code with nothing in the way
     explicit: bool = False   # loads code on V's engine without the lock
@@ -97,6 +103,8 @@ ROWS = [
     Row("LOAD by an alias name (sqlite)", "LOAD sqlite", EXTENSION_LOAD, True, explicit=True),
     Row("LOAD by an alias name (postgres)", "LOAD postgres", EXTENSION_LOAD, True, explicit=True),
     Row("LOAD by file path, a real signed extension", "LOAD '{ext[tpch]}'", EXTENSION_LOAD, True, explicit=True),
+    Row("LOAD by file path, postgres in the multi engine's directory", "LOAD '{other}'", EXTENSION_LOAD, True, explicit=True),
+    Row("function of postgres, the multi engine's extension", "SELECT * FROM postgres_query('', 'SELECT 1')", AUTOLOAD_OFF, True),
     Row("LOAD by file path, a file that is not an extension", "LOAD '{garbage}'", EXTENSION_LOAD, False),
     Row("LOAD httpfs again (already loaded)", "LOAD httpfs", ACCEPTED, False),
     Row("multi-statement: SELECT 1; LOAD tpch", "SELECT 1; LOAD tpch", EXTENSION_LOAD, True, explicit=True),
@@ -122,8 +130,8 @@ CATALOG_NAMES = (
 
 def test_the_row_table_has_every_row_once():
     names = [r.name for r in ROWS]
-    assert len(names) == len(set(names)) == 47
-    assert sum(r.trigger for r in ROWS) == 29
+    assert len(names) == len(set(names)) == 49
+    assert sum(r.trigger for r in ROWS) == 31
     # Rows that are not triggers in this DuckDB version are listed, not hidden.
     assert len(NON_TRIGGERS) == 18
 
@@ -171,17 +179,19 @@ class Lab:
     extract: str
     key: str
     garbage: str
+    other: str          # the multi engine's directory: postgres only
 
     def sql(self, row: Row, ext_dir: str | None = None) -> str:
         d = ext_dir or self.extensions
         ext = {n: extension_file(d, n).replace("'", "''") for n in EXTRA_EXTENSIONS}
-        return row.sql.format(ext=ext, garbage=self.garbage, work=self.work)
+        other = extension_file(self.other, "postgres_scanner").replace("'", "''")
+        return row.sql.format(ext=ext, other=other, garbage=self.garbage, work=self.work)
 
 
 @pytest.fixture(scope="module")
 def lab(prepared_extensions_dir, tmp_path_factory):
     work = tmp_path_factory.mktemp("v1")
-    directory = work / "duckdb_extensions"
+    directory = work / "duckdb_httpfs"
     httpfs = make_httpfs_dir(prepared_extensions_dir, directory)
     # Verified as V verifies it, while it holds httpfs alone ...
     assert extension.trusted_httpfs(str(directory), require_foreign_owner=False) == httpfs
@@ -193,6 +203,12 @@ def lab(prepared_extensions_dir, tmp_path_factory):
         shutil.copy2(src, extension_file(directory, name))
         if os.path.isfile(src + ".info"):
             shutil.copy2(src + ".info", extension_file(directory, name) + ".info")
+    # The postgres multi engine's directory, as in the image: postgres only,
+    # its variable set. FAST never reads it.
+    other = work / "duckdb_extensions"
+    postgres = extension_file(other, "postgres_scanner")
+    os.makedirs(os.path.dirname(postgres))
+    shutil.copy2(extension_file(prepared_extensions_dir, "postgres_scanner"), postgres)
     garbage = work / "garbage.duckdb_extension"
     garbage.write_bytes(b"not an extension " * 256)
     key = artifacts.new_artifact_key()
@@ -201,11 +217,14 @@ def lab(prepared_extensions_dir, tmp_path_factory):
     w.execute("CREATE TABLE txns AS SELECT i AS txn_id, 'Branch ' || (i % 40) AS branch FROM range(1000) t(i)")
     w.close()
     old = os.getcwd()
+    env = pytest.MonkeyPatch()
+    env.setenv(MULTI_ENGINE_ENV, str(other))
     os.chdir(work)  # relative paths in the rows land in the lab
     try:
-        yield Lab(str(work), str(directory), httpfs, extract, key, str(garbage))
+        yield Lab(str(work), str(directory), httpfs, extract, key, str(garbage), str(other))
     finally:
         os.chdir(old)
+        env.undo()
 
 
 def serving_engine(lab: Lab):
@@ -241,7 +260,7 @@ def test_the_serving_engine_has_vs_config_and_is_locked(lab):
 
 def signed_serving_engine(lab: Lab, monkeypatch):
     """The other serving shape: V off, httpfs loaded by name from the
-    extension directory (BOW_DUCKDB_EXTENSION_DIR) with signature checks and
+    httpfs directory (BOW_FAST_EXTENSION_DIR) with signature checks and
     DuckDB's default auto-load and auto-install, the six extra extensions
     beside it, then the same session build and lock."""
     monkeypatch.delenv(extension.SWITCH_ENV, raising=False)
