@@ -6332,6 +6332,9 @@ class AgentV2:
                     stmt = (
                         select(ToolExecution.tool_name, ToolExecution.started_at)
                         .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+                        # Through the completion, so a rewound turn's tools
+                        # (hidden with their completion) do not count.
+                        .join(Completion, Completion.id == AgentExecution.completion_id)
                         .where(AgentExecution.report_id == report_id)
                     )
                     if completion_created_at is not None:

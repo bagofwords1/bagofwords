@@ -4561,11 +4561,13 @@ class ReportService:
             .join(Completion, Completion.id == CompletionBlock.completion_id)
             .where(
                 Completion.report_id == report_id,
-                Completion.deleted_at == None,
                 ToolExecution.status == "success",
                 ToolExecution.created_step_id != None,
             )
             .order_by(CompletionBlock.created_at.asc())
+            # What was built stays on the Summary after a rewind removes the
+            # turn that built it (rewind keeps queries, lists, instructions).
+            .execution_options(include_rewound=True)
         )
         query_res = await db.execute(query_stmt)
         query_rows = query_res.all()
@@ -4679,11 +4681,13 @@ class ReportService:
             .join(Completion, Completion.id == CompletionBlock.completion_id)
             .where(
                 Completion.report_id == report_id,
-                Completion.deleted_at == None,
                 ToolExecution.status == "success",
                 ToolExecution.tool_name.in_(["create_instruction", "edit_instruction"]),
             )
             .order_by(CompletionBlock.created_at.asc())
+            # What was built stays on the Summary after a rewind removes the
+            # turn that built it (rewind keeps queries, lists, instructions).
+            .execution_options(include_rewound=True)
         )
         instr_res = await db.execute(instr_stmt)
         instr_rows = instr_res.all()
@@ -4810,11 +4814,13 @@ class ReportService:
             .join(Completion, Completion.id == CompletionBlock.completion_id)
             .where(
                 Completion.report_id == report_id,
-                Completion.deleted_at == None,
                 ToolExecution.status == "success",
                 ToolExecution.tool_name == "submit_list",
             )
             .order_by(CompletionBlock.created_at.asc())
+            # What was built stays on the Summary after a rewind removes the
+            # turn that built it (rewind keeps queries, lists, instructions).
+            .execution_options(include_rewound=True)
         )
         list_rows = list_res.all()
         await hydrate_tool_results_for_ui(db, [row.ToolExecution for row in list_rows])
