@@ -1279,6 +1279,11 @@ const latestParamRunForQid: Record<string, number> = {};
 // param/view-as updates (postMessage) never trigger an iframe reload.
 // Shallow: plain data (artifactFramePayload), set once per load, never edited.
 const srcdocSeed = shallowRef<any>(null);
+// What the seed was built from: the data list and files (both replaced, never
+// edited in place) and the JSON of frameContext(). While they still match, the
+// main frame's ARTIFACT_READY sends no data (only ARTIFACT_DATA_CURRENT): its
+// first render already has them.
+let seededFrom: { visualizations: any[]; files: any[]; context: string } | null = null;
 
 // Which sandbox runtime generation the selected artifact was authored for.
 // Read from content.runtime_version so a legacy row keeps its legacy look.
@@ -2930,7 +2935,12 @@ function handleIframeMessage(event: MessageEvent) {
     console.log('[ArtifactFrame] Iframe ready');
     iframeError.value = null;
     iframeReady.value = true;
-    sendDataToIframe();
+    // The one send on ready: what changed while the frame loaded. The
+    // verification preview counts every push, so it always gets one.
+    if (props.verificationPreview || !frameHasSeedData()) sendDataToIframe();
+    // Its seed is the data: no payload, the frame fires its data listeners
+    // (bow.data.subscribe) as for a push, after READY like that push was.
+    else iframeRef.value?.contentWindow?.postMessage({ type: 'ARTIFACT_DATA_CURRENT' }, '*');
   } else if (event.data?.type === 'ARTIFACT_ERROR') {
     verificationEvent('error', { source: 'runtime', message: event.data.payload?.message });
     console.error('[ArtifactFrame] Iframe render error:', event.data.payload?.message);
@@ -2948,6 +2958,26 @@ function handleIframeMessage(event: MessageEvent) {
   } else if (event.data?.type === 'ARTIFACT_REFRESH_PARAMS') {
     runParamQueries(null, event.data.targets || null, { force: true });
   }
+}
+
+// The frame's data besides the rows and files, as the seed and pushes carry it.
+function frameContext() {
+  return {
+    report: toRaw(reportData.value),
+    current_user: toRaw(effectiveViewerContext.value),
+    params: paramsPayload(),
+    runtime: artifactRuntime(),
+    // This viewer's DataTable layouts — hand-set widths, column order (utils/artifactTableLayout).
+    table_layouts: loadTableLayouts(tableLayoutKey()),
+  };
+}
+
+// Whether the frame's srcdoc seed still holds the live data (nothing changed since it was frozen).
+function frameHasSeedData() {
+  return !!seededFrom
+    && seededFrom.visualizations === visualizationsData.value
+    && seededFrom.files === toRaw(filesData.value)
+    && seededFrom.context === JSON.stringify(frameContext());
 }
 
 // Send data to iframe via postMessage
@@ -3241,15 +3271,21 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       const { data } = await useMyFetch(`/api/artifacts/${selectedArtifact.value.artifact_id}/runtime/conversations/policy`);
       previewConversationPolicy = data.value || null;
     }
-    if (!inPlace) srcdocSeed.value = artifactFramePayload({
-      ...(previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
-      report: toRaw(reportData.value),
-      visualizations: visualizationsData.value,
-      files: toRaw(filesData.value),
-      current_user: toRaw(effectiveViewerContext.value),
-      params: paramsPayload(),
-      runtime: artifactRuntime(),
-    });
+    if (!inPlace) {
+      const context = frameContext();
+      srcdocSeed.value = artifactFramePayload({
+        ...(previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
+        report: context.report,
+        visualizations: visualizationsData.value,
+        files: toRaw(filesData.value),
+        current_user: context.current_user,
+        params: context.params,
+        runtime: context.runtime,
+        // Saved DataTable layouts on first paint (ARTIFACT_READY may send no data).
+        table_layouts: context.table_layouts,
+      });
+      seededFrom = { visualizations: visualizationsData.value, files: toRaw(filesData.value), context: JSON.stringify(context) };
+    }
 
     // The iframe libraries were requested at mount, in parallel with the data
     // above — usually they are here already. Waiting keeps the loading
@@ -3632,9 +3668,10 @@ function frameIframeOptions(seed: any, artifactCode: string) {
   };
 }
 
-// Re-send data when it changes (not for a list written with send: false alone)
-watch([visualizationsData, filesData, iframeReady], ([, files, ready], [, prevFiles, prevReady]) => {
-  const due = visualizationsSendDue || files !== prevFiles || ready !== prevReady;
+// Re-send data when it changes (not for a list written with send: false alone).
+// Not when the frame turns ready: its ARTIFACT_READY handler sends (or not) itself.
+watch([visualizationsData, filesData], ([, files], [, prevFiles]) => {
+  const due = visualizationsSendDue || files !== prevFiles;
   visualizationsSendDue = false;
   if (!due) return;
   if (iframeReady.value && (visualizationsData.value.length > 0 || filesData.value.length > 0)) {

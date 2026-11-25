@@ -2646,7 +2646,8 @@
     "add": "Lägg till",
     "domainsHint": "Endast exakt matchning. Inga jokertecken. Kombinera med e-postverifiering för att undvika spoofing.",
     "autoInviteRole": "Roll vid automatisk inbjudan",
-    "roleHint": "Roll som tilldelas vid registrering. Du kan ändra den för befintliga medlemmar i efterhand.",
+    "roleHint": "Behåll organisationens standard för att använda rollen som anges på sidan Medlemmar, eller välj en annan roll för domänregistreringar.",
+    "useOrgDefault": "Organisationens standard ({role})",
     "removeHint": "Att ta bort en domän påverkar endast nya registreringar — befintliga medlemmar behåller sin åtkomst.",
     "save": "Spara",
     "removeDomainAria": "Ta bort domän",
@@ -3282,7 +3283,7 @@
       "attributesSaved": "Attributen sparades",
       "attributesSaveFailed": "Det gick inte att spara attributen",
       "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat.",
-      "defaultRoleHint": "Förifyller rollen när du lägger till eller bjuder in en medlem.",
+      "defaultRoleHint": "Roll som varje ny medlem får: tillagd här, importerad eller ansluten via SSO, SCIM, LDAP eller domänregistrering. Gäller endast nya medlemmar.",
       "defaultRoleSaved": "Standardroll sparad",
       "defaultRoleFailed": "Det gick inte att spara standardrollen",
       "defaultRoleShort": "Standardroll",
@@ -4792,6 +4793,24 @@
           "title": "Skapa en klienthemlighet",
           "body": "Under Certificates & secrets > New client secret skapar du en hemlighet och kopierar dess Value (inte Secret ID) till Client Secret nedan. Värdet kan inte visas igen senare."
         }
+      ],
+      "hubspot": [
+        {
+          "title": "Skapa en MCP connector i HubSpot",
+          "body": "Gå till Development > MCP Connectors i ditt HubSpot-konto och klicka på Create MCP connector. Ge den ett namn."
+        },
+        {
+          "title": "Lägg till omdirigerings-URL:en",
+          "body": "Klistra in den här URL:en i kopplingens fält Redirect URL och klicka sedan på Create."
+        },
+        {
+          "title": "Kopiera klient-ID och hemlighet",
+          "body": "Kopiera Client ID och Client secret från kopplingens detaljsida till fälten nedan."
+        },
+        {
+          "title": "Varje användare loggar in själv",
+          "body": "Du anger inga behörigheter på kopplingen. Varje användare väljer sitt HubSpot-konto och ger åtkomst när hen loggar in. Agenten ser bara det som den användaren kan se i HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "Kopiering misslyckades — markera texten",
@@ -4853,7 +4872,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Förena tabeller över databaser",
+      "unifyTablesDescription": "Slår ihop tabeller med samma namn från de matchande databaserna till en tabell med kolumnen tenant_db. Kan inte ändras efter att anslutningen har skapats."
     },
     "postgresqlMulti": {
       "databasesTitle": "Databaser",
@@ -5045,7 +5066,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "”Tillåt allt” kan bara vara standard medan det är påslaget.",
     "tool_permission_mode.judge_model_unavailable": "Välj en aktiverad beslutsmodell för Auto-granskaren.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "En Athena-anslutning kan inte ändras mellan en databas, flera databaser och förenade tabeller. Skapa en ny anslutning i stället.",
     "catalog_discovery_incomplete": "Kataloguppdateringen misslyckades eftersom identifieringen var ofullständig. Den tidigare katalogen och tabellvalen behölls.",
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
     "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",

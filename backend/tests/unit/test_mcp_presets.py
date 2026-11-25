@@ -36,6 +36,18 @@ def test_fathom_preset():
     ]
 
 
+def test_microsoft_learn_preset_is_public():
+    m = mcp_preset("microsoft_learn")
+    assert m.server_url == "https://learn.microsoft.com/api/mcp"
+    assert m.transport == "streamable_http"
+    assert m.auth == "none"
+    assert m.allowed_auth == ["none"]
+    assert m.oauth_defaults is None
+    assert m.sample_tools == [
+        "microsoft_docs_search", "microsoft_code_sample_search", "microsoft_docs_fetch",
+    ]
+
+
 def test_x_preset_is_bearer():
     # X has no DCR — it connects with an app-only bearer token from the
     # X Developer Portal, over streamable HTTP.
@@ -180,6 +192,23 @@ def test_hubspot_is_a_services_tile_and_serializes():
     assert hs["transport"] == "streamable_http"
     assert hs["title"] == "HubSpot"
     assert hs["oauth_defaults"]["authorize_url"].startswith("https://mcp.hubspot.com/")
+
+
+def test_hubspot_catalog_guide_shows_the_oauth_redirect_uri():
+    from app.core.base_url import connection_oauth_redirect_uri
+    guide = next(p for p in mcp_presets() if p["key"] == "hubspot")["setup_guide"]
+    assert guide and all(step["title"] and step["body"] for step in guide)
+    assert [step["code"] for step in guide if step["code"]] == [connection_oauth_redirect_uri()]
+
+
+def test_presets_with_a_guide_do_not_share_a_registry_type_name():
+    from app.schemas.data_source_registry import REGISTRY
+    guided = {p["key"] for p in mcp_presets() if p["setup_guide"]}
+    assert guided and not guided & set(REGISTRY)
+
+
+def test_presets_without_a_guide_serialize_it_as_none():
+    assert next(p for p in mcp_presets() if p["key"] == "notion")["setup_guide"] is None
 
 
 def test_scope_normalization_comma_or_space():

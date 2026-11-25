@@ -1416,7 +1416,9 @@ class OrganizationService:
                         MembershipCreate(
                             organization_id=organization.id,
                             email=email,
-                            role="member",
+                            # None = the org's default member role, same as
+                            # the Add-member modal (resolved in add_member).
+                            role=None,
                             note=note,
                             custom_attributes=row_attrs,
                         ),

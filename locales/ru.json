@@ -2646,7 +2646,8 @@
     "add": "Добавить",
     "domainsHint": "Только точное совпадение. Без шаблонов. Сочетайте с подтверждением почты, чтобы избежать подмены.",
     "autoInviteRole": "Роль для автоприглашения",
-    "roleHint": "Роль, выдаваемая при регистрации. Её можно изменить для существующих участников позже.",
+    "roleHint": "Оставьте значение по умолчанию для организации, чтобы использовать роль со страницы «Участники», или выберите другую роль для регистраций по домену.",
+    "useOrgDefault": "По умолчанию для организации ({role})",
     "removeHint": "Удаление домена влияет только на новые регистрации — существующие участники сохраняют доступ.",
     "save": "Сохранить",
     "removeDomainAria": "Удалить домен",
@@ -3282,7 +3283,7 @@
       "attributesSaved": "Атрибуты сохранены",
       "attributesSaveFailed": "Не удалось сохранить атрибуты",
       "importAttributesHint": "Добавьте столбцы {column}, чтобы задать атрибуты, например {example}. Пустая ячейка оставляет атрибут без изменений.",
-      "defaultRoleHint": "Подставляет роль при добавлении или приглашении участника.",
+      "defaultRoleHint": "Роль, которую получает каждый новый участник: добавленный здесь, импортированный или вошедший через SSO, SCIM, LDAP или регистрацию по домену. Действует только для новых участников.",
       "defaultRoleSaved": "Роль по умолчанию сохранена",
       "defaultRoleFailed": "Не удалось сохранить роль по умолчанию",
       "defaultRoleShort": "Роль по умолчанию",
@@ -4792,6 +4793,24 @@
           "title": "Создайте секрет клиента",
           "body": "В Certificates & secrets > New client secret создайте секрет и скопируйте его Value (не Secret ID) в поле Client Secret ниже. Позже это значение нельзя будет посмотреть снова."
         }
+      ],
+      "hubspot": [
+        {
+          "title": "Создайте MCP connector в HubSpot",
+          "body": "В аккаунте HubSpot откройте Development > MCP Connectors и нажмите Create MCP connector. Задайте ему имя."
+        },
+        {
+          "title": "Добавьте URL перенаправления",
+          "body": "Вставьте этот URL в поле Redirect URL коннектора и нажмите Create."
+        },
+        {
+          "title": "Скопируйте ID клиента и секрет",
+          "body": "На странице сведений о коннекторе скопируйте Client ID и Client secret в поля ниже."
+        },
+        {
+          "title": "Каждый пользователь входит сам",
+          "body": "Области доступа в коннекторе не задаются. Каждый пользователь при входе выбирает свой аккаунт HubSpot и предоставляет доступ. Агент видит только то, что этот пользователь видит в HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "Не удалось скопировать — выделите текст",
@@ -4853,7 +4872,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Объединять таблицы из разных баз данных",
+      "unifyTablesDescription": "Объединяет таблицы с одинаковыми именами из подходящих баз данных в одну таблицу со столбцом tenant_db. Нельзя изменить после создания подключения."
     },
     "postgresqlMulti": {
       "databasesTitle": "Базы данных",
@@ -5045,7 +5066,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "«Разрешить всё» может быть режимом по умолчанию, только пока оно включено.",
     "tool_permission_mode.judge_model_unavailable": "Выберите включённую модель принятия решений для проверки в режиме «Авто».",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "Нельзя переключить подключение Athena между одной базой данных, несколькими базами данных и объединёнными таблицами. Вместо этого создайте новое подключение.",
     "catalog_discovery_incomplete": "Не удалось обновить каталог: обнаружение не завершено. Предыдущий каталог и выбранные таблицы сохранены.",
     "saml_unavailable": "Настройки SSO недоступны. Обратитесь к администратору.",
     "saml_login_failed": "Не удалось войти через SSO. Повторите попытку или обратитесь к администратору.",

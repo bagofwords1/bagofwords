@@ -1567,6 +1567,17 @@
     "rerun": "Volver a ejecutar",
     "rerunTooltip": "Ejecutar este mensaje de nuevo como un mensaje nuevo",
     "rerunQueuedTooltip": "Añadir a la cola: se ejecuta de nuevo después de la respuesta actual",
+    "rewind": "Retroceder",
+    "rewindTooltip": "Volver a antes de este mensaje: eliminarlo junto con todo lo posterior",
+    "rewindBusyTooltip": "Disponible cuando termine la respuesta actual",
+    "rewindConfirmTitle": "¿Retroceder a antes de este mensaje?",
+    "rewindConfirmBody": "Se elimina 1 mensaje (este mensaje) de la conversación y del contexto del agente. | Se eliminan {n} mensajes (este mensaje y todo lo posterior) de la conversación y del contexto del agente.",
+    "rewindConfirmKeeps": "Los widgets, consultas y tableros creados en esos mensajes se conservan.",
+    "rewindConfirmMemories": "Se conserva 1 recuerdo guardado a partir de estos mensajes. Puedes gestionar tus recuerdos en tu perfil. | Se conservan {n} recuerdos guardados a partir de estos mensajes. Puedes gestionar tus recuerdos en tu perfil.",
+    "rewindConfirmPrefill": "El texto del mensaje vuelve al cuadro de texto para que puedas editarlo y enviarlo de nuevo. Las menciones y los archivos adjuntos no se restauran.",
+    "rewindConfirmAction": "Retroceder",
+    "rewindDone": "Listo. Edita el mensaje y envíalo de nuevo.",
+    "rewindFailed": "No se pudo retroceder la conversación",
     "steered": "Dirigido",
     "steeringApplied": "Dirección aplicada",
     "steerQueuedFallback": "La ejecución acaba de terminar: tu mensaje se puso en cola",
@@ -3047,7 +3058,8 @@
     "add": "Añadir",
     "domainsHint": "Solo coincidencia exacta. Sin comodines. Combina con verificación de correo para evitar suplantaciones.",
     "autoInviteRole": "Rol de invitación automática",
-    "roleHint": "Rol concedido al registrarse. Puedes cambiarlo para los miembros existentes después.",
+    "roleHint": "Déjalo en el predeterminado de la organización para usar el rol definido en la página Miembros, o elige un rol para dar otro distinto a los registros por dominio.",
+    "useOrgDefault": "Predeterminado de la organización ({role})",
     "removeHint": "Eliminar un dominio solo afecta a nuevos registros — los miembros existentes conservan su acceso.",
     "save": "Guardar",
     "removeDomainAria": "Eliminar dominio",
@@ -3687,7 +3699,7 @@
       "attributesSaved": "Atributos guardados",
       "attributesSaveFailed": "No se pudieron guardar los atributos",
       "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios.",
-      "defaultRoleHint": "Rellena el rol al añadir o invitar a un miembro.",
+      "defaultRoleHint": "Rol que recibe cada miembro nuevo: añadido aquí, importado o que se une mediante SSO, SCIM, LDAP o registro por dominio. Solo se aplica a miembros nuevos.",
       "defaultRoleSaved": "Rol predeterminado guardado",
       "defaultRoleFailed": "No se pudo guardar el rol predeterminado",
       "defaultRoleShort": "Rol predeterminado",
@@ -5452,6 +5464,24 @@
           "title": "Crea un secreto de cliente",
           "body": "En Certificates & secrets > New client secret, crea un secreto y copia su Value (no el Secret ID) en Client Secret abajo. Después no podrás volver a ver el valor."
         }
+      ],
+      "hubspot": [
+        {
+          "title": "Crear un MCP connector en HubSpot",
+          "body": "En su cuenta de HubSpot vaya a Development > MCP Connectors y haga clic en Create MCP connector. Asígnele un nombre."
+        },
+        {
+          "title": "Añadir la URL de redirección",
+          "body": "Pegue esta URL en el campo Redirect URL del conector y haga clic en Create."
+        },
+        {
+          "title": "Copiar el ID de cliente y el secreto",
+          "body": "En la página de detalles del conector, copie el Client ID y el Client secret en los campos de abajo."
+        },
+        {
+          "title": "Cada usuario inicia sesión",
+          "body": "No se configuran ámbitos en el conector. Cada usuario elige su cuenta de HubSpot y concede acceso al iniciar sesión. El agente solo ve lo que ese usuario puede ver en HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "Error al copiar — selecciona el texto",
@@ -5513,7 +5543,9 @@
     "athena": {
       "databaseDescription": "Un nombre de base de datos de Glue, o una lista separada por comas de nombres, patrones glob y exclusiones con !, para indexar varias, p. ej. *_db, !billing_db, analytics_history. Con varias, las tablas se llaman base_de_datos.tabla.",
       "tableExcludeTitle": "Patrón de exclusión de tablas",
-      "tableExcludeDescription": "Expresión regular opcional; las tablas cuyo nombre coincida no se indexan, p. ej. ^day_\\d{'{'}2{'}'}. Al cambiarla, en la siguiente indexación se eliminan las tablas recién excluidas y su selección en el agente."
+      "tableExcludeDescription": "Expresión regular opcional; las tablas cuyo nombre coincida no se indexan, p. ej. ^day_\\d{'{'}2{'}'}. Al cambiarla, en la siguiente indexación se eliminan las tablas recién excluidas y su selección en el agente.",
+      "unifyTablesTitle": "Unificar tablas entre bases de datos",
+      "unifyTablesDescription": "Une las tablas con el mismo nombre de las bases de datos coincidentes en una sola tabla con una columna tenant_db. No se puede cambiar después de crear la conexión."
     },
     "postgresqlMulti": {
       "databasesTitle": "Bases de datos",
@@ -5710,7 +5742,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "Permitir todo solo puede ser el predeterminado mientras esté activado.",
     "tool_permission_mode.judge_model_unavailable": "Elige un modelo de decisión habilitado para el juez de Automático.",
     "connection.config_invalid": "Configuración de conexión no válida: {detail}",
-    "connection.athena_mode_switch": "Una conexión de Athena no puede cambiar entre una base de datos y varias. Crea una conexión nueva.",
+    "connection.athena_mode_switch": "No se puede cambiar una conexión de Athena entre una base de datos, varias bases de datos y tablas unificadas. Cree una conexión nueva en su lugar.",
     "catalog_discovery_incomplete": "La actualización del catálogo falló porque la detección quedó incompleta. Se conservaron el catálogo anterior y las selecciones de tablas.",
     "saml_unavailable": "La configuración de SSO no está disponible. Contacta con tu administrador.",
     "saml_login_failed": "Error al iniciar sesión con SSO. Inténtalo de nuevo o contacta con tu administrador.",
@@ -5762,6 +5794,9 @@
     "license.enterprise_required": "Esta función requiere una licencia empresarial.",
     "locale.invalid": "Ese idioma no está habilitado",
     "report.not_found": "Informe no encontrado",
+    "rewind.target_not_found": "Ese mensaje ya no está en esta conversación",
+    "rewind.invalid_target": "Solo puedes retroceder a un mensaje que enviaste",
+    "rewind.run_in_progress": "Espera a que termine la respuesta actual y luego retrocede",
     "entity.not_found": "Entidad no encontrada",
     "user.not_found": "Usuario no encontrado",
     "membership.not_found": "Membresía no encontrada",

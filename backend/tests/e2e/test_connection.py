@@ -662,11 +662,14 @@ def test_athena_config_with_blank_optional_fields_uses_the_defaults(
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("stored,target", [
-    ("acme_db", "acme_db, globex_db"),
-    ("acme_db", "*_db"),
-    ("acme_db", "acme_db, !globex_db"),
-    ("acme_db, globex_db", "acme_db"),
-    ("*_db", "globex_db"),
+    (_athena_config("acme_db"), _athena_config("acme_db, globex_db")),
+    (_athena_config("acme_db"), _athena_config("*_db")),
+    (_athena_config("acme_db"), _athena_config("acme_db, !globex_db")),
+    (_athena_config("acme_db, globex_db"), _athena_config("acme_db")),
+    (_athena_config("*_db"), _athena_config("globex_db")),
+    (_athena_config("acme_db"), _athena_config("acme_db", unify_tables=True)),
+    (_athena_config("acme_db, globex_db"), _athena_config("acme_db, globex_db", unify_tables=True)),
+    (_athena_config("acme_db, globex_db", unify_tables=True), _athena_config("acme_db, globex_db")),
 ])
 def test_athena_mode_switch_is_a_typed_400_and_the_same_mode_update_succeeds(
     athena_glue, create_connection, update_connection, test_client, create_user, login_user, whoami, stored, target,
@@ -676,19 +679,176 @@ def test_athena_mode_switch_is_a_typed_400_and_the_same_mode_update_succeeds(
     org_id = whoami(token)["organizations"][0]["id"]
     headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
     connection = create_connection(
-        name=f"Athena {stored}", type="aws_athena", config=_athena_config(stored),
+        name="Athena mode switch", type="aws_athena", config=stored,
         credentials={}, user_token=token, org_id=org_id,
     )
 
     switched = test_client.put(
-        f"/api/connections/{connection['id']}", json={"config": _athena_config(target)}, headers=headers,
+        f"/api/connections/{connection['id']}", json={"config": target}, headers=headers,
     )
     assert switched.status_code == 400, switched.text
     assert switched.json()["error_code"] == "connection.athena_mode_switch", switched.text
 
-    same_mode = "globex_db, acme_db" if "," in stored or "*" in stored else "globex_db"
+    same_database = "globex_db, acme_db" if "," in stored["database"] or "*" in stored["database"] else "globex_db"
     kept = update_connection(
-        connection_id=connection["id"], payload={"config": _athena_config(same_mode)},
+        connection_id=connection["id"], payload={"config": {**stored, "database": same_database}},
         user_token=token, org_id=org_id,
     )
     assert kept["id"] == connection["id"]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("stored_flag, target_flag", [("false", False), ("False", None), ("true", True), ("1", "TRUE")])
+def test_athena_unify_flag_spellings_count_as_the_same_mode(
+    athena_glue, create_connection, update_connection, create_user, login_user, whoami, stored_flag, target_flag,
+):
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    connection = create_connection(
+        name="Athena flag spelling", type="aws_athena",
+        config=_athena_config("acme_db, globex_db", unify_tables=stored_flag),
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    target = _athena_config("globex_db, acme_db")
+    if target_flag is not None:
+        target["unify_tables"] = target_flag
+    kept = update_connection(
+        connection_id=connection["id"], payload={"config": target}, user_token=token, org_id=org_id,
+    )
+    assert kept["id"] == connection["id"]
+
+
+@pytest.mark.e2e
+def test_unified_athena_connection_indexes_bare_tables_with_tenant_db(
+    athena_glue, create_connection, test_client, create_user, login_user, whoami,
+):
+    import asyncio
+
+    from sqlalchemy import select
+
+    from app.dependencies import async_session_maker
+    from app.models.connection_table import ConnectionTable
+    from tests.e2e.test_connection_indexing import _poll_until_terminal
+    from tests.unit.test_aws_athena_client import _glue_error
+
+    athena_glue.databases["locked_db"] = _glue_error("AccessDeniedException")
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    connection = create_connection(
+        name="Athena unified", type="aws_athena",
+        config=_athena_config("acme_db, globex_db, locked_db", unify_tables=True),
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    final = _poll_until_terminal(test_client, connection["id"], token, org_id)
+    assert final["status"] == "completed", final
+
+    listed = test_client.get(f"/api/connections/{connection['id']}/tables", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert sorted(t["name"] for t in listed.json()) == ["alerts", "assets", "users"]
+
+    async def _columns():
+        async with async_session_maker() as db:
+            rows = await db.execute(
+                select(ConnectionTable).where(ConnectionTable.connection_id == connection["id"])
+            )
+            return {t.name: [c["name"] for c in t.columns] for t in rows.scalars()}
+
+    columns = asyncio.run(_columns())
+    assert set(columns) == {"alerts", "assets", "users"}
+    for name, names in columns.items():
+        assert names[0] == "tenant_db", (name, names)
+    assert columns["assets"] == ["tenant_db", "id", "dt"]
+
+    unreadable = final["stats"]["unreadable_datasets"]
+    assert [entry["name"] for entry in unreadable] == ["locked_db"], unreadable
+    assert "AccessDenied" in unreadable[0]["reason"]
+    assert final["stats"]["unreadable_dataset_count"] == 1
+
+
+def _unified_branches(sql):
+    import sqlglot
+    from sqlglot import exp
+
+    tree = sqlglot.parse_one(sql, read="athena")
+    (subquery,) = [s for s in tree.find_all(exp.Subquery) if s.alias_or_name == "assets"]
+    branches = []
+    stack = [subquery.this]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, exp.Union):
+            assert not node.args.get("distinct"), sql
+            stack.extend([node.expression, node.this])
+        else:
+            branches.append(node)
+    return branches
+
+
+@pytest.mark.e2e
+def test_unified_athena_query_through_the_api_sends_one_branch_per_tenant(
+    athena_glue, create_connection, test_client, create_user, login_user, whoami,
+):
+    from sqlglot import exp
+
+    from app.data_sources.clients import aws_athena_client as athena_module
+    from tests.e2e.test_connection_indexing import _poll_until_terminal
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    connection = create_connection(
+        name="Athena unified query", type="aws_athena",
+        config=_athena_config("acme_db, globex_db", unify_tables=True),
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    assert _poll_until_terminal(test_client, connection["id"], token, org_id)["status"] == "completed"
+
+    agent = test_client.post(
+        "/api/data_sources", json={"name": "Unified agent", "connection_ids": [connection["id"]]}, headers=headers,
+    )
+    assert agent.status_code == 200, agent.text
+    agent_id = agent.json()["id"]
+    selected = test_client.put(
+        f"/api/data_sources/{agent_id}/update_tables_status",
+        json={"activate": ["assets"], "deactivate": ["alerts", "users"]},
+        headers=headers,
+    )
+    assert selected.status_code == 200, selected.text
+
+    def preview(sql):
+        code = (
+            "def generate_df(ds_clients, excel_files):\n"
+            f"    return next(iter(ds_clients.values())).execute_query({sql!r})\n"
+        )
+        response = test_client.post(
+            "/api/entities/preview", json={"code": code, "data_source_ids": [agent_id]}, headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    wrangler = athena_module.wr
+    ran = preview("SELECT id FROM assets")
+    assert not ran.get("error"), ran
+    sql = wrangler.calls[-1]["sql"]
+    assert wrangler.calls[-1]["database"] is None
+
+    branches = _unified_branches(sql)
+    tenants = []
+    for branch in branches:
+        first = branch.expressions[0]
+        assert isinstance(first, exp.Alias) and first.alias == "tenant_db", sql
+        assert isinstance(first.this, exp.Literal) and first.this.is_string, sql
+        tenants.append(first.this.this)
+        source = branch.args["from"].this
+        assert (source.catalog.lower(), source.db, source.name) == ("awsdatacatalog", first.this.this, "assets")
+    assert sorted(tenants) == ["acme_db", "globex_db"]
+
+    calls = len(wrangler.calls)
+    refused = preview("SELECT * FROM alerts")
+    assert refused.get("error"), refused
+    assert len(wrangler.calls) == calls

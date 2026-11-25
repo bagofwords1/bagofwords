@@ -32,6 +32,8 @@
           </div>
         </div>
 
+        <SetupGuide v-if="presetSpec?.key" :type="presetSpec.key" :steps="presetSpec.setup_guide" :default-open="!isEditMode" />
+
         <div>
           <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.nameLabel') }}</label>
           <input v-model="form.name" type="text" data-test="mcp-name" :placeholder="$t('settings.mcpModal.namePlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
@@ -306,6 +308,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import SetupGuide from '~/components/datasources/SetupGuide.vue'
 
 const { t } = useI18n()
 const props = defineProps<{
@@ -320,6 +323,8 @@ const props = defineProps<{
     oauth_defaults?: { authorize_url?: string; token_url?: string; scopes?: string; audience?: string; token_endpoint_auth_method?: string } | null
     description?: string
     sample_tools?: string[] | null
+    key?: string
+    setup_guide?: any[] | null
   } | null
 }>()
 const emit = defineEmits<{

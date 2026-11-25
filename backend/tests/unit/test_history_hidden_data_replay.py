@@ -41,7 +41,10 @@ from app.ai.context.builders.message_context_builder import (
     MessageContextBuilder,
     _project_create_data_result,
 )
+from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.context.parts import ToolResultPart
+from app.ai.data_preview import build_data_preview, clamp_stats, with_column_sums
+from app.ai.persisted_summary import build_tool_context_summary
 from app.dependencies import async_session_maker
 from app.models.agent_execution import AgentExecution
 from app.models.completion import Completion
@@ -50,6 +53,7 @@ from app.models.organization import Organization
 from app.models.report import Report
 from app.models.tool_execution import ToolExecution
 from app.models.user import User
+from tests.unit.test_observation_sums import EXPECTED_SUMS, _departments_df
 
 pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
 
@@ -120,7 +124,7 @@ async def db():
         await session.rollback()
 
 
-async def _seed(db, *, report_type, tool_name, result_json, legacy=False):
+async def _seed(db, *, report_type, tool_name, result_json, legacy=False, context_summary_json=None):
     user = User(name="Viewer", email=f"viewer-{uuid.uuid4()}@example.test", hashed_password="not-used")
     db.add(user)
     await db.flush()
@@ -177,6 +181,9 @@ async def _seed(db, *, report_type, tool_name, result_json, legacy=False):
         success=True,
         result_summary="Done",
         result_json=result_json,
+        # An agent run snapshots the model-visible observation here; the
+        # model event fills it from result_json only when it is None.
+        context_summary_json=context_summary_json,
     )
     db.add(tool)
     await db.flush()
@@ -374,6 +381,49 @@ def test_decrypted_legacy_create_data_projection_keeps_its_first_row():
     legacy = {"success": True, "data": {"columns": _COLUMNS, "rows": rows}}
 
     assert _project_create_data_result(legacy)["data_preview"]["rows"] == [rows[0]]
+
+
+# --- column sums on a replayed describe_entity observation -------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allow_llm_see_data", [True, False], ids=["visible", "hidden"])
+async def test_describe_entity_replay_keeps_sums_only_when_visible(db, allow_llm_see_data):
+    """describe_entity's stored summary is its observation, block included.
+    Replay shows the block while data is visible and drops it once hidden."""
+    formatted = StreamingCodeExecutor().format_df_for_widget(_departments_df())
+    preview = build_data_preview(formatted)
+    stats = clamp_stats(formatted["info"])
+    observation = {
+        "summary": "Described entity 'Budget' (type=model).",
+        "data_preview": with_column_sums(preview, formatted),
+        "stats": stats,
+    }
+    assert observation["data_preview"]["column_sums"] == {
+        "note": "sum = sum of all 12 rows",
+        "sum": EXPECTED_SUMS,
+    }
+    output = {"success": True, "data_preview": preview, "stats": stats}
+    assert "column_sums" not in json.dumps(output)
+    scenario = await _seed(
+        db,
+        report_type=None,
+        tool_name="describe_entity",
+        result_json=output,
+        context_summary_json=build_tool_context_summary("describe_entity", output, observation=observation),
+    )
+
+    [content] = await _native(db, scenario, allow_llm_see_data=allow_llm_see_data)
+    replayed = json.loads(content)
+
+    if allow_llm_see_data:
+        assert replayed["data_preview"]["column_sums"] == observation["data_preview"]["column_sums"]
+        return
+    assert "column_sums" not in content
+    assert "rows" not in replayed["data_preview"]
+    assert replayed["data_preview"]["data_hidden"] is True
+    # Control: the gated stats still carry the numeric sum (mean × count).
+    assert replayed["stats"]["column_info"]["budget_eur"]["sum"] == pytest.approx(2140)
 
 
 # --- shapes other than data previews (see test_privacy_hidden_data.py) -------

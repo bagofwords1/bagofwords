@@ -20,6 +20,7 @@ A conversation without a dashboard (widget era) is served as before.
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.orm import lazyload
 
 from app.models.artifact import Artifact, ArtifactVersion
 from app.models.artifact_release import ArtifactShare
@@ -251,7 +252,8 @@ async def refresh_on_view_dashboard(db, report, artifact_id: str | None, user=No
     if artifact_id and user is not None:
         from app.services.dashboard_access import can_edit
 
-        version = await db.get(ArtifactVersion, str(artifact_id))
+        # Only its artifact_id is read: not its conversation's graph.
+        version = await db.get(ArtifactVersion, str(artifact_id), options=[lazyload("*")])
         target = await db.get(Artifact, str(version.artifact_id)) if version is not None else \
             await db.get(Artifact, str(artifact_id))
         if (target is not None and target.deleted_at is None and str(target.report_id) == str(report.id)

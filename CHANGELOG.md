@@ -1,7 +1,23 @@
 # Release Notes
 
 ## Version 0.0.638 (November 25, 2026)
+- Added a Microsoft Learn connector for searching and reading Microsoft and Azure documentation, with no sign-in needed (#1929)
 - Added a Siemens Teamcenter connector for parts, BOMs, where-used, engineering changes and attached documents, with Teamcenter SSO sign-in (#1933)
+- Added Rewind to report chat: remove a prompt and everything after it from the chat and the agent's context, then edit and resend it (#1913)
+- Added sending a document the agent writes on WhatsApp to the user as a PDF (#1925)
+- Added a setup guide to the HubSpot connect form, with the redirect URL to copy (#1922)
+- Added unified Athena tables: same-named tables across tenant Glue databases become one table with a `tenant_db` column (#1921, #1931) — the "Unify tables across databases" connection setting, fixed once the connection is created
+- Changed agent-built dashboards to open with the answer (KPIs or a lead chart) and to build the page or document asked for instead of replying in chat (#1744)
+- Changed agent-written documents to take totals from exact column sums instead of adding rows by hand (#1886)
+- Fixed deleted custom tables coming back on every agent after a connection schema reload (#1928)
+- Fixed a custom role set as the sign-up default not being given to users who join through their domain or SSO (#1924)
+- Fixed people joining through SSO, SCIM, LDAP, CSV import or domain signup not getting the org's default member role (#1932)
+- Fixed the in-app dashboard sending its data again when it opens, which crashed the tab on large dashboards (#1927)
+- Fixed slow dashboard opening in the app, caused by background requests loading every step's data (#1916)
+- Fixed charts and tables on your own data: the right currency, fewer series per chart, rankings that show every name, and right-to-left tables on Hebrew pages (#1733)
+- Fixed dashboard charts showing a `needs viz` developer message instead of drawing from their own rows (#1768, #1769)
+- Fixed redundant `[1]` citation footnotes in WhatsApp and Slack answers next to the chart they cite (#1926)
+- Fixed edited-dashboard tool headers in chat showing a "Diff" label (#1923)
 
 ## Version 0.0.637 (November 25, 2026)
 - Added Slack as a data source, read live with each user's own access and limited per agent to chosen channels (#1920)

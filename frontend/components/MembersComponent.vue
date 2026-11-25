@@ -61,9 +61,12 @@
             <div
                 v-if="useCan('full_admin_access') && availableRoles.length"
                 class="flex items-center gap-2 ms-auto"
-                :title="$t('settings.members.defaultRoleHint')"
             >
                 <span class="text-sm text-ink-muted whitespace-nowrap">{{ $t('settings.members.defaultRoleShort') }}</span>
+                <!-- Says which join paths the default covers (all of them). -->
+                <UTooltip :text="$t('settings.members.defaultRoleHint')" :popper="{ placement: 'bottom' }" :ui="{ width: 'max-w-xs', base: 'h-auto whitespace-normal' }">
+                    <Icon name="heroicons:information-circle" class="h-4 w-4 text-ink-muted" data-testid="default-role-info" />
+                </UTooltip>
                 <USelectMenu
                     v-model="defaultMemberRole"
                     :options="availableRoles.map(r => r.name)"

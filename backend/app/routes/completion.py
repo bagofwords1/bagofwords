@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.dependencies import get_db
@@ -170,6 +171,38 @@ async def clear_report_context(
 
     result["can_compact"] = (await ContextCompactionService.get_ui_state(db, report_id))["can_compact"]
     return result
+
+
+class RewindRequest(BaseModel):
+    completion_id: str
+    # Validate and count only (the confirmation dialog); nothing changes.
+    dry_run: bool = False
+
+
+@router.post("/api/reports/{report_id}/rewind")
+@requires_permission('create_reports', model=Report, owner_only=True)
+async def rewind_report(
+    report_id: str,
+    body: RewindRequest,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Rewind: remove the prompt `completion_id` and every later turn from
+    the conversation and from the agent's context (soft delete). Widgets,
+    queries and dashboards built in those turns are kept. Idle-only — 409
+    while an agent run is active on the report, like /compact and /clear.
+    Returns the removed prompt so the composer can offer it for editing.
+    Memories saved from the removed turns are kept (they are the user's,
+    across reports); `memories_kept` counts them. `dry_run` previews."""
+    from sqlalchemy import select
+    from app.services.report_rewind_service import rewind_report as _rewind
+
+    report_res = await db.execute(select(Report).filter(Report.id == report_id))
+    report = report_res.scalar_one_or_none()
+    if not report or str(report.organization_id) != str(organization.id):
+        raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND, "Report not found")
+    return await _rewind(db, report, body.completion_id, dry_run=body.dry_run)
 
 
 @router.post("/api/reports/{report_id}/completions")

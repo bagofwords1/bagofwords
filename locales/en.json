@@ -1608,6 +1608,17 @@
     "rerun": "Rerun",
     "rerunTooltip": "Run this prompt again as a new message",
     "rerunQueuedTooltip": "Add to the queue: runs again after the current response",
+    "rewind": "Rewind",
+    "rewindTooltip": "Go back to before this prompt: remove it and everything after it",
+    "rewindBusyTooltip": "Available when the current response finishes",
+    "rewindConfirmTitle": "Rewind to before this prompt?",
+    "rewindConfirmBody": "This removes 1 message (this prompt) from the conversation and from the agent's context. | This removes {n} messages (this prompt and everything after it) from the conversation and from the agent's context.",
+    "rewindConfirmKeeps": "Widgets, queries and dashboards built in those messages are kept.",
+    "rewindConfirmMemories": "1 memory saved from these messages is kept. You can manage your memories in your profile. | {n} memories saved from these messages are kept. You can manage your memories in your profile.",
+    "rewindConfirmPrefill": "The prompt's text goes back into the prompt box so you can edit and resend it. Mentions and attached files aren't restored.",
+    "rewindConfirmAction": "Rewind",
+    "rewindDone": "Rewound. Edit the prompt and send it again.",
+    "rewindFailed": "Could not rewind the conversation",
     "steered": "Steered",
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
@@ -3124,7 +3135,8 @@
     "add": "Add",
     "domainsHint": "Exact match only. No wildcards. Pair with email verification to avoid spoofing.",
     "autoInviteRole": "Auto-invite role",
-    "roleHint": "Role granted on signup. You can change it for existing members afterwards.",
+    "roleHint": "Leave on the organization default to use the role set on the Members page, or pick a role to give domain signups a different one.",
+    "useOrgDefault": "Organization default ({role})",
     "removeHint": "Removing a domain only affects new signups — existing members keep their access.",
     "save": "Save",
     "removeDomainAria": "Remove domain",
@@ -3765,7 +3777,7 @@
       "attributesSaved": "Attributes saved",
       "attributesSaveFailed": "Failed to save attributes",
       "importAttributesHint": "Add {column} columns to set member attributes, e.g. {example}. An empty cell leaves that attribute unchanged.",
-      "defaultRoleHint": "Pre-fills the role when adding or inviting a member.",
+      "defaultRoleHint": "Role every new member gets: added here, imported, or joining through SSO, SCIM, LDAP or domain signup. Applies to new members only.",
       "defaultRoleSaved": "Default role saved",
       "defaultRoleFailed": "Failed to save default role",
       "defaultRoleShort": "Default role",
@@ -5529,6 +5541,24 @@
           "title": "Create a client secret",
           "body": "In Certificates & secrets > New client secret, create a secret and copy its Value (not the Secret ID) into Client Secret below. You can't view the value again later."
         }
+      ],
+      "hubspot": [
+        {
+          "title": "Create an MCP connector in HubSpot",
+          "body": "In your HubSpot account go to Development > MCP Connectors and click Create MCP connector. Give it a name."
+        },
+        {
+          "title": "Add the redirect URL",
+          "body": "Paste this URL into the connector's Redirect URL field, then click Create."
+        },
+        {
+          "title": "Copy the client ID and secret",
+          "body": "On the connector's details page, copy the Client ID and Client secret into the fields below."
+        },
+        {
+          "title": "Each user signs in",
+          "body": "You don't set scopes on the connector. Each user picks their HubSpot account and grants access when they sign in. The agent sees only what that user can see in HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "Copy failed — select the text",
@@ -5590,7 +5620,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Unify tables across databases",
+      "unifyTablesDescription": "Join same-named tables across the matching databases into one table with a tenant_db column. Can't be changed after the connection is created."
     },
     "postgresqlMulti": {
       "databasesTitle": "Databases",
@@ -5787,7 +5819,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "Allow all can be the default only while it is turned on.",
     "tool_permission_mode.judge_model_unavailable": "Choose an enabled decision model for the Auto judge.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "Cannot change an Athena connection between one database, several databases and unified tables. Create a new connection instead.",
     "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
@@ -5839,6 +5871,9 @@
     "license.enterprise_required": "This feature requires an enterprise license.",
     "locale.invalid": "Locale is not enabled",
     "report.not_found": "Report not found",
+    "rewind.target_not_found": "That message is no longer in this conversation",
+    "rewind.invalid_target": "You can only rewind to a prompt you sent",
+    "rewind.run_in_progress": "Wait for the current response to finish, then rewind",
     "entity.not_found": "Entity not found",
     "user.not_found": "User not found",
     "membership.not_found": "Membership not found",

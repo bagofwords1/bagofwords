@@ -97,6 +97,7 @@ const CONNECTOR_ICON_FILE: Record<string, string> = {
     linear: 'linear.png',
     sentry: 'sentry.png',
     fathom: 'fathom.png',
+    microsoft_learn: 'microsoft.svg',
     github: 'github.svg',
     gitlab: 'gitlab.svg',
     bitbucket: 'bitbucket.svg',

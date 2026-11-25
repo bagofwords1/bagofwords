@@ -1395,6 +1395,7 @@ class LLM:
         disable_parallel_tools: bool = True,
         web_search: Optional[bool] = None,
         web_search_domains: Optional[list] = None,
+        require_tool: bool = False,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
@@ -1453,6 +1454,17 @@ class LLM:
                 client_kwargs["web_search"] = web_search
                 if web_search_domains:
                     client_kwargs["web_search_domains"] = web_search_domains
+            # A required tool call (forced build) goes only to clients that
+            # take it; others get the restricted tool list without forcing.
+            if require_tool:
+                import inspect as _inspect
+                try:
+                    if "require_tool" in _inspect.signature(self.client.inference_stream_v2).parameters:
+                        client_kwargs["require_tool"] = True
+                    else:
+                        logger.info("[llm] %s cannot require a tool call; sending the restricted tools only", type(self.client).__name__)
+                except (TypeError, ValueError):
+                    pass
 
             # Bounded retry, but only while the stream hasn't produced anything:
             # once an event reached the consumer we can't transparently restart

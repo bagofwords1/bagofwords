@@ -559,7 +559,7 @@ class McpPreset(BaseModel):
     title: str
     server_url: str
     transport: str = "streamable_http"   # streamable_http | sse
-    auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer | basic
+    auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer | basic | none
     description: str = ""
     # UI grouping bucket — same vocabulary as DataSourceRegistryEntry.category.
     # Presets are branded MCP servers, so they slot into a domain category
@@ -578,6 +578,7 @@ class McpPreset(BaseModel):
     # (with schemas) is discovered per-connection via refresh_tools. None → the
     # form shows a "discovered after connecting" placeholder instead.
     sample_tools: Optional[List[str]] = None
+    setup_guide: list[SetupStep] | None = None
 
 
 _DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
@@ -3283,6 +3284,9 @@ _TOOLS_FATHOM = [
     "get_relevant_meetings_result", "scan_meeting_summaries", "search_meetings",
     "get_recording_by_call_id", "get_recording_by_url",
 ]
+_TOOLS_MICROSOFT_LEARN = [
+    "microsoft_docs_search", "microsoft_code_sample_search", "microsoft_docs_fetch",
+]
 _TOOLS_GOOGLE_DRIVE = [
     "search_files", "list_recent_files", "read_file_content", "download_file_content",
     "get_file_metadata", "get_file_permissions", "create_file",
@@ -3350,6 +3354,10 @@ MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="fathom", title="Fathom", server_url="https://api.fathom.ai/mcp",
               allowed_auth=["dcr"], sample_tools=_TOOLS_FATHOM,
               description="Meetings, summaries and transcripts from Fathom."),
+    McpPreset(key="microsoft_learn", title="Microsoft Learn",
+              server_url="https://learn.microsoft.com/api/mcp",
+              auth="none", allowed_auth=["none"], sample_tools=_TOOLS_MICROSOFT_LEARN,
+              description="Search and read official Microsoft and Azure documentation and code samples."),
     McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
               auth="oauth_app", allowed_auth=["oauth_app"],
               oauth_defaults=McpAuthDefaults(
@@ -3365,13 +3373,13 @@ MCP_PRESETS: List[McpPreset] = [
     # preset by exact server_url, adding a path also breaks preset recognition in
     # edit mode. Endpoints are the MCP-specific pair HubSpot advertises, not the
     # classic app.hubspot.com/api.hubapi.com ones; it takes client_secret_post
-    # (our default → left unset) and PKCE S256. Scopes are declared on the app and
-    # gated by portal tier (scopes_supported is empty). NOTE: for a HubSpot *MCP
-    # Connector* app the `scope` parameter is not what grants access — a live
-    # sign-in (2026-09) returned a fixed 37-scope bundle from the app's own
-    # config, unrelated to the 4 scopes requested here. The value below is kept
-    # only as documentation of the minimum an admin should configure on the app;
-    # it neither widens nor narrows what HubSpot actually grants. No audience:
+    # (our default → left unset) and PKCE S256. scopes_supported is empty: an MCP
+    # connector has no admin-set scopes; HubSpot derives them from its tools and
+    # the signing-in user's permissions. The `scope` parameter is not what grants
+    # access — a live sign-in (2026-09) returned a fixed 37-scope bundle,
+    # unrelated to the 4 scopes requested here. The value below is kept only as
+    # documentation of what the connector reads; it neither widens nor narrows
+    # what HubSpot actually grants. No audience:
     # HubSpot doesn't advertise RFC 8707, so we must not send `resource` on the
     # token request. See docs/feedback-loops/hubspot-mcp-preset.md.
     McpPreset(key="hubspot", title="HubSpot", server_url="https://mcp.hubspot.com",
@@ -3383,6 +3391,26 @@ MCP_PRESETS: List[McpPreset] = [
                           "crm.objects.companies.read, crm.objects.deals.read"),
               ),
               sample_tools=_TOOLS_HUBSPOT,
+              setup_guide=[
+                  SetupStep(
+                      title="Create an MCP connector in HubSpot",
+                      body="In your HubSpot account go to Development > MCP Connectors and click Create MCP connector. Give it a name.",
+                  ),
+                  SetupStep(
+                      title="Add the redirect URL",
+                      body="Paste this URL into the connector's Redirect URL field, then click Create.",
+                      code=SETUP_GUIDE_REDIRECT_URI,
+                      language="text",
+                  ),
+                  SetupStep(
+                      title="Copy the client ID and secret",
+                      body="On the connector's details page, copy the Client ID and Client secret into the fields below.",
+                  ),
+                  SetupStep(
+                      title="Each user signs in",
+                      body="You don't set scopes on the connector. Each user picks their HubSpot account and grants access when they sign in. The agent sees only what that user can see in HubSpot.",
+                  ),
+              ],
               description="CRM records, SQL queries, and marketing data from HubSpot (needs a HubSpot app)."),
     # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
     # client; no DCR — the authorize flow audience-binds the token to the MCP
@@ -3526,7 +3554,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
 def mcp_presets() -> list[dict]:
     """The named MCP catalog presets (Notion, Linear…) as plain dicts. Powers
     `GET /connectors/catalog` and the connector tiles."""
-    return [p.model_dump() for p in MCP_PRESETS]
+    return [{**p.model_dump(), "setup_guide": resolve_setup_guide(p.setup_guide)} for p in MCP_PRESETS]
 
 
 def mcp_preset(key: str) -> Optional[McpPreset]:
