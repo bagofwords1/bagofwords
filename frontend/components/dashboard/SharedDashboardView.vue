@@ -391,7 +391,7 @@ const apiAuthorization = useApiAuthorization();
 const emit = defineEmits<{ (e: 'reload'): void; (e: 'unavailable', failure: EmbedLoadFailure): void; (e: 'opened'): void }>();
 const api = sharedDashboardApi(props.source, props.id);
 const route = useRoute();
-const { data: currentUser } = useAuth();
+const { data: currentUser, status: authStatus } = useAuth();
 const { t } = useI18n();
 const toast = useToast();
 const { getErrorMessage } = useErrorMessage();
@@ -1126,6 +1126,15 @@ async function loadReport() {
             if (status === 403) {
                 accessError.value = 'denied';
                 await loadBlockedState();
+                return;
+            }
+            // Signed out: a restricted dashboard answers 404, not 401 (the API
+            // hides it from anyone it does not let in). Offer sign-in -- a
+            // missing dashboard gets the same gate, so this reveals nothing --
+            // and after it the page asks again as the person.
+            if (status === 404 && (props.source === 'dashboard' || props.source === 'report')
+                && authStatus.value === 'unauthenticated' && !inHostApplication.value) {
+                accessError.value = 'login';
                 return;
             }
             // A private dashboard the member may not see returns 404 (hidden by
