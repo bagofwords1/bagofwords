@@ -571,6 +571,7 @@ class McpPreset(BaseModel):
     # (with schemas) is discovered per-connection via refresh_tools. None → the
     # form shows a "discovered after connecting" placeholder instead.
     sample_tools: Optional[List[str]] = None
+    setup_guide: list[SetupStep] | None = None
 
 
 _DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
@@ -3326,6 +3327,26 @@ MCP_PRESETS: List[McpPreset] = [
                           "crm.objects.companies.read, crm.objects.deals.read"),
               ),
               sample_tools=_TOOLS_HUBSPOT,
+              setup_guide=[
+                  SetupStep(
+                      title="Create an MCP connector in HubSpot",
+                      body="In your HubSpot account go to Development > MCP Connectors and click Create MCP connector. Give it a name.",
+                  ),
+                  SetupStep(
+                      title="Add the redirect URL",
+                      body="Paste this URL into the connector's Redirect URL field, then click Create.",
+                      code=SETUP_GUIDE_REDIRECT_URI,
+                      language="text",
+                  ),
+                  SetupStep(
+                      title="Copy the client ID and secret",
+                      body="On the connector's details page, copy the Client ID and Client secret into the fields below.",
+                  ),
+                  SetupStep(
+                      title="Each user signs in",
+                      body="You don't set scopes on the connector. Each user picks their HubSpot account and grants access when they sign in. The agent sees only what that user can see in HubSpot.",
+                  ),
+              ],
               description="CRM records, SQL queries, and marketing data from HubSpot (needs a HubSpot app)."),
     # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
     # client; no DCR — the authorize flow audience-binds the token to the MCP
@@ -3469,7 +3490,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
 def mcp_presets() -> list[dict]:
     """The named MCP catalog presets (Notion, Linear…) as plain dicts. Powers
     `GET /connectors/catalog` and the connector tiles."""
-    return [p.model_dump() for p in MCP_PRESETS]
+    return [{**p.model_dump(), "setup_guide": resolve_setup_guide(p.setup_guide)} for p in MCP_PRESETS]
 
 
 def mcp_preset(key: str) -> Optional[McpPreset]:
