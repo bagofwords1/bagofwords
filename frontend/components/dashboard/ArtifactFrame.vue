@@ -3661,6 +3661,9 @@ function frameIframeOptions(seed: any, artifactCode: string) {
     // Used only when its key matches artifactCode (artifactIframe.ts), so an
     // artifactCode prop override or a stale selection always compiles in-frame.
     precompiled: { js: selectedArtifact.value?.compiled_js, key: selectedArtifact.value?.compiled_js_key },
+    // ARTIFACT_READY may get no push when the seed is current (frameHasSeedData):
+    // the frame fires its data listeners itself. The preview is always pushed.
+    notifyDataOnReady: !props.verificationPreview,
   };
 }
 

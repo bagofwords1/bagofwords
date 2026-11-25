@@ -93,7 +93,8 @@ const queriesResponse = () => [
     default_step: { status: 'success', data: { rows: [{ n: 1 }], columns: [{ field: 'n' }] }, data_model: {}, code: '' } },
 ]
 
-function frame({ responses = {}, viewer = { id: 'u-1', name: 'Viewer' }, params = { values: {} }, verificationPreview = false, prefetch = null } = {}) {
+function frame({ responses = {}, viewer = { id: 'u-1', name: 'Viewer' }, params = { values: {} }, verificationPreview = false, prefetch = null,
+  runtime = { version: 11 }, layouts = { 'viz-1': { widths: { amount: 120 } } } } = {}) {
   const fetched = []
   const events = []
   const received = { main: [], fullscreen: [] }
@@ -124,11 +125,11 @@ function frame({ responses = {}, viewer = { id: 'u-1', name: 'Viewer' }, params 
     verificationEvent: (kind, fields) => events.push({ kind, ...fields }), handleTableLayoutMessage: () => false, postParamsStatus: () => {}, syncParamsToUrl: () => {}, readParamsFromUrl: () => ({}),
     watchHydration: () => {}, resolveParamOptions: async () => {}, fetchArtifactFiles: async () => [],
     whenArtifactLibsSettled: async () => {}, inlineableArtifactLibs: () => [], frameIframeOptions: (seed) => ({ data: seed }),
-    paramsPayload: () => params, artifactRuntime: () => ({ version: 11 }),
-    loadTableLayouts: () => ({ 'viz-1': { widths: { amount: 120 } } }), tableLayoutKey: () => 'dash-1',
+    paramsPayload: () => params, artifactRuntime: () => ({ ...runtime }),
+    loadTableLayouts: () => structuredClone(layouts), tableLayoutKey: () => 'dash-1',
   }
   const own = new Function(...Object.keys(state), frameCode)(...Object.values(state))
-  return { state, own, fetched, received, events }
+  return { state, own, fetched, received, events, runtime, layouts }
 }
 
 // What the old frame sent and seeded: everything through one JSON copy.
@@ -363,6 +364,10 @@ test('what changed while the frame loaded is sent once, on ARTIFACT_READY', asyn
     'the embedded files': ({ state }) => { state.filesData.value = [{ id: 'file-1', url: 'https://files.test/1' }] },
     'the viewer (view-as)': ({ state }) => { state.effectiveViewerContext.value = { id: 'u-2', name: 'Member' } },
     'the param values': ({ params }) => { params.values.region = 'APAC' },
+    'the report (its title or theme)': ({ state }) => { state.reportData.value = { ...state.reportData.value, title: 'Pipeline (renamed)' } },
+    'the runtime version': ({ runtime }) => { runtime.version = 12 },
+    'the saved table layouts (a resize saved elsewhere)': ({ layouts }) => { layouts['viz-2'] = { widths: { n: 90 }, order: ['n'] } },
+    'the param ack (a control committed)': ({ params }) => { params.ack = 2 },
   }
   for (const [what, change] of Object.entries(changes)) {
     const params = { values: { region: 'EMEA' } }
@@ -377,6 +382,9 @@ test('what changed while the frame loaded is sent once, on ARTIFACT_READY', asyn
     assert.deepEqual(sent.current_user, f.state.effectiveViewerContext.value, `${what}: the live viewer`)
     assert.deepEqual(sent.files, f.state.filesData.value, `${what}: the live files`)
     assert.deepEqual(sent.params, params, `${what}: the live params`)
+    assert.deepEqual(sent.report, f.state.reportData.value, `${what}: the live report`)
+    assert.deepEqual(sent.runtime, f.runtime, `${what}: the live runtime`)
+    assert.deepEqual(sent.table_layouts, f.layouts, `${what}: the live table layouts`)
   }
 })
 

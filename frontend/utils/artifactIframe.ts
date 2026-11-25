@@ -139,6 +139,13 @@ export interface ArtifactIframeOptions {
    * an inline script; one missing falls back to <script src>.
    */
   inlineLibs?: Record<string, string> | null;
+  /**
+   * Fire the frame's data listeners (bow.data.subscribe, useArtifactData) once
+   * when it reports ARTIFACT_READY. For a host that may send no ARTIFACT_DATA
+   * after ready because the seed is current (the in-app dashboard), so
+   * listeners still fire as they did for that push.
+   */
+  notifyDataOnReady?: boolean;
 }
 
 const SC = '</' + 'script>';
@@ -172,7 +179,7 @@ export function artifactPageLibs(opts: { reactBuild?: 'production' | 'developmen
     libUrl('echarts-5.min.js'),
     libUrl('lucide.min.js'),
     ...(opts.pdf === false ? [] : [libUrl('pdf.min.js')]),
-    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=bow-helpers-1`),
+    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=seed-ready-1`),
     libUrl('artifact-sdk.js', 'v=6'),
   ];
 }
@@ -590,14 +597,16 @@ function errorBoundaryScript(): string {
 `;
 }
 
-function readySignalScript(): string {
+function readySignalScript(notifyData: boolean): string {
   return `
     // After Babel processes text/babel scripts, signal readiness to the parent.
     window.addEventListener('DOMContentLoaded', function() {
       setTimeout(function() {
         if (window.__artifactErrorSent) return;
         var root = document.getElementById('root');
-        if (root && root.children.length > 0) {
+        if (root && root.children.length > 0) {${notifyData ? `
+          // As a push after ready would (the host may send none): the seed is the data.
+          if (typeof window.__notifyArtifactData === 'function') window.__notifyArtifactData();` : ''}
           window.parent.postMessage({ type: 'ARTIFACT_READY' }, '*');
         } else {
           reportArtifactError('Dashboard code did not render any content');
@@ -681,7 +690,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
 
   ${plan.precompiledJs ? '' : opts.code}
 
-  <script>${directionScript()}${readySignalScript()}${SC}
+  <script>${directionScript()}${readySignalScript(!!opts.notifyDataOnReady)}${SC}
 </body>
 </html>`;
 }

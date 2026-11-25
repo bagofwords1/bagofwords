@@ -51,6 +51,9 @@
       try { window.__artifactDataListeners[i](); } catch (e) {}
     }
   }
+  // The in-app host sends no ARTIFACT_DATA after ARTIFACT_READY when the seed
+  // is current; its ready script calls this so listeners fire as for a push.
+  window.__notifyArtifactData = notifyArtifactData;
   window.__setArtifactData = function(data) {
     window.ARTIFACT_DATA = data;
     if (window.__paramStore) window.__paramStore._ingest(data);
@@ -1613,7 +1616,12 @@ function _dtDetectDir(cols, rows) {
   function _dtSaveLayout(key, layout) {
     if (!key) return;
     try { window.parent.postMessage({ type: 'ARTIFACT_TABLE_LAYOUT', key: key, widths: layout.widths, order: layout.order }, '*'); } catch (e) { /* no host */ }
-    if (!window.__bowTableLayouts || typeof window.__bowTableLayouts !== 'object') window.__bowTableLayouts = {};
+    if (!window.__bowTableLayouts || typeof window.__bowTableLayouts !== 'object') {
+      // No push yet: start from (a copy of) the seed's layouts, so the other
+      // tables keep theirs.
+      var seeded = window.ARTIFACT_DATA && window.ARTIFACT_DATA.table_layouts;
+      window.__bowTableLayouts = seeded && typeof seeded === 'object' && !Array.isArray(seeded) ? Object.assign({}, seeded) : {};
+    }
     window.__bowTableLayouts[key] = layout;
   }
 
