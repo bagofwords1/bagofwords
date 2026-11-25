@@ -113,7 +113,11 @@ async def resolve_or_admit(db, service, client, config, claims):
 
         if not await has_seat_for(db, client.organization_id):
             raise ExchangeError("invalid_grant", "Organization seat limit reached")
-    role = invite.role if invite else str(policy.get("auto_invite_role") or "member")
+    if invite:
+        role = invite.role
+    else:
+        from app.services.organization_settings_service import resolve_signup_role
+        role = await resolve_signup_role(db, str(client.organization_id), policy)
     helper = PasswordHelper()
     user = existing_user or User(
         email=email,

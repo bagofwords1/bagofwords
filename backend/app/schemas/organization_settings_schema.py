@@ -311,15 +311,20 @@ class OrganizationSettingsConfig(BaseModel):
     class SignupPolicy(BaseModel):
         enabled: bool = False
         allowed_domains: List[str] = []
-        auto_invite_role: str = "member"
+        # Optional override of default_member_role for domain signups; empty =
+        # use the org default.
+        auto_invite_role: str = ""
 
     signup_policy: SignupPolicy = SignupPolicy()
 
     # Org-wide default role for a newly added member when the caller doesn't
     # pick one explicitly (the "Add member" modal pre-fills from here). Must
     # name an existing system or per-org role; validated at the service layer.
-    # None/absent resolves to "member". Core (non-EE) setting, separate from
-    # signup_policy.auto_invite_role so it isn't gated behind domain_signup.
+    # None/absent resolves to "member". Core (non-EE) setting. Every join path
+    # reads it (organization_settings_service.resolve_default_member_role):
+    # Add member, CSV import, SSO/SAML/LDAP sign-in, SCIM, directory group
+    # sync, OIDC org mapping's "member" rule, and domain signup unless
+    # signup_policy.auto_invite_role overrides it.
     default_member_role: Optional[str] = None
 
     # Entra ID profile / job-info sync. Per-org opt-in, configured on the
@@ -535,7 +540,9 @@ class SignupPolicySchema(BaseModel):
     """Read/write shape for the per-org signup policy."""
     enabled: bool = False
     allowed_domains: List[str] = []
-    auto_invite_role: str = "member"
+    # Optional override of the org's default member role for domain signups.
+    # Empty = no override (signups get the default member role).
+    auto_invite_role: str = ""
 
 
 class DefaultMemberRoleSchema(BaseModel):
