@@ -253,6 +253,7 @@ BOW can connect to any MCP server or custom API. Ready-to-connect MCP integratio
 | Linear | Issues, projects, and cycles |
 | Sentry | Errors, issues, releases, and diagnostics |
 | Fathom | Meeting summaries, transcripts, and search |
+| Microsoft Learn | Microsoft and Azure documentation and code samples |
 | GitHub | Repositories, issues, and pull requests |
 | HubSpot | CRM contacts, companies, deals, and tickets |
 | Google Drive | File search and content access |
