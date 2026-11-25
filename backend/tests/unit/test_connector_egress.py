@@ -114,6 +114,7 @@ CASES = [
     ("kms_lighthouse", lambda u: _client("kms_lighthouse_client", "KmsLighthouseClient")(base_url=u, username="u", password="p", allow_http=True)),
     ("confluence_dc", lambda u: _client("confluence_dc_client", "ConfluenceDcClient")(base_url=u, username="u", password="p", allow_http=True)),
     ("jira_dc", lambda u: _client("jira_dc_client", "JiraDcClient")(base_url=u, username="u", password="p", allow_http=True)),
+    ("teamcenter", lambda u: _client("teamcenter_client", "TeamcenterClient")(base_url=u, username="u", password="p", allow_http=True)),
     ("brocade", lambda u: _client("brocade_client", "BrocadeClient")(url=_https(u), username="u", password="p"), None, NAME),
     ("checkpoint", lambda u: _client("checkpoint_client", "CheckPointClient")(url=_https(u), username="u", password="p"), None, NAME),
     ("dell_ome", lambda u: _client("dell_ome_client", "DellOmeClient")(url=_https(u), username="u", password="p"), None, NAME),
