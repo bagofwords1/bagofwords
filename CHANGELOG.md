@@ -2,6 +2,15 @@
 
 ## Version 0.0.638 (November 25, 2026)
 - Added a Microsoft Learn connector for searching and reading Microsoft and Azure documentation, with no sign-in needed (#1929)
+- Added Rewind to report chat: remove a prompt and everything after it from the chat and the agent's context, then edit and resend it (#1913)
+- Added sending a document the agent writes on WhatsApp to the user as a PDF (#1925)
+- Added a setup guide to the HubSpot connect form, with the redirect URL to copy (#1922)
+- Fixed deleted custom tables coming back on every agent after a connection schema reload (#1928)
+- Fixed a custom role set as the sign-up default not being given to users who join through their domain or SSO (#1924)
+- Fixed the in-app dashboard sending its data again when it opens, which crashed the tab on large dashboards (#1927)
+- Fixed slow dashboard opening in the app, caused by background requests loading every step's data (#1916)
+- Fixed redundant `[1]` citation footnotes in WhatsApp and Slack answers next to the chart they cite (#1926)
+- Fixed edited-dashboard tool headers in chat showing a "Diff" label (#1923)
 
 ## Version 0.0.637 (November 25, 2026)
 - Added Slack as a data source, read live with each user's own access and limited per agent to chosen channels (#1920)
