@@ -9,6 +9,11 @@ LDAP, OIDC group sync, OIDC org mapping, the CSV import, domain signup and chat
 auto-provision each hardcoded ``"member"`` (or read the separate sign-up
 ``auto_invite_role``).
 
+Explicit choices are not "nobody chose": an admin-picked role, a sign-up
+override, an OIDC org-mapping rule's role (operator config), and an embedded
+host application's role all win over the default — covered below, along with
+the default being writable only through its full-admin endpoint.
+
 The invariant under test: whatever the join path, a person nobody chose a role
 for ends up holding the org's default role as a real RBAC assignment, with its
 permissions. Identity providers (SAML assertion, SCIM client, LDAP directory,
@@ -217,18 +222,6 @@ async def _via_oidc_group_sync(ctx, org, **_):
     return user.id
 
 
-async def _via_oidc_org_mapping(ctx, org, **_):
-    from app.dependencies import async_session_maker
-    from app.services.oidc_org_mapping import _ensure_membership
-
-    user = await _new_user()
-    async with async_session_maker() as db:
-        # A mapping rule whose role is the built-in "member" tier.
-        await _ensure_membership(db, "okta", user, org.org_id, "member")
-        await db.commit()
-    return user.id
-
-
 async def _via_ldap_group_sync(ctx, org, **_):
     from app.dependencies import async_session_maker
     from app.ee.ldap.sync_service import LDAPGroupSyncService
@@ -266,7 +259,6 @@ JOIN_PATHS = {
     "saml_first_login": _via_saml_first_login,
     "scim_create": _via_scim_create,
     "oidc_group_sync": _via_oidc_group_sync,
-    "oidc_org_mapping": _via_oidc_org_mapping,
     "ldap_group_sync": _via_ldap_group_sync,
     "ldap_first_login": _via_ldap_first_login,
 }
@@ -337,28 +329,144 @@ async def test_explicit_role_choices_beat_the_default(
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_oidc_mapping_keeps_custom_role_on_later_sign_ins(
+async def test_oidc_mapping_rule_role_is_honored_not_replaced_by_default(
     test_client, domain_signup_licensed, single_org, org_with_custom_default,
 ):
-    """A later sign-in under a "member" rule must not "raise" a custom role to the
-    built-in member (it is the same tier); an "admin" rule still raises it."""
+    """An operator's mapping rule names its role explicitly: a ``member`` rule
+    gives the built-in member even when the org default is something else."""
     from app.dependencies import async_session_maker
     from app.services.oidc_org_mapping import _ensure_membership
 
     org = org_with_custom_default()
     user = await _new_user()
-    for _ in range(2):  # first sign-in creates, second re-evaluates
-        async with async_session_maker() as db:
-            await _ensure_membership(db, "okta", user, org.org_id, "member")
-            await db.commit()
+    async with async_session_maker() as db:
+        await _ensure_membership(db, "okta", user, org.org_id, "member")
+        await db.commit()
     roles, _ = await _effective(user.id, org.org_id)
+    assert roles == {"member"}, sorted(roles)
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_oidc_mapping_keeps_custom_role_on_later_sign_ins(
+    test_client, domain_signup_licensed, single_org, org_with_custom_default,
+):
+    """Someone who already holds a custom role (here: the default, from group
+    sync) is not "raised" to built-in member by a later ``member`` rule — it is
+    the same tier; an ``admin`` rule still raises them."""
+    from app.dependencies import async_session_maker
+    from app.services.oidc_org_mapping import _ensure_membership
+
+    org = org_with_custom_default()
+    user_id = await JOIN_PATHS["oidc_group_sync"](None, org)
+    async with async_session_maker() as db:
+        from app.models.user import User
+        user = await db.get(User, str(user_id))
+    async with async_session_maker() as db:
+        await _ensure_membership(db, "okta", user, org.org_id, "member")
+        await db.commit()
+    roles, _ = await _effective(user_id, org.org_id)
     assert org.name in roles and "member" not in roles, sorted(roles)
 
     async with async_session_maker() as db:
         await _ensure_membership(db, "okta", user, org.org_id, "admin")
         await db.commit()
-    roles, _ = await _effective(user.id, org.org_id)
+    roles, _ = await _effective(user_id, org.org_id)
     assert "admin" in roles, sorted(roles)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("key", ["default_member_role", "signup_policy"])
+def test_join_role_settings_are_not_writable_through_generic_settings(
+    key, test_client, enterprise_license, org_with_custom_default, create_role,
+    create_user, login_user,
+):
+    """The default member role decides what every future member gets (it may
+    be admin), so only its full-admin endpoint may write it. A settings manager
+    without full admin is refused on the generic writer — and so is an admin."""
+    org = org_with_custom_default()
+    mgr_role = f"settings_mgr_{uuid.uuid4().hex[:6]}"
+    assert create_role(name=mgr_role, permissions=["manage_settings"],
+                       user_token=org.admin["token"], org_id=org.org_id).status_code == 200
+    email = f"mgr_{uuid.uuid4().hex[:8]}@test.com"
+    r = test_client.post(f"/api/organizations/{org.org_id}/members",
+                         json={"organization_id": org.org_id, "email": email, "role": mgr_role},
+                         headers=_headers(org.admin["token"], org.org_id))
+    assert r.status_code == 200, r.text
+    create_user(email=email, password=PASSWORD)
+    mgr_token = login_user(email, PASSWORD)
+
+    value = "admin" if key == "default_member_role" else {"enabled": True, "allowed_domains": ["x.example"], "auto_invite_role": "admin"}
+    for token in (mgr_token, org.admin["token"]):
+        r = test_client.put("/api/organization/settings", json={"config": {key: value}},
+                            headers=_headers(token, org.org_id))
+        assert r.status_code == 403, r.text
+
+    # The manager can't use the dedicated endpoint either; the default is intact.
+    r = test_client.put("/api/organization/default-member-role", json={"role": "admin"},
+                        headers=_headers(mgr_token, org.org_id))
+    assert r.status_code == 403, r.text
+    r = test_client.get("/api/organization/default-member-role", headers=_headers(org.admin["token"], org.org_id))
+    assert r.json()["role"] == org.name
+
+
+@pytest.mark.e2e
+def test_customized_member_role_can_be_chosen_in_both_settings(
+    test_client, domain_signup_licensed, single_org, org_with_custom_default, get_system_role,
+):
+    """After an admin edits the built-in Member role (an org-scoped override
+    row now shares its name), picking ``member`` must save, not 500."""
+    org = org_with_custom_default()
+    headers = _headers(org.admin["token"], org.org_id)
+    member = get_system_role("member", user_token=org.admin["token"], org_id=org.org_id)
+    r = test_client.put(f"/api/organizations/{org.org_id}/roles/{member['id']}",
+                        json={"permissions": ["view_reports", "create_reports"]}, headers=headers)
+    assert r.status_code == 200, r.text
+
+    r = test_client.put("/api/organization/signup-policy",
+                        json={"enabled": True, "allowed_domains": [f"{uuid.uuid4().hex[:8]}.example"],
+                              "auto_invite_role": "member"}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["auto_invite_role"] == "member"
+    r = test_client.put("/api/organization/default-member-role", json={"role": "member"}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["role"] == "member"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("host_role", ["app_user", "member"])
+@pytest.mark.parametrize("path", ["saml_first_login", "ldap_first_login"])
+async def test_embedded_sign_in_keeps_the_host_applications_role(
+    path, host_role, test_client, enterprise_license, org_with_custom_default,
+):
+    """Inside a host application's embedded sign-in window, a new account gets
+    the role the host gives new people, never the (possibly broader) default."""
+    from app.dependencies import async_session_maker
+    from app.models.host_application import HostApplication
+    from app.models.membership import Membership
+    from app.core.workspace_access import intent_for, signup_intent_scope
+
+    org = org_with_custom_default()
+    r = test_client.post("/api/host_applications",
+                         json={"name": f"Portal {uuid.uuid4().hex[:6]}", "allowed_origins": ["https://erp.example"],
+                               "identity_mode": "sso", "new_user_role": host_role},
+                         headers=_headers(org.admin["token"], org.org_id))
+    assert r.status_code == 201, r.text
+    async with async_session_maker() as db:
+        host = (await db.execute(select(HostApplication).where(
+            HostApplication.organization_id == org.org_id))).scalars().first()
+        intent = intent_for(host)
+
+    async with signup_intent_scope(intent):
+        user_id = await JOIN_PATHS[path](None, org)
+
+    roles, _ = await _effective(user_id, org.org_id)
+    assert roles == {host_role}, f"{path}: {sorted(roles)}"
+    async with async_session_maker() as db:
+        m = (await db.execute(select(Membership).where(
+            Membership.user_id == str(user_id), Membership.organization_id == org.org_id))).scalar_one()
+        assert m.created_via_host_application_id == str(host.id)
 
 
 @pytest.mark.e2e

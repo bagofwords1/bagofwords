@@ -144,6 +144,11 @@ _signup_intent: contextvars.ContextVar[Optional[SignupIntent]] = contextvars.Con
 _stamped: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar("bow_signup_stamped", default=None)
 
 
+def current_signup_intent() -> Optional[SignupIntent]:
+    """The embedded sign-in intent this request runs under, if any."""
+    return _signup_intent.get()
+
+
 def intent_for(host) -> SignupIntent:
     from app.core.permissions_registry import APP_USER_ROLE
 
@@ -349,7 +354,10 @@ def stamp_membership(membership, intent: SignupIntent, *, claimed_now: bool) -> 
     membership, which is the point."""
     if not membership.user_id or str(membership.organization_id) != intent.organization_id:
         return
-    if membership.created_via_host_application_id or (membership.role or "member") != "member":
+    # A new row starts as "member", or already as the intent's own role when the
+    # join-role resolvers saw this intent (organization_settings_service). Any
+    # other role was chosen explicitly (an invite, an OIDC "admin" rule) and stays.
+    if membership.created_via_host_application_id or (membership.role or "member") not in ("member", intent.role):
         return
     if claimed_now and membership.created_at is not None and membership.created_at < intent.started:
         return  # an invitation from before this window: it keeps its role

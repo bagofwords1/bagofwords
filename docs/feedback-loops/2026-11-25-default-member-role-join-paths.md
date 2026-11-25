@@ -21,7 +21,6 @@ sign-up setting.
   | LDAP group sync (`ee/ldap/sync_service.py` `_ensure_org_memberships`) | `"member"` |
   | LDAP first sign-in (`core/auth.py` `admit_directory_identity`) | `"member"` |
   | Members CSV import (`organization_service.py` import loop) | `role="member"` passed explicitly |
-  | OIDC org mapping, `member` rule (`services/oidc_org_mapping.py`) | built-in `member` |
   | Domain signup, chat auto-provision, Entra admission | `signup_policy.auto_invite_role`, default `"member"` |
 
 - Even where a custom role name was stored, nothing granted it. Two causes:
@@ -108,11 +107,19 @@ Screenshots are in `media/pr/default-member-role/`, in `before-*` / `after-*` pa
   - A stored override is still honored. Orgs that saved `member` keep it until
     an admin switches the picker to "Organization default".
 - **Chat auto-provision** now creates the RBAC assignment.
-- **OIDC org mapping:**
-  - a `member` rule creates the membership with the org default;
-  - `_rank` treats a custom role as member-tier, so a later `member` rule
-    doesn't overwrite it;
-  - an `admin` rule still raises it.
+- **Explicit choices still win over the default** (follow-up from review):
+  - an OIDC org-mapping rule's role is operator configuration and is used
+    as written; `_rank` treats a custom role as member-tier, so a later
+    `member` rule doesn't overwrite it, and an `admin` rule still raises it;
+  - inside a host application's embedded sign-in window, both resolvers
+    return the host's role (`app_user` or `member`), and `stamp_membership`
+    stamps rows that start as that role, so the org default can't widen an
+    embedded account.
+- **The default is writable only by full admins:** `default_member_role` is
+  in `PROTECTED_CONFIG_KEYS`, so the generic settings writer (which only needs
+  `manage_settings`) refuses it.
+- **Both setters validate through `resolve_assignable_role`.** Before, picking
+  `member` after customizing the Member role matched two rows and returned a 500.
 - **CSV import** passes `role=None`, so `add_member` resolves the default, as
   the modal does.
 - **UI:**
@@ -123,10 +130,15 @@ Screenshots are in `media/pr/default-member-role/`, in `before-*` / `after-*` pa
 
 ## What this proves / regression notes
 
-- The invariant holds for 10 join paths, with three controls:
+- The invariant holds for 9 join paths, with these controls:
   - an explicit Add-member role and a sign-up override both beat the default;
   - with no default set, every path still gives `member`;
-  - a deleted default role falls back to `member`.
+  - a deleted default role falls back to `member`;
+  - an OIDC mapping rule's role and an embedded host's role (SAML and LDAP)
+    are honored;
+  - the generic settings writer refuses the default, for an admin and for a
+    `manage_settings` role;
+  - a customized Member role can be picked in both settings.
 - Related suites, run with `ENVIRONMENT=production` like CI: SCIM, SAML, LDAP,
   OIDC group sync, OIDC org mapping, `org_isolation/`, invites, membership
   import, seat caps, the signup-policy and default-role settings, and the RBAC

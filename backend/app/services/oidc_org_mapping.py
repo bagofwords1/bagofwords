@@ -138,11 +138,6 @@ async def _ensure_membership(db, provider_name: str, user: User, organization_id
                 provider_name, organization_id, user_id,
             )
             return
-        if role == "member":
-            # A "member" rule means "an ordinary member": the org's default
-            # member role (Members page), which may be a custom role.
-            from app.services.organization_settings_service import resolve_default_member_role
-            role = await resolve_default_member_role(db, organization_id)
         membership, created = await insert_membership_if_absent(
             db,
             Membership(
