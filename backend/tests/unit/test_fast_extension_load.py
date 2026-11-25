@@ -511,15 +511,20 @@ def test_the_owner_rule_name_and_the_verifier_appear_nowhere_else_in_app():
     assert len(built) == 1  # the module's own singleton
 
 
-def test_only_two_environment_names_are_read_for_this_and_only_in_extension_py():
+def test_only_two_environment_names_are_read_and_the_switch_only_in_extension_py():
+    # The directory is shared with the postgres multi engine, which loads its
+    # own extension from there by name, signature-checked; only extension.py
+    # reads V's switch.
+    multi_engine = "app/data_sources/clients/postgresql_multi_engine.py"
     found = {}
     for path, src in _app_sources():
         for name in set(__import__("re").findall(r"BOW_(?:FAST|DUCKDB)_[A-Z_]+", src)):
             found.setdefault(name, set()).add(str(path.relative_to(BACKEND)))
     assert found == {
         "BOW_FAST_VERIFIED_EXTENSION_LOAD": {"app/data_sources/fast/extension.py"},
-        "BOW_DUCKDB_EXTENSION_DIR": {"app/data_sources/fast/extension.py"},
+        "BOW_DUCKDB_EXTENSION_DIR": {"app/data_sources/fast/extension.py", multi_engine},
     }
+    assert "allow_unsigned" not in (BACKEND / multi_engine).read_text(encoding="utf-8")
 
 
 def test_the_unsigned_flag_is_set_only_in_open_engine():

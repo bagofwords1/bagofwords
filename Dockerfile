@@ -229,8 +229,6 @@ RUN chmod -R a-w /opt/duckdb_extensions
 ENV BOW_DUCKDB_EXTENSION_DIR=/opt/duckdb_extensions
 COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-COPY --from=backend-builder /opt/duckdb_extensions /opt/duckdb_extensions
-ENV BOW_DUCKDB_EXTENSION_DIR=/opt/duckdb_extensions
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend
 # Administrator-installable remote readers; never auto-installed on target hosts.
 COPY ./tools/remote_server /app/tools/remote_server
