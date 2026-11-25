@@ -638,8 +638,16 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         return system
 
     # Delivery surfaces that turn a `{{cite:<id>}}` marker into something a
-    # reader can use. "" is the web report.
-    _CITATION_PLATFORMS = frozenset({"", "slack", "teams", "whatsapp", "google_chat"})
+    # reader can use. "" is the web report (clickable source chips).
+    #
+    # Chat channels split by whether the cited figure is visible there:
+    #   - Teams / Google Chat do NOT render create_data charts inline (the user
+    #     sees only text), so the "[1] <title>" footnote is their only pointer
+    #     to where a number came from — it earns its place.
+    #   - WhatsApp / Slack DO deliver the chart as an image in the same turn,
+    #     so the footnote only repeats a title the user already sees and the
+    #     "[1]" has nothing to open — pure clutter. They are left out.
+    _CITATION_PLATFORMS = frozenset({"", "teams", "google_chat"})
 
     @staticmethod
     def _citations_enabled(planner_input: PlannerInput) -> bool:
