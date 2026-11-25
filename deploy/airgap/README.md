@@ -3,6 +3,8 @@
 This bundle contains the BOW, PostgreSQL, and Caddy container images
 for one CPU architecture. The host needs Docker Engine with Docker Compose v2;
 it does not need registry or package-manager access.
+The BOW image carries DuckDB's httpfs extension (`/opt/duckdb_httpfs`), so
+extract refreshes do not download it.
 
 ## Install
 

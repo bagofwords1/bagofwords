@@ -17,8 +17,10 @@ never put in its catalog.
 
 import logging
 import re
+import threading
 import time
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Generator, List, Optional
 
 import duckdb
@@ -88,6 +90,24 @@ class FastRelation:
         return f is not None and not f.unrestricted
 
 
+# What artifacts.new_artifact_key makes: URL-safe base64 of 32 random bytes.
+# Checked before the key is interpolated into the ATTACH.
+_KEY_FORMAT = re.compile(r"[A-Za-z0-9_-]{16,128}={0,2}")
+_key_check_refused = 0
+_key_check_lock = threading.Lock()
+
+
+def _note_key_refused(relation: str) -> None:
+    global _key_check_refused
+    with _key_check_lock:
+        _key_check_refused += 1
+        count = _key_check_refused
+    logger.warning(
+        "fast.key_check.refused",
+        extra={"relation": relation, "count": count},
+    )
+
+
 def lock_query_session(con):
     """Seal a session after trusted code has registered its authorized relations."""
     con.execute("SET python_enable_replacements=false")
@@ -117,53 +137,13 @@ class FastQueryClient(DataSourceClient):
     # -- serving ----------------------------------------------------------
 
     @contextmanager
-    def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+    def connect(
+        self, *, trusted_extension: Optional[str] = None
+    ) -> Generator[duckdb.DuckDBPyConnection, None, None]:
         con = None
         try:
-            con = duckdb.connect(database=":memory:")
-            attached = 0
-            for i, rel in enumerate(self.relations):
-                if not rel.artifact_path:
-                    logger.warning(
-                        "fast.connect.no_artifact", extra={"relation": rel.name}
-                    )
-                    continue
-                alias = f"bow_a{i}"
-                safe_name = rel.name.replace('"', '""')
-                try:
-                    # Extracts are write-once (a refresh writes a new file).
-                    from app.services import storage
-                    storage.ensure_local(rel.artifact_path, fresh=False)
-                    con.execute(
-                        f"ATTACH '{rel.artifact_path}' AS {alias} "
-                        f"(ENCRYPTION_KEY '{rel.artifact_key}', READ_ONLY)"
-                    )
-                    self._register_relation(con, rel, alias, safe_name, i)
-                    attached += 1
-                except Exception as e:
-                    # A single broken artifact must not take down the whole
-                    # session — the other relations still serve.
-                    logger.error(
-                        "fast.connect.attach_failed",
-                        extra={"relation": rel.name, "error": str(e)},
-                    )
-                    if rel.is_row_filtered:
-                        # Except when the failure was on a row-filtered
-                        # relation: registration may have stopped after the
-                        # ATTACH and before the DETACH, leaving the unfiltered
-                        # artifact nameable. Serving the rest of the session
-                        # would mean serving that.
-                        raise RuntimeError(
-                            f"Refusing to serve accelerated data: row-filtered "
-                            f"relation '{rel.name}' could not be registered "
-                            f"safely ({e})"
-                        )
-
-            # Lock the session down AFTER attaching, BEFORE any agent SQL runs.
-            # enable_external_access=false blocks ATTACH of other files,
-            # read_parquet/read_csv of arbitrary paths, and COPY ... TO.
-            # lock_configuration=true stops generated SQL re-enabling either.
-            lock_query_session(con)
+            con = self._open_engine(trusted_extension=trusted_extension)
+            attached = self._build_session(con, self.relations)
 
             logger.info(
                 "fast.connect.ready",
@@ -173,6 +153,134 @@ class FastQueryClient(DataSourceClient):
         finally:
             if con is not None:
                 con.close()
+
+    def _open_engine(
+        self,
+        extra_config: Optional[dict] = None,
+        *,
+        trusted_extension: Optional[str] = None,
+    ) -> duckdb.DuckDBPyConnection:
+        """Open a fresh in-memory engine for one serving session.
+
+        With no `extra_config` the engine opens with DuckDB's defaults, as
+        `connect()` always has; a given dict is passed as the connect config.
+
+        `trusted_extension` is the httpfs file `extension.current()` returned
+        for this query. When its stat still matches the verified one, the
+        engine opens with signature checks off and automatic install and load
+        off, with that file's directory as its extension directory, and loads
+        the file by its absolute path. This is the only engine that accepts
+        unsigned extensions, and `_build_session` locks it before any agent
+        SQL runs. The extension directory is httpfs's own
+        (`extension.directory()`), which holds nothing else: DuckDB 1.5.4's
+        encrypted ATTACH loads httpfs by name from there even with auto-load
+        off, so the explicit load comes first and that lookup finds only the
+        verified file. The encrypted read and write then use its crypto.
+        When the stat differs or the load fails, V is marked unavailable and
+        the engine opens as below.
+
+        Without V, when httpfs's directory holds it, the engine loads it from
+        there by name with DuckDB's signature check;
+        otherwise, or when that load fails, it opens exactly as before.
+        """
+        from app.data_sources.fast import extension
+
+        if trusted_extension:
+            if not extension.unchanged(trusted_extension):
+                extension.mark_unavailable("the extension file changed since it was verified")
+            else:
+                config = dict(extra_config or {})
+                config.update({
+                    "allow_unsigned_extensions": True,
+                    "autoinstall_known_extensions": False,
+                    "autoload_known_extensions": False,
+                    "allow_community_extensions": False,
+                    # <dir>/<version>/<platform>/httpfs.duckdb_extension
+                    "extension_directory": str(Path(trusted_extension).parents[2]),
+                })
+                con = None
+                try:
+                    con = duckdb.connect(database=":memory:", config=config)
+                    con.execute("LOAD '" + trusted_extension.replace("'", "''") + "'")
+                    return con
+                except Exception as e:
+                    if con is not None:
+                        con.close()
+                    extension.mark_unavailable(
+                        f"the explicit load failed ({extension.describe_error(e)})"
+                    )
+        # Without V, httpfs still comes from the image's directory when it
+        # is there, signature-checked, as the extract writer does.
+        con = extension.open_with_signed_httpfs(extra_config, purpose="serving engine")
+        if con is not None:
+            return con
+        if extra_config:
+            return duckdb.connect(database=":memory:", config=dict(extra_config))
+        return duckdb.connect(database=":memory:")
+
+    def _build_session(self, con, relations: List["FastRelation"]) -> int:
+        """Attach and register `relations` on `con`, then lock the session.
+
+        Returns the number of relations attached and registered. A relation
+        with no artifact is skipped and not counted; a failed attach of an
+        unfiltered relation is logged, skipped and not counted; a failed
+        attach of a row-filtered relation raises. The lock runs last, so no
+        agent SQL can reach an unlocked engine.
+        """
+        attached = 0
+        for i, rel in enumerate(relations):
+            if not rel.artifact_path:
+                logger.warning(
+                    "fast.connect.no_artifact", extra={"relation": rel.name}
+                )
+                continue
+            alias = f"bow_a{i}"
+            safe_name = rel.name.replace('"', '""')
+            try:
+                # The key is interpolated, so it must be what
+                # artifacts.new_artifact_key makes: base64url. The error
+                # names the relation only, never the key.
+                if not _KEY_FORMAT.fullmatch(rel.artifact_key or ""):
+                    _note_key_refused(rel.name)
+                    raise ValueError(
+                        f"the stored key of '{rel.name}' is not in the expected format"
+                    )
+                # Extracts are write-once (a refresh writes a new file).
+                from app.services import storage
+                storage.ensure_local(rel.artifact_path, fresh=False)
+                path_literal = str(rel.artifact_path).replace("'", "''")
+                con.execute(
+                    f"ATTACH '{path_literal}' AS {alias} "
+                    f"(ENCRYPTION_KEY '{rel.artifact_key}', READ_ONLY)"
+                )
+                self._register_relation(con, rel, alias, safe_name, i)
+                attached += 1
+            except Exception as e:
+                # A single broken artifact must not take down the whole
+                # session; the other relations still serve.
+                logger.error(
+                    "fast.connect.attach_failed",
+                    extra={"relation": rel.name, "error": str(e)},
+                )
+                if rel.is_row_filtered:
+                    # Except when the failure was on a row-filtered
+                    # relation: registration may have stopped after the
+                    # ATTACH and before the DETACH, leaving the unfiltered
+                    # artifact nameable. Serving the rest of the session
+                    # would mean serving that.
+                    raise RuntimeError(
+                        f"Refusing to serve accelerated data: row-filtered "
+                        f"relation '{rel.name}' could not be registered "
+                        f"safely ({e})"
+                    )
+
+        # Lock the session down AFTER attaching, BEFORE any agent SQL runs.
+        # enable_external_access=false blocks ATTACH of other files,
+        # read_parquet/read_csv of arbitrary paths, and COPY ... TO.
+        # lock_configuration=true stops generated SQL re-enabling either.
+        lock_query_session(con)
+
+        return attached
 
     def _register_relation(self, con, rel: "FastRelation", alias: str,
                            safe_name: str, index: int) -> None:
@@ -283,8 +391,12 @@ class FastQueryClient(DataSourceClient):
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         assert_no_blocked_introspection(sql)
+        from app.data_sources.fast import extension
+
         t0 = time.perf_counter()
-        with self.connect() as con:
+        # Read once per query and handed down, so one query sees one answer.
+        trusted = extension.current()
+        with self.connect(trusted_extension=trusted) as con:
             df = con.execute(sql).df()
         logger.info(
             "fast.query.done",

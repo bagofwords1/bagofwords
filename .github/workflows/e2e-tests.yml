@@ -317,8 +317,38 @@ jobs:
       # (@pytest.mark.db, see tests/unit/conftest.py) so the ~90% of tests that
       # never open a session no longer pay ~1s of engine-dispose + file-swap
       # overhead each — that overhead was most of the hour this job once took.
+      # The two FAST extension files run in fast-extension-lock below.
       run: |
-        uv run pytest tests/unit -n 4 --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread
+        uv run pytest tests/unit -n 4 --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread --deselect tests/unit/test_fast_extension_lock.py --deselect tests/unit/test_fast_extension_load.py
+
+  # The verified extension load for FAST engines (BOW_FAST_VERIFIED_EXTENSION_LOAD)
+  # lets a serving engine accept an unsigned extension file, so the session lock
+  # must keep every later extension load out. test_fast_extension_lock.py proves
+  # that statement by statement; test_fast_extension_load.py covers the load
+  # itself. Required: no continue-on-error, no `changes` skip (a DuckDB upgrade
+  # or a change under backend/app/data_sources/fast/ always runs it), and in
+  # dispatch-build.needs. The pre-step installs the extensions the tests use
+  # once, from DuckDB's extension repository.
+  fast-extension-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: ./.github/actions/setup-backend
+
+    - name: Prepare DuckDB extensions
+      working-directory: ./backend
+      run: uv run python scripts/prepare_test_extensions.py "$RUNNER_TEMP/duckdb-test-extensions"
+
+    - name: Run the FAST extension tests
+      working-directory: ./backend
+      env:
+        TESTING: "true"
+        ENVIRONMENT: "production"
+      run: |
+        uv run pytest tests/unit/test_fast_extension_lock.py tests/unit/test_fast_extension_load.py -n 4 -rs --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread
 
   # The frontend unit tests (frontend/tests/unit/*.mjs): artifact runtime
   # components (charts, tables, kit controls), locales, embed SDK and more.
@@ -545,7 +575,7 @@ jobs:
 
   dispatch-build:
     if: github.ref == 'refs/heads/main'
-    needs: [e2e-tests, playwright-tests, frontend-unit-tests, integration-data-sources, integration-llms]
+    needs: [e2e-tests, playwright-tests, frontend-unit-tests, integration-data-sources, integration-llms, fast-extension-lock]
     runs-on: ubuntu-latest
     steps:
     - name: Trigger Docker build workflow
