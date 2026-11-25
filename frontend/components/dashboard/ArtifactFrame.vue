@@ -1281,7 +1281,8 @@ const latestParamRunForQid: Record<string, number> = {};
 const srcdocSeed = shallowRef<any>(null);
 // What the seed was built from: the data list and files (both replaced, never
 // edited in place) and the JSON of frameContext(). While they still match, the
-// main frame's ARTIFACT_READY sends nothing: its first render already has them.
+// main frame's ARTIFACT_READY sends no data (only ARTIFACT_DATA_CURRENT): its
+// first render already has them.
 let seededFrom: { visualizations: any[]; files: any[]; context: string } | null = null;
 
 // Which sandbox runtime generation the selected artifact was authored for.
@@ -2937,6 +2938,9 @@ function handleIframeMessage(event: MessageEvent) {
     // The one send on ready: what changed while the frame loaded. The
     // verification preview counts every push, so it always gets one.
     if (props.verificationPreview || !frameHasSeedData()) sendDataToIframe();
+    // Its seed is the data: no payload, the frame fires its data listeners
+    // (bow.data.subscribe) as for a push, after READY like that push was.
+    else iframeRef.value?.contentWindow?.postMessage({ type: 'ARTIFACT_DATA_CURRENT' }, '*');
   } else if (event.data?.type === 'ARTIFACT_ERROR') {
     verificationEvent('error', { source: 'runtime', message: event.data.payload?.message });
     console.error('[ArtifactFrame] Iframe render error:', event.data.payload?.message);
@@ -3277,7 +3281,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
         current_user: context.current_user,
         params: context.params,
         runtime: context.runtime,
-        // Saved DataTable layouts on first paint (ARTIFACT_READY may send nothing).
+        // Saved DataTable layouts on first paint (ARTIFACT_READY may send no data).
         table_layouts: context.table_layouts,
       });
       seededFrom = { visualizations: visualizationsData.value, files: toRaw(filesData.value), context: JSON.stringify(context) };
@@ -3661,9 +3665,6 @@ function frameIframeOptions(seed: any, artifactCode: string) {
     // Used only when its key matches artifactCode (artifactIframe.ts), so an
     // artifactCode prop override or a stale selection always compiles in-frame.
     precompiled: { js: selectedArtifact.value?.compiled_js, key: selectedArtifact.value?.compiled_js_key },
-    // ARTIFACT_READY may get no push when the seed is current (frameHasSeedData):
-    // the frame fires its data listeners itself. The preview is always pushed.
-    notifyDataOnReady: !props.verificationPreview,
   };
 }
 

@@ -16,7 +16,8 @@ import { computed, isProxy, isReactive, nextTick, ref, shallowRef, toRaw, watch 
 // it had when everything went through JSON; a payload the browser refuses to
 // copy goes as the JSON copy, with one console warning. A frame that rendered
 // from its srcdoc seed is not sent the same data again when it reports
-// ARTIFACT_READY; what changed while it loaded is sent once.
+// ARTIFACT_READY, only ARTIFACT_DATA_CURRENT; what changed while it loaded is
+// sent once.
 //
 // The real code: ArtifactFrame.vue's own functions, declarations and its
 // data watcher, taken from its <script setup>, over the real useMyFetch. Only
@@ -348,13 +349,23 @@ const opened = async (options = {}) => {
   return f
 }
 
-test('a fresh open: the frame already has its data from the seed, ARTIFACT_READY sends nothing', async () => {
+test('a fresh open: the frame already has its data from the seed, ARTIFACT_READY sends only ARTIFACT_DATA_CURRENT', async () => {
   const { own, state, received } = await opened()
   assert.equal(received.main.length, 0, 'nothing is sent while the frame loads')
   await ready(own, state)
   assert.equal(state.iframeReady.value, true, 'the frame is ready')
-  assert.equal(received.main.length, 0, 'and is not sent the data its seed already holds')
+  assert.deepEqual(received.main, [{ type: 'ARTIFACT_DATA_CURRENT' }],
+    'not the data its seed already holds: one small "your data is current" message, no payload')
   assert.equal(state.iframeError.value, null)
+})
+
+test('a render error the frame reports after ARTIFACT_READY stays on screen', async () => {
+  const { own, state, received } = await opened()
+  await ready(own, state)
+  assert.deepEqual(received.main.map((m) => m.type), ['ARTIFACT_DATA_CURRENT'])
+  // A data listener fails while handling ARTIFACT_DATA_CURRENT: its error comes after READY.
+  own.handleIframeMessage({ source: state.iframeRef.value.contentWindow, data: { type: 'ARTIFACT_ERROR', payload: { message: 'render failed' } } })
+  assert.equal(state.iframeError.value, 'render failed', 'the error banner is kept')
 })
 
 test('what changed while the frame loaded is sent once, on ARTIFACT_READY', async () => {
@@ -376,7 +387,7 @@ test('what changed while the frame loaded is sent once, on ARTIFACT_READY', asyn
     await flush()
     assert.equal(f.received.main.length, 0, `${what}: not sent before the frame is ready`)
     await ready(f.own, f.state)
-    assert.equal(f.received.main.length, 1, `${what}: sent once when the frame is ready`)
+    assert.deepEqual(f.received.main.map((m) => m.type), ['ARTIFACT_DATA'], `${what}: sent once when the frame is ready, no ARTIFACT_DATA_CURRENT`)
     const sent = f.received.main[0].payload
     assert.deepEqual(sent.visualizations.map((v) => v.rows), f.own.visualizationsData.value.map((v) => v.rows), `${what}: the live data`)
     assert.deepEqual(sent.current_user, f.state.effectiveViewerContext.value, `${what}: the live viewer`)
@@ -416,7 +427,7 @@ test('after ARTIFACT_READY: a filter run, an in-place refresh and new files each
 test('the verification preview is always sent its data on ARTIFACT_READY, with its data_sent event', async () => {
   const { own, state, received, events } = await opened({ verificationPreview: true })
   await ready(own, state)
-  assert.equal(received.main.length, 1, 'the preview gets one push on ready')
+  assert.deepEqual(received.main.map((m) => m.type), ['ARTIFACT_DATA'], 'the preview gets one push on ready, no ARTIFACT_DATA_CURRENT')
   assert.equal(received.main[0].payload.verification_revision, 1, 'with its revision')
   assert.deepEqual(events.filter((e) => e.kind === 'data_sent').map((e) => e.data_revision), [1], 'and one data_sent event for it')
 })
@@ -426,7 +437,10 @@ test('the fullscreen frame is sent its data on its own ARTIFACT_READY', async ()
   await ready(own, state)
   await ready(own, state, 'fullscreen')
   assert.equal(state.fullscreenReady.value, true)
-  assert.equal(received.fullscreen.length, 1, 'the fullscreen frame gets its data')
+  assert.deepEqual(received.fullscreen.map((m) => m.type), ['ARTIFACT_DATA'], 'the fullscreen frame gets one push, no ARTIFACT_DATA_CURRENT')
+  // Unchanged: a push goes to every ready frame, so the main frame gets this one too.
+  assert.deepEqual(received.main.map((m) => m.type), ['ARTIFACT_DATA_CURRENT', 'ARTIFACT_DATA'],
+    'the main frame: data current on its own ready, then the fullscreen ready\'s push as before')
   assert.deepEqual(received.fullscreen[0].payload.visualizations.map((v) => v.rows), own.visualizationsData.value.map((v) => v.rows))
   assert.deepEqual(received.fullscreen[0].payload.table_layouts, { 'viz-1': { widths: { amount: 120 } } }, 'with the saved table layouts')
 })

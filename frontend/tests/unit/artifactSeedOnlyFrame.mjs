@@ -6,20 +6,23 @@ import ts from 'typescript'
 // Run: node --test tests/unit/artifactSeedOnlyFrame.mjs
 // The in-app dashboard frame renders from its srcdoc seed, and when nothing
 // changed while it loaded the host sends no ARTIFACT_DATA after ARTIFACT_READY
-// (components/dashboard/ArtifactFrame.vue). What that push used to do in the
-// frame still happens without it:
-//  - data listeners (bow.data.subscribe, useArtifactData) fire once when the
-//    frame reports ready, as they did for the push; a later push still
-//    notifies; the verification preview (always pushed) and other hosts that
-//    pass no option are not notified at ready;
+// but a small ARTIFACT_DATA_CURRENT (components/dashboard/ArtifactFrame.vue).
+// What that push used to do in the frame still happens without it:
+//  - the ready script posts ARTIFACT_READY only, firing no data listener (a
+//    render error a listener raises comes after READY, as with the push);
+//  - on ARTIFACT_DATA_CURRENT the data listeners (bow.data.subscribe) fire
+//    once with the seed, except useArtifactData's own re-render (its first
+//    render already has the seed); a throwing listener stops no other; no
+//    data ack, layouts untouched; a real push still notifies everyone;
 //  - saving one DataTable's layout keeps the other tables' layouts from the
 //    seed; a push still replaces the layouts as before.
 //
 // The real code: the frame's live data store, DataTable layout store and data
-// message handler from public/libs/artifact-globals.js, the ready script from
-// the HTML that utils/artifactIframe.ts builds with ArtifactFrame.vue's own
-// frame options. Only the window, document and timers are played (this
-// environment has no vendored React to render a whole frame).
+// message handler and useArtifactData from public/libs/artifact-globals.js,
+// the ready script from the HTML that utils/artifactIframe.ts builds with
+// ArtifactFrame.vue's own frame options. Only the window, document, timers
+// and React's two hooks are played (this environment has no vendored React to
+// render a whole frame).
 
 const read = (rel) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8')
 const transpile = (code, module) => ts.transpileModule(code, {
@@ -43,8 +46,11 @@ assert.ok(dataMessageListener, 'the frame handles ARTIFACT_DATA messages')
 const runtimeCode = [
   assignment('window.__artifactDataListeners'),
   gFunctions.notifyArtifactData,
-  assignment('window.__notifyArtifactData'),
+  // Any notify hook the runtime exposes to the ready script (none now; kept so
+  // a ready script that calls one is caught).
+  ...gStatements.filter((s) => /^window\.__notify\w* =/.test(s)),
   assignment('window.__setArtifactData'),
+  assignment('window.useArtifactData'),
   gFunctions._dtSavedLayout,
   gFunctions._dtSaveLayout,
   dataMessageListener,
@@ -86,7 +92,10 @@ function frame(seed) {
     addEventListener: (type, fn) => (handlers[type] ||= []).push(fn),
     __paramStore: { _ingest() {}, _status() {} },
   }
-  const runtime = new Function('window', runtimeCode)(win)
+  // React's hooks as one mounted component uses them: the effect runs once.
+  const React = { useState: (v) => [v, (update) => { rerenders += 1; update(0) }], useEffect: (effect) => { effect() } }
+  let rerenders = 0
+  const runtime = new Function('window', 'React', runtimeCode)(win, React)
   const dispatch = (type, event = {}) => (handlers[type] || []).forEach((fn) => fn(event))
   // What bow.data.subscribe (artifact-sdk.js) does with a callback.
   const subscribe = (fn) => win.__artifactDataListeners.push(fn)
@@ -97,7 +106,10 @@ function frame(seed) {
     dispatch('DOMContentLoaded')
   }
   const push = (payload) => dispatch('message', { source: parent, data: { type: 'ARTIFACT_DATA', payload } })
-  return { win, posted, runtime, subscribe, runReady, push }
+  const dataCurrent = () => dispatch('message', { source: parent, data: { type: 'ARTIFACT_DATA_CURRENT' } })
+  // A component calling useArtifactData(); how often the hook re-rendered it.
+  const mountUseArtifactData = () => win.useArtifactData()
+  return { win, posted, runtime, subscribe, runReady, push, dataCurrent, mountUseArtifactData, rerenders: () => rerenders }
 }
 
 const seed = () => ({
@@ -110,44 +122,67 @@ const seed = () => ({
 })
 
 // ── data listeners on a seed-only open ──────────────────────────────────────
-test('an in-app open with nothing pushed: subscribe callbacks fire once when the frame reports ready', () => {
+test('the ready script posts ARTIFACT_READY only and fires no data listener (in-app, preview, shared page)', () => {
+  for (const [host, options] of [['in-app', frameIframeOptions(false)], ['verification preview', frameIframeOptions(true)], ['shared page', { data: seed(), code: APP }]]) {
+    const f = frame(seed())
+    let calls = 0
+    f.subscribe(() => { calls += 1 })
+    f.mountUseArtifactData()
+    f.runReady(options)
+    assert.equal(calls, 0, `${host}: no subscribe callback at ready`)
+    assert.equal(f.rerenders(), 0, `${host}: no useArtifactData re-render at ready`)
+    assert.deepEqual(f.posted.map((m) => m.type), ['ARTIFACT_READY'], `${host}: the frame reports ready, nothing else`)
+  }
+})
+
+test('ARTIFACT_DATA_CURRENT: subscribe callbacks fire once with the seed; useArtifactData does not re-render', () => {
   const f = frame(seed())
   const seen = []
   f.subscribe(() => seen.push(f.win.ARTIFACT_DATA))
+  f.mountUseArtifactData()
+  const seedData = f.win.ARTIFACT_DATA
   f.runReady(frameIframeOptions(false))
+  f.dataCurrent()
   assert.equal(seen.length, 1, 'the callback fires once, as it did for the push after ready')
-  assert.deepEqual(seen[0].visualizations, seed().visualizations, 'with the seed as the data')
-  assert.deepEqual(f.posted.map((m) => m.type), ['ARTIFACT_READY'], 'the frame reports ready and acks no data revision')
+  assert.equal(seen[0], seedData, 'with the seed as the data, not re-ingested')
+  assert.equal(f.rerenders(), 0, 'the component that read the seed on its first render is not rendered again')
+  assert.deepEqual(f.posted.map((m) => m.type), ['ARTIFACT_READY'], 'no data revision ack')
+  assert.equal(f.win.__bowTableLayouts, undefined, 'the saved layouts are not touched')
 })
 
-test('a push after ready still notifies, once more', () => {
+test('a real push after ready still notifies everyone, useArtifactData included', () => {
   const f = frame(seed())
   let calls = 0
   f.subscribe(() => { calls += 1 })
+  f.mountUseArtifactData()
   f.runReady(frameIframeOptions(false))
+  f.dataCurrent()
   f.push({ ...seed(), visualizations: [{ id: 'viz-a', rows: [{ n: 2 }] }] })
-  assert.equal(calls, 2, 'ready, then the push')
+  assert.equal(calls, 2, 'data current, then the push')
+  assert.equal(f.rerenders(), 1, 'the push re-renders the useArtifactData component')
   assert.deepEqual(f.win.ARTIFACT_DATA.visualizations[0].rows, [{ n: 2 }], 'the pushed data is live')
 })
 
-test('the verification preview is not notified at ready; its push notifies and acks its revision', () => {
+test('a listener that throws on ARTIFACT_DATA_CURRENT stops no other; its error comes after READY', () => {
+  const f = frame(seed())
+  let after = 0
+  // A subscriber whose render fails reports it, as the error boundary would.
+  f.subscribe(() => { f.win.parent.postMessage({ type: 'ARTIFACT_ERROR' }); throw new Error('render failed') })
+  f.subscribe(() => { after += 1 })
+  f.runReady(frameIframeOptions(false))
+  assert.doesNotThrow(() => f.dataCurrent())
+  assert.equal(after, 1, 'the next listener still fires')
+  assert.deepEqual(f.posted.map((m) => m.type), ['ARTIFACT_READY', 'ARTIFACT_ERROR'], 'the error follows READY, so the host keeps it')
+})
+
+test('the verification preview\'s push notifies and acks its revision', () => {
   const f = frame(seed())
   let calls = 0
   f.subscribe(() => { calls += 1 })
   f.runReady(frameIframeOptions(true))
-  assert.equal(calls, 0, 'nothing at ready (the preview is always pushed its data)')
   f.push({ ...seed(), verification_revision: 1 })
   assert.equal(calls, 1, 'one notification, from the push')
   assert.deepEqual(f.posted.map((m) => m.type), ['ARTIFACT_READY', 'ARTIFACT_DATA_RECEIVED'])
-})
-
-test('a host that passes no option (the shared page) is not notified at ready, as before', () => {
-  const f = frame(seed())
-  let calls = 0
-  f.subscribe(() => { calls += 1 })
-  f.runReady({ data: seed(), code: APP })
-  assert.equal(calls, 0)
-  assert.deepEqual(f.posted.map((m) => m.type), ['ARTIFACT_READY'])
 })
 
 // ── DataTable layouts on a seed-only open ───────────────────────────────────
