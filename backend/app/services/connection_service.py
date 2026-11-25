@@ -606,6 +606,17 @@ def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> 
         # users may still bring their own credentials (password, keypair, or
         # service-account JSON).
         return ["oauth"]
+    if conn_type == "teamcenter":
+        # Teamcenter signs members in through Teamcenter Security Services: a
+        # Kerberos system identity means members go through the login service
+        # as themselves (constrained delegation); a configured TcSS login URL
+        # means the browser SSO sign-in. Otherwise members bring their own login.
+        cfg = config or {}
+        if cfg.get("auth_type") == "kerberos":
+            return ["kerberos_delegated"]
+        if cfg.get("sso_login_url") and cfg.get("sso_app_id"):
+            return ["oauth"]
+        return None
     if conn_type in ("MSSQL", "neo4j") and (config or {}).get("auth_type") == "kerberos":
         # System auth is Kerberos → per-user auth means Kerberos SSO via
         # constrained delegation (no per-user secret; UPN derived at query
@@ -2032,7 +2043,7 @@ class ConnectionService:
             variant is not None and "user" in (variant.scopes or [])
             and payload.auth_mode not in ("oauth", "kerberos", KERBEROS_SSO_MODE)
             and connection.type in ("sharepoint_onprem", "sharepoint_onprem_lists", "exchange_onprem", "documentum", "kms_lighthouse",
-                                    "confluence_dc", "jira_dc")
+                                    "confluence_dc", "jira_dc", "teamcenter")
         )
         if connection.auth_policy != "user_required" or not manual:
             raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual user credentials")
@@ -2048,8 +2059,8 @@ class ConnectionService:
         if connection.type == "kms_lighthouse":
             # Raises when KMS refuses the login, before anything is stored.
             checked = await self._check_kms_member_login(connection, payload.auth_mode, credentials)
-        elif connection.type in ("confluence_dc", "jira_dc"):
-            # Raises when Confluence / Jira refuses the token or login, before anything is stored.
+        elif connection.type in ("confluence_dc", "jira_dc", "teamcenter"):
+            # Raises when Confluence / Jira / Teamcenter refuses the token or login, before anything is stored.
             checked = await self._check_confluence_member_login(connection, payload.auth_mode, credentials)
         row = await get_user_conn_cred_row(db, connection, user)
         if row is None:
@@ -2059,7 +2070,7 @@ class ConnectionService:
         row.last_used_at = None
         row.encrypt_credentials(credentials)
         result = {"success": True, "auth_mode": payload.auth_mode}
-        if connection.type in ("kms_lighthouse", "confluence_dc", "jira_dc"):
+        if connection.type in ("kms_lighthouse", "confluence_dc", "jira_dc", "teamcenter"):
             # The identity belongs to this login only: a new login drops the old one.
             metadata = {k: v for k, v in (row.metadata_json or {}).items() if k != "verified_identity"}
             identity = checked.get("identity") if checked else None
@@ -2106,6 +2117,9 @@ class ConnectionService:
         refused = outcome.get("login_refused")
         if refused:
             jira = connection.type == "jira_dc"
+            if connection.type == "teamcenter":
+                raise AppError(ErrorCode.CONNECTION_TEAMCENTER_LOGIN_REJECTED,
+                               outcome.get("message") or "Teamcenter did not accept this login.", status_code=422)
             if refused == "captcha":
                 code = ErrorCode.CONNECTION_JIRA_LOGIN_CAPTCHA if jira else ErrorCode.CONNECTION_CONFLUENCE_LOGIN_CAPTCHA
             else:

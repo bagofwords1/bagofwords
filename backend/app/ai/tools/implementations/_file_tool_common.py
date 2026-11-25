@@ -54,6 +54,8 @@ FILE_SOURCE_TYPES = {
     "servicenow",
     # Jira Data Center: tables plus issues as documents (live; same rule as servicenow).
     "jira_dc",
+    # Siemens Teamcenter: tables plus documents attached to items (live; same rule as servicenow).
+    "teamcenter",
 }
 
 

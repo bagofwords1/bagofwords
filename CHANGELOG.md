@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.638 (November 25, 2026)
+- Added a Siemens Teamcenter connector for parts, BOMs, where-used, engineering changes and attached documents, with Teamcenter SSO sign-in
+
 ## Version 0.0.637 (November 25, 2026)
 - Added Slack as a data source, read live with each user's own access and limited per agent to chosen channels (#1920)
 - Added more PII identifiers: 45 Presidio types, 7 built-in rules for secrets and network IDs, and custom rules with exact terms, checksums and context words (#1919) — off until a policy turns them on

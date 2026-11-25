@@ -935,6 +935,38 @@ class TablesSchemaContext(ContextSection):
                 if fs.connection_id:
                     attrs["id"] = fs.connection_id
                 return xml_tag("connection", "\n".join(inner), attrs)
+            if fs.type == "teamcenter":
+                # Hybrid: the parts, BOMs and changes are this source's tables; the
+                # documents attached to them are read live through the file tools.
+                # Nothing is indexed and the scope is the Teamcenter identity, so no
+                # <scope>/<index> (they would read as "0 files").
+                inner = [x for x in inner if not x.startswith(("<index ", "<scope>"))]
+                inner.append(xml_tag(
+                    "auth",
+                    "read live as " + ("each signed-in user's own Teamcenter identity"
+                                       if fs.per_user else "this connection's Teamcenter identity")
+                    + "; Teamcenter access rules decide what is seen. Nothing is indexed."
+                ))
+                inner.append(xml_tag(
+                    "holds",
+                    "specifications, drawings, test reports and other documents attached to the "
+                    "parts and changes in this source's tables. When a question needs a value that "
+                    "is not a table column (a pressure, a tolerance, a requirement, a test result), "
+                    "find and read the document BEFORE concluding the answer is unavailable."
+                ))
+                inner.append(xml_tag(
+                    "usage",
+                    "search_files with the item ID and a word or two of the document name "
+                    "('PRT-1000 spec') — it matches document names and the items they are attached "
+                    "to, not file text · list_files with folder_id='<item id>/<revision>' lists one "
+                    "revision's documents · read_file to read one. Cite the document's name."
+                ))
+                if fs.note:
+                    inner.append(xml_tag("note", xml_escape(fs.note)))
+                attrs = {"name": fs.name, "type": fs.type, "kind": "documents"}
+                if fs.connection_id:
+                    attrs["id"] = fs.connection_id
+                return xml_tag("connection", "\n".join(inner), attrs)
             if fs.type in ("outlook_mail", "gmail_mail"):
                 inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
                 # Mail vocabulary: a mailbox backs only search_email /

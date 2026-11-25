@@ -413,7 +413,15 @@ const configFields = computed(() => {
 const advancedOpen = ref(false)
 const configGroups = computed(() => {
   if (!fields.value?.config) return [{ name: 'main', fields: [] }]
-  if (!['remote_ssh', 'remote_smb'].includes(selectedType.value)) return [{ name: 'main', fields: configFields.value }]
+  if (!['remote_ssh', 'remote_smb'].includes(selectedType.value)) {
+    // Fields a connector marks `ui:advanced` fold under "Advanced settings".
+    const advanced = configFields.value.filter((f: any) => f['ui:advanced'] === true)
+    if (!advanced.length) return [{ name: 'main', fields: configFields.value }]
+    return [
+      { name: 'main', fields: configFields.value.filter((f: any) => f['ui:advanced'] !== true) },
+      { name: 'advanced', fields: advanced },
+    ]
+  }
   const main = ['host', 'port', 'operating_system', 'share']
   return [
     { name: 'main', fields: main.flatMap(name => configFields.value.filter(f => f.field_name === name)) },

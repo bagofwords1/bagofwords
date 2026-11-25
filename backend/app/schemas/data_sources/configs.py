@@ -3748,6 +3748,237 @@ class JiraDcUserPassCredentials(BaseModel):
         return value.strip()
 
 
+# Siemens Teamcenter (PLM: business objects, BOM, where-used and change links as tables;
+# attached documents as files; read-only, live, as the signed-in Teamcenter identity).
+TEAMCENTER_SSO_CALLBACK_PATH = "/api/connections/teamcenter/sso/callback"
+
+
+def _teamcenter_names(value, what):
+    if value is None or not str(value).strip():
+        return None
+    names = [" ".join(n.split()) for n in str(value).split(",") if n.strip()]
+    for n in names:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_ \-.]{0,127}", n):
+            raise ValueError(f"Use {what} separated by commas, e.g. ItemRevision, ChangeNoticeRevision.")
+    return ", ".join(dict.fromkeys(names))
+
+
+class TeamcenterConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Teamcenter URL",
+        description=(
+            "The address of the Teamcenter web tier (or Active Workspace gateway) that clients use, including its "
+            "context path, e.g. https://plm.example.com/tc."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:order": 1},
+    )
+    object_types: Optional[str] = Field(
+        "ItemRevision, ChangeRequestRevision, ChangeNoticeRevision, ProblemReportRevision",
+        title="Object types",
+        description=(
+            "Comma-separated Teamcenter business object types to offer as tables, by internal name: your part and "
+            "document revision types (e.g. A2_PartRevision) and the change types. Each becomes one table with its "
+            "properties, including your site's custom ones."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:order": 2},
+    )
+    revision_rule: str = Field(
+        "Latest Working", title="Revision rule",
+        description="The revision rule that configures BOMs unless a query names another, e.g. Latest Released.",
+        json_schema_extra={"ui:type": "string", "ui:order": 3},
+    )
+    include_documents: bool = Field(
+        True, title="Read attached documents",
+        description="Let the agent search and read the documents attached to items (PDF, Office, text). CAD files are never read.",
+        json_schema_extra={"ui:type": "boolean", "ui:order": 4},
+    )
+    sso_login_url: Optional[str] = Field(
+        None, title="SSO login URL",
+        description=(
+            "For Teamcenter SSO (Entra ID or Active Directory through Teamcenter Security Services): the TcSS login "
+            "service URL, ending in /weblogin/login_redirect, e.g. https://plm.example.com/tcssol/weblogin/login_redirect."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:order": 5},
+    )
+    sso_app_id: Optional[str] = Field(
+        None, title="SSO application ID",
+        description=(
+            "The application ID registered for Bag of Words in the TcSS Identity Service. Register it with the "
+            "application root URL <your Bag of Words address>" + TEAMCENTER_SSO_CALLBACK_PATH + "."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:order": 6},
+    )
+    saved_queries: Optional[str] = Field(
+        "Item Revision..., General...", title="Saved queries",
+        description="Saved queries used to find objects, tried in order; the first with a Type entry is used.",
+        json_schema_extra={"ui:type": "string", "ui:advanced": True, "ui:order": 10},
+    )
+    dataset_query: Optional[str] = Field(
+        "Dataset...", title="Document saved query",
+        description="The saved query used to search documents by name.",
+        json_schema_extra={"ui:type": "string", "ui:advanced": True, "ui:order": 11},
+    )
+    extra_properties: Optional[str] = Field(
+        None, title="Extra properties",
+        description="Comma-separated properties to add as columns beyond the standard and custom ones, e.g. fnd0InProcess.",
+        json_schema_extra={"ui:type": "string", "ui:advanced": True, "ui:order": 12},
+    )
+    file_extensions: Optional[str] = Field(
+        "pdf, docx, doc, xlsx, xls, pptx, ppt, txt, csv, rtf, md, html, xml, json", title="Document file types",
+        description="File extensions the agent may read from attached documents.",
+        json_schema_extra={"ui:type": "string", "ui:advanced": True, "ui:order": 13},
+    )
+    file_server_url: Optional[str] = Field(
+        None, title="File server URL",
+        description="The Teamcenter file server (FMS) address documents download from. Default: /fms on the Teamcenter host.",
+        json_schema_extra={"ui:type": "string", "ui:advanced": True, "ui:order": 14},
+    )
+    tc_group: Optional[str] = Field(None, title="Group", description="Optional Teamcenter group to sign in with.",
+        json_schema_extra={"ui:type": "string", "ui:advanced": True, "ui:order": 15})
+    tc_role: Optional[str] = Field(None, title="Role", description="Optional Teamcenter role to sign in with.",
+        json_schema_extra={"ui:type": "string", "ui:advanced": True, "ui:order": 16})
+    max_rows: int = Field(
+        2000, ge=1, le=10000, title="Max rows",
+        description="Upper bound on rows one query returns.",
+        json_schema_extra={"ui:type": "number", "ui:advanced": True, "ui:order": 17},
+    )
+    max_bom_depth: int = Field(
+        10, ge=1, le=50, title="Max BOM depth", description="Deepest BOM level a query may expand.",
+        json_schema_extra={"ui:type": "number", "ui:advanced": True, "ui:order": 18},
+    )
+    max_file_size_mb: int = Field(
+        50, ge=1, le=250, title="Max document size (MB)", description="Largest document the agent may read.",
+        json_schema_extra={"ui:type": "number", "ui:advanced": True, "ui:order": 19},
+    )
+    sso_app_id_param: Optional[str] = Field(
+        None, title="SSO application ID parameter",
+        description="The login URL parameter that carries the application ID. Default: appID.",
+        json_schema_extra={"ui:type": "string", "ui:advanced": True, "ui:order": 20},
+    )
+    sso_token_param: Optional[str] = Field(
+        None, title="SSO token parameter",
+        description="The parameter TcSS returns the token in. Default: the first parameter whose name contains \"token\".",
+        json_schema_extra={"ui:type": "string", "ui:advanced": True, "ui:order": 21},
+    )
+    sso_user_param: Optional[str] = Field(
+        None, title="SSO user parameter",
+        description="The parameter TcSS returns the Teamcenter user ID in. Default: the first whose name contains \"user\".",
+        json_schema_extra={"ui:type": "string", "ui:advanced": True, "ui:order": 22},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for real deployments.",
+        json_schema_extra={"ui:type": "boolean", "ui:advanced": True, "ui:order": 23})
+
+    @field_validator("base_url")
+    @classmethod
+    def _url(cls, value):
+        value = str(value or "").strip()
+        if not re.match(r"^https?://[^\s/?#]+(/[^\s?#]*)?$", value):
+            raise ValueError("Enter the Teamcenter web tier address, e.g. https://plm.example.com/tc.")
+        return value.rstrip("/")
+
+    @field_validator("sso_login_url", "file_server_url")
+    @classmethod
+    def _optional_url(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        value = str(value).strip()
+        if not re.match(r"^https?://[^\s/?#]+(/[^\s#]*)?$", value):
+            raise ValueError("Enter an HTTP(S) address.")
+        return value
+
+    @field_validator("object_types")
+    @classmethod
+    def _types(cls, value):
+        return _teamcenter_names(value, "type names")
+
+    @field_validator("saved_queries")
+    @classmethod
+    def _queries(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        return ", ".join(dict.fromkeys(" ".join(q.split()) for q in str(value).split(",") if q.strip()))
+
+    @field_validator("extra_properties")
+    @classmethod
+    def _props(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        names = [n.strip() for n in str(value).split(",") if n.strip()]
+        if not all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", n) for n in names):
+            raise ValueError("Use property names separated by commas, e.g. a2_material, fnd0InProcess.")
+        return ", ".join(dict.fromkeys(names))
+
+    @field_validator("sso_app_id", "sso_app_id_param", "sso_token_param", "sso_user_param", "tc_group", "tc_role")
+    @classmethod
+    def _plain(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        value = str(value).strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.\- ]{1,128}", value):
+            raise ValueError("Use letters, digits, spaces, '.', '-' or '_'.")
+        return value
+
+    @model_validator(mode="after")
+    def _sso_pair(self):
+        if bool(self.sso_login_url) != bool(self.sso_app_id):
+            raise ValueError("Teamcenter SSO needs both the SSO login URL and the SSO application ID.")
+        return self
+
+
+class TeamcenterUserPassCredentials(BaseModel):
+    """A Teamcenter user ID and password (Session login)."""
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    username: str = Field(..., min_length=1, title="User ID", description="Teamcenter user ID.",
+        json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password",
+        description="Teamcenter password. Sites that sign in only through Security Services refuse passwords: use SSO or Kerberos there.",
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("username", "password")
+    @classmethod
+    def _not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a value, not only spaces.")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _trim(cls, value):
+        return value.strip()
+
+
+class TeamcenterKerberosCredentials(BaseModel):
+    """BOW's own Kerberos identity, answering the TcSS login service's Windows integrated sign-in."""
+    kerberos: bool = Field(True, json_schema_extra={"ui:hidden": True})
+    principal: str | None = Field(
+        None, title="Service principal",
+        description=(
+            "Optional service-account principal (svc_bow@CONTOSO.COM). Administrators mount krb5.conf and the client "
+            "keytab (KRB5_CLIENT_KTNAME) on the BOW server. Needs the SSO login URL and application ID, and Windows "
+            "integrated sign-in on the TcSS login service."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
+class TeamcenterKerberosDelegatedCredentials(BaseModel):
+    """Per-user Kerberos SSO via constrained delegation (S4U2Self + S4U2Proxy) to the TcSS login service."""
+    use_kerberos: bool = Field(
+        True, title="Use Kerberos SSO",
+        description="Teamcenter is read under your own Active Directory identity via Kerberos Constrained Delegation.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+    @model_validator(mode="after")
+    def _kerberos_stays_on(self):
+        if not self.use_kerberos:
+            raise ValueError("Kerberos must remain enabled for this authentication method.")
+        return self
+
+
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
 # the site's LISTS as queryable tables instead of its libraries as files).
 # Microsoft Intune (Microsoft Graph, app-only). Tenant-wide device inventory is
