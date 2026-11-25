@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.638 (November 25, 2026)
-- Added a Siemens Teamcenter connector for parts, BOMs, where-used, engineering changes and attached documents, with Teamcenter SSO sign-in
+- Added a Siemens Teamcenter connector for parts, BOMs, where-used, engineering changes and attached documents, with Teamcenter SSO sign-in (#1933)
 
 ## Version 0.0.637 (November 25, 2026)
 - Added Slack as a data source, read live with each user's own access and limited per agent to chosen channels (#1920)
