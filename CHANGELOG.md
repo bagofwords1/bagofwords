@@ -5,6 +5,7 @@
 - Added Rewind to report chat: remove a prompt and everything after it from the chat and the agent's context, then edit and resend it (#1913)
 - Added sending a document the agent writes on WhatsApp to the user as a PDF (#1925)
 - Added a setup guide to the HubSpot connect form, with the redirect URL to copy (#1922)
+- Added unified Athena tables: same-named tables across tenant Glue databases become one table with a `tenant_db` column (#1921, #1931) — the "Unify tables across databases" connection setting, fixed once the connection is created
 - Changed agent-built dashboards to open with the answer (KPIs or a lead chart) and to build the page or document asked for instead of replying in chat (#1744)
 - Changed agent-written documents to take totals from exact column sums instead of adding rows by hand (#1886)
 - Fixed deleted custom tables coming back on every agent after a connection schema reload (#1928)
