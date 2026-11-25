@@ -1761,9 +1761,20 @@ def parse_athena_database_spec(spec) -> tuple[list[str], list[str], bool]:
 
 
 def athena_unify_tables_enabled(value) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in ("true", "1")
-    return value is True
+    """Read `unify_tables` the way `AWSAthenaConfig` validates it.
+
+    The stored config is the raw request body, so this must accept exactly the
+    spellings pydantic's `bool` accepts (1, "yes", "on", ...), or a connection
+    validated as unified would run per-database. Anything pydantic rejects
+    (None, "maybe") is off.
+    """
+    from pydantic import TypeAdapter, ValidationError
+    if value is None:
+        return False
+    try:
+        return TypeAdapter(bool).validate_python(value)
+    except ValidationError:
+        return False
 
 
 def validate_table_exclude_pattern(value):

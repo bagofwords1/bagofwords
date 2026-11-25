@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.data_sources.configs import AWSAthenaConfig
+from app.schemas.data_sources.configs import AWSAthenaConfig, athena_unify_tables_enabled
 
 BASE = {"region": "eu-west-1"}
 
@@ -76,13 +76,24 @@ def test_exclude_pattern_with_bounded_repeats_is_accepted(pattern):
 @pytest.mark.parametrize("pattern", ["(a+)+$", "(a*)*x", r"(\w+){2,}", r"^(\w+_?)+#", "((ab)+c)+", "(?:x+)+"])
 def test_nested_unbounded_repeats_are_refused(pattern):
     from pydantic import ValidationError
-    from app.schemas.data_sources.configs import AWSAthenaConfig
+    from app.schemas.data_sources.configs import AWSAthenaConfig, athena_unify_tables_enabled
     with pytest.raises(ValidationError):
         AWSAthenaConfig(region="eu-west-1", database="acme_db", table_exclude_pattern=pattern)
 
 
 @pytest.mark.parametrize("pattern", [r"^day_\d{2}", r"^tmp_.*", r"(_bak|_old)+$", r"^(day|week)_\d+$", r"(\d{2}){3}", "[a+]+"])
 def test_ordinary_exclude_patterns_are_accepted(pattern):
-    from app.schemas.data_sources.configs import AWSAthenaConfig
+    from app.schemas.data_sources.configs import AWSAthenaConfig, athena_unify_tables_enabled
     AWSAthenaConfig(region="eu-west-1", database="acme_db", table_exclude_pattern=pattern)
 
+
+
+@pytest.mark.parametrize("value", [True, False, 1, 0, "true", "false", "TRUE", "1", "0", "yes", "no", "on", "off"])
+def test_unify_flag_is_read_exactly_as_the_config_validates_it(value):
+    validated = AWSAthenaConfig(**BASE, database="x", unify_tables=value).unify_tables
+    assert athena_unify_tables_enabled(value) is validated
+
+
+@pytest.mark.parametrize("value", [None, "", "maybe", " True ", 2, [], {}])
+def test_unify_flag_values_the_config_rejects_or_omits_are_off(value):
+    assert athena_unify_tables_enabled(value) is False

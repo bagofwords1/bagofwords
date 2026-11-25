@@ -17,10 +17,11 @@ import os
 from botocore.config import Config as BotoConfig
 from app.utils.safe_regex import compile_bounded, pattern_cost_problem
 from app.data_sources.clients.athena_unified_catalog import (
-    EXCLUDED_TENANTS_KEY, UNREADABLE_TENANTS_KEY, unify_glue_catalogs,
+    EXCLUDED_TENANTS_KEY, TENANT_CASTS_KEY, TENANT_MISSING_KEY, TENANTS_KEY, UNREADABLE_TENANTS_KEY,
+    unify_glue_catalogs,
 )
 from app.data_sources.clients.athena_union_rewrite import Rewrite, UnifiedTable, rewrite_unified
-from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN
+from app.data_sources.clients.postgresql_multi_catalog import COLUMN_TYPES_KEY, TENANT_COLUMN
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 from app.data_sources.clients.database_spec import parse_database_spec, is_glob, is_excluded, spec_matches
@@ -115,6 +116,9 @@ S3_PATH_PATTERN = re.compile(r"s3://[^\s'\"<>,)]+", re.IGNORECASE)
 ACCESS_DENIED_PATTERN = re.compile(r"access\s*denied|permission denied|not authorized", re.IGNORECASE)
 
 REINDEX_HINT = "If a tenant database changed, re-index this connection."
+INCOMPATIBLE_TYPES_REASON = "incompatible column types"
+UNREADABLE_AT_INDEX_REASON = "not readable when last indexed"
+UNIFY_EXCLUSIONS_LABEL = "left out of unified tables"
 UNIFIED_QUERY_SHAPE = (
     "This connection reads unified tables; send one SELECT over table names without a database."
 )
@@ -224,6 +228,7 @@ class AwsAthenaClient(DataSourceClient):
         self._excluded_tenants: dict[str, List[str]] = {}
         self._learned_unreadable: List[str] = []
         self._query_left_out: dict[str, dict[str, str]] = {}
+        self._diagnosis_glue_tables: dict[tuple[str, str], Optional[dict]] = {}
         self._count_cache: Optional[tuple] = None
         self._skipped_tables = 0
         self._counted_dbs = 0
@@ -296,6 +301,7 @@ class AwsAthenaClient(DataSourceClient):
     def _execute_unified(self, sql: str) -> pd.DataFrame:
         dropped: list[tuple[str, str]] = []
         error: Optional[Exception] = None
+        self._diagnosis_glue_tables = {}
         while True:
             rewrite = self._unified_rewrite(sql)
             if rewrite.emptied:
@@ -306,7 +312,8 @@ class AwsAthenaClient(DataSourceClient):
                 error = e
                 found = self._diagnose_unified_failure(e, rewrite.branches, rewrite.columns)
                 if not found:
-                    raise self._query_failure(e, f" {REINDEX_HINT}") from e
+                    hint = f" {REINDEX_HINT}" if self._may_be_catalog_drift(e, rewrite.columns) else ""
+                    raise self._query_failure(e, hint) from e
                 if len({t for _, t in dropped} | {t for _, t, _ in found}) > MAX_DROPPED_TENANTS_PER_QUERY:
                     names = ", ".join(f"{tenant} ({table})" for table, tenant in dropped)
                     raise self._query_failure(
@@ -323,19 +330,52 @@ class AwsAthenaClient(DataSourceClient):
                 continue
             return self._with_left_out_note(df, rewrite)
 
-    def _left_out_text(self, tables) -> str:
+    def _left_out_reasons(self) -> dict[str, dict[str, str]]:
+        """Per unified table, every tenant it must not read and why: left out at
+        index time (type conflict, unreadable) or dropped at query time."""
+        unreadable = sorted(set(self._learned_unreadable) | set(self._unread_dbs))
+        reasons: dict[str, dict[str, str]] = {}
+        for name in self._unified_tables:
+            table_reasons = {tenant: UNREADABLE_AT_INDEX_REASON for tenant in unreadable}
+            table_reasons.update(
+                {tenant: INCOMPATIBLE_TYPES_REASON for tenant in self._excluded_tenants.get(name, [])}
+            )
+            table_reasons.update(self._query_left_out.get(name, {}))
+            if table_reasons:
+                reasons[name] = table_reasons
+        return reasons
+
+    @staticmethod
+    def _left_out_text(left_out: dict[str, dict[str, str]]) -> str:
         return "; ".join(
             f"{table} leaves out " + ", ".join(
-                f"{tenant} ({reason})" for tenant, reason in sorted(self._query_left_out[table].items())
+                f"{tenant} ({reason})" for tenant, reason in sorted(left_out[table].items())
             )
-            for table in tables
-            if self._query_left_out.get(table)
+            for table in left_out
+            if left_out.get(table)
         )
 
+    def _may_be_catalog_drift(self, error: Exception, columns: dict[str, tuple[str, ...]]) -> bool:
+        """Whether a failure could come from a tenant changing since the last
+        index, so the re-index hint helps. A typo'd column or a syntax error
+        does not."""
+        text = str(error)
+        if TABLE_NOT_FOUND_PATTERN.search(text) or SCHEMA_NOT_FOUND_PATTERN.search(text):
+            return True
+        if ACCESS_DENIED_PATTERN.search(text):
+            return True
+        column = COLUMN_NOT_FOUND_PATTERN.search(text)
+        if column:
+            name = column.group(1).lower()
+            return any(name in {c.lower() for c in cols} for cols in columns.values())
+        return False
+
     def _emptied_failure(self, tables: tuple[str, ...], error: Optional[Exception]) -> Exception:
+        reasons = self._left_out_reasons()
         note = (
             f"Every tenant this query reads from {', '.join(tables)} is left out "
-            f"({self._left_out_text(tables)}), so it was not run. {REINDEX_HINT}"
+            f"({self._left_out_text({t: reasons.get(t, {}) for t in tables})}), so it was not run. "
+            f"{REINDEX_HINT}"
         )
         if error is None:
             return self._query_failure(Exception(note))
@@ -345,13 +385,19 @@ class AwsAthenaClient(DataSourceClient):
         left_out = {
             table: dict(self._query_left_out[table]) for table in rewrite.branches if self._query_left_out.get(table)
         }
+        # Tenants the query's own tenant_db filter asked for but that were left
+        # out at index time: without this the result would just lack their rows.
+        reasons = self._left_out_reasons()
+        for table, tenants in rewrite.named_left_out.items():
+            for tenant in tenants:
+                left_out.setdefault(table, {})[tenant] = reasons.get(table, {}).get(tenant, "left out")
         if not left_out:
             return df
         text_ = self._left_out_text(left_out)
         logger.warning("Unified query result leaves out tenants: %s", text_)
         df.attrs["unified_left_out"] = left_out
         df.attrs["bow_notice"] = (
-            f"Results exclude tenants that could not be read at query time: {text_}. "
+            f"Results exclude tenants that could not be read: {text_}. "
             "Tell the user results exclude them."
         )
         return df
@@ -405,11 +451,17 @@ class AwsAthenaClient(DataSourceClient):
         return [(table, tenant, reason) for (table, tenant), reason in found.items()]
 
     def _glue_table_of(self, tenant: str, table: str) -> Optional[dict]:
+        # Cached for one execute_query: each retry diagnoses the same tenants again.
+        key = (tenant, table)
+        if key in self._diagnosis_glue_tables:
+            return self._diagnosis_glue_tables[key]
         try:
-            return self.glue_client.get_table(DatabaseName=tenant, Name=table)["Table"]
+            found = self.glue_client.get_table(DatabaseName=tenant, Name=table)["Table"]
         except Exception as e:
             logger.warning("Could not read Glue table while diagnosing query failure: %s", _failure_reason(e))
-            return None
+            found = None
+        self._diagnosis_glue_tables[key] = found
+        return found
 
     def _blame_tenants_lacking_column(self, column: str, branches, columns, found: dict) -> None:
         for name, tenants in branches.items():
@@ -435,6 +487,13 @@ class AwsAthenaClient(DataSourceClient):
                     found.setdefault((name, tenant), "column missing")
 
     def _blame_tenants_by_location(self, paths: list[str], branches, found: dict) -> None:
+        # A denied write to the query result location is no tenant's fault;
+        # skip the per-tenant Glue lookups for it.
+        output = (self.s3_output_location or "").lower().rstrip("/")
+        if output:
+            paths = [p for p in paths if not (p.rstrip("/") == output or p.startswith(output + "/"))]
+        if not paths:
+            return
         candidates: list[tuple[str, str, str]] = []
         for name, tenants in branches.items():
             for tenant in tenants:
@@ -558,7 +617,7 @@ class AwsAthenaClient(DataSourceClient):
             if len(statements) != 1 or not isinstance(statements[0], exp.Query):
                 raise ValueError(f"This query was not run. {UNIFIED_QUERY_SHAPE}")
             refuse_unchecked_reads_of(statements)
-            left_out = {table: frozenset(tenants) for table, tenants in self._query_left_out.items()}
+            left_out = {table: frozenset(tenants) for table, tenants in self._left_out_reasons().items()}
             return rewrite_unified(sql, self._unified_tables, self.data_source, left_out)
         except SqlglotError as e:
             raise ValueError(f"Could not read this query, so it was not run. {UNIFIED_QUERY_SHAPE}") from e
@@ -691,7 +750,11 @@ class AwsAthenaClient(DataSourceClient):
             self._diagnostics.append({"name": full_name, "reason": SKIPPED_NAME_REASON})
 
     def _reported_diagnostics(self) -> List[dict]:
-        diagnostics = [*self._diagnostics, *map(_exclusion_entry, self._unify_exclusions)]
+        exclusions = [_exclusion_entry(e) for e in self._unify_exclusions[:MAX_SKIPPED_TABLE_ENTRIES]]
+        more = len(self._unify_exclusions) - MAX_SKIPPED_TABLE_ENTRIES
+        if more > 0:
+            exclusions.append({"name": f"+{more} more", "reason": UNIFY_EXCLUSIONS_LABEL})
+        diagnostics = [*self._diagnostics, *exclusions]
         extra = self._skipped_tables - MAX_SKIPPED_TABLE_ENTRIES
         if extra <= 0:
             return diagnostics
@@ -728,9 +791,10 @@ class AwsAthenaClient(DataSourceClient):
             metadata_json={"database": database},
         )
 
-    def get_tables(self) -> List[Table]:
+    def get_tables(self, prior_catalog: Optional[dict] = None) -> List[Table]:
         self._reset_run_state()
         self._unify_exclusions = []
+        self._query_left_out = {}
         self._count_cache = None
         try:
             matcher = self._exclude_matcher()
@@ -764,6 +828,7 @@ class AwsAthenaClient(DataSourceClient):
             if self._unified:
                 catalog = unify_glue_catalogs(per_tenant)
                 self._unify_exclusions = catalog.excluded
+                catalog.tables += self._kept_for_unread_tenants(prior_catalog, {t.name for t in catalog.tables})
                 for table in catalog.tables:
                     table.metadata_json[UNREADABLE_TENANTS_KEY] = list(self._unread_dbs)
                 return catalog.tables
@@ -824,6 +889,44 @@ class AwsAthenaClient(DataSourceClient):
         )
         return total
 
+    def _kept_for_unread_tenants(self, prior_catalog: Optional[dict], fresh: set) -> List[Table]:
+        """Unified tables from the last index that this run could not see only
+        because a tenant database was unreadable.
+
+        Per-database mode keeps such tables through `unindexed_table_prefixes`;
+        unified names carry no database prefix, so they are rebuilt here from
+        their stored metadata, narrowed to the unreadable tenants. Otherwise a
+        transient AccessDenied would prune the table and every agent's
+        selection of it.
+        """
+        unread = set(self._unread_dbs)
+        if not self._unified or not unread or not isinstance(prior_catalog, dict):
+            return []
+        kept: List[Table] = []
+        for name, meta in prior_catalog.items():
+            if name in fresh or not isinstance(meta, dict):
+                continue
+            prior = UnifiedTable.from_metadata(name, meta)
+            tenants = [t for t in (prior.tenants if prior else ()) if t in unread]
+            if not tenants:
+                continue
+            column_types = meta.get(COLUMN_TYPES_KEY) or {}
+            metadata = {
+                **meta,
+                TENANTS_KEY: tenants,
+                TENANT_CASTS_KEY: {t: c for t, c in (meta.get(TENANT_CASTS_KEY) or {}).items() if t in tenants},
+                TENANT_MISSING_KEY: {t: c for t, c in (meta.get(TENANT_MISSING_KEY) or {}).items() if t in tenants},
+            }
+            columns = [TableColumn(name=TENANT_COLUMN, dtype="varchar")] + [
+                TableColumn(name=c, dtype=t) for c, t in column_types.items() if c != TENANT_COLUMN
+            ]
+            logger.warning(
+                "Keeping unified table whose tenants could not be read on this run: table=%s tenants=%s",
+                name, ",".join(tenants),
+            )
+            kept.append(Table(name=name, columns=columns, pks=None, fks=None, metadata_json=metadata))
+        return kept
+
     def unindexed_table_prefixes(self) -> List[str]:
         return [] if self._unified else list(self._unread_dbs)
 
@@ -863,6 +966,7 @@ class AwsAthenaClient(DataSourceClient):
             self._unified_tables = learned
             self._excluded_tenants = excluded
             self._learned_unreadable = sorted(unreadable)
+            self._query_left_out = {}
             return
         if not self._multi:
             return
@@ -884,11 +988,11 @@ class AwsAthenaClient(DataSourceClient):
         )
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None):
+    def get_schemas(self, progress_callback=None, prior_catalog=None):
         """
         Retrieve schemas for all tables in the specified database.
         """
-        return self.get_tables()
+        return self.get_tables(prior_catalog=prior_catalog)
 
     def prompt_schema(self):
         """

@@ -1,5 +1,5 @@
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import sqlglot
 from sqlglot import exp
@@ -59,6 +59,8 @@ class Rewrite:
     branches: dict[str, tuple[str, ...]]
     columns: dict[str, tuple[str, ...]]
     emptied: tuple[str, ...] = ()
+    # Left-out tenants the query's own tenant_db filter asked for, per table.
+    named_left_out: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 class UnknownUnifiedTable(ValueError):
@@ -80,14 +82,20 @@ class _Reference:
     columns: tuple[tuple[str, str], ...]
     tenants: tuple[str, ...]
     emptied: bool
+    named_left_out: tuple[str, ...] = ()
 
 
 def rewrite_unified(
     sql: str,
     tables: Mapping[str, UnifiedTable],
     catalog: str,
-    left_out: Mapping[str, frozenset[str]] = {},
+    left_out: Mapping[str, frozenset[str]] | None = None,
 ) -> Rewrite:
+    """`left_out` names, per table, the tenants that must not be read: dropped
+    at query time, or left out at index time (type conflict, unreadable). A
+    tenant_db filter that asks only for such tenants empties the reference,
+    so the caller can refuse the query instead of returning no rows."""
+    left_out = left_out or {}
     by_name = {name.lower(): table for name, table in tables.items()}
     statements = [s for s in sqlglot.parse(sql, read=_DIALECT) if s is not None]
 
@@ -95,6 +103,7 @@ def rewrite_unified(
     emitted_columns: dict[str, dict[str, None]] = {}
     subqueries: list[tuple[UnifiedTable, exp.Subquery]] = []
     emptied: dict[str, None] = {}
+    named_left_out: dict[str, dict[str, None]] = {}
     for statement in statements:
         references = [
             _plan(node, table, statement, left_out.get(table.name, frozenset()))
@@ -108,6 +117,8 @@ def rewrite_unified(
             emitted_columns.setdefault(ref.table.name, {}).update(dict.fromkeys(c for c, _ in ref.columns))
             if ref.emptied:
                 emptied[ref.table.name] = None
+            if ref.named_left_out:
+                named_left_out.setdefault(ref.table.name, {}).update(dict.fromkeys(ref.named_left_out))
 
     final = ";\n".join(s.sql(dialect=_DIALECT) for s in statements)
     size = len(final.encode("utf-8"))
@@ -119,7 +130,10 @@ def rewrite_unified(
         for table, _ in subqueries
     }
     columns = {table.name: tuple(emitted_columns[table.name]) for table, _ in subqueries}
-    return Rewrite(sql=final, branches=branches, columns=columns, emptied=tuple(emptied))
+    return Rewrite(
+        sql=final, branches=branches, columns=columns, emptied=tuple(emptied),
+        named_left_out={name: tuple(tenants) for name, tenants in named_left_out.items()},
+    )
 
 
 def _unified_references(statement: exp.Expression, by_name: Mapping[str, UnifiedTable]):
@@ -169,9 +183,14 @@ def _plan(
 
     allowed = None if renamed else _tenant_filter(owner, join, alias)
     candidates = tuple(t for t in table.tenants if allowed is None or t in allowed)
+    # A filter naming a tenant left out at index time (so not in table.tenants)
+    # still asked for it: count it, so a filter on only such tenants empties.
+    named = tuple(sorted(t for t in allowed or () if t in left_out))
+    candidates += tuple(t for t in named if t not in candidates)
     tenants = tuple(t for t in candidates if t not in left_out)
     return _Reference(
-        node=node, table=table, columns=columns, tenants=tenants, emptied=bool(candidates) and not tenants
+        node=node, table=table, columns=columns, tenants=tenants,
+        emptied=bool(candidates) and not tenants, named_left_out=named,
     )
 
 

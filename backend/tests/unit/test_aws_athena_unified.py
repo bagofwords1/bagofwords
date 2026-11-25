@@ -367,13 +367,26 @@ def test_glue_access_denied_on_a_table_arn_drops_that_tenant(wrangler):
     assert client._query_left_out == {"assets": {"globex_db": "access denied"}}
 
 
-def test_unrecognized_error_is_raised_with_a_reindex_hint_and_drops_nothing(wrangler):
+@pytest.mark.parametrize("message", [
+    "SYNTAX_ERROR: line 1:8: mismatched input",
+    "COLUMN_NOT_FOUND: line 1:8: Column 'idd' cannot be resolved",
+])
+def test_users_own_query_error_drops_nothing_and_gets_no_reindex_hint(wrangler, message):
     client = indexed_client(FakeGlue(DATABASES))
-    wrangler.outcomes = [query_failed("SYNTAX_ERROR: line 1:8: mismatched input")]
-    with pytest.raises(Exception, match="Query execution failed: .*SYNTAX_ERROR.*re-index"):
+    wrangler.outcomes = [query_failed(message)]
+    with pytest.raises(Exception, match="Query execution failed") as raised:
         client.execute_query("SELECT id FROM assets")
+    assert "re-index" not in str(raised.value)
     assert len(wrangler.calls) == 1
     assert client._query_left_out == {}
+
+
+def test_unattributed_catalog_error_keeps_the_reindex_hint(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    wrangler.outcomes = [query_failed("TABLE_NOT_FOUND: line 1:15: Table 'awsdatacatalog.other_db.x' does not exist")]
+    with pytest.raises(Exception, match="re-index"):
+        client.execute_query("SELECT id FROM assets")
+    assert len(wrangler.calls) == 1
 
 
 def test_retry_stops_at_the_drop_cap_and_names_every_dropped_tenant(wrangler):
@@ -741,3 +754,108 @@ def test_left_out_note_reaches_the_query_notices_handed_to_the_agent(wrangler):
     wrapped.execute_query("SELECT id FROM assets")
     (notice,) = collect_query_notices(timings)
     assert "globex_db" in notice and "assets" in notice
+
+
+TYPE_CONFLICT = {
+    ("a_db", "orders"): [{"Name": "total", "Type": "int"}],
+    ("b_db", "orders"): [{"Name": "total", "Type": "int"}],
+    ("c_db", "orders"): [{"Name": "total", "Type": "boolean"}],
+}
+
+
+def conflict_client(extra=None):
+    databases = {"a_db": ["orders"], "b_db": ["orders"], "c_db": ["orders"], **(extra or {})}
+    return indexed_client(FakeGlue(databases, columns=dict(TYPE_CONFLICT)))
+
+
+@pytest.mark.parametrize("left_out, extra", [
+    ("c_db", None),
+    ("broken_db", {"broken_db": _glue_error("AccessDeniedException")}),
+])
+@pytest.mark.parametrize("where", ["tenant_db = '{t}'", "tenant_db IN ('{t}')"])
+def test_filter_on_only_a_tenant_left_out_at_index_time_is_refused_not_empty(wrangler, left_out, extra, where):
+    client = conflict_client(extra)
+    with pytest.raises(Exception, match=left_out):
+        client.execute_query(f"SELECT count(*) FROM orders WHERE {where.format(t=left_out)}")
+    assert wrangler.calls == []
+
+
+@pytest.mark.parametrize("left_out, extra", [
+    ("c_db", None),
+    ("broken_db", {"broken_db": _glue_error("AccessDeniedException")}),
+])
+def test_filter_naming_a_left_out_tenant_among_others_runs_and_names_it(wrangler, left_out, extra):
+    client = conflict_client(extra)
+    df = client.execute_query(f"SELECT total FROM orders WHERE tenant_db IN ('a_db', '{left_out}')")
+    assert branch_tenants(wrangler.calls[-1]) == ["a_db"]
+    assert left_out in df.attrs["bow_notice"]
+
+
+def test_unfiltered_query_is_not_flagged_for_tenants_left_out_at_index_time(wrangler):
+    client = conflict_client({"broken_db": _glue_error("AccessDeniedException")})
+    df = client.execute_query("SELECT total FROM orders")
+    assert branch_tenants(wrangler.calls[-1]) == ["a_db", "b_db"]
+    assert "bow_notice" not in df.attrs
+
+
+def reindex(client, prior_tables):
+    return by_name(client.get_schemas(prior_catalog={t.name: t.metadata_json for t in prior_tables}))
+
+
+def test_reindex_keeps_a_table_whose_only_tenants_were_unreadable_this_run(wrangler):
+    glue = FakeGlue(dict(DATABASES))
+    client = unified_client("*_db", glue)
+    prior = client.get_tables()
+    glue.databases["globex_db"] = _glue_error("AccessDeniedException")
+
+    tables = reindex(client, prior)
+
+    assert tables["alerts"].metadata_json["tenants"] == ["globex_db"]
+    assert [c.name for c in tables["alerts"].columns][0] == "tenant_db"
+    assert tables["assets"].metadata_json["tenants"] == ["acme_db"]
+    assert tables["alerts"].metadata_json["unreadable_tenants"] == ["globex_db"]
+
+
+def test_reindex_drops_a_table_that_vanished_from_readable_tenants(wrangler):
+    glue = FakeGlue(dict(DATABASES))
+    client = unified_client("*_db", glue)
+    prior = client.get_tables()
+    glue.databases["globex_db"] = ["assets"]
+
+    assert sorted(reindex(client, prior)) == ["assets", "users"]
+
+
+def test_unify_exclusions_in_index_stats_are_capped(wrangler):
+    count = athena_module.MAX_SKIPPED_TABLE_ENTRIES + 7
+    databases = {"a_db": [], "b_db": [], "c_db": []}
+    columns = {}
+    for i in range(count):
+        for db in databases:
+            databases[db].append(f"t{i}")
+            columns[(db, f"t{i}")] = [{"Name": "v", "Type": "boolean" if db == "c_db" else "int"}]
+    client = unified_client("*_db", FakeGlue(databases, columns=columns))
+    client.get_tables()
+    stats = client.index_stats()
+    assert len(stats["unreadable_datasets"]) == athena_module.MAX_SKIPPED_TABLE_ENTRIES + 1
+    assert stats["unreadable_datasets"][-1]["name"] == "+7 more"
+
+
+def test_access_denied_on_the_result_location_reads_no_glue_tables(wrangler):
+    glue = FakeGlue(DATABASES)
+    client = unified_client("*_db", glue, s3_output_location="s3://results/bow/")
+    client.attach_table_metadata([{"name": t.name, "metadata_json": t.metadata_json} for t in client.get_tables()])
+    wrangler.outcomes = [query_failed("Access Denied writing s3://results/bow/abc.csv (Status Code: 403)")]
+    with pytest.raises(Exception, match="Query execution failed"):
+        client.execute_query("SELECT id FROM assets")
+    assert glue.get_table_calls == []
+
+
+def test_fresh_catalog_metadata_reads_tenants_dropped_by_earlier_queries_again(wrangler):
+    client = indexed_client(FakeGlue(DATABASES))
+    wrangler.outcomes = [
+        query_failed("TABLE_NOT_FOUND: line 1:15: Table 'awsdatacatalog.globex_db.assets' does not exist")
+    ]
+    client.execute_query("SELECT id FROM assets")
+    client.attach_table_metadata([{"name": t.name, "metadata_json": t.metadata_json} for t in client.get_tables()])
+    client.execute_query("SELECT id FROM assets")
+    assert branch_tenants(wrangler.calls[-1]) == ["acme_db", "globex_db"]
