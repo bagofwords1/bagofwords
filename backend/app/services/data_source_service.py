@@ -7482,10 +7482,19 @@ class DataSourceService:
         from app.services.powerbi_catalog_service import prepare_powerbi_catalog
         await prepare_powerbi_catalog(db, connection)
 
-        # Get connection tables - ensure connection_id is string
+        # Get connection tables - ensure connection_id is string.
+        # Soft-deleted rows are excluded: a deleted custom table (KIND_BOW) is
+        # dropped from the catalog and its agent activations removed, but it
+        # keeps its row (deleted_at set). Syncing it back would re-create a
+        # DataSourceTable for a relation the list/edit paths already hide (they
+        # filter deleted_at), leaving an inactive, un-editable, un-deletable
+        # ghost row on every agent. Mirror those paths and skip it.
         connection_id_str = str(connection.id)
         conn_tables = await db.execute(
-            select(ConnectionTable).filter(ConnectionTable.connection_id == connection_id_str)
+            select(ConnectionTable).filter(
+                ConnectionTable.connection_id == connection_id_str,
+                ConnectionTable.deleted_at.is_(None),
+            )
             .execution_options(populate_existing=True)
         )
         conn_tables = conn_tables.scalars().all()

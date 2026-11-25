@@ -48,9 +48,16 @@ def mapping_marker(provider_name: str) -> str:
 
 
 def _rank(role: Optional[str]) -> int:
+    name = (role or "").lower()
     try:
-        return ORG_MAPPING_ROLES.index((role or "").lower())
+        return ORG_MAPPING_ROLES.index(name)
     except ValueError:
+        # A custom role (e.g. the org's default member role, or one an admin
+        # granted) is a workspace member's role: a "member" rule must not
+        # "raise" it to the built-in member and overwrite the admin's choice.
+        # An "admin" rule still outranks it.
+        if name and name != APP_USER_ROLE:
+            return ORG_MAPPING_ROLES.index("member")
         return -1
 
 

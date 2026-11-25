@@ -292,15 +292,52 @@ async def resolve_assignable_system_role(
     )).scalar_one_or_none()
 
 
+async def resolve_assignable_role(
+    db: AsyncSession, org_id: str, role_name: str,
+) -> Optional[Role]:
+    """Return the ``Role`` an assignment for ``role_name`` in ``org_id`` should
+    target, admitting a **custom, org-scoped role** as well as a system role.
+
+    ``resolve_assignable_system_role`` resolves only built-in roles and their
+    per-org overrides, so a provisioning path handed a custom role name — an
+    org's own ``auto_invite_role`` in the sign-up policy, an OIDC mapping's
+    role — got ``None`` and silently granted nothing, leaving the user with no
+    real role. This wrapper falls back to a custom role of that exact name in
+    the org, so every role an admin can pick for auto-provisioning actually
+    reaches the user. A system role still wins on a name collision (it is
+    resolved first), and a missing name still returns ``None``.
+    """
+    system = await resolve_assignable_system_role(db, org_id, role_name)
+    if system is not None:
+        return system
+    return (await db.execute(
+        select(Role).where(
+            Role.organization_id == org_id,
+            Role.name == role_name,
+            Role.is_system == False,
+            Role.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+
+
 async def ensure_system_role_assignment(
     db: AsyncSession, org_id: str, user_id: str, role_name: str,
+    *, allow_custom: bool = True,
 ) -> None:
-    """Idempotently ensure ``user_id`` holds the system role ``role_name`` in
+    """Idempotently ensure ``user_id`` holds the role ``role_name`` in
     ``org_id`` (RBAC path). Does NOT commit — the caller commits.
 
     Used by provisioning paths (SCIM/LDAP/OIDC) that create a ``Membership`` so
     the user gets a real ``role_assignment`` instead of relying on the resolver's
-    transitional legacy-role net. Honors a per-org override of the role.
+    transitional legacy-role net. ``role_name`` may be a system role (honoring a
+    per-org override) or a custom, org-scoped role — both resolve through
+    ``resolve_assignable_role`` — so an org's own ``auto_invite_role`` reaches
+    the user instead of being dropped.
+
+    ``allow_custom=False`` resolves built-in roles only. Invite acceptance uses
+    it: an invite's custom roles live in its pending role assignments, which an
+    admin may have edited since; the name in ``Membership.role`` is the one it
+    was created with, and granting it would restore a role the admin removed.
     """
     from app.models.role_assignment import RoleAssignment
 
@@ -318,7 +355,8 @@ async def ensure_system_role_assignment(
         )).scalar_one_or_none()
         if stated == APP_USER_ROLE:
             role_name = APP_USER_ROLE
-    role = await resolve_assignable_system_role(db, org_id, role_name)
+    resolve = resolve_assignable_role if allow_custom else resolve_assignable_system_role
+    role = await resolve(db, org_id, role_name)
     if not role:
         return
     existing = (await db.execute(
@@ -340,7 +378,8 @@ async def ensure_system_role_assignment(
     ))
 
 
-async def lift_app_user(db: AsyncSession, org_id: str, user_id: str, role_name: str) -> bool:
+async def lift_app_user(db: AsyncSession, org_id: str, user_id: str, role_name: str,
+                        *, allow_custom: bool = True) -> bool:
     """Replace an app user's ``app_user`` role with the workspace system role
     ``role_name`` (their other roles and groups are untouched). A no-op,
     returning False, for anyone who is not an app user. Does NOT commit.
@@ -371,7 +410,7 @@ async def lift_app_user(db: AsyncSession, org_id: str, user_id: str, role_name: 
             )
         )).scalars().all():
             await db.delete(row)
-    await ensure_system_role_assignment(db, org_id, user_id, role_name)
+    await ensure_system_role_assignment(db, org_id, user_id, role_name, allow_custom=allow_custom)
     invalidate_rbac_memo(db, user_id, org_id)
     return True
 
@@ -515,6 +554,30 @@ async def materialize_pending_rbac(
         pass
 
 
+async def stage_invite_role(db: AsyncSession, org_id: str, membership, role_name: str) -> None:
+    """Give a pending invite (``user_id`` NULL) a pending role assignment for
+    ``role_name`` when it is a custom role, as the Add-member path does.
+
+    Invite acceptance grants only built-in roles from ``Membership.role``
+    (``ensure_system_role_assignment(..., allow_custom=False)``), so a custom
+    role must travel as an RBAC row, which an admin can then edit or remove
+    before the invite is accepted. Built-in roles need nothing here. Does NOT
+    commit.
+    """
+    from app.models.role_assignment import RoleAssignment
+
+    if not role_name or await resolve_assignable_system_role(db, org_id, role_name) is not None:
+        return
+    role = await resolve_assignable_role(db, org_id, role_name)
+    if role is None:
+        return
+    await db.flush([membership])
+    db.add(RoleAssignment(
+        organization_id=org_id, role_id=role.id,
+        principal_type="membership", principal_id=str(membership.id),
+    ))
+
+
 async def insert_membership_if_absent(db: AsyncSession, membership):
     """Insert ``membership`` unless a live row for its (user_id, organization_id)
     already exists. Returns ``(row, created)``.
@@ -655,8 +718,10 @@ async def claim_pending_invite(db: AsyncSession, user, org_id: str):
             db.expunge(invite)
         return None
     await materialize_pending_rbac(db, invite, str(user.id))
+    # Built-ins only: the invite's custom roles came across with its pending
+    # RBAC above, as the admin last left them (see ensure_system_role_assignment).
     await ensure_system_role_assignment(
-        db, str(org_id), str(user.id), invite.role or "member"
+        db, str(org_id), str(user.id), invite.role or "member", allow_custom=False,
     )
     return invite
 

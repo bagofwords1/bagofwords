@@ -113,7 +113,11 @@ async def resolve_or_admit(db, service, client, config, claims):
 
         if not await has_seat_for(db, client.organization_id):
             raise ExchangeError("invalid_grant", "Organization seat limit reached")
-    role = invite.role if invite else str(policy.get("auto_invite_role") or "member")
+    if invite:
+        role = invite.role
+    else:
+        from app.services.organization_settings_service import resolve_signup_role
+        role = await resolve_signup_role(db, str(client.organization_id), policy)
     helper = PasswordHelper()
     user = existing_user or User(
         email=email,
@@ -149,7 +153,9 @@ async def resolve_or_admit(db, service, client, config, claims):
             db.add(Membership(user_id=user.id, organization_id=client.organization_id, role=role))
         from app.core.permission_resolver import ensure_system_role_assignment
 
-        await ensure_system_role_assignment(db, client.organization_id, user.id, role)
+        # An invite's custom roles came across with its pending RBAC.
+        await ensure_system_role_assignment(db, client.organization_id, user.id, role,
+                                            allow_custom=invite is None)
         admitted_id = user.id
         await db.commit()
     except (IntegrityError, OperationalError):

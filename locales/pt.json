@@ -2646,7 +2646,8 @@
     "add": "Adicionar",
     "domainsHint": "Apenas correspondência exata. Sem curingas. Combine com verificação de e-mail para evitar falsificação.",
     "autoInviteRole": "Função de convite automático",
-    "roleHint": "Função concedida no cadastro. Você pode alterá-la para membros existentes posteriormente.",
+    "roleHint": "Deixe no padrão da organização para usar a função definida na página Membros, ou escolha uma função diferente para cadastros por domínio.",
+    "useOrgDefault": "Padrão da organização ({role})",
     "removeHint": "Remover um domínio afeta apenas novos cadastros — membros existentes mantêm seu acesso.",
     "save": "Salvar",
     "removeDomainAria": "Remover domínio",
@@ -3282,7 +3283,7 @@
       "attributesSaved": "Atributos salvos",
       "attributesSaveFailed": "Falha ao salvar os atributos",
       "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado.",
-      "defaultRoleHint": "Preenche a função ao adicionar ou convidar um membro.",
+      "defaultRoleHint": "Função que cada novo membro recebe: adicionado aqui, importado ou entrando via SSO, SCIM, LDAP ou cadastro por domínio. Aplica-se apenas a novos membros.",
       "defaultRoleSaved": "Função padrão salva",
       "defaultRoleFailed": "Falha ao salvar a função padrão",
       "defaultRoleShort": "Função padrão",
@@ -4792,6 +4793,24 @@
           "title": "Crie um segredo do cliente",
           "body": "Em Certificates & secrets > New client secret, crie um segredo e copie o seu Value (não o Secret ID) para Client Secret abaixo. Não será possível ver o valor novamente depois."
         }
+      ],
+      "hubspot": [
+        {
+          "title": "Criar um MCP connector no HubSpot",
+          "body": "Na sua conta HubSpot, vá a Development > MCP Connectors e clique em Create MCP connector. Dê-lhe um nome."
+        },
+        {
+          "title": "Adicionar o URL de redirecionamento",
+          "body": "Cole este URL no campo Redirect URL do conector e clique em Create."
+        },
+        {
+          "title": "Copiar o ID do cliente e o segredo",
+          "body": "Na página de detalhes do conector, copie o Client ID e o Client secret para os campos abaixo."
+        },
+        {
+          "title": "Cada utilizador inicia sessão",
+          "body": "Não define escopos no conector. Cada utilizador escolhe a sua conta HubSpot e concede acesso ao iniciar sessão. O agente vê apenas o que esse utilizador pode ver no HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "Falha ao copiar — selecione o texto",
@@ -4853,7 +4872,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Unificar tabelas entre bancos de dados",
+      "unifyTablesDescription": "Une as tabelas de mesmo nome dos bancos de dados correspondentes em uma única tabela com uma coluna tenant_db. Não pode ser alterado depois que a conexão é criada."
     },
     "postgresqlMulti": {
       "databasesTitle": "Bancos de dados",
@@ -5045,7 +5066,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "\"Permitir tudo\" só pode ser o padrão enquanto estiver ativado.",
     "tool_permission_mode.judge_model_unavailable": "Escolha um modelo de decisão ativado para o juiz do modo Automático.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "Não é possível alterar uma conexão Athena entre um banco de dados, vários bancos de dados e tabelas unificadas. Crie uma nova conexão.",
     "catalog_discovery_incomplete": "A atualização do catálogo falhou porque a descoberta ficou incompleta. O catálogo anterior e as seleções de tabelas foram mantidos.",
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",

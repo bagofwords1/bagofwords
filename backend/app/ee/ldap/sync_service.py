@@ -331,6 +331,7 @@ class LDAPGroupSyncService:
         # so claims must never be refused by the cap — otherwise an invited LDAP
         # user in a full org would be dropped (inconsistent with OIDC/SCIM).
         remaining = await seats_remaining(db, organization_id)
+        default_role = None  # resolved once, on the first new membership
         created = 0
         skipped = 0
         for user_id in candidates:
@@ -351,10 +352,13 @@ class LDAPGroupSyncService:
 
             # Shared race-safe insert: a concurrent create of the same (user, org)
             # loses the race (unique index) without poisoning the batch transaction.
+            if default_role is None:
+                from app.services.organization_settings_service import resolve_default_member_role
+                default_role = await resolve_default_member_role(db, str(organization_id))
             _, was_created = await insert_membership_if_absent(db, Membership(
                 user_id=user_id,
                 organization_id=organization_id,
-                role="member",
+                role=default_role,
                 directory_provider=self.connection.provider_id,
             ))
             if not was_created:
@@ -365,7 +369,7 @@ class LDAPGroupSyncService:
             # app/core/user_lifecycle when the user's last one was removed.
             await reactivate_user_for_membership(db, str(user_id), organization_id)
             # Give the user a real RBAC assignment (not just the legacy string).
-            await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
+            await ensure_system_role_assignment(db, organization_id, str(user_id), default_role)
             logger.info(f"LDAP sync: auto-created org membership for user {user_id} in org {organization_id}")
 
         if skipped:

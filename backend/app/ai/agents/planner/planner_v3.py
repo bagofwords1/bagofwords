@@ -263,6 +263,17 @@ class PlannerV3:
             for t in v3_input.tools
         ]
 
+        # Forced build: a build was asked for and the turn tried to end in
+        # text. Offer only the build tools (and clarify, the honest exit) and
+        # require a tool call. Thinking is off for this call: Anthropic does
+        # not allow a required tool together with extended thinking.
+        require_tool = False
+        forced = [n for n in (planner_input.forced_tools or []) if any(t.name == n for t in tools)]
+        if forced:
+            tools = [t for t in tools if t.name in forced]
+            thinking = {"type": "disabled"}
+            require_tool = True
+
         # Per-tool accumulators. Anthropic supports multiple tool_use blocks
         # per response (parallel tool calls); we now collect ALL of them so
         # the agent loop can dispatch each. Indexed by tool_use_id so
@@ -298,6 +309,7 @@ class PlannerV3:
                 web_search=planner_input.web_search_enabled,
                 web_search_domains=planner_input.web_search_domains or None,
                 disable_parallel_tools=not planner_input.parallel_tools_enabled,
+                require_tool=require_tool,
                 usage_scope="planner",
                 usage_scope_ref_id=None,
                 prompt_tokens_estimate=prompt_tokens_est,
@@ -526,6 +538,25 @@ class PlannerV3:
         if state.reasoning_start_time and state.reasoning_end_time is None:
             state.reasoning_end_time = time.monotonic()
 
+
+        # A forced call may still name a tool it was not offered (seen with
+        # Haiku: a create_data from earlier in the transcript). Never dispatch
+        # it: return an error so the agent retries, still forced.
+        if forced:
+            _offered = {t.name for t in tools}
+            _stray = [a.name for a in completed_actions if getattr(a, "name", None) not in _offered]
+            if _stray:
+                logger.warning("[planner_v3] forced call named tools it was not offered: %s", _stray)
+                yield PlannerDecisionEvent(type="planner.decision.final", data=PlannerDecision(
+                    analysis_complete=False,
+                    streaming_complete=True,
+                    error=PlannerError(
+                        code="tool_not_offered",
+                        message=("Only " + ", ".join(sorted(_offered)) + " can be called now; "
+                                 + ", ".join(sorted(set(_stray))) + " is not available for this step."),
+                    ),
+                ))
+                return
 
         # Emit final decision with metrics
         final_decision = self._build_decision(

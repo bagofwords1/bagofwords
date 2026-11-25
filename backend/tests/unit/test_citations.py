@@ -132,8 +132,13 @@ def test_surfaces_that_cannot_render_a_citation_are_not_asked_for_one(overrides)
     assert "{{cite:" not in built.system
 
 
-@pytest.mark.parametrize("platform", ["slack", "teams", "whatsapp", "google_chat"])
-def test_chat_channels_are_asked_to_cite(platform):
+# A chat channel is asked to cite only when it cannot render the cited figure
+# itself: Teams / Google Chat show the user text only, so the "[1] <title>"
+# footnote is their one pointer to the source. WhatsApp / Slack deliver the
+# chart as an image in the same turn, so a footnote just repeats a visible title
+# (and the "[1]" opens nothing) — they are not asked to cite.
+@pytest.mark.parametrize("platform", ["teams", "google_chat"])
+def test_channels_that_cannot_render_the_figure_are_asked_to_cite(platform):
     built = PromptBuilderV3.build(PlannerInput(
         user_message="how many orders last month?",
         organization_name="Acme",
@@ -141,6 +146,17 @@ def test_chat_channels_are_asked_to_cite(platform):
         external_platform=platform,
     ))
     assert cited_ids(built.system)
+
+
+@pytest.mark.parametrize("platform", ["whatsapp", "slack"])
+def test_channels_that_show_the_figure_inline_are_not_asked_to_cite(platform):
+    built = PromptBuilderV3.build(PlannerInput(
+        user_message="how many orders last month?",
+        organization_name="Acme",
+        organization_ai_analyst_name="Ada",
+        external_platform=platform,
+    ))
+    assert "{{cite:" not in built.system
 
 
 # --- surfaces that leave the product as plain text ----------------------------

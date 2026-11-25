@@ -14,7 +14,10 @@ import { computed, isProxy, isReactive, nextTick, ref, shallowRef, toRaw, watch 
 // the srcdoc seed nor ARTIFACT_DATA is built through a JSON text round trip.
 // What the frame receives keeps the values (and the separate arrays per chart)
 // it had when everything went through JSON; a payload the browser refuses to
-// copy goes as the JSON copy, with one console warning.
+// copy goes as the JSON copy, with one console warning. A frame that rendered
+// from its srcdoc seed is not sent the same data again when it reports
+// ARTIFACT_READY, only ARTIFACT_DATA_CURRENT; what changed while it loaded is
+// sent once.
 //
 // The real code: ArtifactFrame.vue's own functions, declarations and its
 // data watcher, taken from its <script setup>, over the real useMyFetch. Only
@@ -61,11 +64,12 @@ const fn = (name) => ast.statements.find((s) => ts.isFunctionDeclaration(s) && s
 const declaration = (name) => ast.statements.find((s) => ts.isVariableStatement(s)
   && s.declarationList.declarations.some((d) => d.name.getText(ast) === name))?.getText(ast)
 const dataWatcher = ast.statements.find((s) => ts.isExpressionStatement(s)
-  && /^watch\(\[visualizationsData, filesData, iframeReady\]/.test(s.getText(ast)))?.getText(ast)
+  && /^watch\(\[visualizationsData, filesData(, iframeReady)?\]/.test(s.getText(ast)))?.getText(ast)
 assert.ok(dataWatcher, 'the frame re-sends its data when it changes (watcher)')
 
-const FUNCTIONS = ['fetchData', 'runParamQueries', 'sendDataToIframe', 'paramSubsetForQuery', 'queriesWithIdentityParams', 'replaceVisualizationsData']
-const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'srcdocSeed']
+const FUNCTIONS = ['fetchData', 'runParamQueries', 'sendDataToIframe', 'paramSubsetForQuery', 'queriesWithIdentityParams', 'replaceVisualizationsData',
+  'handleIframeMessage', 'frameContext', 'frameHasSeedData']
+const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'srcdocSeed', 'seededFrom'].filter(declaration)
 const present = FUNCTIONS.filter(fn)
 const frameCode = "'use strict';\n" + transpile([
   ...DECLARED.map(declaration),
@@ -90,8 +94,10 @@ const queriesResponse = () => [
     default_step: { status: 'success', data: { rows: [{ n: 1 }], columns: [{ field: 'n' }] }, data_model: {}, code: '' } },
 ]
 
-function frame({ responses = {}, viewer = { id: 'u-1', name: 'Viewer' }, params = { values: {} }, verificationPreview = false, prefetch = null } = {}) {
+function frame({ responses = {}, viewer = { id: 'u-1', name: 'Viewer' }, params = { values: {} }, verificationPreview = false, prefetch = null,
+  runtime = { version: 11 }, layouts = { 'viz-1': { widths: { amount: 120 } } } } = {}) {
   const fetched = []
+  const events = []
   const received = { main: [], fullscreen: [] }
   const frameWindow = (name) => ({ postMessage(message) { received[name].push(structuredClone(message)) } })
   const useApplicationFetch = realUseMyFetch(responses, fetched)
@@ -117,14 +123,14 @@ function frame({ responses = {}, viewer = { id: 'u-1', name: 'Viewer' }, params 
     effectiveViewerContext: ref(viewer),
     verificationRequests: new Map(), verificationRevision: 0, previewConversationPolicy: null,
     paramAckSeq: 0, paramRunCounter: 0, latestParamRunForQid: {}, logActivity: null,
-    verificationEvent: () => {}, postParamsStatus: () => {}, syncParamsToUrl: () => {}, readParamsFromUrl: () => ({}),
+    verificationEvent: (kind, fields) => events.push({ kind, ...fields }), handleTableLayoutMessage: () => false, postParamsStatus: () => {}, syncParamsToUrl: () => {}, readParamsFromUrl: () => ({}),
     watchHydration: () => {}, resolveParamOptions: async () => {}, fetchArtifactFiles: async () => [],
     whenArtifactLibsSettled: async () => {}, inlineableArtifactLibs: () => [], frameIframeOptions: (seed) => ({ data: seed }),
-    paramsPayload: () => params, artifactRuntime: () => ({ version: 11 }),
-    loadTableLayouts: () => ({ 'viz-1': { widths: { amount: 120 } } }), tableLayoutKey: () => 'dash-1',
+    paramsPayload: () => params, artifactRuntime: () => ({ ...runtime }),
+    loadTableLayouts: () => structuredClone(layouts), tableLayoutKey: () => 'dash-1',
   }
   const own = new Function(...Object.keys(state), frameCode)(...Object.values(state))
-  return { state, own, fetched, received }
+  return { state, own, fetched, received, events, runtime, layouts }
 }
 
 // What the old frame sent and seeded: everything through one JSON copy.
@@ -179,14 +185,15 @@ test('ARTIFACT_DATA and the seed keep the JSON copy\'s values; each chart keeps 
   const { own, state, received } = frame({ responses: { [QUERIES]: queriesResponse(), '/api/reports/rep-1': report }, viewer, params })
   await own.fetchData('art-1')
   const list = own.visualizationsData.value
-  assert.deepStrictEqual(structuredClone(own.srcdocSeed.value), oldPayload(list), 'the seed: same values as the JSON-copied seed')
-  assert.equal(JSON.stringify(own.srcdocSeed.value), JSON.stringify(oldPayload(list)), 'and the same text in the frame\'s HTML')
+  // The seed also carries the viewer's saved table layouts, as a push does.
+  const expected = oldPayload(list, { table_layouts: { 'viz-1': { widths: { amount: 120 } } } })
+  assert.deepStrictEqual(structuredClone(own.srcdocSeed.value), expected, 'the seed: same values as the JSON-copied seed')
+  assert.equal(JSON.stringify(own.srcdocSeed.value), JSON.stringify(expected), 'and the same text in the frame\'s HTML')
 
   state.iframeReady.value = true
   state.fullscreenReady.value = true
   received.main.length = 0
   own.sendDataToIframe()
-  const expected = oldPayload(list, { table_layouts: { 'viz-1': { widths: { amount: 120 } } } })
   for (const name of ['main', 'fullscreen']) {
     assert.equal(received[name].length, 1, `${name} frame gets the data`)
     assert.deepStrictEqual(received[name][0].payload, expected, `${name}: same values as from the JSON copy`)
@@ -326,4 +333,119 @@ test('the verification preview does not send the clone opt-out to its broker', a
   const call = fetched.find((f) => f.request === QUERIES)
   assert.ok(call?.preview, 'the preview fetches through its broker')
   assert.equal('noClone' in (call.opts || {}), false)
+})
+
+// ── ARTIFACT_READY: the frame rendered from its srcdoc seed ─────────────────
+// What the frame posts once its first render is on screen (utils/artifactIframe.ts).
+const ready = async (own, state, name = 'main') => {
+  const source = (name === 'main' ? state.iframeRef : state.fullscreenRuntimeFrame).value.contentWindow
+  own.handleIframeMessage({ source, data: { type: 'ARTIFACT_READY' } })
+  await flush()
+}
+const opened = async (options = {}) => {
+  const f = frame({ responses: { [QUERIES]: queriesResponse(), '/api/reports/rep-1': report }, ...options })
+  await f.own.fetchData('art-1')
+  await flush()
+  return f
+}
+
+test('a fresh open: the frame already has its data from the seed, ARTIFACT_READY sends only ARTIFACT_DATA_CURRENT', async () => {
+  const { own, state, received } = await opened()
+  assert.equal(received.main.length, 0, 'nothing is sent while the frame loads')
+  await ready(own, state)
+  assert.equal(state.iframeReady.value, true, 'the frame is ready')
+  assert.deepEqual(received.main, [{ type: 'ARTIFACT_DATA_CURRENT' }],
+    'not the data its seed already holds: one small "your data is current" message, no payload')
+  assert.equal(state.iframeError.value, null)
+})
+
+test('a render error the frame reports after ARTIFACT_READY stays on screen', async () => {
+  const { own, state, received } = await opened()
+  await ready(own, state)
+  assert.deepEqual(received.main.map((m) => m.type), ['ARTIFACT_DATA_CURRENT'])
+  // A data listener fails while handling ARTIFACT_DATA_CURRENT: its error comes after READY.
+  own.handleIframeMessage({ source: state.iframeRef.value.contentWindow, data: { type: 'ARTIFACT_ERROR', payload: { message: 'render failed' } } })
+  assert.equal(state.iframeError.value, 'render failed', 'the error banner is kept')
+})
+
+test('what changed while the frame loaded is sent once, on ARTIFACT_READY', async () => {
+  const changes = {
+    'the data list replaced (a late identity run)': ({ own }) => own.replaceVisualizationsData(
+      own.visualizationsData.value.map((v, i) => (i === 0 ? { ...v, rows: [{ region: 'LATAM', amount: 7 }] } : v))),
+    'the embedded files': ({ state }) => { state.filesData.value = [{ id: 'file-1', url: 'https://files.test/1' }] },
+    'the viewer (view-as)': ({ state }) => { state.effectiveViewerContext.value = { id: 'u-2', name: 'Member' } },
+    'the param values': ({ params }) => { params.values.region = 'APAC' },
+    'the report (its title or theme)': ({ state }) => { state.reportData.value = { ...state.reportData.value, title: 'Pipeline (renamed)' } },
+    'the runtime version': ({ runtime }) => { runtime.version = 12 },
+    'the saved table layouts (a resize saved elsewhere)': ({ layouts }) => { layouts['viz-2'] = { widths: { n: 90 }, order: ['n'] } },
+    'the param ack (a control committed)': ({ params }) => { params.ack = 2 },
+  }
+  for (const [what, change] of Object.entries(changes)) {
+    const params = { values: { region: 'EMEA' } }
+    const f = await opened({ params })
+    change({ ...f, params })
+    await flush()
+    assert.equal(f.received.main.length, 0, `${what}: not sent before the frame is ready`)
+    await ready(f.own, f.state)
+    assert.deepEqual(f.received.main.map((m) => m.type), ['ARTIFACT_DATA'], `${what}: sent once when the frame is ready, no ARTIFACT_DATA_CURRENT`)
+    const sent = f.received.main[0].payload
+    assert.deepEqual(sent.visualizations.map((v) => v.rows), f.own.visualizationsData.value.map((v) => v.rows), `${what}: the live data`)
+    assert.deepEqual(sent.current_user, f.state.effectiveViewerContext.value, `${what}: the live viewer`)
+    assert.deepEqual(sent.files, f.state.filesData.value, `${what}: the live files`)
+    assert.deepEqual(sent.params, params, `${what}: the live params`)
+    assert.deepEqual(sent.report, f.state.reportData.value, `${what}: the live report`)
+    assert.deepEqual(sent.runtime, f.runtime, `${what}: the live runtime`)
+    assert.deepEqual(sent.table_layouts, f.layouts, `${what}: the live table layouts`)
+  }
+})
+
+test('after ARTIFACT_READY: a filter run, an in-place refresh and new files each reach the frame', async () => {
+  const fresh = { status: 'success', data: { rows: [{ region: 'EMEA', amount: 9 }], columns: [{ field: 'region' }, { field: 'amount' }] } }
+  const responses = { [QUERIES]: queriesResponse(), '/api/reports/rep-1': report, [RUN_Q1]: fresh }
+  const { own, state, received } = frame({ responses })
+  await own.fetchData('art-1')
+  await flush()
+  await ready(own, state)
+  const sends = []
+  const count = async (action) => { received.main.length = 0; await action(); await flush(); sends.push(received.main.length); return received.main.at(-1)?.payload }
+
+  const filtered = await count(() => own.runParamQueries({ region: 'EMEA' }))
+  assert.deepEqual(filtered.visualizations[0].rows, fresh.data.rows, 'the filter run end sends the filtered rows')
+  const reloaded = queriesResponse()
+  reloaded[0].default_step.data.rows = [{ region: 'LATAM', amount: 7 }]
+  responses[QUERIES] = reloaded
+  const refreshed = await count(() => own.fetchData('art-1', { inPlace: true }))
+  assert.deepEqual(refreshed.visualizations[0].rows, [{ region: 'LATAM', amount: 7 }], 'the in-place refresh sends the refreshed rows')
+  const withFile = await count(() => { state.filesData.value = [{ id: 'file-1', url: 'https://files.test/1' }] })
+  assert.deepEqual(withFile.files, [{ id: 'file-1', url: 'https://files.test/1' }], 'new files are sent')
+  // Unchanged by the ARTIFACT_READY change: an in-place refresh sends three
+  // times as before (the watcher for the new list, again for its re-resolved
+  // files list, and fetchData's own send at its end).
+  assert.deepEqual(sends, [1, 3, 1], 'sends per change (filter run end, in-place refresh, files)')
+})
+
+test('the verification preview is always sent its data on ARTIFACT_READY, with its data_sent event', async () => {
+  const { own, state, received, events } = await opened({ verificationPreview: true })
+  await ready(own, state)
+  assert.deepEqual(received.main.map((m) => m.type), ['ARTIFACT_DATA'], 'the preview gets one push on ready, no ARTIFACT_DATA_CURRENT')
+  assert.equal(received.main[0].payload.verification_revision, 1, 'with its revision')
+  assert.deepEqual(events.filter((e) => e.kind === 'data_sent').map((e) => e.data_revision), [1], 'and one data_sent event for it')
+})
+
+test('the fullscreen frame is sent its data on its own ARTIFACT_READY', async () => {
+  const { own, state, received } = await opened()
+  await ready(own, state)
+  await ready(own, state, 'fullscreen')
+  assert.equal(state.fullscreenReady.value, true)
+  assert.deepEqual(received.fullscreen.map((m) => m.type), ['ARTIFACT_DATA'], 'the fullscreen frame gets one push, no ARTIFACT_DATA_CURRENT')
+  // Unchanged: a push goes to every ready frame, so the main frame gets this one too.
+  assert.deepEqual(received.main.map((m) => m.type), ['ARTIFACT_DATA_CURRENT', 'ARTIFACT_DATA'],
+    'the main frame: data current on its own ready, then the fullscreen ready\'s push as before')
+  assert.deepEqual(received.fullscreen[0].payload.visualizations.map((v) => v.rows), own.visualizationsData.value.map((v) => v.rows))
+  assert.deepEqual(received.fullscreen[0].payload.table_layouts, { 'viz-1': { widths: { amount: 120 } } }, 'with the saved table layouts')
+})
+
+test('the seed carries the viewer\'s saved table layouts, so the frame has them on first paint', async () => {
+  const { own } = await opened()
+  assert.deepEqual(own.srcdocSeed.value.table_layouts, { 'viz-1': { widths: { amount: 120 } } })
 })

@@ -2646,7 +2646,8 @@
     "add": "إضافة",
     "domainsHint": "تطابق تام فقط. لا تُستخدم رموز البدل. اقرنها بالتحقق من البريد الإلكتروني لتجنب الانتحال.",
     "autoInviteRole": "دور الدعوة التلقائية",
-    "roleHint": "الدور المُمنوح عند التسجيل. يمكنك تغييره للأعضاء الحاليين لاحقًا.",
+    "roleHint": "اتركه على الافتراضي للمؤسسة لاستخدام الدور المحدد في صفحة الأعضاء، أو اختر دورًا مختلفًا للمسجلين حسب النطاق.",
+    "useOrgDefault": "الافتراضي للمؤسسة ({role})",
     "removeHint": "إزالة نطاق تؤثر فقط على عمليات التسجيل الجديدة — يحتفظ الأعضاء الحاليون بصلاحياتهم.",
     "save": "حفظ",
     "removeDomainAria": "إزالة النطاق",
@@ -3282,7 +3283,7 @@
       "attributesSaved": "تم حفظ السمات",
       "attributesSaveFailed": "تعذّر حفظ السمات",
       "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير.",
-      "defaultRoleHint": "يملأ الدور مسبقًا عند إضافة عضو أو دعوته.",
+      "defaultRoleHint": "الدور الذي يحصل عليه كل عضو جديد: عند إضافته هنا أو استيراده أو انضمامه عبر SSO أو SCIM أو LDAP أو التسجيل حسب النطاق. ينطبق على الأعضاء الجدد فقط.",
       "defaultRoleSaved": "تم حفظ الدور الافتراضي",
       "defaultRoleFailed": "تعذر حفظ الدور الافتراضي",
       "defaultRoleShort": "الدور الافتراضي",
@@ -4792,6 +4793,24 @@
           "title": "أنشئ سر العميل",
           "body": "في Certificates & secrets > New client secret، أنشئ سرًا وانسخ قيمته Value (وليس Secret ID) إلى حقل Client Secret أدناه. لن تتمكن من رؤية القيمة مرة أخرى لاحقًا."
         }
+      ],
+      "hubspot": [
+        {
+          "title": "أنشئ MCP connector في HubSpot",
+          "body": "في حساب HubSpot انتقل إلى Development > MCP Connectors وانقر على Create MCP connector. امنحه اسمًا."
+        },
+        {
+          "title": "أضف عنوان URL لإعادة التوجيه",
+          "body": "الصق عنوان URL هذا في حقل Redirect URL الخاص بالموصل، ثم انقر على Create."
+        },
+        {
+          "title": "انسخ معرّف العميل والسر",
+          "body": "في صفحة تفاصيل الموصل، انسخ Client ID وClient secret إلى الحقول أدناه."
+        },
+        {
+          "title": "يسجّل كل مستخدم الدخول بنفسه",
+          "body": "لا تحدد نطاقات على الموصل. يختار كل مستخدم حساب HubSpot الخاص به ويمنح الوصول عند تسجيل الدخول. لا يرى الوكيل إلا ما يستطيع هذا المستخدم رؤيته في HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "فشل النسخ — حدد النص",
@@ -4853,7 +4872,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "توحيد الجداول عبر قواعد البيانات",
+      "unifyTablesDescription": "ادمج الجداول المتطابقة الاسم من قواعد البيانات المطابقة في جدول واحد مع عمود tenant_db. لا يمكن تغيير ذلك بعد إنشاء الاتصال."
     },
     "postgresqlMulti": {
       "databasesTitle": "قواعد البيانات",
@@ -5045,7 +5066,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "لا يمكن أن يكون \"السماح بالكل\" هو الافتراضي إلا أثناء تشغيله.",
     "tool_permission_mode.judge_model_unavailable": "اختر نموذج قرار مفعّلًا لحَكَم الوضع التلقائي.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "لا يمكن تغيير اتصال Athena بين قاعدة بيانات واحدة وعدة قواعد بيانات وجداول موحّدة. أنشئ اتصالًا جديدًا بدلًا من ذلك.",
     "catalog_discovery_incomplete": "فشل تحديث الكتالوج لأن الاكتشاف لم يكتمل. تم الاحتفاظ بالكتالوج السابق واختيارات الجداول.",
     "saml_unavailable": "إعدادات تسجيل الدخول الموحد غير متاحة. تواصل مع المسؤول.",
     "saml_login_failed": "فشل تسجيل الدخول الموحد. أعد المحاولة أو تواصل مع المسؤول.",

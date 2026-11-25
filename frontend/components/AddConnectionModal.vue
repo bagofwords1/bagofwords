@@ -614,7 +614,7 @@ function selectCatalogEntry(entry: any) {
   // calls that "dcr". oauth_app needs an admin-registered client; bearer is a
   // token; basic is an email/username + API token (e.g. Bitbucket).
   const isDcr = entry.auth === 'oauth'
-  const authType = isDcr ? 'dcr' : (['oauth_app', 'basic'].includes(entry.auth) ? entry.auth : 'bearer')
+  const authType = isDcr ? 'dcr' : (['oauth_app', 'basic', 'none'].includes(entry.auth) ? entry.auth : 'bearer')
   selectedDataSource.value = {
     type: 'mcp',
     title: entry.title,
@@ -632,6 +632,8 @@ function selectCatalogEntry(entry: any) {
     oauth_defaults: entry.oauth_defaults || null,
     description: entry.description || '',
     sample_tools: entry.sample_tools || null,
+    key: entry.key,
+    setup_guide: entry.setup_guide || null,
   }
   formDirty.value = false
   step.value = 'form'

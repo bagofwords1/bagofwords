@@ -10,7 +10,13 @@ explicit truncation note. Older observations are sampled down separately by the
 observation compaction layer.
 """
 import json
-from typing import Any, Dict, List
+import logging
+import math
+import re
+from decimal import Decimal
+from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 # Byte budget for a single latest-observation preview (~12k tokens). Comfortably
 # read_artifact-scale and well under Snowflake's 250 KB per-response ceiling.
@@ -263,3 +269,383 @@ def build_data_preview(
         "cells_truncated": cells_truncated,
         "note": note,
     }
+
+
+# ---------------------------------------------------------------------------
+# Column sums for model-facing previews
+#
+# A neutral ``column_sums`` block, ``{"note": "sum = sum of all N rows",
+# "sum": {field: value}}``: the exact sum over all rows of each numeric column,
+# so the model never adds up a table itself. There is no instruction attached;
+# whether a sum means anything stays the model's judgement, as it is for the
+# ``mean`` it already gets. Guards: no sum on identifier or year-like columns,
+# and no block when the rows plainly hold a total row (a total label, or the
+# ``k x max`` signature). Where the rows at hand are incomplete, a missing label
+# proves nothing, so the ``k x max`` check decides and fails safe.
+# ---------------------------------------------------------------------------
+
+SUMS_MAX_COLUMNS = 10
+SUMS_ROW_SCAN_LIMIT = 1000
+
+_ID_TOKENS = frozenset({
+    "id", "ids", "uid", "uuid", "guid", "key", "pk", "fk", "code", "sku", "ean",
+    "upc", "isbn", "iban", "zip", "zipcode", "postcode", "phone",
+})
+_ID_LAST_TOKENS = frozenset({"no", "nr", "nbr", "num", "number"})
+_ID_SUFFIX_EXCEPTIONS = (
+    "aid", "oid", "fluid", "liquid", "squid", "valid", "covid", "hybrid", "acid",
+    "solid", "rapid", "humid", "vivid", "rigid", "bid",
+)
+_CALENDAR_TOKENS = frozenset({
+    "year", "yr", "yyyy", "fy", "quarter", "qtr", "month", "week", "wk", "weekday",
+    "day", "date", "hour", "period", "שנה", "שנת", "רבעון", "חודש", "שבוע", "יום",
+    "תאריך",
+})
+_HINT_TOKENS = frozenset({
+    "count", "counts", "cnt", "num", "number", "total", "totals", "sum", "amount",
+    "amt", "cost", "costs", "spend", "spent", "revenue", "revenues", "sales",
+    "income", "expense", "expenses", "profit", "budget", "actual", "paid", "fee",
+    "fees", "tax", "taxes", "qty", "quantity", "units", "orders", "shipments",
+    "hours", "eur", "usd", "ils", "nis", "gbp",
+})
+_HEBREW_HINTS = ("סכום", "עלות", "הכנסה", "הוצאה", "תקציב", "כמות", "שעות")
+
+_TOTAL_LABEL_RE = re.compile(r"(?<![a-z0-9])(?:sub|grand[ _-]?)?totals?(?![a-z0-9])")
+_SUMMARY_LABELS = frozenset({"all", "(all)", "average", "avg", "avg.", "mean", "ממוצע"})
+_HEBREW_TOTAL_LABELS = ('סה"כ', "סה״כ", "סה''כ", "סך הכל", "סך הכול")
+_MAX_LABEL_CHARS = 64
+
+_CAMEL_RE = re.compile(r"(?<=[a-z])(?=[A-Z])")
+_LETTER_DIGIT_RE = re.compile(r"(?<=[^\W\d_])(?=\d)|(?<=\d)(?=[^\W\d_])")
+
+# to_json writes at most 10 decimals (its double_precision default).
+_MAX_DECIMALS = 10
+# mean x count is a float: past this it can be off by whole units (2**53 ~ 9e15).
+_MAX_FLOAT_SUM = 1e15
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _finite(value: Any) -> bool:
+    if not _is_number(value):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an int past the float range
+        return False
+
+
+def _tokens(field: str) -> List[str]:
+    text = _LETTER_DIGIT_RE.sub(" ", _CAMEL_RE.sub(" ", field))
+    text = "".join(ch if ch.isalnum() else " " for ch in text)
+    return [t.casefold() for t in text.split()]
+
+
+def _is_identifier(field: str, tokens: List[str]) -> bool:
+    if any(t in _ID_TOKENS for t in tokens):
+        return True
+    if "מזהה" in field or "קוד" in tokens:
+        return True
+    if not tokens:
+        return False
+    last = tokens[-1]
+    if last in _ID_LAST_TOKENS:
+        return True
+    return len(last) >= 4 and last.endswith("id") and not last.endswith(_ID_SUFFIX_EXCEPTIONS)
+
+
+def _is_whole(value: Any) -> bool:
+    return _finite(value) and float(value).is_integer()
+
+
+def _is_year_like(tokens: List[str], lo: Any, hi: Any) -> bool:
+    if any(t in _CALENDAR_TOKENS for t in tokens):
+        return True
+    return _is_whole(lo) and _is_whole(hi) and 1900 <= lo <= hi <= 2100
+
+
+def _has_hint(field: str, tokens: List[str]) -> bool:
+    return any(t in _HINT_TOKENS for t in tokens) or any(h in field for h in _HEBREW_HINTS)
+
+
+def _round_sum(s: Any, integral: bool) -> Any:
+    if integral:
+        # A whole Decimal sum is exact; a float one (mean x count) needs rounding.
+        return int(s) if isinstance(s, Decimal) else int(round(s))
+    if abs(s) >= 1e11:
+        return int(round(s))
+    if abs(s) >= 1:
+        r = round(s, 2)
+        return int(r) if r == int(r) else float(r)
+    return float(f"{s:.4g}")
+
+
+def _fields(columns: Any, column_info: Dict[str, Any]) -> List[str]:
+    fields: List[str] = []
+    if isinstance(columns, list) and columns:
+        for entry in columns:
+            if isinstance(entry, dict):
+                field = entry.get("field")
+                if field is None or field == "":
+                    continue
+                fields.append(str(field))
+            elif isinstance(entry, str) and entry:
+                fields.append(entry)
+    else:
+        fields = list(column_info)
+    seen = set()
+    return [f for f in fields if not (f in seen or seen.add(f))]
+
+
+def _numeric_column(ci: Any) -> Optional[Tuple[float, bool, float, float]]:
+    """(sum, integral, min, max) of a numeric column from its describe() stats."""
+    if not isinstance(ci, dict):
+        return None
+    dtype = str(ci.get("dtype", "")).lower()
+    if not dtype.startswith(("int", "uint", "float")):
+        return None
+    mean, count, lo, hi = ci.get("mean"), ci.get("count"), ci.get("min"), ci.get("max")
+    if not all(_finite(v) for v in (mean, count, lo, hi)) or count < 1:
+        return None
+    s = mean * count
+    if abs(s) >= _MAX_FLOAT_SUM:
+        return None
+    # Cancellation needs mixed signs: [1e16, 1, -1e16] has a describe() mean
+    # of 0. Bounding every value then bounds the error accumulated while
+    # summing. A same-sign column needs no such term: its sum of absolute
+    # values is |s|, already bounded above. Integer-valued columns are exact
+    # under the bound; fractional values next to large opposite-sign values
+    # can still be slightly off below it ([3e14, 0.01, -3e14] sums to 0.0).
+    if lo < 0 < hi and max(abs(lo), abs(hi)) * count >= _MAX_FLOAT_SUM:
+        return None
+    return s, dtype.startswith(("int", "uint")), lo, hi
+
+
+def _object_column_stats(
+    rows: List[Any], field: str, non_null_count: Any
+) -> Optional[Tuple[Decimal, bool, float, float]]:
+    """(exact sum, integral, min, max) of an object column whose cells are numbers.
+
+    Object columns are Decimal results from clients that build the frame from
+    raw rows; the stored rows hold them as JSON numbers. Only called with the
+    complete rows. Numeric strings are never parsed.
+    """
+    if not _is_number(non_null_count):
+        return None
+    values: List[Decimal] = []
+    for row in rows:
+        cell = row.get(field)
+        if cell is None:
+            continue
+        if not _finite(cell) or abs(cell) >= 1e15:
+            return None
+        values.append(Decimal(cell) if isinstance(cell, int) else Decimal(repr(cell)))
+    if not values or len(values) != non_null_count:
+        return None
+    integral = all(v == v.to_integral_value() for v in values)
+    return sum(values, Decimal(0)), integral, float(min(values)), float(max(values))
+
+
+def _has_total_label(scan: List[Any]) -> bool:
+    for row in scan:
+        cells = row.values() if isinstance(row, dict) else row if isinstance(row, list) else ()
+        for cell in cells:
+            if not isinstance(cell, str):
+                continue
+            text = cell.strip()
+            if not text or len(text) > _MAX_LABEL_CHARS:
+                continue
+            folded = text.casefold()
+            if _TOTAL_LABEL_RE.search(folded):
+                return True
+            bare = folded[:-1].strip() if folded.endswith(":") else folded
+            if bare in _SUMMARY_LABELS:
+                return True
+            if any(h in text for h in _HEBREW_TOTAL_LABELS):
+                return True
+    return False
+
+
+def _decimals(value: Any) -> int:
+    if isinstance(value, int):
+        return 0
+    text = repr(value)
+    if "e" in text or "E" in text:
+        return _MAX_DECIMALS
+    if "." not in text:
+        return 0
+    return min(len(text.split(".", 1)[1].rstrip("0")), _MAX_DECIMALS)
+
+
+def _column_decimals(scan: List[Any], field: str) -> Optional[int]:
+    """Most decimal places among the column's JSON-number cells, or None if none."""
+    d: Optional[int] = None
+    for row in scan:
+        if isinstance(row, dict):
+            v = row.get(field)
+            if _finite(v):
+                d = max(d or 0, _decimals(v))
+    return d
+
+
+def _matches_k_max(s: float, hi: float, d: Optional[int], row_count: int) -> bool:
+    rounding = 0.0 if d is None else min(0.5 * 10 ** -d * (row_count + 3), 0.01 * hi)
+    tol = max(1e-9 * abs(s), rounding)
+    return any(abs(s - k * hi) <= tol for k in (2, 3, 4))
+
+
+def _maxima_on_one_row(scan: List[Any], cols: List[Tuple[str, float]]) -> bool:
+    for row in scan:
+        if not isinstance(row, dict):
+            continue
+        if all(
+            _finite(row.get(f)) and abs(row[f] - hi) <= max(1e-9 * abs(hi), 1e-10)
+            for f, hi in cols
+        ):
+            return True
+    return False
+
+
+def _total_row_suspected(
+    eligible: List[Tuple[str, Any, bool, Any, Any]],
+    row_count: int,
+    scan: List[Any],
+    complete: bool,
+) -> bool:
+    """S6: the ``k x max`` signature of a total row among non-negative columns."""
+    non_negative = [(f, s, hi) for f, s, _, lo, hi in eligible if lo >= 0 and hi > 0]
+    matching = [
+        (f, hi) for f, s, hi in non_negative
+        if _matches_k_max(float(s), float(hi), _column_decimals(scan, f), row_count)
+    ]
+    if not complete:
+        return not non_negative or bool(matching)
+    if not matching:
+        return False
+    if len(non_negative) == 1:
+        return True
+    if len(matching) == 1:
+        return False
+    return _maxima_on_one_row(scan, matching)
+
+
+def column_sums(
+    info: Optional[Dict[str, Any]],
+    columns: Optional[List[Any]],
+    row_count: int,
+    rows: Optional[List[Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """The ``column_sums`` block for a result, or None.
+
+    *info* is a ``get_df_info`` dict (live or stored), *columns* the widget
+    columns (only ``field`` is read), *row_count* the result's true row count
+    and *rows* whatever rows are at hand (all of them, or a prefix). Returns
+    ``{"note": "sum = sum of all N rows", "sum": {field: value}}``, or None when
+    there are fewer than 2 rows, a total-row check fires, or no column is
+    eligible. Never logs.
+    """
+    if not isinstance(info, dict) or not _is_number(row_count) or row_count < 2:
+        return None
+    raw_column_info = info.get("column_info")
+    if not isinstance(raw_column_info, dict):
+        return None
+    column_info = {str(k): v for k, v in raw_column_info.items()}
+
+    scan = rows[:SUMS_ROW_SCAN_LIMIT] if isinstance(rows, list) else []
+    complete = (
+        isinstance(rows, list)
+        and len(rows) == row_count
+        and row_count <= SUMS_ROW_SCAN_LIMIT
+        and all(isinstance(r, dict) for r in scan)
+    )
+
+    eligible: List[Tuple[str, Any, bool, Any, Any]] = []
+    for field in _fields(columns, column_info):
+        ci = column_info.get(field)
+        stats = _numeric_column(ci)
+        is_object = isinstance(ci, dict) and str(ci.get("dtype", "")).lower() == "object"
+        if stats is None and is_object and complete:
+            # Decimal cells: an exact sum, only from the complete rows.
+            stats = _object_column_stats(scan, field, ci.get("non_null_count"))
+        if stats is None:
+            continue
+        s, integral, lo, hi = stats
+        tokens = _tokens(field)
+        if _is_identifier(field, tokens):
+            continue
+        if _is_year_like(tokens, lo, hi) and not _has_hint(field, tokens):
+            continue
+        eligible.append((field, s, integral, lo, hi))
+    if not eligible:
+        return None
+
+    if _has_total_label(scan):
+        return None
+    if _total_row_suspected(eligible, row_count, scan, complete):
+        return None
+
+    sums = {f: _round_sum(s, integral) for f, s, integral, _, _ in eligible[:SUMS_MAX_COLUMNS]}
+    return {"note": f"sum = sum of all {row_count} rows", "sum": sums}
+
+
+def with_column_sums(
+    preview: Optional[Dict[str, Any]],
+    data: Optional[Dict[str, Any]],
+    *,
+    call_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """A copy of a visible *preview* with a ``column_sums`` block, or *preview* itself.
+
+    *data* is a ``format_df_for_widget`` dict or a stored step's ``data``. Hidden
+    previews, non-int row counts and results the rule declines come back
+    unchanged (the same object). Logs one INFO line, with the tool call id and
+    two counts only, when a block is added. Never raises: on an error it logs
+    one WARNING (tool call id and error type) and returns *preview* unchanged.
+
+    *call_id* is ``runtime_ctx["tool_call_id"]`` (the ToolExecution id), not a
+    step id: create_data and describe_entity build their observation before
+    the orchestrator's step id reaches the tool, and the ToolExecution row
+    links the call to its step (``created_step_id``) and its run.
+    """
+    try:
+        if not isinstance(preview, dict) or not isinstance(data, dict):
+            return preview
+        if preview.get("data_hidden"):
+            return preview
+        row_count = preview.get("row_count")
+        if not isinstance(row_count, int) or isinstance(row_count, bool):
+            return preview
+        block = column_sums(data.get("info"), data.get("columns"), row_count, data.get("rows"))
+        if block is None:
+            return preview
+        logger.info(
+            "column sums added: call=%s rows=%d columns=%d",
+            call_id, row_count, len(block["sum"]),
+        )
+        return {**preview, "column_sums": block}
+    except Exception as e:
+        _log_sums_skipped("call", call_id, e)
+        return preview
+
+
+def guarded_column_sums(
+    info: Optional[Dict[str, Any]],
+    columns: Optional[List[Any]],
+    row_count: int,
+    rows: Optional[List[Any]] = None,
+    *,
+    step_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """``column_sums``, or None with one WARNING (step id and error type only) if it raises."""
+    try:
+        return column_sums(info, columns, row_count, rows)
+    except Exception as e:
+        _log_sums_skipped("step", step_id, e)
+        return None
+
+
+def _log_sums_skipped(id_kind: str, ref: Optional[str], error: Exception) -> None:
+    # No message, field names or values: they can carry result data.
+    logger.warning("column sums skipped: %s=%s error=%s", id_kind, ref, type(error).__name__)
