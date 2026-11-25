@@ -89,15 +89,37 @@ already present and verified at this commit:
 - The Snyk "source" (`artifact_id` / `ref` / `report_id`) is a **lookup key** that
   fetches a permission-gated object — it is not reflected markup.
 
-## `.snyk` policy cross-check
+## `.snyk` policy cross-check + GitHub Dependabot divergence
 
-The local `.snyk` policy's open-source ignores are all time-boxed to the Nuxt 4
-cohort (expiring 2026-12-07 / 2026-12-21) and remain the documented dev-/
-build-only or dormant-optional transitives (simple-git via `@nuxt/devtools`,
-node-forge via `listhen`, braces/deepmerge/picomatch/ioredis/`@nuxt/vite-builder`/
-`@nuxt/schema` build-time chains, and the client-side-only `flat` MDC transitive).
-The former Python ignores (oauthlib, thrift) stay remediated in `uv.lock`, not
-merely suppressed — the backend raw scan is 0 High/Critical on its own.
+GitHub's push hook reports Dependabot alerts on the default branch
+(**2 critical, 13 high**, 29 moderate, 10 low) — far above Snyk's 0. These are
+*different tools*: Dependabot does **not** honor the repo's `.snyk` policy and
+counts dev/build-only transitives. To be sure the `.snyk` ignores aren't masking
+a real **production** High/Critical, the frontend was re-scanned with the policy
+disabled (`snyk test --severity-threshold=high --ignore-policy`):
+
+- **11** unique High/Critical surface — and **all 11** are already covered by a
+  documented `.snyk` ignore (no new or un-ignored finding):
+
+  | Snyk ID(s) | Package (chain) | Why ignored (per `.snyk`) |
+  |---|---|---|
+  | `SNYK-JS-SIMPLEGIT-20335524/31/40`, `-22804375`; `SNYK-JS-SIMPLEGITARGVPARSER-20335528`, `-22804374` (Critical ×6, incl. CVE-2026-134815) | `simple-git` / `@simple-git/argv-parser` via `nuxt > @nuxt/devtools` | dev-only; `@nuxt/devtools` runs during `nuxt dev`, never in the prod `.output/`; no fix installable under nuxt 3 |
+  | `SNYK-JS-NUXTVITEBUILDER-22132207`, `SNYK-JS-NUXTSCHEMA-22552450/51` (High ×3) | `@nuxt/vite-builder`, `@nuxt/schema` | dev-server-only path-widening; prod ships a static `nuxt generate` `.output` served by FastAPI |
+  | `SNYK-JS-IOREDIS-19963957` (High) | `nuxt > nitropack > ioredis` | dormant optional nitro storage driver; no Redis storage configured |
+  | `SNYK-JS-FLAT-22148819` (High) | `@nuxtjs/mdc > remark-mdc > flat` | client-side resource-exhaustion DoS only (viewer's own tab); no fix exists |
+
+  (Below the High threshold, the `node-forge` / `braces` / `deepmerge` /
+  `picomatch` build-time transitives remain documented in `.snyk` as well.)
+
+- Backend (raw pip scan, no policy) is **0** High/Critical on its own — the
+  `.snyk` python ignores (e.g. the former oauthlib/thrift Highs) are already
+  remediated in `uv.lock`, not merely suppressed.
+
+So every High/Critical Dependabot sees is a **dev- or build-only** transitive the
+`.snyk` policy intentionally accepts (each with reasoning in `.snyk`), not a
+production exposure. The policy is current — no stale or missing ignore. All
+open-source ignores are time-boxed to the Nuxt 4 cohort (expiring 2026-12-07 /
+2026-12-21) for re-review.
 
 ## Action required (outside this repo — Snyk web UI)
 
