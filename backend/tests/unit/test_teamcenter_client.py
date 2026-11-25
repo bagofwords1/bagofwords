@@ -204,6 +204,18 @@ def test_filters_select_the_matching_parts(tcm, flt, expected):
     assert set(df["item_id"]) == expected
 
 
+@pytest.mark.parametrize("flt,expected", [
+    ({"creation_date": "2026-06-02"}, {("PRT-1000", "B")}),
+    ({"creation_date": "2026-06"}, {("PRT-1000", "B"), ("PRT-1001", "B")}),
+    ({"creation_date": {"gte": "2026-06-01"}}, {("PRT-1000", "B"), ("PRT-1001", "B")}),
+])
+def test_a_date_filter_is_never_turned_into_a_range_entry(tcm, flt, expected):
+    """Real object queries carry "Created After/Before" entries on creation_date: an equality filter must
+    not be sent there (it would silently become "created after")."""
+    df = q(client(tcm), table="a2_part_revision", filter=flt, columns=["item_id", "item_revision_id"])
+    assert set(zip(df["item_id"], df["item_revision_id"])) == expected
+
+
 def test_typed_columns_and_the_row_limit(tcm):
     df = q(client(tcm), table="a2_part_revision", columns=["item_id", "a2_mass_kg", "last_mod_date"], limit=3)
     assert len(df) == 3

@@ -106,16 +106,26 @@ reference) of one change or of the changes a change-level filter selects (≤ 20
 **Browser SSO.** TcSS is not OAuth: the browser goes to the TcSS login URL with this
 application's ID (`appID` by default, configurable), signs in through the identity
 provider behind TcSS, and TcSS returns it to the application root URL registered for
-that ID — `/api/connections/teamcenter/sso/callback`. TcSS does not carry our state
-through, so the signed state (the same JWT the OAuth flow uses) rides in an httponly
-cookie set when the sign-in starts (`SameSite=None` over HTTPS, since TcSS may POST
-back). The callback reads the token and user from the parameters (configured names,
-else the first whose name contains "token" / "user"), stores them as the member's
-credential under the `oauth` mode — so the whole per-user machinery (Connect button,
-sign-in-required states, roster) applies unchanged — and runs the same verify /
-roll back / start-indexing tail as the OAuth callback (`_finish_sign_in`). A
-callback without its cookie, with a token Teamcenter refuses, or with no token
-stores nothing.
+that ID — `/api/connections/teamcenter/sso/callback`. TcSS carries none of our state,
+so nothing in the return proves it answers *this* browser's sign-in: an attacker could
+send a member's browser to the callback with the attacker's own token while the
+member's sign-in is pending (login CSRF). So:
+
+1. Start (`/oauth/authorize`): a signed state JWT (audience `conn_tcss`) in an
+   httponly cookie (`SameSite=None` over HTTPS, since TcSS may POST back).
+2. Callback (GET or POST): reads the token and user from the parameters (configured
+   names, else the first whose name contains "token" / "user"), **checks it with
+   Teamcenter**, stores **nothing**, keeps the token in an encrypted 5-minute
+   `SameSite=Strict` cookie, and shows a same-origin page: "Connect … to Teamcenter as
+   Jane Doe (jdoe)?" (no framing, no caching, no referrer).
+3. Confirm (POST from that page): requires that cookie and a code only the page holds
+   (HMAC of a nonce inside the cookie), then stores the token as the member's
+   credential under the `oauth` mode — so the whole per-user machinery (Connect button,
+   sign-in-required states, roster) applies unchanged — through the same verify / roll
+   back / start-indexing tail as the OAuth callback (`_finish_sign_in`).
+
+A return without its state cookie, with a token Teamcenter refuses, with no token, or a
+confirm without its cookie and code stores nothing.
 
 Default member modes (`default_user_auth_modes`): `kerberos_delegated` when the
 system identity is Kerberos, `oauth` when an SSO login URL and application ID are
@@ -135,6 +145,11 @@ again.
 - HTTPS unless an admin enables "Allow HTTP" for a lab; requests go through the
   pinned egress session; responses and downloads are size-capped.
 - Document ids must be well-formed UIDs; only allowed extensions are read.
+- Filters go to saved-query entries only by equality, on string columns; range entries
+  ("Created After") are never fed an equality value.
+- Kerberos tickets are sent only to the TcSS login host, over the login URL's scheme.
+- Known limit: when TcSS returns with a GET, the token is in the callback's query
+  string and so in any access log that records query strings.
 
 ## 8. Verification
 

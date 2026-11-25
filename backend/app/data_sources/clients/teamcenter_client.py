@@ -500,6 +500,10 @@ class _TcSession:
         return http
 
     def close(self) -> None:
+        with self.lock:      # an evicted session may still be serving a call: let it finish
+            self._close()
+
+    def _close(self) -> None:
         http, self.http = self.http, None
         if http is None:
             return
@@ -775,6 +779,7 @@ class TeamcenterClient(DataSourceClient):
         """A TcSS token from the login service, answering its Negotiate challenge with Kerberos."""
         url = tcss_login_url(self._sso_config)
         login_host = (urlsplit(url).hostname or "").lower()
+        login_scheme = urlsplit(url).scheme.lower()
         ccache = None
         try:
             from app.data_sources.kerberos import _import_gssapi, get_ticket_manager
@@ -791,7 +796,7 @@ class TeamcenterClient(DataSourceClient):
             for _ in range(_MAX_SSO_HOPS):
                 host = (urlsplit(url).hostname or "").lower()
                 headers = {}
-                if host == login_host:
+                if host == login_host and urlsplit(url).scheme.lower() == login_scheme:
                     try:
                         with manager.activate(ccache):
                             creds = gssapi.Credentials(usage="initiate")
@@ -1014,13 +1019,17 @@ class TeamcenterClient(DataSourceClient):
                 for f in fields if isinstance(fields, list) else []:
                     if isinstance(f, dict) and (f.get("entryName") or f.get("name")):
                         entries.append({"entry": str(f.get("entryName") or f.get("name")),
-                                        "attr": str(f.get("attributeName") or "")})
+                                        "attr": str(f.get("attributeName") or ""),
+                                        "op": str(f.get("mathOperation") or "").strip().lower()})
             return entries
         return self._cached("query:" + query_name.lower(), load)
 
     @staticmethod
     def _entry_for(entries: list[dict], column: str) -> str | None:
+        """The entry that matches ``column`` by equality. Range entries (Created After, Modified Before:
+        a math operation other than ``=``) are never used: a value sent there would become a bound."""
         col = column.lower()
+        entries = [e for e in entries if e.get("op", "") in ("", "=", "==", "equal", "equals", "like")]
         for e in entries:
             attr = e["attr"].lower()
             if attr and (attr == col or attr.rsplit(".", 1)[-1] == col):
@@ -1436,6 +1445,11 @@ class TeamcenterClient(DataSourceClient):
                 if bool(value) != cond:
                     return False
                 continue
+            if dtype == "datetime" and isinstance(cond, str):
+                # A date (or date-time prefix) matches that day: "2026-06-02" or "2026-06".
+                if not str(value or "").lower().startswith(cond.strip().lower()):
+                    return False
+                continue
             if isinstance(cond, (int, float)) and dtype in ("int", "float"):
                 if value is None or float(value) != float(cond):
                     return False
@@ -1466,8 +1480,8 @@ class TeamcenterClient(DataSourceClient):
         criteria = [(self._entry_for(entries, "object_type"), type_name)]
         local: dict = {}
         for col, cond in filters.items():
-            entry = self._entry_for(entries, col) if col != "object_type" else None
-            if entry and isinstance(cond, (str, int, float)) and not isinstance(cond, bool) and str(cond) != "":
+            entry = self._entry_for(entries, col) if col != "object_type" and types.get(col, "str") == "str" else None
+            if entry and isinstance(cond, str) and cond != "":
                 # The saved query matches on the stored value (a user ID for owning_user), which the
                 # display value read back may not show: a filter sent to Teamcenter is not re-checked here.
                 criteria.append((entry, str(cond)))

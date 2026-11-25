@@ -495,13 +495,40 @@ async def _finish_sign_in(db, connection, user, tokens: dict, return_path, front
 # TcSS is not OAuth: the browser goes to the TcSS login service with this
 # application's ID, signs in through the identity provider behind TcSS (Entra
 # ID over SAML, Active Directory), and TcSS returns it to the application root
-# URL registered for that ID (this callback) with a TcSS token and the
-# Teamcenter user ID. TcSS does not carry our state through, so the signed
-# state rides in an httponly cookie set when the sign-in starts. The token is
-# stored as the member's access token and redeemed with Session/loginSSO.
+# URL registered for that ID (the callback) with a TcSS token and the
+# Teamcenter user ID. TcSS carries none of our state, so nothing in the return
+# itself proves it answers THIS browser's sign-in: an attacker could send a
+# member's browser to the callback with the attacker's own token while the
+# member's sign-in is pending (login CSRF). So the callback stores nothing. It
+# checks the token with Teamcenter, keeps it in an encrypted short-lived cookie,
+# and shows a same-origin page naming the Teamcenter identity; only that page's
+# button (a POST carrying a token only the page holds, from a page that cannot
+# be framed) saves the sign-in.
 # ---------------------------------------------------------------------------
 
 _TCSS_STATE_COOKIE = "conn_tcss_state"
+_TCSS_PENDING_COOKIE = "conn_tcss_pending"
+_TCSS_STATE_AUDIENCE = "conn_tcss"
+_TCSS_CONFIRM_TTL_SECONDS = 300
+_TCSS_PAGE_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+                               "frame-ancestors 'none'; base-uri 'none'",
+    "X-Frame-Options": "DENY",
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+}
+_TCSS_STRINGS = {
+    "en": {"title": "Connect to Teamcenter", "ask": "Connect “{connection}” in Bag of Words to Teamcenter as {identity}?",
+           "hint": "Continue only if this is your own Teamcenter account and you just signed in. Otherwise cancel.",
+           "connect": "Connect", "cancel": "Cancel"},
+    "es": {"title": "Conectar con Teamcenter",
+           "ask": "¿Conectar «{connection}» de Bag of Words con Teamcenter como {identity}?",
+           "hint": "Continúa solo si es tu propia cuenta de Teamcenter y acabas de iniciar sesión. Si no, cancela.",
+           "connect": "Conectar", "cancel": "Cancelar"},
+    "he": {"title": "התחברות ל-Teamcenter", "ask": "לחבר את „{connection}” ב-Bag of Words ל-Teamcenter בתור {identity}?",
+           "hint": "המשיכו רק אם זה חשבון ה-Teamcenter שלכם ורק עכשיו התחברתם. אחרת בטלו.",
+           "connect": "התחברות", "cancel": "ביטול"},
+}
 
 
 def _connection_config(connection: Connection) -> dict:
@@ -515,6 +542,18 @@ def _connection_config(connection: Connection) -> dict:
     return config if isinstance(config, dict) else {}
 
 
+def _tcss_fernet():
+    from cryptography.fernet import Fernet
+    key = settings.bow_config.encryption_key
+    return Fernet(key.encode() if isinstance(key, str) else key)
+
+
+def _tcss_confirm_code(nonce: str) -> str:
+    import hashlib
+    import hmac
+    return hmac.new(str(SECRET).encode(), ("tcss-confirm\0" + nonce).encode(), hashlib.sha256).hexdigest()
+
+
 def _teamcenter_sso_authorize(connection: Connection, user: User, return_to: str | None) -> JSONResponse:
     from app.data_sources.clients.teamcenter_client import TeamcenterError, tcss_login_url
     try:
@@ -523,29 +562,62 @@ def _teamcenter_sso_authorize(connection: Connection, user: User, return_to: str
         raise HTTPException(status_code=400, detail=str(e))
     if not is_safe_http_url(url):
         raise HTTPException(status_code=400, detail="The Teamcenter SSO login URL must be an absolute http(s) URL")
-    state = _encode_state(connection_id=str(connection.id), user_id=str(user.id),
-                          return_to=_safe_return_path(return_to))
+    now = datetime.now(timezone.utc)
+    payload = {"cid": str(connection.id), "uid": str(user.id), "iat": int(now.timestamp()),
+               "exp": int((now + timedelta(seconds=_STATE_TTL_SECONDS)).timestamp()), "aud": _TCSS_STATE_AUDIENCE,
+               "nonce": secrets.token_urlsafe(16)}
+    rt = _safe_return_path(return_to)
+    if rt:
+        payload["rt"] = rt
     response = JSONResponse({"authorization_url": url})
     secure = _cookie_secure()
     # TcSS may return with a cross-site POST: a Lax cookie would not be sent then,
     # so over HTTPS the state cookie is SameSite=None (it is httponly and signed).
-    response.set_cookie(key=_TCSS_STATE_COOKIE, value=state, max_age=_STATE_TTL_SECONDS, httponly=True,
-                        secure=secure, samesite="none" if secure else "lax", path="/api/connections")
+    response.set_cookie(key=_TCSS_STATE_COOKIE, value=pyjwt.encode(payload, SECRET, algorithm="HS256"),
+                        max_age=_STATE_TTL_SECONDS, httponly=True, secure=secure,
+                        samesite="none" if secure else "lax", path="/api/connections")
+    return response
+
+
+async def _tcss_load(db: AsyncSession, user_id: str, connection_id: str):
+    user = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
+    result = await db.execute(
+        select(Connection)
+        .options(selectinload(Connection.organization), selectinload(Connection.data_sources))
+        .where(Connection.id == connection_id)
+    )
+    connection = result.scalars().first()
+    if not user or not connection or connection.type != "teamcenter":
+        raise HTTPException(status_code=404, detail="Connection not found")
+    await _ensure_connection_access(db, user, connection)
+    _ensure_oauth_policy(connection)
+    return user, connection
+
+
+def _tcss_error(frontend_url: str, message: str) -> RedirectResponse:
+    response = _error_redirect(frontend_url, message)
+    response.delete_cookie(key=_TCSS_PENDING_COOKIE, path="/api/connections")
     return response
 
 
 @router.api_route("/teamcenter/sso/callback", methods=["GET", "POST"])
 async def teamcenter_sso_callback(request: Request, db: AsyncSession = Depends(get_async_db)):
-    """Where Teamcenter Security Services returns the browser after a member signs in."""
+    """Where Teamcenter Security Services returns the browser after a member signs in.
+
+    Stores nothing: checks the token with Teamcenter and asks the member to confirm the identity.
+    """
+    import html
+    import json as _json
     frontend_url = settings.bow_config.base_url or ""
     state = request.cookies.get(_TCSS_STATE_COOKIE)
     if not state:
-        return _error_redirect(frontend_url, "The Teamcenter sign-in expired or was started elsewhere. "
-                                             "Start it again from Bag of Words.")
+        return _tcss_error(frontend_url, "The Teamcenter sign-in expired or was started elsewhere. "
+                                         "Start it again from Bag of Words.")
     try:
-        payload = _decode_state(state)
-    except HTTPException as e:
-        return _error_redirect(frontend_url, str(e.detail))
+        payload = pyjwt.decode(state, SECRET, algorithms=["HS256"], audience=_TCSS_STATE_AUDIENCE,
+                               options={"require": ["cid", "uid", "exp", "aud", "nonce"]})
+    except pyjwt.InvalidTokenError:
+        return _tcss_error(frontend_url, "The Teamcenter sign-in expired. Start it again from Bag of Words.")
     params = list(request.query_params.multi_items())
     if request.method == "POST":
         try:
@@ -553,24 +625,10 @@ async def teamcenter_sso_callback(request: Request, db: AsyncSession = Depends(g
             params += [(k, v) for k, v in form.multi_items() if isinstance(v, str)]
         except Exception:
             pass
-
-    user = (await db.execute(select(User).where(User.id == payload["uid"]))).scalars().first()
-    if not user:
-        return _error_redirect(frontend_url, "User not found")
-    result = await db.execute(
-        select(Connection)
-        .options(selectinload(Connection.organization), selectinload(Connection.data_sources))
-        .where(Connection.id == payload["cid"])
-    )
-    connection = result.scalars().first()
-    if not connection or connection.type != "teamcenter":
-        return _error_redirect(frontend_url, "Connection not found")
     try:
-        await _ensure_connection_access(db, user, connection)
-        _ensure_oauth_policy(connection)
+        user, connection = await _tcss_load(db, payload["uid"], payload["cid"])
     except HTTPException as e:
-        logger.warning(f"Teamcenter SSO callback rejected for user {user.id} connection {connection.id}: {e.detail}")
-        return _error_redirect(frontend_url, e.detail)
+        return _tcss_error(frontend_url, str(e.detail))
 
     from app.data_sources.clients.teamcenter_client import extract_sso_result
     config = _connection_config(connection)
@@ -579,10 +637,86 @@ async def teamcenter_sso_callback(request: Request, db: AsyncSession = Depends(g
         # Names only, never values: they tell an admin which parameter to configure.
         names = ", ".join(sorted({k for k, _ in params})[:12]) or "none"
         logger.warning(f"Teamcenter SSO callback for connection {connection.id} carried no token (parameters: {names})")
-        return _error_redirect(frontend_url, "Teamcenter Security Services returned no sign-in token "
-                                             f"(parameters received: {names}). Check the SSO parameter names "
-                                             "in the connection settings.")
-    tokens = {"access_token": token}
-    if tc_user:
-        tokens["tcss_user"] = tc_user
-    return await _finish_sign_in(db, connection, user, tokens, _safe_return_path(payload.get("rt")), frontend_url)
+        return _tcss_error(frontend_url, "Teamcenter Security Services returned no sign-in token "
+                                         f"(parameters received: {names}). Check the SSO parameter names "
+                                         "in the connection settings.")
+
+    # Check the token with Teamcenter first, to show whose account it is (and fail fast).
+    credentials = {"access_token": token, **({"tcss_user": tc_user} if tc_user else {})}
+    try:
+        from app.core.egress import acheck_connection_params
+        from app.services.connection_service import ConnectionService
+        await acheck_connection_params(connection.type, {**config, **credentials})
+        client = ConnectionService()._resolve_client_by_type(data_source_type=connection.type, config=config,
+                                                             credentials=credentials)
+        outcome = await client.atest_connection()
+    except Exception as exc:
+        logger.info("Teamcenter SSO token not checked: %s", type(exc).__name__)
+        outcome = {"success": False, "message": "Teamcenter could not check the sign-in."}
+    details = (outcome or {}).get("details") or {}
+    if not details.get("identity"):
+        return _tcss_error(frontend_url, (outcome or {}).get("message") or "Teamcenter did not accept the sign-in.")
+    identity = details.get("identity")
+    if details.get("display_name") and details["display_name"] != identity:
+        identity = f"{details['display_name']} ({identity})"
+
+    nonce = secrets.token_urlsafe(24)
+    pending = _tcss_fernet().encrypt(_json.dumps({
+        "cid": payload["cid"], "uid": payload["uid"], "rt": payload.get("rt"), "nonce": nonce,
+        "credentials": credentials,
+    }).encode()).decode()
+    from app.dependencies import _locale_from_org
+    locale = (_locale_from_org(connection.organization) or "en").split("-")[0]
+    t = _TCSS_STRINGS.get(locale, _TCSS_STRINGS["en"])
+    direction = "rtl" if locale in ("he", "ar") else "ltr"
+    cancel = f"{frontend_url}/agents?{urlencode({'oauth': 'error', 'message': 'Teamcenter sign-in cancelled'})}"
+    page = f"""<!doctype html>
+<html lang="{html.escape(locale)}" dir="{direction}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>{html.escape(t['title'])}</title>
+<style>body{{font-family:system-ui,sans-serif;background:#f3f4f6;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center}}
+main{{background:#fff;border-radius:12px;padding:28px 32px;max-width:460px;box-shadow:0 1px 3px rgba(0,0,0,.12)}}
+h1{{font-size:18px;margin:0 0 12px}}p{{color:#374151;line-height:1.5}}.hint{{font-size:13px;color:#6b7280}}
+.row{{display:flex;gap:10px;margin-top:20px}}button,a{{font-size:14px;padding:8px 16px;border-radius:8px;text-decoration:none}}
+button{{background:#2563eb;color:#fff;border:0;cursor:pointer}}a{{color:#374151;border:1px solid #d1d5db}}</style></head>
+<body><main><h1>{html.escape(t['title'])}</h1>
+<p>{html.escape(t['ask'].format(connection=connection.name, identity=identity))}</p>
+<p class="hint">{html.escape(t['hint'])}</p>
+<form method="post" action="/api/connections/teamcenter/sso/confirm">
+<input type="hidden" name="confirm" value="{_tcss_confirm_code(nonce)}">
+<div class="row"><button type="submit">{html.escape(t['connect'])}</button><a href="{html.escape(cancel)}">{html.escape(t['cancel'])}</a></div>
+</form></main></body></html>"""
+    from fastapi.responses import HTMLResponse
+    response = HTMLResponse(page, headers=_TCSS_PAGE_HEADERS)
+    response.set_cookie(key=_TCSS_PENDING_COOKIE, value=pending, max_age=_TCSS_CONFIRM_TTL_SECONDS, httponly=True,
+                        secure=_cookie_secure(), samesite="strict", path="/api/connections")
+    response.delete_cookie(key=_TCSS_STATE_COOKIE, path="/api/connections")
+    return response
+
+
+@router.post("/teamcenter/sso/confirm")
+async def teamcenter_sso_confirm(request: Request, db: AsyncSession = Depends(get_async_db)):
+    """The member confirmed the Teamcenter identity on the callback page: save the sign-in."""
+    import hmac
+    import json as _json
+    from cryptography.fernet import InvalidToken
+    frontend_url = settings.bow_config.base_url or ""
+    try:
+        form = await request.form()
+        code = str(form.get("confirm") or "")
+    except Exception:
+        code = ""
+    pending = request.cookies.get(_TCSS_PENDING_COOKIE)
+    try:
+        data = _json.loads(_tcss_fernet().decrypt(pending.encode(), ttl=_TCSS_CONFIRM_TTL_SECONDS)) if pending else None
+    except (InvalidToken, ValueError):
+        data = None
+    if not data or not code or not hmac.compare_digest(code, _tcss_confirm_code(str(data.get("nonce") or ""))):
+        return _tcss_error(frontend_url, "The Teamcenter sign-in could not be confirmed. Start it again from Bag of Words.")
+    try:
+        user, connection = await _tcss_load(db, data["uid"], data["cid"])
+    except HTTPException as e:
+        return _tcss_error(frontend_url, str(e.detail))
+    response = await _finish_sign_in(db, connection, user, data["credentials"], _safe_return_path(data.get("rt")),
+                                     frontend_url)
+    response.delete_cookie(key=_TCSS_PENDING_COOKIE, path="/api/connections")
+    return response

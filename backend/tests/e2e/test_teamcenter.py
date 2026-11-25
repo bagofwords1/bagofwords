@@ -159,6 +159,16 @@ def _tcss_sign_in(tcm, authorization_url, user):
     return f"{back.path}?{back.query}"
 
 
+_CONFIRM = "/api/connections/teamcenter/sso/confirm"
+
+
+def _confirm_code(page):
+    import re
+    m = re.search(r'name="confirm" value="([0-9a-f]+)"', page.text)
+    assert m, page.text[:500]
+    return m.group(1)
+
+
 def test_tcss_sign_in_connects_a_member_who_then_reads_as_themselves(
     tcm, test_client, create_user, login_user, whoami, create_data_source,
 ):
@@ -176,9 +186,13 @@ def test_tcss_sign_in_connects_a_member_who_then_reads_as_themselves(
     assert start.status_code == 200, start.text
     url = start.json()["authorization_url"]
     assert url.startswith(tcm["login_url"]) and "appID=BOW" in url
-    callback = _tcss_sign_in(tcm, url, "jdoe")
-    done = test_client.get(callback, follow_redirects=False)
-    assert done.status_code in (302, 307) and "oauth=success" in done.headers["location"], done.headers
+    page = test_client.get(_tcss_sign_in(tcm, url, "jdoe"), follow_redirects=False)
+    # TcSS's return stores nothing: it names the Teamcenter identity and asks the member to confirm.
+    assert page.status_code == 200 and "Jane Doe (jdoe)" in page.text, page.text[:500]
+    assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
+    assert test_client.get(files, headers=member).json().get("connect_required") is True
+    done = test_client.post(_CONFIRM, data={"confirm": _confirm_code(page)}, follow_redirects=False)
+    assert done.status_code in (302, 303, 307) and "oauth=success" in done.headers["location"], done.headers
 
     tcm["mock"].REQUEST_LOG.clear()
     _file_ids(test_client.get(files, headers=member))
@@ -198,7 +212,7 @@ def test_a_tcss_return_without_its_sign_in_is_turned_away(
     test_client.cookies.clear()
     stray = test_client.get(_tcss_sign_in(tcm, "x?appID=BOW", "jdoe"), follow_redirects=False)
     assert "oauth=error" in stray.headers["location"]
-    # A token Teamcenter does not accept is rolled back.
+    # A token Teamcenter does not accept stores nothing and never reaches the confirm page.
     assert test_client.get(f"/api/connections/{conn_id}/oauth/authorize", headers=member).status_code == 200
     bad = test_client.get(_CALLBACK + "?TCSS_TOKEN=forged-token&TCSS_USERID=jdoe", follow_redirects=False)
     assert "oauth=error" in bad.headers["location"] and "forged-token" not in bad.headers["location"]
@@ -206,6 +220,36 @@ def test_a_tcss_return_without_its_sign_in_is_turned_away(
     assert test_client.get(f"/api/connections/{conn_id}/oauth/authorize", headers=member).status_code == 200
     empty = test_client.get(_CALLBACK + "?status=ok", follow_redirects=False)
     assert "oauth=error" in empty.headers["location"] and "status" in empty.headers["location"]
+    assert test_client.get(files, headers=member).json().get("connect_required") is True
+
+
+def test_an_injected_tcss_token_cannot_connect_a_member_to_someone_elses_account(
+    tcm, test_client, create_user, login_user, whoami, create_data_source,
+):
+    """Login CSRF: while the member's sign-in is pending, an attacker sends their browser to the callback
+    with the attacker's own valid token. Nothing is stored unless the member confirms that identity on a
+    page whose confirm code the attacker cannot read."""
+    tcm["mock"].STATE["app_roots"]["BOW"] = "http://testserver" + _CALLBACK
+    token, org, headers = _admin(create_user, login_user, whoami)
+    ds_id, conn_id = _source(tcm, test_client, create_data_source, token, org, headers, config=_sso_cfg(tcm))
+    member = _member(test_client, create_user, login_user, org, headers, "jdoe")
+    files = f"/api/data_sources/{ds_id}/connections/{conn_id}/files"
+
+    assert test_client.get(f"/api/connections/{conn_id}/oauth/authorize", headers=member).status_code == 200
+    attacker_return = _tcss_sign_in(tcm, "x?appID=BOW", "asmith")        # the attacker's own sign-in
+    page = test_client.get(attacker_return, follow_redirects=False)
+    assert page.status_code == 200 and "Alex Smith (asmith)" in page.text    # the member sees whose account
+    assert test_client.get(files, headers=member).json().get("connect_required") is True
+    # A forged confirm (no code, or a guessed one) stores nothing.
+    for data in ({}, {"confirm": "0" * 64}):
+        r = test_client.post(_CONFIRM, data=data, follow_redirects=False)
+        assert "oauth=error" in r.headers["location"], r.headers
+    assert test_client.get(files, headers=member).json().get("connect_required") is True
+    # The confirm code is bound to its pending sign-in: without that browser's cookie it is useless.
+    code = _confirm_code(page)
+    test_client.cookies.clear()
+    r = test_client.post(_CONFIRM, data={"confirm": code}, follow_redirects=False)
+    assert "oauth=error" in r.headers["location"]
     assert test_client.get(files, headers=member).json().get("connect_required") is True
 
 

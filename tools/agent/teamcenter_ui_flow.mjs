@@ -172,6 +172,13 @@ if (MODE === 'connect') {
   await page.locator('input[name=username]').fill(TCSS_USER);
   await page.locator('input[name=password]').fill(TCSS_PASSWORD);
   await shot('21b-tcss-login-filled');
+  // TcSS returns to BOW, which checks the token and asks the member to confirm the Teamcenter identity.
+  await Promise.all([
+    page.waitForURL((u) => u.origin === new URL(BASE).origin && u.pathname.includes('/teamcenter/sso/'), { timeout: 60000 }),
+    page.locator('button[type=submit]').click(),
+  ]);
+  await shot('21c-confirm-identity');
+  console.log('CONFIRM_PAGE:', (await page.locator('main').innerText()).replace(/\s+/g, ' '));
   await Promise.all([
     page.waitForURL((u) => u.origin === new URL(BASE).origin && u.pathname.startsWith('/agents'), { timeout: 60000 }),
     page.locator('button[type=submit]').click(),

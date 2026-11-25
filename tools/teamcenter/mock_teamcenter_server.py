@@ -305,9 +305,11 @@ SAVED_QUERIES = {
     "QRY_itemrev00001": ("Item Revision...", REVISION_CLASSES, [
         ("Item ID", "items_tag.item_id"), ("Revision", "item_revision_id"), ("Name", "object_name"),
         ("Type", "object_type"), ("Owning User", "owning_user.user_id"),
-        ("Release Status", "release_status_list.name")]),
+        ("Release Status", "release_status_list.name"), ("Created After", "creation_date", ">="),
+        ("Created Before", "creation_date", "<="), ("Modified After", "last_mod_date", ">=")]),
     "QRY_general00001": ("General...", None, [
-        ("Name", "object_name"), ("Type", "object_type"), ("Owning User", "owning_user.user_id")]),
+        ("Name", "object_name"), ("Type", "object_type"), ("Owning User", "owning_user.user_id"),
+        ("Created After", "creation_date", ">=")]),
     "QRY_item00000001": ("Item...", {"Item"}, [("Item ID", "item_id"), ("Name", "object_name"), ("Type", "object_type")]),
     "QRY_dataset00001": ("Dataset...", {"PDF", "MSWordX", "UGMASTER", "Dataset"}, [
         ("Name", "object_name"), ("Dataset Type", "object_type")]),
@@ -414,12 +416,12 @@ def _run_saved_query(user, quid, entries, values, limit):
     if quid not in SAVED_QUERIES:
         raise SoaError("ServiceException", "The saved query does not exist.", 141001)
     _, classes, fields = SAVED_QUERIES[quid]
-    attr_of = {e.lower(): a for e, a in fields}
+    attr_of = {f[0].lower(): (f[1], f[2] if len(f) > 2 else "=") for f in fields}
     criteria = []
     for e, v in zip(entries, values):
         if e.lower() not in attr_of:
             raise SoaError("ServiceException", "Invalid list of user entries.", 3031)
-        criteria.append((attr_of[e.lower()], v))
+        criteria.append((*attr_of[e.lower()], v))
     if not criteria:
         raise SoaError("ServiceException", "Invalid query: at least one entry is required.", 3006)
     found = []
@@ -431,9 +433,17 @@ def _run_saved_query(user, quid, entries, values, limit):
             continue
         if not _visible(user, uid):
             continue
-        if all(any(_like(v, pat) for v in _attr_value(uid, attr)) for attr, pat in criteria):
+        if all(any(_bound(v, pat, op) if op != "=" else _like(v, pat) for v in _attr_value(uid, attr))
+               for attr, op, pat in criteria):
             found.append(uid)
     return found[: max(0, int(limit or 0)) or len(found)]
+
+
+def _bound(value, bound, op) -> bool:
+    """A range entry (Created After / Before): compares dates, as Teamcenter does."""
+    if value is None:
+        return False
+    return str(value)[:10] >= str(bound)[:10] if op == ">=" else str(value)[:10] <= str(bound)[:10]
 
 
 def _resolve_child(item_id, rule_uid):
@@ -532,8 +542,8 @@ def op_describe_queries(user, body, path, handler):
     lists = []
     for q in body.get("queries") or []:
         fields = SAVED_QUERIES.get((q or {}).get("uid"), (None, None, []))[2]
-        lists.append({"fields": [{"entryName": e, "attributeName": a, "logicalOperation": "AND",
-                                  "mathOperation": "=", "value": ""} for e, a in fields]})
+        lists.append({"fields": [{"entryName": f[0], "attributeName": f[1], "logicalOperation": "AND",
+                                  "mathOperation": f[2] if len(f) > 2 else "=", "value": ""} for f in fields]})
     return {"fieldLists": lists, "ServiceData": _service_data(user, [])}
 
 

@@ -33,11 +33,12 @@ uv run pytest tests/unit/test_teamcenter_client.py tests/unit/test_teamcenter_sc
 uv run pytest tests/e2e/test_teamcenter.py -m e2e --db=sqlite -q
 ```
 
-Observed: `63 passed` (client contract incl. a "legacy" server with only the older service versions,
+Observed: `66 passed` (client contract incl. a "legacy" server with only the older service versions,
 session reuse/expiry, access rules, BOM revision rules and window closing, where-used, change links,
-documents, TcSS token / Kerberos sign-in) and `7 passed` (connection API, catalog indexing, member
+documents, TcSS token / Kerberos sign-in) and `8 passed` (connection API, catalog indexing, member
 logins refused with `connection.teamcenter_login_rejected`, the full TcSS browser sign-in through
-`/api/connections/teamcenter/sso/callback`, stray/forged/empty returns refused, agent tools).
+`/api/connections/teamcenter/sso/callback` and its confirm page, stray/forged/empty returns refused, an
+injected attacker token never stored, agent tools).
 
 ## Loop B-lite — live UI with a real LLM (Claude Haiku 5.5), mock Teamcenter
 
@@ -61,7 +62,7 @@ BOW_ORIGIN=http://0.0.0.0:3000 node .tc_flow.mjs sso ../media/pr/teamcenter-conn
 | Connect (Allow HTTP on) | Connection saved · Discovered 9 tables (`04`); tables step lists the 5 type tables + bom, where_used, change_items, revision_rules (`05`) |
 | "Which parts at any level of the BOM of PRT-1000 rev B are not released yet?" | PRT-1001/B, PRT-1004/A (level 1) and PRT-1003/A (level 2) — correct (`10-bom-final`) |
 | "Max operating pressure and design code in the PRT-1000 spec? Open ECNs affecting PRT-1001?" | 16 bar, PUMP-ALPHA-77 read from the PDF; ECN-0001 (Executing, Open) impacting rev A, solution rev B — correct (`10-doc-final`) |
-| SSO: Connect → TcSS login page → sign in as jdoe → back to BOW (`21b`, `22`) | "OAuth credentials saved" after a passing live test; `test-my-credentials` → "Connected to Teamcenter at 127.0.0.1 as Jane Doe (jdoe)" |
+| SSO: Connect → TcSS login page → sign in as jdoe → confirm "as Jane Doe (jdoe)?" → back to BOW (`21b`, `21c`, `22`) | "OAuth credentials saved" after a passing live test; `test-my-credentials` → "Connected to Teamcenter at 127.0.0.1 as Jane Doe (jdoe)" |
 
 ## What the live loop caught (and the fixes)
 
@@ -79,6 +80,21 @@ BOW_ORIGIN=http://0.0.0.0:3000 node .tc_flow.mjs sso ../media/pr/teamcenter-conn
 4. **Ambiguous change columns** — Haiku called ECN-0001 "TCM Released" (the linked part's status).
    `change_items` now has `change_maturity`/`change_closure` and `item_*` columns, and the relation tables
    carry column notes ("empty = not released (work in progress)").
+
+## What the independent review caught (and the fixes)
+
+5. **Login CSRF on the SSO callback** — the callback stored whatever token arrived while a member's
+   sign-in was pending, so an attacker's token could be bound to the member's account. The callback now
+   stores nothing: it checks the token, keeps it in an encrypted 5-minute cookie and asks the member to
+   confirm the Teamcenter identity on a non-frameable page whose confirm code only that page holds
+   (`test_an_injected_tcss_token_cannot_connect_a_member_to_someone_elses_account`).
+6. **Equality filters sent to range entries** — real object queries have "Created After/Before" entries on
+   `creation_date`; `{"creation_date": "2026-06-02"}` would have become "created after". Only `=` entries
+   on string columns receive filters now, and the mock carries range entries
+   (`test_a_date_filter_is_never_turned_into_a_range_entry`, mutation-checked).
+7. Nits: an evicted session finishes its in-flight call before logging out; Kerberos tickets are never
+   sent after a downgrade to plain HTTP; a new sign-in drops an earlier login's verified identity; the
+   TcSS state has its own JWT audience.
 
 ## Regression notes
 
