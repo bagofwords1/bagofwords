@@ -26,8 +26,10 @@ _INTEGER_RANKS = {"tinyint": 0, "smallint": 1, "int": 2, "integer": 2, "bigint":
 _FLOAT_RANKS = {"float": 0, "real": 0, "double": 1}
 _DECIMAL = re.compile(r"^(?:decimal|numeric|dec)(?:\((\d+)(?:,(\d+))?\))?$")
 _TEXT = re.compile(r"^(varchar|varchar\(\d+\)|char\(\d+\))$")
+_ASCII_DIGITS = re.compile(r"[0-9]+")
 _STRUCT_TOKENS = re.compile(r"\b(?:struct\s*<|row\s*\()|[<(]|[>)]|,", re.IGNORECASE)
 _MAX_DECIMAL_DIGITS = 38
+_MAX_TYPE_NESTING = 32
 _DEFAULT_DECIMAL = (10, 0)
 
 
@@ -52,26 +54,43 @@ def athena_type(dtype: str | None) -> exp.DataType | None:
 
 @lru_cache(maxsize=512)
 def _parsed_athena_type(dtype: str) -> exp.DataType | None:
+    if "--" in dtype or "/*" in dtype or _nests_too_deeply(dtype):
+        return None
     try:
         parsed = sqlglot.parse_one(dtype, read="athena", into=exp.DataType, error_level=ErrorLevel.RAISE)
-    except (SqlglotError, ValueError):
-        return None
-    if not isinstance(parsed, exp.DataType):
-        return None
-    if not all(_is_plain_type_node(node) for node in parsed.walk()):
+        if not isinstance(parsed, exp.DataType):
+            return None
+        if not all(_is_plain_type_node(node) for node in parsed.walk()):
+            return None
+        parsed.sql(dialect="athena")
+    except (SqlglotError, ValueError, RecursionError):
         return None
     if _row_field_counts(parsed) != _source_struct_field_counts(dtype):
         return None
     return parsed
 
 
+def _nests_too_deeply(dtype: str) -> bool:
+    depth = 0
+    for char in dtype:
+        if char in "<(":
+            depth += 1
+            if depth > _MAX_TYPE_NESTING:
+                return True
+        elif char in ">)":
+            depth -= 1
+    return False
+
+
 def _is_plain_type_node(node: exp.Expression) -> bool:
+    if node.comments:
+        return False
     if isinstance(node, exp.DataType):
         return node.this not in _UNUSABLE_TYPES and _has_its_type_params(node)
     if isinstance(node, exp.DataTypeParam):
         param = node.this
         return isinstance(param, exp.DataType) or (
-            isinstance(param, exp.Literal) and param.is_number and param.name.isdigit()
+            isinstance(param, exp.Literal) and param.is_number and _ASCII_DIGITS.fullmatch(param.name) is not None
         )
     if isinstance(node, exp.Literal):
         return isinstance(node.parent, exp.DataTypeParam)

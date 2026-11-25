@@ -148,7 +148,18 @@ UNSAFE_GLUE_TYPES = [
     "map",
     "array<int>[1,2]",
     "decimal(1.5,2)",
+    "decimal(10 /* ) as c, (select secret from other_db.creds) as d, cast(null as int */,2)",
+    "struct<a /* select secret from creds */:int,b:string>",
+    "varchar(10 /* -- */)",
+    "varchar(10) -- select secret from creds",
+    "varchar(\u00b2)",
+    "varchar(\u0661\u0662)",
 ]
+
+DEEPLY_NESTED_GLUE_TYPES = {
+    "struct": "struct<a:" * 200 + "int" + ">" * 200,
+    "array": "array<" * 1000 + "int" + ">" * 1000,
+}
 
 SUPPORTED_GLUE_TYPES = {
     "int": "INTEGER",
@@ -169,6 +180,7 @@ SUPPORTED_GLUE_TYPES = {
         "ROW(f1 INTEGER, f2 VARCHAR, f3 BIGINT, f4 DOUBLE, f5 DATE, f6 BOOLEAN, "
         "f7 INTEGER, f8 VARCHAR, f9 TIMESTAMP, f10 INTEGER)"
     ),
+    "array<" * 8 + "struct<a:int,b:string>" + ">" * 8: "ARRAY(" * 8 + "ROW(a INTEGER, b VARCHAR)" + ")" * 8,
 }
 
 
@@ -190,6 +202,20 @@ def test_tenant_with_an_unsupported_column_type_is_left_out_with_that_reason(bad
     ] == [("c", "c", "unsupported column type")]
     assert bad_type not in repr(metadata)
     assert bad_type not in [col.dtype for col in unified.columns]
+
+
+@pytest.mark.parametrize("deep_type", DEEPLY_NESTED_GLUE_TYPES.values(), ids=DEEPLY_NESTED_GLUE_TYPES)
+def test_tenant_with_a_too_deeply_nested_type_is_left_out_not_the_whole_index(deep_type):
+    catalog = unify_glue_catalogs({
+        "a": [table("orders", [("id", "bigint")]), table("users", [("id", "int")])],
+        "c": [table("orders", [("id", "bigint"), ("c", deep_type)])],
+    })
+    assert sorted(t.name for t in catalog.tables) == ["orders", "users"]
+    orders = next(t for t in catalog.tables if t.name == "orders")
+    assert orders.metadata_json["tenants"] == ["a"]
+    assert [(e["tenant"], e["column"], e["reason"]) for e in catalog.excluded] == [
+        ("c", "c", "unsupported column type")
+    ]
 
 
 @pytest.mark.parametrize("glue_type", SUPPORTED_GLUE_TYPES)

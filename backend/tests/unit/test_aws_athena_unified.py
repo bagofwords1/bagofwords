@@ -8,7 +8,7 @@ import pytest
 
 from app.data_sources.clients import aws_athena_client as athena_module
 from app.data_sources.clients.aws_athena_client import AwsAthenaClient
-from tests.unit.test_athena_unified_catalog import UNSAFE_GLUE_TYPES
+from tests.unit.test_athena_unified_catalog import DEEPLY_NESTED_GLUE_TYPES, UNSAFE_GLUE_TYPES
 from tests.unit.test_aws_athena_client import FakeGlue, _glue_error, make_client, names, wrangler  # noqa: F401
 
 DATABASES = {
@@ -510,6 +510,43 @@ def test_unsupported_glue_column_type_leaves_the_tenant_out_and_is_never_sent(wr
     assert branch_tenants(wrangler.calls[-1]) == ["a_db", "b_db"]
     casts = {c.to.sql(dialect="athena") for c in sqlglot.parse_one(sent, read="athena").find_all(sqlglot.exp.Cast)}
     assert casts == {"VARCHAR"}
+
+
+COMMENT_PROBE = "decimal(10 /* ) as c, (select secret from other_db.creds) as d, cast(null as int */,2)"
+
+
+def test_comment_in_a_glue_type_is_never_sent_to_athena(wrangler):
+    glue = FakeGlue(
+        {"a_db": ["orders"], "b_db": ["orders"]},
+        columns={
+            ("a_db", "orders"): [{"Name": "id", "Type": "int"}, {"Name": "c", "Type": COMMENT_PROBE}],
+            ("b_db", "orders"): [{"Name": "id", "Type": "int"}],
+        },
+    )
+    client = indexed_client(glue)
+    client.execute_query("SELECT * FROM orders")
+    sent = wrangler.calls[-1]["sql"]
+    assert "secret" not in sent
+    assert "/*" not in sent
+
+
+@pytest.mark.parametrize("deep_type", DEEPLY_NESTED_GLUE_TYPES.values(), ids=DEEPLY_NESTED_GLUE_TYPES)
+def test_too_deeply_nested_glue_type_leaves_only_that_tenant_out(wrangler, deep_type):
+    glue = FakeGlue(
+        {"a_db": ["orders", "users"], "c_db": ["orders"]},
+        columns={
+            ("a_db", "orders"): [{"Name": "id", "Type": "int"}],
+            ("a_db", "users"): [{"Name": "id", "Type": "int"}],
+            ("c_db", "orders"): [{"Name": "id", "Type": "int"}, {"Name": "c", "Type": deep_type}],
+        },
+    )
+    client = indexed_client(glue)
+    assert sorted(t.name for t in client.get_tables()) == ["orders", "users"]
+    assert {"name": "orders (c_db)", "reason": "unsupported column type on c"} in client.index_stats()[
+        "unreadable_datasets"
+    ]
+    client.execute_query("SELECT id FROM orders")
+    assert branch_tenants(wrangler.calls[-1]) == ["a_db"]
 
 
 def test_stored_metadata_with_an_unparseable_type_is_refused_before_athena(wrangler):
