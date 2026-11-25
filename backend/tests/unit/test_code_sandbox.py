@@ -206,6 +206,28 @@ def generate_df(ds_clients, excel_files):
     assert parent != os.getpid()
 
 
+def test_fork_server_preloads_what_every_child_run_imports():
+    """Every data run calls `invoke_generate_df`, which imports `query_params`
+    (and pydantic through `param_schema`). The fork server loads it once so a
+    forked child does not pay that import on every step run. It must still
+    load nothing that reaches the database."""
+    import subprocess
+    import sys
+
+    probe = (
+        "import sys\n"
+        "import app.ai.code_execution.sandbox.zygote\n"
+        "print('app.ai.code_execution.query_params' in sys.modules,"
+        " 'sqlalchemy' in sys.modules)\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=str(Path(__file__).resolve().parents[2]),
+        capture_output=True, text=True, timeout=60, check=True,
+    ).stdout.split()
+    assert out == ["True", "False"]
+
+
 def test_spawn_fallback_when_fork_server_is_disabled(monkeypatch):
     from app.ai.code_execution.sandbox import runner as r
 

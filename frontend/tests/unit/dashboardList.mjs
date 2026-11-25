@@ -643,4 +643,31 @@ for (const over of [{ q: 'x' }, { type: 'doc' }, { agents: [A1] }, { starred: tr
 // A Shared-only filter left in a My URL is not applied (activeFilterChips): no "clear" link for it.
 assert.equal(list.emptyDescriptionKey({ ...DEFAULT_STATE, access: 'org' }), 'dashboards.emptyMy')
 
+// --- "Refresh failing" opens what failed --------------------------------------------------
+
+// Their own conversation: its settings, on Refreshes, for this dashboard.
+assert.deepEqual(list.refreshesLink({ id: 'd1', report_id: 'r1' }),
+  { path: '/reports/r1', query: { dashboard: 'd1', settings: 'refreshes' } })
+// None: no link (the list shows the refreshes; Edit would copy and run it).
+assert.equal(list.refreshesLink({ id: 'd1', report_id: null }), null)
+assert.equal(list.refreshesLink({ id: 'd1' }), null)
+
+{
+  const ok = { id: 'a', status: 'success', kind: 'published' }
+  const draftFail = { id: 'b', status: 'failed', kind: 'draft', error: 'boom' }
+  const pubFail = { id: 'c', status: 'failed', kind: 'published', error: 'timeout' }
+  const partial = { id: 'd', status: 'partial', kind: 'published', error: 'one failed' }
+  const noError = { id: 'e', status: 'failed', kind: 'published', error: null }
+  const skipped = { id: 'f', status: 'skipped', kind: 'published', error: null }
+  // The published failure, though a draft's failed after it.
+  assert.equal(list.failureToOpen([ok, draftFail, pubFail]).id, 'c')
+  // Only drafts failed: the newest of them.
+  assert.equal(list.failureToOpen([ok, draftFail]).id, 'b')
+  // Newest first wins among published failures.
+  assert.equal(list.failureToOpen([pubFail, { ...pubFail, id: 'c2' }]).id, 'c')
+  // Partial, a failure with nothing to show, a skip: none opens.
+  assert.equal(list.failureToOpen([partial, noError, skipped, ok]), null)
+  assert.equal(list.failureToOpen([]), null)
+}
+
 console.log('dashboardList: ok')

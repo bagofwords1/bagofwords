@@ -4,6 +4,7 @@ import re
 import glob
 from pathlib import Path
 from collections import defaultdict
+from app.core.git_file_walker import repo_glob
 
 class DBTResourceExtractor:
     def __init__(self, project_dir):
@@ -44,7 +45,7 @@ class DBTResourceExtractor:
     
     def _parse_yaml_files(self):
         """Parse all YAML files to extract metrics, sources, and other YAML-defined resources"""
-        yaml_files = list(self.project_dir.glob('**/*.yml')) + list(self.project_dir.glob('**/*.yaml'))
+        yaml_files = repo_glob(self.project_dir, '**/*.yml') + repo_glob(self.project_dir, '**/*.yaml')
         
         for yaml_file in yaml_files:
             try:
@@ -213,7 +214,7 @@ class DBTResourceExtractor:
     
     def _parse_sql_models(self):
         """Parse SQL files to find models"""
-        sql_files = list(self.project_dir.glob('models/**/*.sql'))
+        sql_files = repo_glob(self.project_dir, 'models/**/*.sql')
         
         for sql_file in sql_files:
             model_name = sql_file.stem
@@ -280,7 +281,7 @@ class DBTResourceExtractor:
     
     def _find_macros(self):
         """Find all macros in the project"""
-        macro_files = list(self.project_dir.glob('macros/**/*.sql'))
+        macro_files = repo_glob(self.project_dir, 'macros/**/*.sql')
         
         for macro_file in macro_files:
             try:
@@ -302,7 +303,7 @@ class DBTResourceExtractor:
     
     def _find_seeds(self):
         """Find all seed files"""
-        seed_files = list(self.project_dir.glob('seeds/**/*.csv'))
+        seed_files = repo_glob(self.project_dir, 'seeds/**/*.csv')
         
         for seed_file in seed_files:
             self.resources['seeds'].append({

@@ -4,7 +4,7 @@
     <div class="flex items-center space-x-2">
       <UIcon :name="getResourceIcon(resource.resource_type)" class="w-4 h-4 text-blue-600" />
       <span class="font-medium text-gray-900 dark:text-white">{{ resource.name }}</span>
-      <span class="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-700 rounded">{{ resource.resource_type }}</span>
+      <span class="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded">{{ resource.resource_type }}</span>
     </div>
 
     <!-- Description -->

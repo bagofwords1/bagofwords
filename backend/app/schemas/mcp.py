@@ -44,6 +44,27 @@ class MCPRichContext:
     # Data source connection status
     connected_sources: List[str] = field(default_factory=list)
     failed_sources: List[str] = field(default_factory=list)
+    # Agents on the report this user cannot query right now, by name: left out
+    # because the user has not signed in to them, or because every connection
+    # is flagged unreachable. Reported back instead of only logged.
+    signin_required_sources: List[str] = field(default_factory=list)
+    unreachable_sources: List[str] = field(default_factory=list)
+
+    def no_sources_message(self) -> str:
+        """Why no agent could be queried, naming what the user can do about it."""
+        parts = []
+        if self.signin_required_sources:
+            parts.append(
+                "Sign-in required for: " + ", ".join(self.signin_required_sources)
+                + ". The user must connect their own account to it in Bag of Words "
+                "(agent selector, Connect), then retry."
+            )
+        if self.unreachable_sources:
+            parts.append(
+                "Unreachable right now: " + ", ".join(self.unreachable_sources)
+                + ". An admin needs to check its connection."
+            )
+        return "No data sources could be connected." + ("".join(" " + p for p in parts))
 
 
 class MCPToolSchema(BaseModel):
@@ -90,6 +111,15 @@ class DataSourceInfo(BaseModel):
     type: Optional[str] = None
     tables: List[TableInfo]
     tools: List[ToolInfo] = Field(default_factory=list, description="MCP / custom-API tools this agent can run via execute_mcp.")
+
+
+class UnavailableAgentInfo(BaseModel):
+    """An agent on the report that cannot be queried for this user right now."""
+    id: str
+    name: str
+    reason: str = Field(description="'sign_in_required' (the user has not connected their own account) or 'unreachable' (its connection is down).")
+    action: str = Field(description="What has to happen before the agent can be used.")
+    since: Optional[str] = Field(default=None, description="For 'unreachable': when its connection went down (UTC), when known.")
 
 
 class ResourceInfo(BaseModel):
@@ -149,6 +179,13 @@ class GetContextOutput(BaseModel):
         ),
     )
     data_sources: List[DataSourceInfo]
+    unavailable_agents: List[UnavailableAgentInfo] = Field(
+        default_factory=list,
+        description=(
+            "Agents in this report's scope that are left out of data_sources because they cannot "
+            "be queried right now. Tell the user the action instead of answering without them."
+        ),
+    )
     resources: List[ResourceInfo]
     entities: List[EntityInfo] = Field(default_factory=list, description="Published saved queries available on these agents.")
     instructions: List[ContextInstructionInfo] = Field(
@@ -357,7 +394,9 @@ class MCPCreateInstructionInput(BaseModel):
         None, description="Attach to this one folder and make it the rule's owning folder (kept for older clients; prefer folder_ids).",
     )
     folder_ids: Optional[List[str]] = Field(
-        default=None, description="Folders to attach the rule to (ids from browse_agents). Combine freely with data_source_ids.",
+        default=None,
+        description="Folders to attach the rule to (ids from browse_agents). Combine freely with data_source_ids. "
+                    "A folder rule applies in reports scoped to that folder (create_report agent_folder_ids), to every agent in it, including agents added later; it does not apply in reports pinned to individual agents.",
     )
     scope: Optional[Literal["global", "targeted"]] = Field(
         default=None,
@@ -380,6 +419,8 @@ class MCPCreateInstructionOutput(BaseModel):
     folder_ids: Optional[List[str]] = None
     data_source_ids: Optional[List[str]] = None
     rejected_reason: Optional[str] = Field(default=None, description="no_target, invalid_input, permission_denied")
+    applies_in: Optional[str] = Field(default=None, description="Where the rule takes effect — tell the user this, not more")
+    in_effect: Optional[bool] = Field(default=None, description="False while the rule reaches no report: it waits for approval or is inactive")
     success: bool
     instruction_id: Optional[str] = None
     build_status: Optional[str] = Field(default=None, description="Build status: approved (live) or pending_approval (needs admin review)")
@@ -620,6 +661,8 @@ class MCPEditInstructionOutput(BaseModel):
                     "no_change, status_change_not_allowed, not_found, permission_denied, would_remove_last_target",
     )
     current_text: Optional[str] = Field(default=None, description="Current full text, returned when an anchor fails")
+    applies_in: Optional[str] = Field(default=None, description="Where the rule takes effect after this edit — tell the user this, not more")
+    in_effect: Optional[bool] = Field(default=None, description="False while the rule reaches no report: it is inactive")
     error_message: Optional[str] = None
 
 

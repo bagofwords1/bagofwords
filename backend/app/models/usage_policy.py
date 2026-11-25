@@ -20,6 +20,14 @@ class UsagePolicy(BaseSchema):
     # calls (computed from per-model token rates), independent of the raw
     # token cap above. NULL = unlimited.
     monthly_spend_limit_usd = Column(Numeric(18, 6), nullable=True)
+    # Daily caps, same metrics as the monthly ones above. The day window runs
+    # midnight to midnight in the organization's timezone
+    # (OrganizationSettings.config["timezone"], UTC fallback). NULL = no daily
+    # cap. Daily and monthly are independent: either, both, or neither.
+    daily_token_limit = Column(Integer, nullable=True)
+    daily_query_limit = Column(Integer, nullable=True)
+    daily_data_bytes_limit = Column(BigInteger, nullable=True)
+    daily_spend_limit_usd = Column(Numeric(18, 6), nullable=True)
     enabled = Column(Boolean, nullable=False, default=True)
 
     organization = relationship("Organization")

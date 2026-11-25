@@ -162,8 +162,8 @@ def test_unknown_role_name_is_rejected(org, test_client):
 
 @pytest.mark.e2e
 def test_inviting_existing_account_applies_roles_and_groups(org, test_client, bootstrap_admin, whoami):
-    """An email with an account in another org is added as a registered member;
-    its roles and groups must land on the *user*, not be rejected."""
+    """An email with an account in another org is attached directly; its
+    roles and groups land on the *user* at once, not be rejected."""
     admin, org_id = org["admin"], org["org_id"]
     other = bootstrap_admin("elsewhere")  # has an account + its own org
     group_ids = [g["id"] for g in org["groups"]]
@@ -172,6 +172,7 @@ def test_inviting_existing_account_applies_roles_and_groups(org, test_client, bo
                    role_ids=[org["custom_role"]["id"]], group_ids=group_ids)
     assert resp.status_code == 200, resp.json()
     assert resp.json()["user_id"] == other["user_id"]
+    assert org_id in {o["id"] for o in whoami(other["token"])["organizations"]}
 
     for gid in group_ids:
         assert other["user_id"] in _group_member_ids(test_client, admin["token"], org_id, gid)

@@ -615,6 +615,6 @@ def apply_review_state(te_schema, review: Optional[Dict[str, Any]]) -> None:
 
     te_schema.review_state = review["state"]
     if review["state"] == "pending":
-        te_schema.confirmation = confirmation_payload(review["row"])
+        te_schema.confirmation = confirmation_payload(review["row"], review.get("connection_name"))
         te_schema.progress_stage = "awaiting_confirmation"
 

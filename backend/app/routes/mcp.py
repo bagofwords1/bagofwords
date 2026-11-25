@@ -62,6 +62,13 @@ async def mcp_auth(
         # via their ServiceAccount row.
         from app.core.permission_resolver import assert_principal_belongs_to_org
         await assert_principal_belongs_to_org(db, user, org.id)
+        # MCP is the workspace: an app user (no access_workspace) is refused.
+        from app.core.workspace_access import assert_workspace_access
+        await assert_workspace_access(db, user, str(org.id))
+        # Same as get_current_organization: the organization this request is
+        # for, read by response schemas and organization-context guards.
+        from app.core.request_org import set_request_organization_id
+        set_request_organization_id(str(org.id))
         return user, org
 
     # 1. Try JWT

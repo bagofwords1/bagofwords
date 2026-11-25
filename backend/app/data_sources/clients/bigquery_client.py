@@ -3,10 +3,18 @@ from app.data_sources.clients.base import DataSourceClient
 
 import json
 import os
+import threading
 import pandas as pd
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from app.core.egress import check_google_token_uri
+from app.data_sources.google_default_credentials import (
+    GoogleDefaultCredentialsError,
+    explain_refresh_error,
+    normalize_target_service_account,
+    require_default_credentials_allowed,
+    resolve_default_credentials,
+)
 from typing import List, Generator, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
@@ -37,11 +45,16 @@ class BigqueryClient(DataSourceClient):
     # of literal dates that go stale when saved code is re-executed.
     relative_date_hint = "Relative dates (BigQuery): CURRENT_DATE() is UTC by default — pass a timezone (e.g. CURRENT_DATE('Asia/Jerusalem')) when day boundaries matter; DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY), DATE_TRUNC(CURRENT_DATE(), MONTH)."
 
-    def __init__(self, project_id, credentials_json=None, dataset=None, maximum_bytes_billed: Optional[int] = None, use_query_cache: bool = False, access_token: str = None):
+    def __init__(self, project_id, credentials_json=None, dataset=None, maximum_bytes_billed: Optional[int] = None, use_query_cache: bool = False, access_token: str = None, use_application_default_credentials: bool = False, target_service_account: Optional[str] = None):
         self.project_id = project_id
         self.credentials_json = credentials_json
         self.dataset = dataset
         self._delegated_access_token = access_token
+        # Keyless mode: authenticate as the deployment's own Google identity
+        # (see app/data_sources/google_default_credentials.py). Only an explicit
+        # True selects it — a missing key never falls back to that identity.
+        self.use_application_default_credentials = use_application_default_credentials is True
+        self.target_service_account = None
         # Accept comma-separated datasets; normalize and dedupe while preserving order
         self._datasets = []
         if isinstance(self.dataset, str) and self.dataset.strip():
@@ -56,11 +69,24 @@ class BigqueryClient(DataSourceClient):
         self.maximum_bytes_billed = maximum_bytes_billed
         self.use_query_cache = use_query_cache
 
-        # Support delegated OAuth access token, service account JSON, or file path
+        # Support delegated OAuth access token, the deployment's default
+        # credentials, service account JSON, or file path
         self.credentials = None
+        self._client = None
+        self._client_lock = threading.Lock()
         if self._delegated_access_token:
+            # A user's own sign-in always wins: per-user auth must never widen
+            # into the connection's shared identity.
             from google.oauth2.credentials import Credentials as OAuthCredentials
             self.credentials = OAuthCredentials(token=self._delegated_access_token)
+        elif self.use_application_default_credentials:
+            # Checked here so a disabled deployment or a malformed target is
+            # reported as soon as the client is built. The lookup itself can
+            # reach the metadata server or a token endpoint, so it waits for
+            # first use, which runs in a worker thread (see ``client``).
+            require_default_credentials_allowed()
+            self.target_service_account = normalize_target_service_account(target_service_account)
+            return
         elif isinstance(self.credentials_json, str):
             # Try to parse as JSON content first (preferred & more secure)
             try:
@@ -88,7 +114,28 @@ class BigqueryClient(DataSourceClient):
         else:
             raise TypeError("credentials_json must be a JSON string or a server file path string")
 
-        self.client = bigquery.Client(project=self.project_id, credentials=self.credentials)
+        self._client = bigquery.Client(project=self.project_id, credentials=self.credentials)
+
+    @property
+    def client(self) -> bigquery.Client:
+        """The underlying ``google.cloud.bigquery.Client``.
+
+        Built in ``__init__`` for key and OAuth auth. In keyless mode it is
+        built on first use instead, because resolving the deployment identity
+        does network I/O that must not run on the event loop.
+        """
+        if self._client is None:
+            with self._client_lock:
+                if self._client is None:
+                    self.credentials = resolve_default_credentials(
+                        target_service_account=self.target_service_account,
+                    )
+                    self._client = bigquery.Client(project=self.project_id, credentials=self.credentials)
+        return self._client
+
+    @client.setter
+    def client(self, value) -> None:
+        self._client = value
 
     # Resolved lazily by fast/sources.source_for.
     EXTRACTION_SOURCE = staticmethod(_bigquery_extraction_source)
@@ -262,9 +309,14 @@ class BigqueryClient(DataSourceClient):
                         "message": "Successfully connected to BigQuery, but no datasets found"
                     }
         except Exception as e:
+            # Keyless auth fails in ways a pasted key cannot (no identity on the
+            # server, no permission to impersonate); say which and how to fix it.
+            message = str(e)
+            if self.use_application_default_credentials and not isinstance(e, GoogleDefaultCredentialsError):
+                message = explain_refresh_error(e, self.target_service_account) or message
             return {
                 "success": False,
-                "message": str(e)
+                "message": message
             }
 
     @property

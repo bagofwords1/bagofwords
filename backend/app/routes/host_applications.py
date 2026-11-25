@@ -58,7 +58,8 @@ async def _schema(db, host: HostApplication, cls=HostApplicationSchema, **extra)
     return cls(
         id=str(host.id), public_id=host.public_id, name=host.name, enabled=bool(host.enabled),
         allowed_origins=list(host.allowed_origins or []), identity_mode=host.identity_mode,
-        identity_source=host.identity_source, create_users=bool(host.create_users), issuer=host.issuer,
+        identity_source=host.identity_source, create_users=bool(host.create_users),
+        new_user_role=host.new_user_role or "app_user", issuer=host.issuer,
         audience=host.audience, key_fingerprint=host.key_fingerprint, epoch=int(host.epoch or 1),
         revision=int(host.revision or 1), created_at=host.created_at, updated_at=host.updated_at,
         **counters, **extra,
@@ -68,6 +69,7 @@ async def _schema(db, host: HostApplication, cls=HostApplicationSchema, **extra)
 def _summary(host: HostApplication) -> dict:
     return {"name": host.name, "public_id": host.public_id, "identity_mode": host.identity_mode,
             "identity_source": host.identity_source, "create_users": bool(host.create_users),
+            "new_user_role": host.new_user_role or "app_user",
             "allowed_origins": list(host.allowed_origins or []), "enabled": bool(host.enabled)}
 
 

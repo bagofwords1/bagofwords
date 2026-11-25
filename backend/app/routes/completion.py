@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.dependencies import get_db
 from app.services.completion_service import CompletionService
-from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema, CompactContextRequest
+from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema, CompactContextRequest, CompletionSearchHit
 from app.schemas.sse_schema import SSEEvent, format_sse_event
 from app.streaming.completion_stream import CompletionEventQueue
 from app.streaming.completion_event_bus import websocket_manager
@@ -131,6 +131,42 @@ async def compact_report_context(
         completion_service._estimate_cache.clear()
     except Exception:
         pass
+
+    result["can_compact"] = (await ContextCompactionService.get_ui_state(db, report_id))["can_compact"]
+    return result
+
+
+@router.post("/api/reports/{report_id}/context/clear")
+@requires_permission('create_reports', model=Report, owner_only=True)
+async def clear_report_context(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """/clear in the composer: start a fresh agent context. Nothing is
+    deleted — earlier turns stay in the transcript behind a "Context cleared"
+    divider, but the agent no longer sees them (no summary, no protected
+    opening exchange). No LLM call. Idle-only, like /compact: 409 while an
+    agent execution is streaming or a compaction is running on this report."""
+    from sqlalchemy import select
+    from app.services.context_compaction_service import context_compaction_service, ContextCompactionService
+
+    report_res = await db.execute(select(Report).filter(Report.id == report_id))
+    report = report_res.scalar_one_or_none()
+    if not report or str(report.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    if await ContextCompactionService.is_report_busy(db, report_id):
+        raise HTTPException(status_code=409, detail="An agent run is in progress on this report; try again when it finishes.")
+
+    result = await context_compaction_service.clear(db, report)
+    if result.get("status") == "already_running":
+        raise HTTPException(status_code=409, detail="Context compaction is in progress on this report; try again when it finishes.")
+    if result.get("status") == "busy":
+        raise HTTPException(status_code=409, detail="An agent run is in progress on this report; try again when it finishes.")
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("message", "Clear failed"))
 
     result["can_compact"] = (await ContextCompactionService.get_ui_state(db, report_id))["can_compact"]
     return result
@@ -269,6 +305,7 @@ async def get_completions_v2(
     report_id: str,
     limit: int = 10,
     before: str | None = None,
+    until: str | None = None,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
@@ -277,8 +314,30 @@ async def get_completions_v2(
 
     - limit: last N completions (user+system), default 10
     - before: ISO datetime cursor to fetch items strictly before it
+    - until: a completion id; the page is widened down to and including it
+      (jump to an old message in one request). Unknown/hidden ids are ignored.
     """
-    return await completion_service.get_completions_v2(db, report_id, organization, current_user, limit=limit, before=before)
+    return await completion_service.get_completions_v2(db, report_id, organization, current_user, limit=limit, before=before, until=until)
+
+
+@router.get("/api/reports/{report_id}/completions/search", response_model=list[CompletionSearchHit])
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def search_report_completions(
+    report_id: str,
+    q: str = "",
+    limit: int = Query(20, ge=1, le=50),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Search this report's messages, including pages the client hasn't loaded.
+
+    Same visibility as the transcript (hidden machine prompts and sub-agent
+    children excluded) and the same PII redaction. Newest first. Each hit's
+    ``cursor`` is the message's position in the ``next_before`` format; pass
+    ``until=<completion_id>`` to GET /completions to load down to it.
+    """
+    return await completion_service.search_report_completions(db, report_id, organization, q, limit=limit)
 
 @router.post("/api/completions/{completion_id}/sigkill")
 @requires_permission('create_reports')
@@ -393,9 +452,25 @@ async def respond_to_mcp_tool_confirmation(
     from app.ai.tools.confirmation import KIND_BUILTIN_TOOL
     _ANSWERABLE_KINDS = {KIND_MCP_TOOL_POLICY, KIND_BUILTIN_TOOL}
 
+    # The completion in the path must be one of the request's organization
+    # (through its report). A principal bound to several organizations answers
+    # a run only from the organization that run belongs to; anything else is
+    # answered like an unknown confirmation.
+    from sqlalchemy import select
+    from app.models.completion import Completion as _Completion
+    completion_org_id = (await db.execute(
+        select(Report.organization_id)
+        .join(_Completion, _Completion.report_id == Report.id)
+        .where(_Completion.id == str(completion_id))
+    )).scalar_one_or_none()
+    if completion_org_id is not None and str(completion_org_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Confirmation not found or expired")
+
     confirmations = ToolConfirmationService()
     row = await confirmations.get(db, confirmation_id)
     if row is not None:
+        if row.organization_id and str(row.organization_id) != str(organization.id):
+            raise HTTPException(status_code=404, detail="Confirmation not found or expired")
         if row.kind not in _ANSWERABLE_KINDS:
             raise HTTPException(status_code=404, detail="Confirmation not found or expired")
         if not confirmations.may_respond(
@@ -431,19 +506,30 @@ async def respond_to_mcp_tool_confirmation(
         if meta.get("user_id") and str(current_user.id) != str(meta["user_id"]):
             raise HTTPException(status_code=403, detail="Only the user who started this run can respond")
 
+    # How far the answer reaches: once | report | always. The shell card's
+    # older values map on (session = this report, user = always); a client
+    # that only sends `remember` means always.
+    raw_scope = body.get("permission_scope")
+    if raw_scope is not None and not isinstance(raw_scope, str):
+        raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
+    scope = {"session": "report", "user": "always"}.get(raw_scope, raw_scope) if raw_scope else (
+        "always" if remember else "once")
+    if scope not in ("once", "report", "always"):
+        raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
+    if scope == "report" and (row is None or not row.report_id):
+        raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_REPORT_REQUIRED, "'For this report' needs a report")
+    remember = scope == "always"
+
     shell_target = (row.arguments or {}).get("_execution_target", {}) if row is not None else {}
-    shell_scope = body.get("permission_scope") or ("user" if remember else "once")
+    shell_scope = {"once": "once", "report": "session", "always": "user"}[scope]
     shell_rule = None
     if shell_target.get("shell_permissions"):
         from app.schemas.data_sources.remote_server import ShellRule
-        if shell_scope not in ("once", "session", "user"):
-            raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
+        # The scope and its report were checked above for every row.
         if shell_target.get("mandatory_approval"):
             shell_scope = "once"
         remember = shell_scope != "once"
         if remember:
-            if shell_scope == "session" and not row.report_id:
-                raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_REPORT_REQUIRED, "Session permissions require a report")
             try:
                 shell_rule = ShellRule.model_validate({
                     "pattern": body.get("command_pattern") or row.arguments.get("command"),
@@ -470,6 +556,14 @@ async def respond_to_mcp_tool_confirmation(
             raise HTTPException(status_code=410, detail="Confirmation expired")
         approved, remember = row.approved, bool(row.remember)
 
+    if remember and meta.get("connection_tool_id") and not shell_handled:
+        # Never store a preference the tool's effect forbids (e.g. "always
+        # allow" a destructive action): the decision still applies once.
+        from app.models.connection_tool import ConnectionTool as _CT
+        from app.services.tool_policy_service import policy_not_allowed_for
+        _tool = await db.get(_CT, str(meta["connection_tool_id"]))
+        if _tool is not None and policy_not_allowed_for(_tool, TOOL_POLICY_ALLOW if approved else TOOL_POLICY_DENY):
+            remember = False
     if remember and meta.get("connection_tool_id") and not shell_handled:
         # Brief retry: on SQLite a concurrent agent write can hold the single
         # writer lock for a moment ("database is locked").
@@ -499,6 +593,9 @@ async def respond_to_mcp_tool_confirmation(
             remember=remember,
             user_id=str(current_user.id),
             response=extra_response,
+            # "For this report" is only reused for MCP tool-policy asks (see
+            # ToolConfirmationService.report_decision); elsewhere it is once.
+            scope=scope if row.kind == KIND_MCP_TOOL_POLICY or scope != "report" else "once",
         )
         if row is None:
             raise HTTPException(status_code=404, detail="Confirmation not found or expired")
@@ -511,6 +608,7 @@ async def respond_to_mcp_tool_confirmation(
         {
             "approved": approved,
             "remember": remember,
+            "scope": (row.scope if row is not None and getattr(row, "scope", None) else scope),
             "resolved_by_user_id": str(current_user.id),
             "resolved_by_name": getattr(current_user, "name", None) or None,
             "response": extra_response,

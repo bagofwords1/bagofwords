@@ -326,7 +326,10 @@ async def admit_user(cfg, issuer, subject, identity_hash, email, name, db):
             raise SAMLFailure("Explicit account link required")
         user = collision
     if user:
-        if not user.is_active or user.is_superuser or user.is_service_account or user.ldap_subject:
+        from app.core.instance_admin import directory_sign_in_refused_for_superuser
+
+        if (not user.is_active or directory_sign_in_refused_for_superuser(user)
+                or user.is_service_account or user.ldap_subject):
             raise SAMLFailure("Account unavailable")
         membership = (
             await db.execute(

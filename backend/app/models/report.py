@@ -59,6 +59,9 @@ class Report(BaseSchema):
     # stored beside it. null = Default (the model's own default / trigger
     # words). Each turn also records its effort on completion.prompt.
     reasoning_effort = Column(String(16), nullable=True)
+    # Permission mode for tool calls in this report's runs (auto | ask |
+    # allow_all); null = the org default. See app/services/tool_permission_mode.py.
+    permission_mode = Column(String(16), nullable=True)
     # Per-conversation opt-outs for API integrations (see
     # app.schemas.report_api_settings). null / missing = the org setting
     # decides; False = off for every turn on this report, including the turns

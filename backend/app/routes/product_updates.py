@@ -35,10 +35,11 @@ class ProductUpdatesUpdate(BaseModel):
     source: Literal["onboarding", "settings"] = "settings"
 
 
-def _ensure_instance_admin(user: User) -> None:
+async def _ensure_instance_admin(db: AsyncSession, user: User) -> None:
     """Same rule as the license key: the choice is instance-wide, so on a
     multi-organization instance only an instance superuser may make it."""
-    if settings.bow_config.features.allow_multiple_organizations and not user.is_superuser:
+    from app.core.instance_admin import is_instance_settings_admin
+    if not await is_instance_settings_admin(db, user):
         raise HTTPException(
             status_code=403,
             detail="Only an instance administrator can change product updates on a multi-organization instance",
@@ -74,7 +75,7 @@ async def update_product_updates(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    _ensure_instance_admin(current_user)
+    await _ensure_instance_admin(db, current_user)
     if not svc.prompt_available():
         raise HTTPException(status_code=409, detail="Product updates are not available on this instance")
     await svc.record_decision(

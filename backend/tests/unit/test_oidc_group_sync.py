@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 @pytest.mark.asyncio
 async def test_resolve_group_names_from_graph():
-    """Graph /me/memberOf returns group ID → displayName mapping."""
+    """Graph /me/transitiveMemberOf returns group ID → displayName mapping."""
     graph_response = {
         "value": [
             {
@@ -93,7 +93,7 @@ async def test_resolve_group_names_handles_pagination():
         "value": [
             {"@odata.type": "#microsoft.graph.group", "id": "g1", "displayName": "Group1"},
         ],
-        "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/memberOf?$skiptoken=abc",
+        "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/transitiveMemberOf?$skiptoken=abc",
     }
     page2 = {
         "value": [
@@ -350,3 +350,52 @@ def test_custom_group_claim_name():
 
     group_claim = "custom_groups"
     assert decoded.get(group_claim, []) == ["grp-1", "grp-2"]
+
+
+def _graph_client(handler):
+    transport = httpx.MockTransport(handler)
+    original = httpx.AsyncClient
+
+    class _Patched(original):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    return patch.object(httpx, "AsyncClient", _Patched)
+
+
+@pytest.mark.asyncio
+async def test_resolve_group_names_asks_for_nested_memberships_too():
+    """The list replaces the token's groups claim, which includes nested groups."""
+    asked = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        return httpx.Response(200, json={"value": []})
+
+    with _graph_client(handler):
+        from app.ee.oidc.graph_client import resolve_group_names
+        await resolve_group_names("fake_token")
+
+    assert asked == ["/v1.0/me/transitiveMemberOf"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_group_names_never_returns_a_partial_list():
+    """A failed later page raises, so nobody acts on half the memberships."""
+    pages = iter([
+        (200, {
+            "value": [{"@odata.type": "#microsoft.graph.group", "id": "g1", "displayName": "Group1"}],
+            "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/transitiveMemberOf?$skiptoken=abc",
+        }),
+        (503, {}),
+    ])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        status, body = next(pages)
+        return httpx.Response(status, json=body, request=request)
+
+    with _graph_client(handler):
+        from app.ee.oidc.graph_client import resolve_group_names
+        with pytest.raises(httpx.HTTPStatusError):
+            await resolve_group_names("fake_token")

@@ -5,7 +5,7 @@
         <slot v-if="status === 'ready'" />
         <div v-else class="h-full w-full flex items-center justify-center bg-white dark:bg-gray-900 p-6">
             <div class="max-w-sm text-center space-y-3">
-                <Spinner v-if="status === 'starting' || status === 'signing_in'" class="w-5 h-5 mx-auto text-gray-400" />
+                <Spinner v-if="status === 'starting' || status === 'signing_in'" class="w-5 h-5 mx-auto text-ink-muted" />
                 <p class="text-sm text-gray-600 dark:text-gray-300" data-testid="embedded-artifact-message">{{ message }}</p>
                 <UButton v-if="status === 'sign_in_required' && mode === 'sso'" size="sm" color="blue"
                          data-testid="embedded-artifact-sign-in" @click="signInWithPopup">

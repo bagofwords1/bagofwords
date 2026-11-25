@@ -179,6 +179,30 @@ def hardened_args() -> List[str]:
     return args
 
 
+# What every clone of a connected repository gets on top of the server's own
+# git configuration (git_service). Unlike ``hardened_env`` this hides nothing:
+# system/global gitconfig, credential helpers and proxy/CA variables keep
+# applying, because deployments configure git for their network that way.
+# ``GIT_CONFIG_*`` entries are command-scope config and override config files.
+CLONE_PROTECTIONS: List[Tuple[str, str]] = [
+    ("core.symlinks", "false"),          # links are checked out as plain files
+    ("core.hooksPath", os.devnull),
+    ("core.fsmonitor", "false"),
+    ("submodule.recurse", "false"),
+    ("fetch.recurseSubmodules", "false"),
+    ("protocol.ext.allow", "never"),     # remote helpers run commands
+    ("protocol.file.allow", "user"),     # never for a submodule
+]
+
+
+def clone_protection_env(env: Dict[str, str]) -> Dict[str, str]:
+    """``env`` plus ``CLONE_PROTECTIONS``; nothing in ``env`` is removed."""
+    out = dict(env)
+    for key, value in CLONE_PROTECTIONS:
+        _append_config(out, key, value)
+    return out
+
+
 # Environment variables passed through to git. Everything else (HOME-based
 # config, GIT_* overrides from the app's own environment) is dropped.
 _PASSTHROUGH = (

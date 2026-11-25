@@ -77,7 +77,7 @@
             </div>
 
             <!-- Fallback (not eligible / state unknown). -->
-            <UButton v-else to="/" color="white" class="mt-2">{{ t('dashboardCollab.access.goHome') }}</UButton>
+            <UButton v-else :to="homePath" color="white" class="mt-2" data-testid="access-go-home">{{ isAppUser ? t('apps.allApps') : t('dashboardCollab.access.goHome') }}</UButton>
         </div>
     </div>
 
@@ -99,10 +99,11 @@
         <!-- Back to app: a dedicated arrow at the opposite corner, so the most
              used navigation isn't buried in the ⋮. (Flips automatically in RTL.) -->
         <div v-if="showTopBar && reportLoaded" class="absolute top-3 start-3 z-dropdown">
-            <UTooltip :text="t('dashboardCollab.access.backToApp')">
-                <UButton to="/" color="gray" variant="soft" icon="i-heroicons-arrow-left"
+            <!-- An app user's "app" is the launcher: BOW's home is closed to them. -->
+            <UTooltip :text="backLabel">
+                <UButton :to="homePath" color="gray" variant="soft" icon="i-heroicons-arrow-left"
                     :ui="{ rounded: 'rounded-full' }"
-                    :aria-label="t('dashboardCollab.access.backToApp')" data-testid="app-back" />
+                    :aria-label="backLabel" data-testid="app-back" />
             </UTooltip>
         </div>
 
@@ -146,6 +147,7 @@
             :is-running="isRunning"
             :showing-author-data="showingAuthorData"
             :withheld-count="withheldCharts.length"
+            :refresh-key="versionListKey"
             @toggle-changes="toggleChanges"
             @open-history="historyOpen = true"
             @run-as-me="handleRun"
@@ -169,6 +171,15 @@
 
         <!-- Main Content Area -->
         <div class="flex-1 min-h-0 relative">
+            <!-- The draft page showing "latest" while a newer version was saved
+                 elsewhere (the agent, another tab): veiled, with a Refresh. -->
+            <NewerVersionOverlay
+                v-if="showNewerOverlay && newerVersion"
+                :version="newerVersion.number"
+                :current="dashboardMeta?.version_number"
+                @refresh="emit('reload')"
+                @dismiss="newerDismissed = newerVersion.id"
+            />
             <!-- Report Tab: Artifact/Dashboard Content -->
             <template v-if="activeTab === 'report'">
                 <!-- Snapshot withheld: this dashboard's data is per-user, so the
@@ -229,7 +240,7 @@
                     :srcdoc="iframeSrcdoc"
                     @load="onArtifactIframeLoad"
                     :sandbox="sandboxAttr"
-                    class="absolute inset-0 w-full h-full border-0 bg-white"
+                    class="absolute inset-0 w-full h-full border-0 bg-surface"
                 />
 
                 <!-- Loading state -->
@@ -240,7 +251,7 @@
                     </div>
                 </div>
 
-                <div v-else-if="artifactLoadFailed" role="alert" class="absolute inset-0 flex items-center justify-center text-gray-500">
+                <div v-else-if="artifactLoadFailed" role="alert" class="absolute inset-0 flex items-center justify-center text-ink-muted">
                     <p>{{ $t('reports.artifactLoadFailed') }}</p>
                 </div>
 
@@ -331,13 +342,16 @@
 </template>
 
 <script setup lang="ts">
+import { shallowRef, toRaw } from 'vue';
 import type { ExportFormat } from '~/composables/useArtifactExports'
+import { handleTableLayoutMessage, loadTableLayouts } from '~/utils/artifactTableLayout';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { artifactRowCounts } from '~/utils/artifactRowCounts';
+import { artifactFramePayload, postWithJsonFallback } from '~/utils/artifactFramePayload';
 import { artifactSandbox } from '~/utils/artifactSandbox';
 import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
@@ -349,6 +363,8 @@ import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue'
 import DashboardHistoryModal from '~/components/dashboard/DashboardHistoryModal.vue';
 import PresenceAvatars from '~/components/dashboard/collab/PresenceAvatars.vue';
 import DraftVersionBar from '~/components/dashboard/collab/DraftVersionBar.vue';
+import NewerVersionOverlay from '~/components/dashboard/NewerVersionOverlay.vue';
+import { newerDraftVersion, type NewerOffer } from '~/utils/newerDashboardVersion';
 import DashboardChangesPanel from '~/components/dashboard/collab/DashboardChangesPanel.vue';
 import {
     chartOverlayScriptTag, vizIdsForKey, COLLAB_MARKS_MESSAGE, COLLAB_LOCATED_MESSAGE, type ChartMark,
@@ -441,7 +457,15 @@ async function fetchViewerContext() {
         viewerContext.value = null;
     }
 }
-const visualizationsData = ref<any[]>([]);
+// The dashboard's data: every chart with its rows. Shallow on purpose: Vue
+// tracks the list, not the values inside it, so a large dashboard is not
+// wrapped row by row. The rule that comes with it: the list is replaced, never
+// edited in place (a chart or row changed inside it refreshes nothing on the
+// page). Every write goes through replaceVisualizationsData.
+const visualizationsData = shallowRef<any[]>([]);
+function replaceVisualizationsData(next: any[]) {
+    visualizationsData.value = next;
+}
 const filesData = ref<any[]>([]);
 const hasArtifacts = ref(false);
 const artifactLoadFailed = ref(false);
@@ -527,6 +551,12 @@ const ownConversations = computed(() => /\bbow\.conversations\b|\buseConversatio
 const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
 const unavailable = ref(false);
 // Top bar state
+// Where "back" leads: the workspace, or the app launcher for an app user (a
+// member without access_workspace, whom every workspace page turns away).
+const workspaceAccess = useWorkspaceAccess();
+const isAppUser = computed(() => workspaceAccess.value === false);
+const homePath = computed(() => (isAppUser.value ? '/apps' : '/'));
+const backLabel = computed(() => (isAppUser.value ? t('apps.allApps') : t('dashboardCollab.access.backToApp')));
 const showTopBar = ref(!embedded && !inHostApplication.value && (typeof window === 'undefined' || window.self === window.top));
 const showVersionDetails = ref(false);
 const identityResolved = ref(false);
@@ -1176,6 +1206,37 @@ function asReport(meta: any) {
     };
 }
 const dashboardMeta = ref<any>(null);
+
+// The draft page hears no stream, so a version saved after it opened (the
+// agent editing in the conversation, another tab, a teammate) left it showing
+// the old one, and its version list never grew: reopening the link was the
+// only way to see it. While on screen it asks for the latest every few
+// seconds; a newer one reloads the version list and, when this page shows
+// "latest" (no ?version), veils the stale dashboard with a Refresh. A chosen
+// version is the reader's pick and is never veiled.
+const newerVersion = ref<NewerOffer | null>(null);
+const newerDismissed = ref<string | null>(null);
+const versionListKey = ref(0);
+const showingLatest = typeof route.query.version !== 'string';
+async function checkForNewerVersion() {
+    const shown = dashboardMeta.value;
+    if (!shown?.version_id) return;
+    // The same draft read as the page's own, minus ?version: what "latest" is now.
+    const qs = new URLSearchParams();
+    const draft = route.query.draft;
+    if (typeof draft === 'string' && draft) qs.set('draft', draft.slice(0, 120));
+    const query = qs.toString();
+    const { data, error } = await useMyFetch(`/api/d/${encodeURIComponent(props.id)}/draft${query ? `?${query}` : ''}`);
+    if (error.value) return;
+    const offer = newerDraftVersion(shown, data.value as any);
+    if (!offer || offer.id === newerVersion.value?.id) return;
+    newerVersion.value = offer;
+    versionListKey.value += 1;
+}
+useVisiblePoll(checkForNewerVersion, 10000,
+    () => props.source === 'draft' && !embedded && !inHostApplication.value && reportLoaded.value);
+const showNewerOverlay = computed(() => showingLatest && !!newerVersion.value
+    && newerDismissed.value !== newerVersion.value.id && activeTab.value === 'report');
 // The reader's iframe sandbox, relaxed to allow popups/new-tab links + modals
 // only when this dashboard opted in (Embed tab). allow_popups rides on the
 // published/draft dashboard schema.
@@ -1265,13 +1326,15 @@ async function loadArtifact() {
 // The artifact's queries, each with the default step this viewer may see, in
 // ONE request (api.queriesWithSteps). Null on failure — callers then fall
 // back to the list + per-query step endpoints.
+// The answer is used as it came (noClone, toRaw): no copy of the rows, and
+// nothing on this page writes into it.
 async function fetchQueriesWithSteps(artifactId?: string): Promise<any[] | null> {
     try {
         const sent = apiAuthorization.value;
-        const { data, error } = await useMyFetch(api.queriesWithSteps(artifactId));
+        const { data, error } = await useMyFetch(api.queriesWithSteps(artifactId), { noClone: true } as any);
         if (embedSessionEndedOn(error.value, sent)) return [];
         if (error.value || !Array.isArray(data.value)) return null;
-        return data.value as any[];
+        return toRaw(data.value) as any[];
     } catch {
         return null;
     }
@@ -1431,9 +1494,9 @@ async function loadVisualizationData(artifactId?: string) {
             for (const v of vizData) {
                 if (!orderedIds.has(v.id)) ordered.push(v);
             }
-            visualizationsData.value = ordered;
+            replaceVisualizationsData(ordered);
         } else {
-            visualizationsData.value = vizData;
+            replaceVisualizationsData(vizData);
         }
         await resolveParamOptions(rowsByQuery, titleToId, appliedByQuery);
         viewerLastRunAt.value = newestViewerRun;
@@ -1529,7 +1592,8 @@ let paramAckSeq = 0;
 let paramRunCounter = 0;
 const latestParamRunForQid: Record<string, number> = {};
 // Frozen at dataReady so live updates never recompute srcdoc (iframe reload).
-const srcdocSeed = ref<any>(null);
+// Shallow: plain data (artifactDataPayload), set once, never edited.
+const srcdocSeed = shallowRef<any>(null);
 
 function artifactRuntime() {
     const v = Number(artifact.value?.content?.runtime_version || 0);
@@ -1665,10 +1729,43 @@ function queriesWithIdentityParams(): string[] {
         .map(([qid]) => qid);
 }
 
-function postToArtifactIframe(msg: any) {
+// jsonFallback (the data push): a message the browser refuses to copy is sent
+// as a JSON copy instead (utils/artifactFramePayload). When even that copy
+// fails, the failure is logged and shown on the dashboard's status line.
+function postToArtifactIframe(msg: any, jsonFallback = false) {
+    const target = artifactIframeRef.value?.contentWindow;
+    if (target && jsonFallback) {
+        try {
+            postWithJsonFallback(target, msg);
+        } catch (err: any) {
+            console.error('[PublicArtifact] Failed to send data to the dashboard:', err);
+            postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: {
+                loading: false, error: err?.message || 'Failed to send data to the dashboard' } });
+        }
+        return;
+    }
     try {
-        artifactIframeRef.value?.contentWindow?.postMessage(msg, '*');
+        target?.postMessage(msg, '*');
     } catch { /* iframe not ready */ }
+}
+
+// What the frame receives: ARTIFACT_DATA and the srcdoc seed, without a copy
+// of the rows (utils/artifactFramePayload).
+function artifactDataPayload(extra: Record<string, any> = {}, separateRows = false) {
+    return artifactFramePayload({
+        report: {
+            id: report.value.id,
+            title: report.value.title,
+            theme: report.value.theme_name || report.value.report_theme_name
+        },
+        visualizations: visualizationsData.value,
+        files: filesData.value,
+        current_user: viewerContext.value,
+        host_context: props.hostContext ?? null,
+        params: paramsPayload(),
+        runtime: artifactRuntime(),
+        ...extra,
+    }, { separateRows });
 }
 
 // Get the rows just loaded into the artifact that is already on screen.
@@ -1699,20 +1796,11 @@ function onArtifactIframeLoad() {
 function pushArtifactData() {
     postToArtifactIframe({
         type: 'ARTIFACT_DATA',
-        payload: JSON.parse(JSON.stringify({
-            report: {
-                id: report.value.id,
-                title: report.value.title,
-                theme: report.value.theme_name || report.value.report_theme_name
-            },
-            visualizations: visualizationsData.value,
-            files: filesData.value,
-            current_user: viewerContext.value,
-            host_context: props.hostContext ?? null,
-            params: paramsPayload(),
-            runtime: artifactRuntime()
-        }))
-    });
+        payload: artifactDataPayload({
+            // This viewer's DataTable layouts — hand-set widths, column order (utils/artifactTableLayout).
+            table_layouts: loadTableLayouts(artifact.value?.artifact_id)
+        }, true)
+    }, true);
 }
 
 async function runParamQueries(
@@ -1773,25 +1861,27 @@ async function runParamQueries(
             const sent = apiAuthorization.value;
             const { data: runRes, error } = await useMyFetch(api.paramRun(qid), { method: 'POST', body });
             if (embedSessionEndedOn(error.value, sent)) return;
-            const res: any = runRes.value;
+            const res: any = toRaw(runRes.value);
             if (error.value || !res || res.status !== 'success') {
                 const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
                 if (!firstError) firstError = String(msg);
                 return;
             }
             if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
-            for (const viz of visualizationsData.value as any[]) {
-                if (viz.queryId === qid) {
-                    viz.rows = res.data?.rows || [];
-                    Object.assign(viz, artifactRowCounts(res.data));
-                    viz.columns = res.data?.columns || [];
-                }
-            }
+            // A new chart object for each chart of this query, in a new list:
+            // the data is replaced, never edited in place.
+            replaceVisualizationsData(visualizationsData.value.map((current: any) => {
+                if (current.queryId !== qid) return current;
+                const viz = { ...current };
+                viz.rows = res.data?.rows || [];
+                Object.assign(viz, artifactRowCounts(res.data));
+                viz.columns = res.data?.columns || [];
+                return viz;
+            }));
         } catch (e: any) {
             if (!firstError) firstError = e?.message || 'Query run failed';
         }
     }));
-    visualizationsData.value = [...visualizationsData.value];
     // A fully superseded run stays quiet: the newer run owns the status line
     // and pushes its own (fresher) data.
     if (myRun === paramRunCounter) {
@@ -1802,6 +1892,7 @@ async function runParamQueries(
 
 function handleArtifactParamsMessage(event: MessageEvent) {
     if (event.source !== artifactIframeRef.value?.contentWindow || !event.data) return;
+    if (handleTableLayoutMessage(event.data, artifact.value?.artifact_id)) return;
     if (event.data.type === 'ARTIFACT_SET_PARAMS') {
         paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
         runParamQueries(event.data.changes || {}, event.data.targets || null, {});
@@ -2110,19 +2201,7 @@ onMounted(async () => {
 
     // Freeze the srcdoc seed so later param runs update via postMessage
     // without reloading the iframe.
-    srcdocSeed.value = JSON.parse(JSON.stringify({
-        report: {
-            id: report.value.id,
-            title: report.value.title,
-            theme: report.value.theme_name || report.value.report_theme_name
-        },
-        visualizations: visualizationsData.value,
-        files: filesData.value,
-        current_user: viewerContext.value,
-        host_context: props.hostContext ?? null,
-        params: paramsPayload(),
-        runtime: artifactRuntime()
-    }));
+    srcdocSeed.value = artifactDataPayload();
 
     // The iframe libraries were requested after identity, in parallel with the data
     // above; usually they are already here. Waiting before flipping the flags

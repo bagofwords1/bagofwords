@@ -71,3 +71,7 @@ class Membership(BaseSchema):
 
     role = Column(String, nullable=False, default='member')
     directory_provider = Column(String(64), nullable=True)
+    # The host application whose sign-in created this membership (an app
+    # user's first arrival through an embedded artifact). Display and audit
+    # only — access comes from roles. Soft reference (no FK).
+    created_via_host_application_id = Column(String(36), nullable=True)

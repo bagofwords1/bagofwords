@@ -13,13 +13,13 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import current_user, current_user_optional
 from app.core.embed_auth import viewer_optional
+from app.core.json_response import json_data, json_response
 from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
 from app.errors import AppError, ErrorCode
@@ -289,6 +289,27 @@ async def unstar_dashboard(
     from app.services.dashboard_list import set_star
 
     return await set_star(db, current_user, organization, dashboard_id, False)
+
+
+@router.delete("/artifacts/{dashboard_id}/dashboard")
+@requires_permission("delete_reports")
+async def delete_dashboard(
+    dashboard_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The owner deletes the dashboard and every version of it (the `delete`
+    capability, the owner's alone); a published one is unpublished first
+    (dashboard_lifecycle.delete_dashboard). Not `DELETE /artifacts/{id}`:
+    that one deletes a version, and a parent backfilled by artver01 shares
+    its version's id."""
+    from app.services.dashboard_access import CAP_DELETE
+    from app.services.dashboard_lifecycle import delete_dashboard as delete
+
+    artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, CAP_DELETE)
+    return await delete(db, artifact, current_user, organization, request=request)
 
 
 @router.get("/artifacts/{dashboard_id}/sharing", response_model=DashboardSharingSchema)
@@ -834,7 +855,7 @@ async def get_published_step(
     out = await _published_step(db, artifact, release, query, user)
     if out is None:
         raise dashboard_data.not_found()
-    return out
+    return json_response(out)
 
 
 async def _published_step(db, artifact, release, query, user):
@@ -868,11 +889,11 @@ async def list_published_queries_with_steps(
     queries = await dashboard_data.release_queries(db, release)
     # Encoded before any step sets the code-visibility context, as the list
     # route's response is.
-    listed = [jsonable_encoder(PublicQuerySchema.model_validate(q)) for q in queries]
+    listed = [json_data(PublicQuerySchema.model_validate(q)) for q in queries]
     for q, row in zip(queries, listed):
         step = await _published_step(db, artifact, release, q, user)
-        out.append({**row, "default_step": jsonable_encoder(step) if step is not None else None})
-    return out
+        out.append({**row, "default_step": json_data(step)})
+    return json_response(out)
 
 
 @router.get("/d/{ref}/queries/{query_id}/export")
@@ -1065,7 +1086,11 @@ async def export_published_dashboard(
         return Response(content=html, media_type="text/html; charset=utf-8", headers={
             "Content-Disposition": f'attachment; filename="{ascii_fallback_filename(filename)}"; '
                                    f"filename*=UTF-8''{quote(filename)}",
-            "Cache-Control": "no-store"})
+            "Cache-Control": "no-store",
+            # Pin the declared text/html type so a browser cannot sniff this
+            # user-influenced export into another type (matches other content
+            # routes); the attachment disposition already blocks inline render.
+            "X-Content-Type-Options": "nosniff"})
 
     try:
         pdf_path = await _release_pdf(db, artifact, release, user)
@@ -1400,7 +1425,7 @@ async def get_draft_step(
     out = await _draft_step(db, artifact, version, query, user)
     if out is None:
         raise dashboard_data.not_found()
-    return out
+    return json_response(out)
 
 
 async def _draft_step(db, artifact, version, query, user):
@@ -1441,11 +1466,11 @@ async def list_draft_queries_with_steps(
     artifact, version, _ = await _draft(db, ref, user, version=version, draft=draft)
     out = []
     queries = await _draft_queries(db, version)
-    listed = [jsonable_encoder(PublicQuerySchema.model_validate(q)) for q in queries]
+    listed = [json_data(PublicQuerySchema.model_validate(q)) for q in queries]
     for q, row in zip(queries, listed):
         step = await _draft_step(db, artifact, version, q, user)
-        out.append({**row, "default_step": jsonable_encoder(step) if step is not None else None})
-    return out
+        out.append({**row, "default_step": json_data(step)})
+    return json_response(out)
 
 
 @router.post("/d/{ref}/draft/queries/{query_id}/run")

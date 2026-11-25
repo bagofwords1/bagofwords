@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from datetime import datetime
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -201,8 +202,19 @@ async def resolve_user(db, host, subject: str, claims: Dict[str, Any]) -> User:
         return await _active_member(db, ids[0], org_id)
     if not host.create_users:
         raise _unmapped()
+    # Read before admitting: a refusal rolls the session back and expires the row.
+    started, host_id, role = datetime.utcnow(), str(host.id), host.new_user_role
+    # The membership is stamped with the host's role as it is written
+    # (core/workspace_access); apply_new_user_role afterwards is the backstop.
+    from app.core import workspace_access
+    from app.core.permissions_registry import APP_USER_ROLE
+
+    intent = workspace_access.SignupIntent(host.public_id, host_id, org_id,
+                                           role if role in (APP_USER_ROLE, "member") else APP_USER_ROLE, started)
     try:
-        user_id = await _admit(db, host, subject, claims)
+        async with workspace_access.signup_intent_scope(intent):
+            user_id = await _admit(db, host, subject, claims)
+        await apply_new_user_role(db, host_id, org_id, role, user_id, since=started)
     except AppError:
         raise
     except IntegrityError:
@@ -213,6 +225,36 @@ async def resolve_user(db, host, subject: str, claims: Dict[str, Any]) -> User:
             raise _unmapped()
         user_id = ids[0]
     return await _active_member(db, user_id, org_id)
+
+
+async def apply_new_user_role(db, host_id: str, organization_id: str, role: Optional[str],
+                              user_id: str, *, since: datetime) -> bool:
+    """Give the host application's new-user role to a membership this sign-in
+    created, and record where it came from. Returns whether it did.
+
+    Only a membership created at or after ``since`` (the start of this
+    sign-in) counts: an existing member keeps their role whatever app they
+    open, and an invitation an admin sent earlier keeps the role it grants
+    (claiming it reuses the invite's row). An admin is never touched.
+    """
+    from app.core.permissions_registry import APP_USER_ROLE
+    from app.services.organization_service import OrganizationService
+
+    membership = (await db.execute(select(Membership).where(
+        Membership.user_id == str(user_id), Membership.organization_id == str(organization_id),
+        Membership.deleted_at.is_(None)).limit(1))).scalars().first()
+    if (membership is None or membership.created_via_host_application_id
+            or membership.created_at is None or membership.created_at < since):
+        return False
+    membership.created_via_host_application_id = str(host_id)
+    role = role if role in (APP_USER_ROLE, "member") else APP_USER_ROLE
+    if membership.role == "member" and role != "member":
+        membership.role = role
+        await OrganizationService()._sync_system_role_assignment(db, str(organization_id), str(user_id), role)
+        from app.core.permission_resolver import invalidate_rbac_memo
+        invalidate_rbac_memo(db, str(user_id), str(organization_id))
+    await db.commit()
+    return True
 
 
 def _email_claim(claims: Dict[str, Any]) -> str:

@@ -184,7 +184,8 @@ def test_human_admin_can_still_get_invite_link(invite_cast, test_client):
 # invite with a role whose permissions they already hold (deny is 403, audited
 # as member.invite.denied, and leaves no membership row). Full admins are
 # unrestricted. Covers both a pending email invite (role materialized on
-# acceptance) and an already-registered user (role materialized immediately).
+# acceptance) and an account that already belongs elsewhere (attached directly,
+# role assigned at once).
 
 def _invite(test_client, token, org_id, email, role):
     return test_client.post(
@@ -192,6 +193,12 @@ def _invite(test_client, token, org_id, email, role):
         json={"organization_id": org_id, "email": email, "role": role},
         headers=_hdr(token, org_id),
     )
+
+
+def _assert_attached(resp, user):
+    """An account that already belongs to another organization is attached
+    directly: the membership carries its user id, no invite to accept."""
+    assert resp.json()["user_id"] == user["user_id"], resp.json()
 
 
 def _member_emails(test_client, admin_token, org_id):
@@ -245,6 +252,7 @@ def test_delegate_can_still_invite_at_or_below_own_level(cast, test_client, whoa
     assert resp.json()["role"] == "member"
     assert email.lower() in _member_emails(test_client, c["admin"]["token"], c["org_id"])
     if target == "registered_user":
+        _assert_attached(resp, registered_outsider)
         assert "full_admin_access" not in _perms(whoami, registered_outsider["token"], c["org_id"])
 
 
@@ -262,6 +270,7 @@ def test_admin_can_still_invite_admins(cast, test_client, whoami, registered_out
         token = login_user(email, "Test1234!")
     else:
         token = registered_outsider["token"]
+        _assert_attached(resp, registered_outsider)
     assert "full_admin_access" in _perms(whoami, token, c["org_id"])
 
 

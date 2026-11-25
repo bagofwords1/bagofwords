@@ -27,10 +27,38 @@ class TimingBreakdownSchema(BaseModel):
     iterations: List[IterationTimingSchema] = []
 
 
+class RunModelUsageSchema(BaseModel):
+    """One model's share of a run, from its llm_usage_records. Input tokens
+    include cache reads/writes for every provider (the bow.runs convention)."""
+    model_id: str
+    provider: Optional[str] = None
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cost_usd: float = 0.0
+    # Auto routing ran these calls instead of baseline_model_id (a model id).
+    # False for calls on the baseline itself, e.g. after an escalation.
+    routed: bool = False
+    baseline_model_id: Optional[str] = None
+
+
+class RunAgentSchema(BaseModel):
+    """An agent (data source) the run drew on, with what DataSourceIcon needs."""
+    id: str
+    name: str
+    type: Optional[str] = None
+    connector_key: Optional[str] = None
+    icon: Optional[str] = None
+
+
 class AgentExecutionTraceResponse(BaseModel):
     folder_name: Optional[str] = None
     folder_names: List[str] = []
     used_agents: List[str] = []
+    # The run's agents by the diagnosis rule: the report's pinned agents for an
+    # ordinary run, the agents a folder run actually used.
+    agents: List[RunAgentSchema] = []
     agent_execution: AgentExecutionSchema
     completion_blocks: List[CompletionBlockV2Schema]
     head_prompt_snippet: Optional[str] = None
@@ -38,6 +66,11 @@ class AgentExecutionTraceResponse(BaseModel):
     latest_feedback: Optional[CompletionFeedbackSchema] = None
     build: Optional[InstructionBuildSchema] = None
     timing_breakdown: Optional[TimingBreakdownSchema] = None
+    # Every model the run called, largest share first. Empty for runs from
+    # before per-call usage attribution: the UI shows the model as unknown.
+    models: List[RunModelUsageSchema] = []
+    # Auto routing was on for this run (any of its calls was recorded routed).
+    auto_routed: bool = False
 
 
 class TurnMemoryItemSchema(BaseModel):
@@ -168,6 +201,9 @@ class ConversationTraceResponse(BaseModel):
     total_llm_cost_usd: Optional[float] = None
     turns: List[ConversationTurnSchema] = []
     checkins: List[CheckinTraceSchema] = []
+    # Turns withheld from a scoped agent manager: the first turn that reached an
+    # agent they don't manage, and every turn after it (its context carries it).
+    hidden_turns: int = 0
 
 
 

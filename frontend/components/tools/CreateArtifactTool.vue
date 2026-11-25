@@ -1,50 +1,24 @@
 <template>
-  <div class="mb-2">
+  <div class="min-w-0">
     <!-- Main Header -->
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-
-      <span v-if="status === 'running'" class="tool-shimmer">{{ runningLabel }}</span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ successLabel }}</span>
-      <span v-else-if="status === 'stopped'" class="text-ink-muted">{{ runningLabel }}</span>
-      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ errorLabel }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createArtifact.create') }}</span>
-
-      <!-- Mode Badge -->
-      <span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span>
-      <Transition name="fade-in" appear>
-        <span
-          v-if="artifactMode"
-          :class="[
-            'ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium',
-            artifactMode === 'slides'
-              ? 'bg-purple-100 dark:bg-purple-950 text-purple-700'
-              : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700'
-          ]"
-        >
-          {{ artifactMode === 'slides' ? t('tools.createArtifact.slides') : t('tools.createArtifact.dashboard') }}
-        </span>
-      </Transition>
-
-      <!-- Saved without a render check (the server could not start its browser) -->
-      <span
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ runningLabel }}</template>
+      <template v-else-if="status === 'success'">{{ successLabel }}</template>
+      <template v-else-if="status === 'stopped'">{{ runningLabel }}</template>
+      <template v-else-if="status === 'error'">{{ errorLabel }}</template>
+      <template v-else>{{ t('tools.createArtifact.create') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span><span
         v-if="notRenderChecked"
         data-testid="not-render-checked"
-        class="ms-1.5 px-1.5 py-0.5 rounded text-chat-3 font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-950 text-amber-700"
+        class="ms-1.5 px-1.5 py-0.5 rounded text-chat-3 font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300"
         :title="t('tools.createArtifact.notRenderCheckedDesc')"
-      >
-        {{ t('tools.createArtifact.notRenderChecked') }}
-      </span>
-
-      <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
-    </div>
+      >{{ t('tools.createArtifact.notRenderChecked') }}</span><span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span></div>
 
     <!-- Expanded content -->
-    <template v-if="!isCollapsed">
+    <template v-if="toolHeaderExpanded">
       <!-- Plan prompt -->
       <div v-if="artifactPrompt" class="mt-0.5 ms-[18px] text-chat-2 text-ink-muted max-w-lg">
         <span>{{ t('tools.createArtifact.plan') }}</span>
@@ -91,9 +65,9 @@
               :class="[
                 'w-6 h-6 rounded flex items-center justify-center text-chat-3 font-medium transition-all',
                 slide.status === 'done'
-                  ? 'bg-green-100 dark:bg-green-900/50 text-green-700'
+                  ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300'
                   : slide.status === 'generating'
-                    ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 animate-pulse'
+                    ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 animate-pulse'
                     : 'bg-gray-100 dark:bg-gray-800 text-ink-muted'
               ]"
             >
@@ -105,17 +79,17 @@
         <div v-else class="text-chat-2 text-ink-muted">
           <div v-if="progressStage === 'generating' || progressStage === 'generating_code'">
             <span>{{ t('tools.createArtifact.generatingCode') }}</span>
-            <span v-if="progressChars" class="ms-1 text-gray-300 dark:text-gray-600">{{ t('tools.createArtifact.charsCount', { n: progressChars }) }}</span>
+            <span v-if="progressChars" class="ms-1 text-ink-muted">{{ t('tools.createArtifact.charsCount', { n: progressChars }) }}</span>
           </div>
           <div v-else-if="progressStage === 'validating'" class="flex items-center gap-1.5">
             <span>{{ t('tools.createArtifact.validating') }}</span>
-            <span v-if="validationAttempt" class="text-gray-300 dark:text-gray-600">{{ t('tools.createArtifact.attempt', { n: validationAttempt, max: validationMaxAttempts }) }}</span>
+            <span v-if="validationAttempt" class="text-ink-muted">{{ t('tools.createArtifact.attempt', { n: validationAttempt, max: validationMaxAttempts }) }}</span>
           </div>
           <div v-else-if="progressStage === 'fixing_errors'" class="space-y-1">
             <div class="flex items-center gap-1.5 text-amber-500">
               <Icon name="heroicons:wrench-screwdriver" class="w-3 h-3" />
               <span>{{ t('tools.createArtifact.fixingErrors') }}</span>
-              <span class="text-gray-300 dark:text-gray-600">{{ t('tools.createArtifact.attempt', { n: validationAttempt, max: validationMaxAttempts }) }}</span>
+              <span class="text-ink-muted">{{ t('tools.createArtifact.attempt', { n: validationAttempt, max: validationMaxAttempts }) }}</span>
             </div>
             <div v-if="fixingErrors.length > 0" class="ms-4 text-chat-2 text-ink-muted space-y-0.5">
               <div v-for="(err, idx) in fixingErrors.slice(0, 2)" :key="idx" class="truncate max-w-xs">{{ err }}</div>
@@ -187,7 +161,7 @@
             <span v-else>{{ artifactMode === 'slides' ? t('tools.createArtifact.presentation') : t('tools.createArtifact.dashboard') }}</span>
           </div>
           <button
-            v-if="createdArtifact && !isCollapsed"
+            v-if="createdArtifact && toolHeaderExpanded"
             @click.stop="copyArtifactId"
             class="flex items-center gap-0.5 text-chat-3 text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 font-mono mt-0.5"
             :title="t('tools.createArtifact.copyIdTooltip')"
@@ -196,14 +170,22 @@
             {{ createdArtifact.slice(0, 8) }}
           </button>
         </div>
-        <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-ink-muted group-hover:text-gray-600 flex-shrink-0" />
+        <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-ink-muted group-hover:text-ink-2 flex-shrink-0" />
       </div>
     </div>
     </template>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+// Open by default: the preview card (thumbnail, title, open link) is the
+// result of this call, not a detail of it.
+const toolHeaderExpanded = activityRef(true)
+
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
@@ -382,15 +364,4 @@ async function copyArtifactId() {
 .fade-enter-from,
 .fade-leave-to { opacity: 0; }
 
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-  font-weight: 400;
-  opacity: 1;
-}
 </style>

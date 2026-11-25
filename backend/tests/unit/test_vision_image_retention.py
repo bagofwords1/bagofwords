@@ -109,40 +109,39 @@ def test_batched_decision_leaves_no_base64_on_the_recorded_observation():
     assert "SECRETBYTES" not in json.dumps(agg["parallel_actions"])
 
 
-class _Rows:
-    def __init__(self, ids):
-        self._ids = ids
+def _uploads_agent(tmp_path, monkeypatch, uploads_by_completion, current_cid, rerun_ids=()):
+    """An agent whose report holds one image per id in ``uploads_by_completion``.
 
-    def fetchall(self):
-        return [(i,) for i in self._ids]
-
-
-class _UploadsDb:
-    """Stands in for the report_file_association lookup: which file ids were
-    uploaded with which completion."""
-
-    def __init__(self, uploads_by_completion):
-        self.uploads = uploads_by_completion
-        self.current = None
-
-    async def execute(self, _stmt):
-        return _Rows(self.uploads.get(self.current, []))
-
-
-def _uploads_agent(tmp_path, uploads_by_completion, current_cid):
+    The attachment lookup (app.services.completion_attachments, covered against
+    a real database in tests/e2e/test_completion_rerun_files.py) is replaced at
+    its boundary: it answers which files a completion carries — its own uploads
+    plus the ids its prompt re-attaches (``prompt.file_ids``, the Rerun link).
+    """
     files = []
     for cid, ids in uploads_by_completion.items():
         for fid in ids:
             path = tmp_path / f"{fid}.png"
             path.write_bytes(fid.encode())
             files.append(SimpleNamespace(id=fid, path=str(path), content_type="image/png"))
-    db = _UploadsDb(uploads_by_completion)
-    db.current = current_cid
+    by_id = {f.id: f for f in files}
+
+    async def fake_attached(db, completion_ids, *, images_only=False, completions=None):
+        out = {}
+        for cid in completion_ids:
+            ids = list(uploads_by_completion.get(cid, []))
+            if cid == current_cid:
+                ids += [i for i in rerun_ids if i not in ids]
+            if ids:
+                out[cid] = [by_id[i] for i in ids]
+        return out
+
+    from app.services import completion_attachments
+    monkeypatch.setattr(completion_attachments, "attached_files_by_completion", fake_attached)
     # A real AgentV2 (no __init__) so every method the loader may call exists.
     agent = AgentV2.__new__(AgentV2)
     agent.image_files = files
     agent.head_completion = SimpleNamespace(id=current_cid)
-    agent.db = db
+    agent.db = object()
     agent.report = SimpleNamespace(id="r1")
     agent.report_id = "r1"
     return agent
@@ -156,19 +155,29 @@ async def _attached(agent):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("earlier_turns", [1, 3, 9])
-async def test_earlier_uploads_are_not_reattached_to_a_turn_without_its_own(tmp_path, earlier_turns):
+async def test_earlier_uploads_are_not_reattached_to_a_turn_without_its_own(tmp_path, monkeypatch, earlier_turns):
     """The user-image channel lands on the NEWEST message, so a picture from an
     earlier turn re-sent there reads as "the user just sent this". A turn that
     uploaded nothing attaches nothing, however recent the earlier upload was —
     history names the file and read_file shows it again on demand."""
     uploads = {f"c{i}": [f"img{i}"] for i in range(earlier_turns)}
     uploads["now"] = []
-    agent = _uploads_agent(tmp_path, uploads, "now")
+    agent = _uploads_agent(tmp_path, monkeypatch, uploads, "now")
     assert await _attached(agent) == []
 
 
 @pytest.mark.asyncio
-async def test_a_turn_attaches_exactly_its_own_uploads(tmp_path):
+async def test_a_turn_attaches_exactly_its_own_uploads(tmp_path, monkeypatch):
     uploads = {"c0": ["old_a", "old_b"], "now": ["new_a", "new_b"]}
-    agent = _uploads_agent(tmp_path, uploads, "now")
+    agent = _uploads_agent(tmp_path, monkeypatch, uploads, "now")
     assert await _attached(agent) == ["new_a", "new_b"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rerun", [["old_a"], ["old_a", "old_b"]])
+async def test_a_rerun_turn_attaches_the_images_it_re_sends(tmp_path, monkeypatch, rerun):
+    """Rerun re-sends an earlier prompt with its attachments (prompt.file_ids):
+    the new turn sees exactly those images, nothing else from earlier turns."""
+    uploads = {"c0": ["old_a", "old_b"], "c1": ["other"], "now": []}
+    agent = _uploads_agent(tmp_path, monkeypatch, uploads, "now", rerun_ids=rerun)
+    assert await _attached(agent) == sorted(rerun)

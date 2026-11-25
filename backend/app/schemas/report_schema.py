@@ -34,6 +34,9 @@ class ReportCreate(ReportBase):
     # Reasoning level picked with the model (low|medium|high|max). Omitted /
     # None = Default.
     reasoning_effort: Optional[str] = None
+    # Permission mode for tool calls (auto|ask|allow_all). Omitted / None =
+    # the org default. allow_all needs the org switch (checked in the service).
+    permission_mode: Optional[Literal["auto", "ask", "allow_all"]] = None
     # Per-conversation opt-outs for API integrations (app.schemas.report_api_settings).
     # Omitted / null = the org setting decides; false = off on every turn.
     follow_ups: Optional[StrictBool] = None
@@ -69,6 +72,9 @@ class ReportUpdate(BaseModel):
     # Reasoning level stored beside model_id. Sentinel-aware the same way:
     # omit to leave unchanged, "" or "default" to clear back to Default.
     reasoning_effort: Optional[str] = None
+    # Permission mode for tool calls. Omit to leave unchanged, "" to clear back
+    # to the org default. allow_all needs the org switch.
+    permission_mode: Optional[Literal["", "auto", "ask", "allow_all"]] = None
 
     # Per-conversation opt-outs (see ReportCreate). Omit to leave unchanged;
     # send null to hand the decision back to the org setting. tools merges by
@@ -146,6 +152,8 @@ class ReportSchema(ReportBase):
     model_id: Optional[str] = None
     # Reasoning level stored beside model_id (null = Default)
     reasoning_effort: Optional[str] = None
+    # Permission mode for tool calls (null = the org default)
+    permission_mode: Optional[str] = None
     # Per-conversation API opt-outs (null = the org setting decides)
     follow_ups: Optional[bool] = None
     suggest_instructions: Optional[bool] = None

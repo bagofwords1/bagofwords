@@ -33,6 +33,17 @@ export type UsageQuotaSummary = {
   data_bytes: UsageQuotaMetric
   spend: UsageQuotaSpendMetric
   connections: UsageQuotaConnection[]
+  // Today's usage against the daily caps. The day runs midnight to midnight
+  // in `timezone` (the org's); limit null = no daily cap on that metric.
+  daily?: {
+    window_start?: string | null
+    window_end?: string | null
+    timezone: string
+    tokens: UsageQuotaMetric
+    queries: UsageQuotaMetric
+    data_bytes: UsageQuotaMetric
+    spend: UsageQuotaSpendMetric
+  }
 }
 
 export function useUsageQuota() {

@@ -62,6 +62,40 @@ ignore:
           releases pin simple-git ^3.x and v4 breaks the build (default export
           removed). Re-review on Nuxt 4 upgrade.
         expires: 2026-12-21T00:00:00.000Z
+  # CVE-2026-134815 — newly-disclosed Arbitrary Argument Injection in simple-git
+  # / @simple-git/argv-parser (Critical, CVSS 9.2), re-issued under new Snyk IDs
+  # (SNYK-JS-SIMPLEGIT-22804375 / SNYK-JS-SIMPLEGITARGVPARSER-22804374), tracked
+  # alongside the 2033xxxx IDs above. Same dev/build-only transitive chain:
+  #   nuxt > @nuxt/devtools > simple-git > @simple-git/argv-parser
+  # @nuxt/devtools runs only during `nuxt dev` on a developer's machine; it is
+  # NOT part of the production .output runtime the prod image serves. The
+  # injection requires attacker-controlled git-command arguments, but the only
+  # inputs here are the developer's own local repo during dev, never attacker-
+  # controlled production request data. No upgrade remediates it under nuxt 3:
+  # the fixes are simple-git 4.1.0 / @simple-git/argv-parser 3.0.0, but all
+  # @nuxt/devtools releases pin simple-git ^3.x and v4 breaks the build (default
+  # export removed). Resolved by the tracked Nuxt 4 upgrade. Time-boxed.
+  SNYK-JS-SIMPLEGIT-22804375:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. CVE-2026-134815 re-issue of the simple-git
+          argument-injection class already accepted above. No fix installable:
+          simple-git 4.1.0 fixes it but all @nuxt/devtools releases pin
+          simple-git ^3.x and v4 breaks the build (default export removed).
+          Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGITARGVPARSER-22804374:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools > simple-git);
+          not in the production .output runtime. CVE-2026-134815 re-issue of the
+          @simple-git/argv-parser argument-injection class already accepted
+          above. No fix installable: the fix is @simple-git/argv-parser 3.0.0
+          (simple-git 4.x), but all @nuxt/devtools releases pin simple-git ^3.x
+          and v4 breaks the build (default export removed). Re-review on Nuxt 4
+          upgrade.
+        expires: 2026-12-21T00:00:00.000Z
   # Improper Verification of Cryptographic Signature in node-forge (CVSS 8.7).
   # Pulled in ONLY as a build/dev-tooling transitive:
   #   nuxt > @nuxt/cli > listhen > node-forge

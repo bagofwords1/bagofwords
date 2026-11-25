@@ -154,6 +154,10 @@ class PowerBIClient(DataSourceClient):
         # silently. Each entry: {datasetId, datasetName, workspaceId,
         # workspaceName, reason}.
         self.discovery_diagnostics: List[Dict] = []
+        # Names of the semantic models behind those diagnostics, reported via
+        # unindexed_table_prefixes() so a refresh skips them without pruning
+        # tables an earlier run indexed for them.
+        self._unread_models: set = set()
         # Workspaces this identity has no role in, but whose datasets it can
         # still query item-level. Populated lazily on a 401/403 from the
         # workspace-scoped endpoint; makes the tenant-level URL sticky so the
@@ -1484,6 +1488,7 @@ UNION(
 
         # Fresh crawl → reset per-run diagnostics.
         self.discovery_diagnostics = []
+        self._unread_models = set()
 
         # datasetId -> [(schema_table_name, prior_entry), ...] for reuse.
         # Entries without columns are ignored so a previously-unreadable
@@ -1692,13 +1697,11 @@ UNION(
             # We deliberately do NOT emit a phantom table — a column-less table
             # is not queryable and would just move the failure downstream.
             if not ds_tables:
-                self.discovery_diagnostics.append({
-                    "datasetId": ds_id,
-                    "datasetName": ds_name,
-                    "workspaceId": ws_id,
-                    "workspaceName": ws_name,
-                    "reason": ds_reasons.get(key, "no tables discovered"),
-                })
+                self._skip_model(
+                    ds_id, ds_name, ws_id, ws_name,
+                    ds_reasons.get(key, "no tables discovered"),
+                    prior_by_dataset.get(str(ds_id)),
+                )
                 continue
 
             # Create one BOW Table per internal Power BI table
@@ -1902,13 +1905,12 @@ UNION(
                         # user can act on; an unnamed one would be us guessing
                         # at scale, once per model they simply do not hold.
                         if cause:
-                            self.discovery_diagnostics.append({
-                                "datasetId": ds_id,
-                                "datasetName": meta.get("datasetName") or ds_id,
-                                "workspaceId": meta.get("workspaceId"),
-                                "workspaceName": meta.get("workspaceName") or meta.get("workspaceId"),
-                                "reason": cause,
-                            })
+                            self._skip_model(
+                                ds_id, meta.get("datasetName") or ds_id,
+                                meta.get("workspaceId"),
+                                meta.get("workspaceName") or meta.get("workspaceId"),
+                                cause, prior_by_dataset.get(ds_id),
+                            )
                         continue
                     ws_id = meta.get("workspaceId")
                     out.append((
@@ -2054,6 +2056,43 @@ UNION(
                 },
             ))
         return out
+
+    def _skip_model(self, ds_id, ds_name, ws_id, ws_name, reason, prior_entries=None):
+        """Leave one semantic model out of this run without failing the rest.
+
+        A model with no tables behind it, or one this identity cannot read,
+        says nothing about the other models, so discovery carries on. The model
+        is named in the log and in the indexing job's diagnostics, and reported
+        as an unread part so tables an earlier run indexed for it are kept.
+        """
+        import logging
+
+        self.discovery_diagnostics.append({
+            "datasetId": ds_id,
+            "datasetName": ds_name,
+            "workspaceId": ws_id,
+            "workspaceName": ws_name,
+            "reason": reason,
+        })
+        # The stored name too: a model renamed since it was indexed still has
+        # its tables under the old one.
+        self._unread_models.add(str(ds_name))
+        for _, entry in prior_entries or []:
+            prior_name = ((entry.get("metadata_json") or {}).get("powerbi") or {}).get("datasetName")
+            if prior_name:
+                self._unread_models.add(str(prior_name))
+        logging.warning(
+            "PowerBI discovery: semantic model '%s' (workspace '%s') returned no "
+            "tables (%s). It is not included in the index; the other models are "
+            "indexed as usual.",
+            ds_name, ws_name or ws_id, reason,
+        )
+
+    def unindexed_table_prefixes(self) -> List[str]:
+        """Semantic models the last crawl skipped (see
+        `DataSourceClient.unindexed_table_prefixes`): the refresh keeps their
+        previously indexed tables instead of being rejected as a whole."""
+        return sorted(self._unread_models)
 
     def index_stats(self) -> dict:
         """Fold discovery diagnostics into the indexing row so the job can
@@ -2386,6 +2425,22 @@ TOPN(10,
     SUMMARIZECOLUMNS(Customers[Name], "Total", SUM(Orders[Value])),
     [Total], DESC
 )
+
+-- Two-step aggregation (group, then group the result): do BOTH steps in DAX.
+-- Here: total per order first, then the average order total per segment.
+EVALUATE
+VAR PerOrder =
+    ADDCOLUMNS(
+        SUMMARIZE('Order Lines', 'Order Lines'[OrderId], Customers[Segment]),
+        "OrderTotal", CALCULATE(SUM('Order Lines'[Amount]))
+    )
+RETURN
+    GROUPBY(
+        PerOrder,
+        Customers[Segment],
+        "Orders", COUNTX(CURRENTGROUP(), 1),
+        "AvgOrderTotal", AVERAGEX(CURRENTGROUP(), [OrderTotal])
+    )
 ```
 
 ### Query Cost and Performance
@@ -2400,6 +2455,14 @@ latency directly; an unbounded scan of a large table can take minutes.
   whole table.
 - Push filters into the DAX with CALCULATETABLE / FILTER. Never fetch
   everything and filter in pandas.
+- When the answer needs two rounds of grouping (a total per order, then an
+  average per segment; a value taken once per parent row, then summed), keep
+  both rounds in ONE query: build the first grouping in a VAR with
+  SUMMARIZE + ADDCOLUMNS, then GROUPBY that VAR. Inside GROUPBY only the X
+  iterators over CURRENTGROUP() work (SUMX, AVERAGEX, MINX, MAXX, COUNTX) -
+  plain SUM / AVERAGE on the VAR's column fail. Never download the detail
+  rows to finish the grouping in pandas: that is the slow path, and a large
+  detail result can be cut off by the API's response limits without an error.
 - The row cap applied to the returned DataFrame does NOT make the query
   cheaper - the full result is fetched first. Bound the result in the DAX.
 - Measures are the model's OWN business logic. When one exists for what is

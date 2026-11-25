@@ -53,7 +53,7 @@ async def test_poll_decision_reads_resolved_row_after_its_session_closed():
         )
 
     assert await svc.poll_decision(cid) == {
-        "approved": True, "remember": True, "resolved_by_user_id": resolver,
+        "approved": True, "remember": True, "scope": "always", "resolved_by_user_id": resolver,
     }
 
 
@@ -67,7 +67,7 @@ async def test_poll_decision_denied_and_expired():
             db, confirmation_id=denied, approved=False, remember=False, user_id=None
         )
     assert await svc.poll_decision(denied) == {
-        "approved": False, "remember": False, "resolved_by_user_id": None,
+        "approved": False, "remember": False, "scope": "once", "resolved_by_user_id": None,
     }
 
     expired = await _create_pending(svc)
@@ -82,12 +82,13 @@ async def test_poll_decision_denied_and_expired():
 # Review state for read paths (reload / shared conversation)
 # ---------------------------------------------------------------------------
 
-async def _ask(svc, *, completion_id, tool_name, kind="builtin_tool", arguments=None) -> str:
+async def _ask(svc, *, completion_id, tool_name, kind="builtin_tool", arguments=None, tool_execution_id=None) -> str:
     cid = str(uuid4())
     async with async_session_maker() as db:
         await svc.create(
             db, confirmation_id=cid, kind=kind, tool_name=tool_name,
             system_completion_id=completion_id, arguments=arguments or {},
+            tool_execution_id=tool_execution_id,
         )
     return cid
 
@@ -131,15 +132,67 @@ async def test_review_state_is_scoped_to_completion_and_tool():
 
 
 @pytest.mark.asyncio
-async def test_mcp_confirmation_payload_nests_call_arguments():
+@pytest.mark.parametrize("dispatched_name", ["execute_mcp", "mcp__billing_api__create_invoice"])
+async def test_mcp_confirmation_found_by_tool_execution_despite_different_name(dispatched_name):
+    """An MCP / Custom API / SSH confirmation stores the INNER tool name while
+    the running execution carries the dispatched name — the pending card must
+    still be found for it (it was lost on every reload)."""
     from app.services.tool_confirmation_service import (
         KIND_MCP_TOOL_POLICY, confirmation_payload, review_states_for_running_tools,
     )
     svc = ToolConfirmationService()
-    comp = str(uuid4())
-    await _ask(svc, completion_id=comp, tool_name="send_message", kind=KIND_MCP_TOOL_POLICY, arguments={"text": "hi"})
-    te_id = str(uuid4())
+    comp, te_id = str(uuid4()), str(uuid4())
+    cid = await _ask(
+        svc, completion_id=comp, tool_name="create_invoice", kind=KIND_MCP_TOOL_POLICY,
+        arguments={"amount": 12}, tool_execution_id=te_id,
+    )
     async with async_session_maker() as db:
-        states = await review_states_for_running_tools(db, [(te_id, comp, "send_message")])
+        states = await review_states_for_running_tools(db, [(te_id, comp, dispatched_name)])
         payload = confirmation_payload(states[te_id]["row"])
-    assert payload["arguments"] == {"text": "hi"} and "text" not in payload
+    assert states[te_id]["state"] == "pending"
+    assert payload["confirmation_id"] == cid
+    assert payload["arguments"] == {"amount": 12} and "amount" not in payload
+
+
+@pytest.mark.asyncio
+async def test_each_running_tool_gets_its_own_confirmation():
+    """Two tools waiting in the same completion — even with the same name —
+    each get their own card, never the other's."""
+    from app.services.tool_confirmation_service import review_states_for_running_tools
+    svc = ToolConfirmationService()
+    comp, te_a, te_b = str(uuid4()), str(uuid4()), str(uuid4())
+    cid_a = await _ask(svc, completion_id=comp, tool_name="send_message", tool_execution_id=te_a)
+    cid_b = await _ask(svc, completion_id=comp, tool_name="send_message", tool_execution_id=te_b)
+    async with async_session_maker() as db:
+        states = await review_states_for_running_tools(
+            db, [(te_a, comp, "send_message"), (te_b, comp, "send_message"), (str(uuid4()), comp, "send_message")]
+        )
+    assert {k: str(v["row"].id) for k, v in states.items()} == {te_a: cid_a, te_b: cid_b}
+
+
+@pytest.mark.asyncio
+async def test_confirmation_without_tool_execution_id_falls_back_to_name():
+    """Rows written before tool_execution_id existed still restore by name."""
+    from app.services.tool_confirmation_service import review_states_for_running_tools
+    svc = ToolConfirmationService()
+    comp, te_id = str(uuid4()), str(uuid4())
+    cid = await _ask(svc, completion_id=comp, tool_name="create_demo_dataset")
+    async with async_session_maker() as db:
+        states = await review_states_for_running_tools(db, [(te_id, comp, "create_demo_dataset")])
+    assert str(states[te_id]["row"].id) == cid
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("siblings", [2, 3])
+async def test_name_fallback_never_guesses_between_running_calls_of_the_same_tool(siblings):
+    """A row without an execution id cannot say which of several running calls
+    of that tool asked — none of them may be handed the card by guesswork."""
+    from app.services.tool_confirmation_service import review_states_for_running_tools
+    svc = ToolConfirmationService()
+    comp = str(uuid4())
+    await _ask(svc, completion_id=comp, tool_name="create_demo_dataset")
+    running = [(str(uuid4()), comp, "create_demo_dataset") for _ in range(siblings)]
+    async with async_session_maker() as db:
+        states = await review_states_for_running_tools(db, running)
+    assert states == {}
+

@@ -375,10 +375,14 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 logger.info("SLACK_NOTIFIER: No platform_type available for step %s", step_id)
                 return
 
-            platform_stmt = select(ExternalPlatform).where(
-                ExternalPlatform.organization_id == organization_id, ExternalPlatform.platform_type == platform_type)
-            platform_result = await db.execute(platform_stmt)
-            platform = platform_result.scalar_one_or_none()
+            # Reply through the instance the conversation came in on (an org can
+            # hold several WhatsApp numbers); falls back to the oldest of the type.
+            from app.services.outbound_platform import resolve_outbound_platform
+            report = getattr(getattr(step, "widget", None), "report", None)
+            platform = await resolve_outbound_platform(
+                db, organization_id, platform_type,
+                getattr(report, "external_platform_id", None),
+            )
 
             if not platform:
                 logger.info("SLACK_NOTIFIER: No active Slack platform for organization %s", organization_id)

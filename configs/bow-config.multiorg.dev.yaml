@@ -9,6 +9,32 @@ features:
   allow_multiple_organizations: true
   verify_emails: false
 
+# Instance administrators: the only people who can create organizations.
+# Usually set through the environment: BOW_SUPERUSER_EMAILS=a@x.com,b@x.com
+# auth:
+#   superuser_emails: ["admin@example.com"]
+
+# Place people in organizations by identity-provider group at each sign-in.
+# oidc_providers:
+#   - name: entra
+#     enabled: true
+#     issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
+#     client_id: ${BOW_ENTRA_CLIENT_ID}
+#     client_secret: ${BOW_ENTRA_CLIENT_SECRET}
+#     group_claim: groups
+#     org_mapping:
+#       - group: "<group object id>"       # preferred over a display name
+#         organization: "Finance"          # organization id, or exact name
+#         role: member                     # member (default) | admin
+#       - "<group object id>:HR:admin"     # compact form
+#     # trust_email_for_linking: true      # unset = automatic rule
+
+# security:
+#   block_private_outbound: true
+#   # Folders reserved for one organization's file connections.
+#   organization_file_roots:
+#     "<organization id>": ["/mnt/finance"]
+
 google_oauth:
   enabled: false
   client_id: ${BOW_GOOGLE_CLIENT_ID}

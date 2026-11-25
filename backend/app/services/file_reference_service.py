@@ -47,7 +47,14 @@ async def ensure_materialized(db, ref, user, report, organization):
     conn = await db.get(Connection, ref.connection_id)
     if conn is None:
         return None
-    client = await ConnectionService().construct_client(db, conn, user)
+    extra = {}
+    if conn.type == "slack_messages":
+        # Materializing into a report is a read for that report's agents, so
+        # it gets the same channel scope as the agents' own tools.
+        from app.services.slack_channel_scope import client_overrides, run_scope
+        agents = [str(ds.id) for ds in (getattr(report, "data_sources", None) or [])]
+        extra = {"config_overrides": client_overrides(await run_scope(db, str(conn.id), agents, agents))}
+    client = await ConnectionService().construct_client(db, conn, user, **extra)
     payload = await client.aread_file(ref.external_file_id)
 
     name = ref.name or str(ref.external_file_id)

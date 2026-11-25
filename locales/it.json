@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Mostra Mondo in Agenti"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Cerca file…",
@@ -145,6 +144,8 @@
     "newInstructionDesc": "Una regola, una competenza o una nota per i tuoi agenti",
     "newAgent": "Agente",
     "newAgentDesc": "Collega dati, strumenti e tabelle",
+    "importAgent": "Importa agente",
+    "importAgentDesc": "Da uno zip di agente esportato",
     "searchPlaceholder": "Cerca ovunque…",
     "clearSearch": "Cancella ricerca",
     "searchAgentInstructions": "Cerca istruzioni…",
@@ -513,6 +514,7 @@
     "collapseSidebar": "Comprimi barra laterale",
     "resizeSidebar": "Ridimensiona barra laterale",
     "switchOrganization": "Cambia organizzazione",
+    "createOrganization": "Crea organizzazione",
     "version": "Versione",
     "loggedInAs": "Connesso come {name}",
     "prompts": "Prompt",
@@ -522,7 +524,8 @@
     "automations": "Automazioni",
     "agent": "Agente",
     "agents": "Agenti",
-    "viewAllAgents": "Vedi tutti gli agenti →"
+    "viewAllAgents": "Vedi tutti gli agenti →",
+    "apps": "App"
   },
   "notifications": {
     "title": "Notifiche",
@@ -540,7 +543,7 @@
     "content": {
       "low_confidence": {
         "title": "Risposte a bassa confidenza",
-        "body": "{n} risposte di questo agente hanno ricevuto un punteggio sotto 3/5 nell'ultima settimana. Avvia un addestramento per colmare le lacune."
+        "body": "{n} risposte di questo agente hanno ricevuto un punteggio sotto 3/5 nell'ultima settimana. Miglioralo in modalità addestramento per colmare le lacune."
       },
       "slow_query": {
         "title": "Query sui dati lente (>{secs}s)",
@@ -548,7 +551,10 @@
       },
       "schema_changed": {
         "title": "Lo schema della connessione è cambiato",
-        "body": "Tabelle o colonne di questa connessione sono cambiate. Riesegui valutazioni o addestramento per mantenere accurate le istruzioni."
+        "body": "Tabelle o colonne di questa connessione sono cambiate. Verificalo in modalità addestramento per mantenere accurate le istruzioni.",
+        "title_named": "{agent}: schema modificato in {connection}",
+        "title_agent": "{agent}: schema modificato",
+        "body_counts": "Tabelle aggiunte: {added} · rimosse: {removed} · modificate: {modified}. Controlla le tabelle e le istruzioni dell'agente."
       },
       "instruction_suggestion": {
         "body_ai": "Modifica di istruzione generata dall'IA in attesa di revisione.",
@@ -602,12 +608,125 @@
       "access_granted": {
         "title": "Ora puoi vedere {dashboard}",
         "body": "La tua richiesta di vedere «{dashboard}» è stata approvata."
+      },
+      "nightly_learning": {
+        "title": "{agent}: apprendimento notturno",
+        "title_learned": "{agent}: nuovi apprendimenti della notte ({n})",
+        "title_cleanup": "{agent}: pulizia notturna dei suggerimenti"
+      },
+      "query_error": {
+        "title": "Errori nelle query sui dati",
+        "body": "Alcune query sui dati di questo agente non sono riuscite. Miglioralo in modalità addestramento per colmare la lacuna."
       }
     },
     "checkin": {
       "badge": "Follow-up",
       "openReport": "Apri report",
       "assistantFallback": "Analista IA"
+    },
+    "filterAgents": "Agenti",
+    "filterShares": "Condivisioni",
+    "filterRuns": "Esecuzioni",
+    "filterConnections": "Connessioni",
+    "detail": {
+      "resolved": "Gestito",
+      "dismissed": "Gestito",
+      "open": "Apri",
+      "reviewTables": "Rivedi le tabelle",
+      "reviewInstruction": "Rivedi l'istruzione",
+      "viewQueries": "Vedi le query",
+      "openEvals": "Apri le valutazioni",
+      "viewChecks": "Vedi i controlli",
+      "openInReview": "Apri in Revisione",
+      "connection": "Connessione",
+      "by": "da {name}",
+      "reliabilityStarted": "Un controllo di affidabilità è partito {time}: vengono eseguite le valutazioni e, se falliscono, l'addestramento.",
+      "history": "Modifiche precedenti",
+      "historyEntry": "{added} aggiunte · {removed} rimosse · {modified} modificate",
+      "showDetails": "Dettagli",
+      "hideDetails": "Nascondi dettagli"
+    },
+    "diff": {
+      "addedTables": "Tabelle aggiunte",
+      "removedTables": "Tabelle rimosse",
+      "changedTables": "Tabelle modificate",
+      "newInactive": "Nuove nella connessione, non attive per questo agente",
+      "more": "+{n} altre tabelle"
+    },
+    "clearHandled": "Cancella gestiti",
+    "handled": {
+      "marked": "{name} l'ha segnato come gestito",
+      "suggestion_reviewed": "{name} ha esaminato il suggerimento",
+      "suggestion_rejected": "{name} ha rifiutato il suggerimento",
+      "suggestion_voided": "L'istruzione è cambiata",
+      "training_passed": "L'addestramento avviato da {name} è riuscito",
+      "eval_passed": "La valutazione avviata da {name} è riuscita",
+      "condition_cleared": "Il problema è scomparso",
+      "someone": "Qualcuno"
+    }
+  },
+  "reviewFeed": {
+    "title": "Revisione",
+    "subtitle": "Una coda condivisa per chi gestisce gli agenti: ciò che una persona gestisce si chiude per tutti.",
+    "refresh": "Aggiorna",
+    "close": "Chiudi",
+    "search": "Cerca…",
+    "allAgents": "Tutti gli agenti",
+    "resolvedFilter": "Gestiti",
+    "emptyTitle": "Sei in pari",
+    "emptyBody": "Niente da rivedere. Nuovi suggerimenti, modifiche allo schema e segnali di qualità appariranno qui.",
+    "emptyBodyAgent": "Niente da rivedere per questo agente. Nuovi suggerimenti, modifiche allo schema e segnali di qualità appariranno qui.",
+    "changes": "{n} modifiche",
+    "running": "In corso",
+    "resolved": "Gestito",
+    "dismiss": "Segna come gestito",
+    "agent": "Agente",
+    "nAgents": "{n} agenti",
+    "noEvals": "Questo agente non ha valutazioni. Aggiungi prima un caso di test.",
+    "nothingToRun": "Niente da eseguire",
+    "actionUnavailable": "Azione non disponibile",
+    "evalStarted": "Valutazione avviata",
+    "done": "Fatto",
+    "actionFailed": "Azione non riuscita",
+    "dismissFailed": "Impossibile ignorare",
+    "chipSuggestions": "Suggerimenti",
+    "chipSchema": "Schema",
+    "chipSlow": "Lente",
+    "chipLowConfidence": "Bassa affidabilità",
+    "typeSuggestion": "Suggerimento",
+    "typeSchema": "Modifica allo schema",
+    "typeSlow": "Query lenta",
+    "typeLowConfidence": "Bassa affidabilità",
+    "typeQueryError": "Errore di query",
+    "actionReview": "Rivedi",
+    "actionRunEval": "Esegui valutazione",
+    "focusResolved": "Questo elemento è già stato gestito.",
+    "focusGone": "Questo elemento non è più aperto. È stato risolto o chiuso.",
+    "all": "Tutti",
+    "openN": "{n} aperti",
+    "multipleAgents": "Più agenti",
+    "more": "Altre azioni",
+    "times": "{n} volte",
+    "actionTrainInChat": "Migliora in modalità addestramento",
+    "train": {
+      "schema": "Lo schema della connessione {connection} è cambiato:\n{changes}\n\nRivedi le istruzioni e le query salvate di questo agente che usano queste tabelle o colonne e suggerisci aggiornamenti perché le risposte restino corrette.",
+      "schemaGeneric": "Lo schema della connessione {connection} è cambiato. Rivedi le istruzioni e le query salvate di questo agente che usano le tabelle o colonne modificate e suggerisci aggiornamenti perché le risposte restino corrette.",
+      "tableAdded": "- Nuova tabella: {table}",
+      "tableRemoved": "- Tabella rimossa: {table}",
+      "colsAdded": "colonne aggiunte {cols}",
+      "colsRemoved": "colonne rimosse {cols}",
+      "typeChanged": "il tipo di {col} è cambiato da {from} a {to}",
+      "lowConfidence": "Queste domande a questo agente hanno ricevuto risposte con punteggio basso:\n{examples}\n\nTrova cosa manca o non è chiaro nelle istruzioni e suggerisci istruzioni che colmino queste lacune.",
+      "lowConfidenceGeneric": "{n} risposte di questo agente hanno ricevuto un punteggio sotto 3/5 nell'ultima settimana. Rivedi le conversazioni recenti, trova cosa manca o non è chiaro nelle istruzioni e suggerisci istruzioni che colmino queste lacune.",
+      "slow": "Queste query sui dati di questo agente sono state lente:\n{examples}\n\nTrova la causa comune e suggerisci istruzioni di protezione (ad esempio richiedere un filtro o evitare scansioni complete) perché le query restino veloci.",
+      "slowGeneric": "Le query sui dati di questo agente sono lente. Trova la causa comune e suggerisci istruzioni di protezione (ad esempio richiedere un filtro o evitare scansioni complete) perché le query restino veloci.",
+      "slowLine": "{q} ({s} s)",
+      "error": "Queste query sui dati di questo agente non sono riuscite:\n{examples}\n\nTrova la causa e suggerisci istruzioni perché l'agente scriva query valide.",
+      "errorGeneric": "Le query sui dati di questo agente non riescono. Trova la causa e suggerisci istruzioni perché l'agente scriva query valide.",
+      "errorLine": "{q}: {error}",
+      "generic": "Rivedi le conversazioni recenti di questo agente e suggerisci istruzioni che migliorino le sue risposte.",
+      "schemaUnnamed": "Lo schema della connessione di questo agente è cambiato. Rivedi le istruzioni e le query salvate dell'agente che usano tabelle o colonne modificate e suggerisci aggiornamenti perché le risposte restino corrette.",
+      "more": "- …e altre {n} modifiche"
     }
   },
   "auth": {
@@ -824,7 +943,35 @@
         "dismiss": "Chiudi"
       }
     },
-    "recent": "Recenti"
+    "recent": "Recenti",
+    "permissionMode": {
+      "title": "Permessi degli strumenti",
+      "tooltip": "Permessi degli strumenti: {mode}",
+      "default": "predefinito",
+      "allowAllBanner": "Consenti tutto è attivo: l'agente esegue gli strumenti di connessione senza chiedere. Gli strumenti bloccati o negati non vengono mai eseguiti.",
+      "switchToAsk": "Passa a Chiedi",
+      "saveFailed": "Impossibile cambiare la modalità dei permessi",
+      "modes": {
+        "ask": {
+          "label": "Chiedi",
+          "hint": "Ogni strumento segue la propria impostazione; chiede prima delle modifiche."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Le chiamate di sola lettura vengono eseguite; un modello decide il resto e chiede se è incerto."
+        },
+        "allow_all": {
+          "label": "Consenti tutto",
+          "hint": "Gli strumenti che chiederebbero vengono eseguiti senza chiedere, solo in questo report."
+        }
+      },
+      "unknown": {
+        "label": "Modalità sconosciuta",
+        "hint": "Impossibile caricare le impostazioni dei permessi, quindi la modalità della prossima esecuzione è sconosciuta."
+      },
+      "loadFailed": "Impossibile caricare le impostazioni dei permessi",
+      "retry": "Riprova"
+    }
   },
   "reports": {
     "title": "Report",
@@ -1032,6 +1179,9 @@
     "dropHint": "Rilascia su un progetto",
     "movedTo": "Spostato in {name}",
     "removeFromProject": "Rimuovi dal progetto",
+    "removedFromProject": "Rimosso dal progetto",
+    "removeImpact": "Questo report torna nel tuo elenco personale.",
+    "removeImpactShared": "I membri di questo progetto perderanno l'accesso a questo report. Solo tu e le persone con cui l'hai condiviso direttamente lo conserverete.",
     "empty": "Nuovo progetto",
     "moveNoProjects": "Crea un progetto per organizzare i report in cartelle.",
     "moveShareDisclosure": "Spostare un report in un progetto condiviso ne consente la visualizzazione ai membri.",
@@ -1173,6 +1323,21 @@
     "tokensCount": "{count} token",
     "llmUsageTooltip": "Utilizzo LLM per questa conversazione",
     "turnTokensTooltip": "Token LLM del pianificatore per questo turno",
+    "tokensInOut": "input {input} / output {output}",
+    "tokensIn": "Input",
+    "tokensOut": "Output",
+    "tokensCached": "In cache",
+    "stepTokens": "Token",
+    "stepTokensTooltip": "Chiamata del pianificatore per questo passaggio. L'input include i token in cache. Le chiamate LLM effettuate all'interno dello strumento non sono conteggiate.",
+    "modelUnknown": "Modello sconosciuto",
+    "modelUnknownTooltip": "Nessun utilizzo LLM per chiamata registrato per questa esecuzione",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modelli in questo turno",
+    "modelCalls": "{count} chiamata | {count} chiamate",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Il routing automatico ha eseguito queste chiamate con {model} invece di {baseline}",
+    "autoRoutedRunTooltip": "Il routing automatico era attivo per questa esecuzione",
+    "primaryModel": "Principale",
     "turnUsageTooltip": "Utilizzo LLM per questo turno",
     "setup": "Preparazione",
     "setupTooltip": "Tempo dall'avvio al primo passo (costruzione del contesto, ecc.)",
@@ -1262,9 +1427,45 @@
       "copyTurn": "Copia questo turno come JSON",
       "copied": "JSON della traccia copiato negli appunti",
       "failed": "Impossibile esportare la traccia"
+    },
+    "hiddenTurns": "{count} turno successivo nascosto: questo o uno precedente ha usato un agente che non gestisci | {count} turni successivi nascosti: questi o uno precedente hanno usato un agente che non gestisci",
+    "contextColumns": {
+      "ofTotal": "{shown} di {total} colonne",
+      "allColumns": "{total} colonne",
+      "why": "Perché queste colonne",
+      "reason": {
+        "usage_ranked": "Ordinate per utilizzo delle colonne",
+        "structural_only": "Nessun utilizzo ancora: prima chiavi, timestamp e ID",
+        "all_columns": "Tutte le colonne rientrano nel limite"
+      },
+      "signal": {
+        "mentioned": "{n} citate nell'attività",
+        "usage": "{n} per utilizzo",
+        "instructions": "{n} citate nelle istruzioni",
+        "structural": "{n} chiavi, timestamp o ID",
+        "sample": "{n} campionate tra i gruppi di colonne",
+        "schema_order": "{n} in ordine di catalogo"
+      },
+      "shown": "Colonne nel contesto",
+      "folded": "Raggruppate (ricercabili con describe_tables)",
+      "otherColumns": "altre {count} colonne",
+      "usedTimes": "usata {count}×",
+      "score": "punteggio {score}"
     }
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "Navigazione web",
+        "search": "Ricerca",
+        "files": "Lettura di file",
+        "inspect": "Analisi dei dati",
+        "data": "{count} query eseguita | {count} query eseguite",
+        "create": "Creazione e aggiornamento dei risultati",
+        "tools": "Utilizzo degli strumenti",
+        "results": "{count} query eseguita | {count} query eseguite"
+      }
+    },
     "tabChat": "Chat",
     "tabSummary": "Riepilogo",
     "tabDashboard": "Dashboard",
@@ -1328,7 +1529,11 @@
     "compactionSummaryHint": "L'agente vede questo riepilogo al posto dei turni sopra la linea.",
     "compactingContext": "Compattazione del contesto…",
     "compactionTurns": "{turns} turni",
-    "compactionLast": "Ultima compattazione: cronologia ~{before} → ~{after} token"
+    "compactionLast": "Ultima compattazione: cronologia ~{before} → ~{after} token",
+    "piiBlocked": "La protezione dei dati personali ha bloccato questa richiesta a {model} (regola: {rules}).",
+    "piiBlockedNoModel": "La protezione dei dati personali ha bloccato questa richiesta (regola: {rules}).",
+    "piiDetectorUnavailable": "La protezione dei dati personali ha bloccato questa richiesta a {model}: il rilevatore di dati personali non è disponibile.",
+    "piiDetectorUnavailableNoModel": "La protezione dei dati personali ha bloccato questa richiesta: il rilevatore di dati personali non è disponibile."
   },
   "tools": {
     "common": {
@@ -1443,7 +1648,6 @@
       "edit": "Modifica artefatto",
       "confirm": "Conferma modifica dell'artefatto",
       "dashboardEdited": "Dashboard modificata",
-      "diff": "Diff",
       "rewrite": "Riscrivi",
       "plan": "Piano: ",
       "more": "altro",
@@ -1597,7 +1801,35 @@
       "allowedByYou": "Consentito da te",
       "deniedByYou": "Negato da te",
       "records": "{n} record",
-      "recordsPartial": "{shown} di {total} record"
+      "recordsPartial": "{shown} di {total} record",
+      "viaAgent": "Tramite {name}",
+      "allowForReport": "Consenti per questo report",
+      "allowForReportHint": "Non chiedere più per questo strumento in questo report",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Eseguito senza chiedere (Consenti tutto)",
+          "refused": "Non eseguito"
+        },
+        "readOnly": {
+          "allowed": "Eseguito senza chiedere: sola lettura",
+          "refused": "Non eseguito"
+        },
+        "blocklist": {
+          "allowed": "Consentito",
+          "refused": "Rifiutato dalla blocklist di sicurezza"
+        },
+        "rememberedReport": {
+          "allowed": "Consentito per questo report",
+          "refused": "Negato per questo report"
+        },
+        "unattended": {
+          "allowed": "Consentito dall'impostazione per le esecuzioni non presidiate",
+          "refused": "Non eseguito: serve un'approvazione e nessuno sta guardando"
+        },
+        "unknownTool": {
+          "refused": "Non eseguito: questo strumento non è nell'elenco degli strumenti della connessione"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Ha riflettuto sulla risposta"
@@ -1693,6 +1925,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Modifica codice della query",
+      "saveAsCachedTable": "Salva come tabella in cache",
+      "saveAsCachedTableTooltip": "Memorizza questa query nella cache della connessione, così gli agenti rispondono da una copia locale",
+      "saveAsCachedTableFailed": "Impossibile aprire questo risultato per la cache",
       "editCode": "Modifica codice",
       "edit": "Modifica",
       "rows": "{count} righe",
@@ -2090,11 +2325,12 @@
       "glob": "Schema con caratteri jolly",
       "hint": "Le regole corrispondono a comandi completi in questa directory. I prefissi consentiti escludono operatori ed espansioni della shell.",
       "always": "Consenti sempre le corrispondenze",
-      "session": "Consenti per questa sessione",
+      "session": "Consenti per questo report (8 ore)",
       "mine": "Le mie regole shell",
       "override": "Queste regole valgono solo per te. Consenti sempre o Nega sempre della connessione ha priorità.",
       "save": "Salva regole",
-      "failed": "Impossibile caricare o salvare le regole. Controlla il JSON e riprova."
+      "failed": "Impossibile caricare o salvare le regole. Controlla il JSON e riprova.",
+      "sessionHint": "Esegue i comandi corrispondenti in questo report senza chiedere per le prossime 8 ore."
     },
     "shell": {
       "command": "Comando shell",
@@ -2111,6 +2347,26 @@
       "unknownState": "Il processo remoto potrebbe essere ancora in esecuzione. Verifica il suo stato prima di riprovare.",
       "exitCode": "Codice di uscita: {code}",
       "cancelledBeforeExecution": "Annullato prima dell’esecuzione."
+    },
+    "requestAgentSignin": {
+      "checking": "Verifica degli agenti…",
+      "connect": "Connetti",
+      "connected": "Connesso",
+      "askAgain": "Chiedi di nuovo",
+      "readyHint": "Connesso. Ripeti la domanda per usarlo."
+    },
+    "describeTables": {
+      "searching": "Ricerca di {query}…",
+      "searched": "Cercato {names}",
+      "searchedMore": "Cercato {names} +{count}",
+      "columnsMatching": "colonne che corrispondono a {terms}",
+      "column": "Colonna",
+      "type": "Tipo",
+      "used": "Utilizzi",
+      "showingOf": "Le prime {shown} di {total} colonne, le più usate per prime",
+      "matchingOf": "{matched} di {total} colonne corrispondono a {terms}",
+      "noMatch": "Nessuna colonna corrisponde a {terms}",
+      "more": "+{count} in più"
     }
   },
   "entityCreate": {
@@ -2216,7 +2472,8 @@
       "manage_data_sources": "Gestire gli agenti",
       "manage_service_accounts": "Gestire gli account di servizio",
       "view_code": "Vedere il codice generato",
-      "run_custom_code": "Modificare ed eseguire codice personalizzato"
+      "run_custom_code": "Modificare ed eseguire codice personalizzato",
+      "access_workspace": "Usare l'area di lavoro"
     },
     "delete": "Elimina",
     "duplicate": "Duplica",
@@ -2236,7 +2493,8 @@
       "knowledge": "Conoscenza degli agenti",
       "code": "Codice",
       "admin": "Amministrazione",
-      "other": "Altro"
+      "other": "Altro",
+      "workspace": "Area di lavoro"
     },
     "permissionHints": {
       "create_data_source": "Creare agenti sulle connessioni utilizzabili",
@@ -2252,7 +2510,8 @@
       "manage_settings": "Modificare le impostazioni dell'organizzazione",
       "manage_llm": "Configurare provider e modelli LLM",
       "view_audit_logs": "Vedere chi ha fatto cosa e quando",
-      "manage_identity_providers": "Configurare il single sign-on"
+      "manage_identity_providers": "Configurare il single sign-on",
+      "access_workspace": "Aprire l'area di lavoro vera e propria: home, report, agenti. Senza, un membro ha solo le app condivise con lui."
     },
     "fullAdminHint": "Può fare tutto nell'organizzazione",
     "fullAdminAccessTab": "L'accesso amministrativo completo include tutti gli agenti, le connessioni e i modelli.",
@@ -2349,7 +2608,28 @@
     "failedToSave": "Impossibile salvare il gruppo",
     "failedToAddMember": "Impossibile aggiungere il membro",
     "failedToRemoveMember": "Impossibile rimuovere il membro",
-    "failedToUpdateRoles": "Impossibile aggiornare i ruoli del gruppo"
+    "failedToUpdateRoles": "Impossibile aggiornare i ruoli del gruppo",
+    "youManage": "Gestito da te",
+    "managerBadge": "Gestore",
+    "makeManager": "Rendi gestore",
+    "removeManager": "Rimuovi gestore",
+    "removeMember": "Rimuovi dal gruppo",
+    "managerHint": "Gestisci questo gruppo: aggiungi o rimuovi membri e nomina gestori tra i membri.",
+    "managedExternallyHint": "Sincronizzato dal tuo provider di identità. Modifica i membri lì.",
+    "noManagedGroupsHint": "Non gestisci alcun gruppo.",
+    "toastManagerAdded": "Il membro ora è gestore del gruppo",
+    "toastManagerRemoved": "Ruolo di gestore rimosso",
+    "failedToUpdateManager": "Impossibile aggiornare il gestore del gruppo",
+    "models": {
+      "title": "Modelli predefiniti",
+      "hint": "Il modello con cui partono i membri del gruppo. Sono elencati solo i modelli che il gruppo può già usare.",
+      "default": "Modello predefinito",
+      "small": "Modello piccolo",
+      "orgDefault": "Predefinito dell'organizzazione",
+      "setByAdmin": "{model} (impostato da un amministratore)",
+      "saved": "Modelli del gruppo aggiornati",
+      "failed": "Impossibile aggiornare i modelli del gruppo"
+    }
   },
   "signupPolicy": {
     "title": "Registrazione basata su dominio",
@@ -2488,6 +2768,35 @@
       "googleTitle": "Sincronizzazione profilo Google"
     },
     "auditLogs": "Registri di audit",
+    "systemLogsTab": "Log di sistema",
+    "systemLogs": {
+      "title": "Log di sistema",
+      "subtitle": "L'output di log del server stesso, per la risoluzione dei problemi. Visibile solo agli amministratori.",
+      "retention": "I log vengono conservati per {days} giorni, fino a {max} in totale; oltre, vengono eliminati prima i più vecchi. In uso: {used}.",
+      "droppedNotice": "Non è stato possibile salvare {count} righe di questa istanza perché non è stato possibile scrivere nella cartella dei log.",
+      "writeError": "Questa istanza non può scrivere nella cartella dei log ({directory}). Verifica che esista e sia scrivibile.",
+      "searchPlaceholder": "Cerca nei messaggi…",
+      "from": "Da",
+      "to": "A",
+      "allInstances": "Tutte le istanze",
+      "thisInstance": "{id} (questa istanza)",
+      "errorsOnly": "Solo errori",
+      "autoRefresh": "Aggiornamento automatico",
+      "clearFilters": "Cancella filtri",
+      "refresh": "Aggiorna",
+      "rangeInvalid": "«Da» deve precedere «A».",
+      "empty": "Ancora nessuna riga corrispondente.",
+      "count": "Righe mostrate: {count}",
+      "countTruncated": "Sono mostrate le {count} righe più recenti. Restringi i filtri per vedere quelle precedenti.",
+      "deleteAll": "Elimina tutti i log",
+      "deleteTitle": "Eliminare tutti i log di sistema?",
+      "deleteMessage": "Tutte le righe di log salvate di tutte le istanze verranno eliminate definitivamente. Le nuove righe continueranno a essere registrate.",
+      "deleteConfirm": "Elimina tutto",
+      "cancel": "Annulla",
+      "deletedToast": "Tutti i log di sistema sono stati eliminati",
+      "deleteFailed": "Impossibile eliminare i log",
+      "loadFailed": "Impossibile caricare i log di sistema"
+    },
     "integrations": {
       "title": "Canali",
       "subtitle": "Configura piattaforme esterne come Slack e Microsoft Teams per la tua organizzazione.",
@@ -2976,13 +3285,17 @@
       "defaultRoleHint": "Precompila il ruolo quando aggiungi o inviti un membro.",
       "defaultRoleSaved": "Ruolo predefinito salvato",
       "defaultRoleFailed": "Impossibile salvare il ruolo predefinito",
-      "defaultRoleShort": "Ruolo predefinito"
+      "defaultRoleShort": "Ruolo predefinito",
+      "appUser": "Utente app",
+      "joinedVia": "Entrato tramite {app}"
     },
     "organizationName": "Nome dell'organizzazione",
+    "organizationNameRequired": "Il nome dell'organizzazione non può essere vuoto.",
     "organizationIcon": "Icona dell'organizzazione",
     "uploadIcon": "Carica icona",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "Nome dell'analista IA",
+    "aiAnalystNameRequired": "Il nome dell'analista IA non può essere vuoto.",
     "showCredit": "Mostra credito \"Made with BOW\"",
     "language": {
       "title": "Lingua",
@@ -3410,6 +3723,22 @@
           "name": "Tabelle personalizzate (beta)",
           "description": "Consente agli amministratori delle connessioni di definire SQL che BOW materializza in una copia locale cifrata secondo una pianificazione, così gli agenti rispondono dal risultato memorizzato anziché interrogare la sorgente a ogni turno. Beta: disattivato per impostazione predefinita."
         },
+        "custom_table_max_rows": {
+          "name": "Limite di righe della tabella personalizzata",
+          "description": "Numero massimo di righe che una tabella personalizzata può contenere. Una query che si stima o risulta restituirne di più viene rifiutata e i dati precedenti continuano a essere serviti. Da 1.000 a 100.000.000."
+        },
+        "custom_table_max_gb": {
+          "name": "Limite di dimensione della tabella personalizzata (GB)",
+          "description": "Risultato stimato più grande, e file in cache più grande, per una tabella personalizzata. Da 1 a 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Limite di lettura all'origine della tabella personalizzata (GB)",
+          "description": "Quantità massima di dati che l'origine può leggere per un aggiornamento, quando l'origine la comunica prima dell'esecuzione (BigQuery, Snowflake). Da 1 a 10.240."
+        },
+        "custom_table_max_requests": {
+          "name": "Limite di richieste della tabella personalizzata",
+          "description": "Numero massimo di richieste che un aggiornamento può inviare a un'origine letta pagina per pagina (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Aumentalo insieme al limite di righe: Power BI restituisce al massimo 100.000 righe per richiesta e consente circa 120 richieste al minuto. Da 16 a 10.000."
+        },
         "enable_agent_notes": {
           "name": "Note dell'agente",
           "description": "Consente all'agente di tenere note di lavoro per ogni report (un blocco appunti) che scrive e rilegge mentre risponde: piani, riscontri e cose da fare. Le note sono mostrate nel report ma non sono conoscenza condivisa. Quando è disattivato, gli strumenti per le note sono nascosti e le note non vengono inserite nel contesto."
@@ -3489,7 +3818,43 @@
         "allow_access_requests": {
           "name": "Consenti richieste di accesso",
           "description": "Consente ai membri di chiedere l'accesso in lettura agli editor di una dashboard dalla pagina senza accesso. Se disattivato, la pagina indica solo il proprietario e non è possibile inviare nuove richieste; quelle già inviate restano gestibili."
+        },
+        "show_world": {
+          "name": "Vista Mondo",
+          "description": "Mostra nella pagina Agenti un interruttore che apre Mondo: una mappa di agenti, conoscenza, fonti e lavoro che collegano la tua organizzazione. Ogni utente vede solo ciò a cui ha accesso."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K colonne per tabella",
+          "description": "Quante colonne di una tabella ampia l'agente vede per intero nel contesto, ordinate per utilizzo, riferimenti nelle istruzioni e chiavi/timestamp. Le altre sono riassunte per prefisso e restano ricercabili con describe_tables. 0 = nessun limite."
         }
+      },
+      "permissionMode": {
+        "title": "Modalità dei permessi degli strumenti",
+        "description": "Come l'agente decide se eseguire strumenti di connessione e comandi shell remoti. Gli utenti scelgono una modalità per report nella casella dei messaggi; strumenti disattivati o negati e la blocklist di sicurezza valgono in ogni modalità.",
+        "defaultMode": "Modalità predefinita per i nuovi report",
+        "unattended": "Esecuzioni senza nessuno che guarda",
+        "unattendedOptions": {
+          "refuse": "Rifiuta",
+          "settings": "Usa le impostazioni di ogni strumento",
+          "allow": "Consenti"
+        },
+        "unattendedHints": {
+          "refuse": "Le esecuzioni pianificate, webhook, API e altre esecuzioni non supervisionate saltano qualsiasi strumento che chiederebbe.",
+          "settings": "Gli strumenti in Auto usano la revisione del modello; quelli in Chiedi vengono saltati.",
+          "allow": "Gli strumenti che chiederebbero vengono eseguiti nelle esecuzioni pianificate, webhook e API. Le chat su altri canali li saltano ancora."
+        },
+        "allowAll": "Permetti \"Consenti tutto\"",
+        "allowAllDescription": "Consente agli utenti di disattivare le richieste di approvazione per un report, o di renderla la modalità predefinita per i nuovi report. Si applica solo alle esecuzioni del proprietario del report mentre le segue.",
+        "judgeModel": "Modello per le decisioni automatiche",
+        "judgeModelHint": "Automatico usa il modello decisionale del router quando il routing ne usa uno, altrimenti il modello piccolo predefinito.",
+        "judgeModelOptions": {
+          "automatic": "Automatico",
+          "small": "Modello piccolo predefinito",
+          "unavailable": "Modello non disponibile",
+          "notLoaded": "Modello salvato (elenco non caricato)"
+        },
+        "judgeModelLoadFailed": "Impossibile caricare i modelli decisionali.",
+        "judgeModelRetry": "Riprova"
       }
     },
     "llms": {
@@ -3641,6 +4006,29 @@
         "restrictedDefaultHint": "Questo è il modello predefinito dell'organizzazione. I membri non elencati qui sotto ricevono il predefinito del loro gruppo.",
         "defaultForGroups": "Predefinito per i gruppi",
         "defaultForGroupsHint": "I membri di questi gruppi possono sempre usare questo modello."
+      },
+      "piiBadge": "PII: {policy}",
+      "piiBadgeExempt": "PII: non oscurato",
+      "piiBadgeTooltip": "La policy dati personali applicata ai prompt di questo provider. Modificala in Impostazioni → Protezione dei dati personali.",
+      "providerManagers": {
+        "title": "Gestori del provider",
+        "hint": "Membri che gestiscono questo provider senza essere amministratori LLM.",
+        "can": "Possono modificare le credenziali e le impostazioni di connessione, attivare o disattivare i suoi modelli e modificare le impostazioni e le indicazioni di instradamento di quei modelli.",
+        "cannot": "Non possono aggiungere modelli, cambiare prezzi, modelli predefiniti o accesso ai modelli, né attivare il router automatico. Un modello che attivano parte limitato finché un amministratore non lo apre.",
+        "addPlaceholder": "Aggiungi un membro…",
+        "add": "Aggiungi",
+        "remove": "Rimuovi gestore",
+        "loading": "Caricamento…",
+        "none": "Nessun gestore per ora. Solo gli amministratori LLM gestiscono questo provider.",
+        "added": "Gestore aggiunto",
+        "removed": "Gestore rimosso",
+        "failed": "Impossibile aggiornare i gestori del provider",
+        "banner": "Gestisci {providers}. Modelli predefiniti, accesso ai modelli, prezzi e router automatico sono decisi da un amministratore.",
+        "priceAdminOnly": "Solo un amministratore può cambiare i prezzi.",
+        "restricted": "Limitato: solo chi riceve l'accesso da un amministratore può usarlo."
+      },
+      "autoRouterModal": {
+        "decisionRestricted": "Solo i membri che possono usare {model} ricevono la decisione iniziale. Tutti gli altri partono dal modello piccolo."
       }
     },
     "licensePage": {
@@ -3751,45 +4139,173 @@
       "systemDefault": "Usa il valore predefinito di sistema (UTC)"
     },
     "pii": {
-      "action": "Azione",
       "actionBlock": "Blocca",
       "actionReplace": "Sostituisci",
       "addPattern": "Aggiungi pattern",
       "addRule": "Aggiungi regola",
       "blocksRequest": "Blocca la richiesta",
-      "builtinDesc": "Rilevatori predefiniti per i dati personali più comuni. Attivali singolarmente e personalizza il token sostitutivo.",
-      "builtinTitle": "Regole integrate",
-      "customDesc": "Definisci i tuoi rilevatori. Una regola può contenere più pattern (espressioni regolari): basta una corrispondenza per attivarla.",
       "customTitle": "Regole personalizzate",
       "enterpriseBody": "La protezione dei dati personali è disponibile nel piano Enterprise. Contatta il tuo amministratore per abilitarla.",
       "enterpriseTitle": "Funzione enterprise",
-      "masterDesc": "Quando è attiva, il testo corrispondente viene oscurato in ogni prompt inviato a un LLM da questo spazio di lavoro.",
+      "masterDesc": "Quando è attiva, i prompt di ogni provider LLM vengono oscurati secondo la sua policy. Il prompt dell'utente e i dati vengono oscurati; istruzioni e schemi arrivano al modello così come sono scritti, a meno che una policy non oscuri anche quelli.",
       "masterLabel": "Abilita la protezione dei dati personali",
-      "modeBlock": "Blocca la richiesta",
-      "modeBlockDesc": "Non inviare il prompt se vengono rilevati dati personali. Sovrascrivibile per singola regola qui sotto.",
-      "modeLabel": "Azione predefinita quando vengono rilevati dati personali",
-      "modeReplace": "Sostituisci con un token",
-      "modeReplaceDesc": "Sostituisci ogni corrispondenza con il suo token e prosegui. Sovrascrivibile per singola regola qui sotto.",
       "noCustomRules": "Ancora nessuna regola personalizzata.",
       "patternPlaceholder": "es. \\bEMP-\\d+\\b",
       "patternRequired": "Ogni regola richiede almeno un pattern.",
-      "patterns": "Pattern (regex)",
       "removeRule": "Rimuovi",
       "replacement": "Sostituzione",
       "ruleName": "Nome della regola",
       "ruleNamePlaceholder": "es. Matricola",
       "saveError": "Salvataggio delle impostazioni dei dati personali non riuscito",
       "saved": "Impostazioni dei dati personali salvate",
-      "subtitle": "Oscura i dati personali nei prompt prima che vengano inviati a qualsiasi provider LLM. Le regole agiscono sul prompt completo: messaggio dell'utente, campioni di schema, anteprime dei dati e testo dei file caricati.",
+      "subtitle": "Oscura i dati personali nei prompt prima che vengano inviati a un provider LLM. Le regole si applicano al prompt dell'utente e ai dati che l'agente legge: risultati delle query, anteprime dei dati, testo dei file caricati e la conversazione.",
       "testBlocked": "Questo prompt verrebbe BLOCCATO (dati personali rilevati).",
-      "testButton": "Anteprima dell'oscuramento",
-      "testDesc": "Incolla un testo di esempio per vedere come verrà oscurato con le regole attuali.",
       "testMatches": "Corrispondenze: {rules}",
       "testNoMatches": "Nessun dato personale rilevato nell'esempio.",
       "testPlaceholder": "Incolla un testo con dati personali di esempio…",
-      "testResult": "Risultato",
       "testTitle": "Prova le tue regole",
-      "title": "Protezione dei dati personali"
+      "title": "Protezione dei dati personali",
+      "providersTitle": "Policy per provider",
+      "providersDesc": "Scegli la policy di ogni provider LLM. I provider senza scelta usano quella predefinita. Esentato invia i prompt senza oscurare, ad esempio a un modello self-hosted o nella tua VPC di cui ti fidi. Ciò che si vede nell'app viene oscurato con la policy predefinita in ogni caso.",
+      "noProviders": "Nessun provider LLM.",
+      "providerPolicyFor": "Policy dati personali per {name}",
+      "exemptOption": "Esentato (invia senza oscurare)",
+      "policiesTitle": "Policy",
+      "newPolicy": "Nuova policy",
+      "policyName": "Nome della policy",
+      "deletePolicy": "Elimina policy",
+      "deletePolicyConfirm": "Eliminare la policy \"{policy}\"? I provider che la usano tornano alla predefinita.",
+      "defaultPolicy": "Predefinita",
+      "defaultPolicyNote": "La predefinita vale per ogni provider senza una policy propria e oscura ciò che si vede nell'app. Non può essere rinominata né eliminata.",
+      "redactContextLabel": "Oscura anche istruzioni e schemi",
+      "redactContextDesc": "Disattivato: vengono oscurati solo il prompt dell'utente e i dati (risultati delle query, file, conversazione), mentre istruzioni, schemi e il resto del contesto dell'agente arrivano al modello così come sono. Attivato: viene oscurato tutto.",
+      "customDescShared": "Definisci i tuoi rilevatori una sola volta, con uno o più pattern (espressioni regolari). Ogni policy sceglie se usarli e cosa fanno.",
+      "testFailed": "Test non riuscito",
+      "actionPseudonymize": "Nascondi al modello",
+      "actionMask": "Maschera",
+      "masksValue": "Mantiene gli ultimi 4 caratteri",
+      "pseudonymizesValue": "Le persone vedono ancora il valore",
+      "detectorTitle": "Nomi, luoghi e organizzazioni",
+      "validatedTitle": "Identificatori convalidati",
+      "validatedNote": "Trovati con un pattern e confermati da una cifra di controllo (Luhn per le carte, mod-97 per gli IBAN, cifre di controllo per i documenti), quindi intercettano molti meno numeri simili rispetto agli identificatori comuni qui sopra. Controllati nel messaggio dell'utente e nei dati, mai nelle istruzioni o negli schemi.",
+      "detectorUnavailable": "Rilevare nomi, luoghi e organizzazioni richiede un rilevatore di dati personali, e su questa istanza non ne è configurato nessuno. Chiedi all'amministratore di installare l'extra pii del backend o di configurare un servizio Presidio.",
+      "detectorErrorLabel": "Se il rilevatore non è disponibile",
+      "detectorErrorDesc": "Cosa succede a una richiesta quando il rilevatore non può controllarla.",
+      "detectorErrorBlock": "Blocca la richiesta",
+      "detectorErrorRegexOnly": "Inviala solo con le regole a pattern",
+      "testDetectorUnavailable": "Il rilevatore di dati personali non è disponibile, quindi questo testo verrebbe bloccato.",
+      "policiesListDesc": "Una policy è un insieme di regole su ciò che un modello può vedere. Apri una policy per modificarne le regole.",
+      "rulesOn": "{n} regola attiva | {n} regole attive",
+      "usedBy": "Usata da: {providers}.",
+      "usedByNone": "Nessun provider la usa.",
+      "policyNamePlaceholder": "es. Rigorosa",
+      "copyFrom": "Parti da una copia di",
+      "newRuleTitle": "Nuova regola personalizzata",
+      "editRuleTitle": "Modifica regola personalizzata",
+      "patterns": "Pattern",
+      "patternsHelp": "Espressioni regolari. Il testo che corrisponde a una di esse viene protetto.",
+      "deleteRuleTitle": "Elimina regola personalizzata",
+      "deleteRuleBody": "Eliminare \"{name}\"? Nessuna policy la userà più.",
+      "backToPolicies": "Tutte le policy",
+      "policyHeading": "Policy {policy}",
+      "policyNotFound": "Questa policy non esiste più.",
+      "offNotice": "La protezione PII è disattivata, quindi questa policy non è ancora applicata. Attivala dalla pagina delle policy.",
+      "rulesTitle": "Cosa proteggere",
+      "rulesDesc": "Attiva ciò che questa policy deve rilevare e scegli cosa vede il modello al suo posto.",
+      "groupPatterns": "Identificatori comuni",
+      "detectorNote": "Rilevati da un modello linguistico, non da un pattern. Controllati nel messaggio dell'utente e nei dati, mai nelle istruzioni o negli schemi.",
+      "manageCustom": "Gestisci regole personalizzate",
+      "ruleOff": "Disattivata",
+      "modelSees": "Cosa vede il modello",
+      "testLiveDesc": "Scrivi un testo di esempio per vedere cosa riceverebbe un modello con questa policy. Si aggiorna mentre scrivi e quando cambi le regole.",
+      "testInputLabel": "Testo di esempio",
+      "advancedTitle": "Avanzate",
+      "sensitivityFor": "Sensibilità: {name}",
+      "sensitivityDesc": "Una sensibilità più alta rileva di più e segnala più testo che non è un dato personale.",
+      "sensitivityHigh": "Alta: rileva di più",
+      "sensitivityBalanced": "Bilanciata",
+      "sensitivityLow": "Bassa: meno falsi positivi",
+      "sensitivityCustom": "Personalizzata ({n})",
+      "entities": {
+        "PERSON": "Nome di persona",
+        "LOCATION": "Luogo",
+        "ORGANIZATION": "Organizzazione",
+        "NRP": "Nazionalità, gruppo religioso o politico",
+        "CREDIT_CARD": "Numero di carta di credito (controllo Luhn)",
+        "IBAN_CODE": "IBAN (con cifra di controllo)",
+        "ABA_ROUTING_NUMBER": "Numero di routing bancario USA (ABA)",
+        "CRYPTO": "Indirizzo di portafoglio crypto (Bitcoin)",
+        "US_NPI": "Identificativo nazionale del fornitore USA (NPI)",
+        "MEDICAL_LICENSE": "Numero di registrazione DEA USA",
+        "UK_NHS": "Numero NHS (Regno Unito)",
+        "ES_NIF": "NIF / DNI (Spagna)",
+        "ES_NIE": "NIE (Spagna)",
+        "IT_FISCAL_CODE": "Codice fiscale (Italia)",
+        "DE_TAX_ID": "Codice fiscale (Germania, Steuer-ID)",
+        "PL_PESEL": "PESEL (Polonia)",
+        "FI_PERSONAL_IDENTITY_CODE": "Codice di identità personale (Finlandia)",
+        "SE_PERSONNUMMER": "Personnummer (Svezia)",
+        "TR_NATIONAL_ID": "Numero di identità nazionale (Turchia)",
+        "AU_TFN": "Numero di dossier fiscale (Australia, TFN)",
+        "AU_ABN": "Numero d'impresa (Australia, ABN)",
+        "AU_MEDICARE": "Numero Medicare (Australia)",
+        "IN_AADHAAR": "Numero Aadhaar (India)",
+        "KR_RRN": "Numero di registrazione dei residenti (Corea del Sud)",
+        "ZA_ID_NUMBER": "Numero di identità (Sudafrica)",
+        "IT_VAT_CODE": "Partita IVA (Italia)",
+        "DE_VAT_ID": "Partita IVA (Germania, USt-IdNr.)",
+        "PHONE_NUMBER": "Numero di telefono (internazionale)",
+        "US_SSN": "Numero di previdenza sociale USA",
+        "US_ITIN": "Codice contribuente USA (ITIN)",
+        "US_PASSPORT": "Numero di passaporto USA",
+        "US_DRIVER_LICENSE": "Numero di patente USA",
+        "US_BANK_NUMBER": "Numero di conto bancario USA",
+        "US_MBI": "ID beneficiario Medicare (MBI)",
+        "UK_NINO": "Numero di National Insurance (Regno Unito)",
+        "UK_PASSPORT": "Numero di passaporto (Regno Unito)",
+        "UK_DRIVING_LICENCE": "Numero di patente (Regno Unito)",
+        "UK_POSTCODE": "Codice postale (Regno Unito)",
+        "CA_SIN": "Numero di assicurazione sociale (Canada)",
+        "SG_NRIC_FIN": "NRIC / FIN (Singapore)",
+        "IN_PAN": "PAN (India)",
+        "IN_PASSPORT": "Numero di passaporto (India)",
+        "IN_VOTER": "Tessera elettorale (India)",
+        "ES_PASSPORT": "Numero di passaporto (Spagna)",
+        "IT_DRIVER_LICENSE": "Numero di patente (Italia)",
+        "IT_PASSPORT": "Numero di passaporto (Italia)",
+        "IT_IDENTITY_CARD": "Numero della carta d'identità (Italia)",
+        "KR_PASSPORT": "Numero di passaporto (Corea del Sud)",
+        "PH_PASSPORT": "Numero di passaporto (Filippine)"
+      },
+      "agentsTitle": "Criteri per agente",
+      "agentsDesc": "Scegli il criterio che ogni agente aggiunge. Il criterio di un agente si applica a ogni richiesta che include l'agente, compresi i dati degli altri agenti nella stessa chat, anche con un provider esente. Quando si applicano più criteri, vince l'opzione più restrittiva per ogni regola.",
+      "defaultAgentPolicy": "Predefinito per gli agenti",
+      "defaultAgentPolicyDesc": "Gli agenti senza una scelta propria usano questo criterio.",
+      "noAgents": "Ancora nessun agente.",
+      "agentPolicyFor": "Criterio PII per {name}",
+      "noAgentPolicy": "Nessun criterio dell'agente",
+      "inheritAgentPolicy": "Predefinito dell'organizzazione: {policy}",
+      "usedByAgents": "{n} agente | {n} agenti",
+      "contextualTitle": "Serve una parola vicina",
+      "contextualNote": "Senza cifra di controllo: la maggior parte viene rilevata solo se una parola come \"passaporto\" o \"conto\" è accanto al valore. Funziona in frasi e note; nelle righe di una tabella il nome della colonna di solito non è accanto al valore, quindi alcuni sfuggiranno. Controllati nel messaggio dell'utente e nei dati, mai nelle istruzioni o negli schemi.",
+      "termCount": "{n} termine | {n} termini",
+      "terms": "Termini esatti",
+      "termsHelp": "Parole o frasi, una per riga: nomi in codice, nomi di clienti, hostname interni. Riconosciuti come parole intere, senza distinguere maiuscole e minuscole. Insieme ai pattern o al loro posto.",
+      "termsPlaceholder": "Progetto Falco\nAcme Corp",
+      "checksum": "Cifra di controllo",
+      "checksumHelp": "Una corrispondenza conta solo se supera questo controllo, che scarta la maggior parte dei numeri simili.",
+      "checksumNone": "Nessuna cifra di controllo",
+      "contextWords": "Parole di contesto",
+      "contextWordsHelp": "Separate da virgole. Una corrispondenza conta solo se una di queste parole è entro 60 caratteri.",
+      "contextWordsPlaceholder": "passaporto, n. passaporto",
+      "checksumSummary": "Controllo: {name}",
+      "contextSummary": "Vicino a: {words}",
+      "checksums": {
+        "luhn": "Luhn (carte, IMEI, SIN canadese)",
+        "iban": "IBAN (mod 97)",
+        "il_id": "Documento d'identità israeliano (Teudat Zehut)",
+        "aba": "Numero di routing bancario USA (ABA)"
+      }
     },
     "piiTab": "Dati personali",
     "frameAncestors": {
@@ -3803,7 +4319,9 @@
       "readOnly": "In un'istanza con più organizzazioni, solo un amministratore dell'istanza può modificare questo elenco.",
       "duplicate": "Questo sito è già nell'elenco.",
       "invalidFormat": "Inserisci un indirizzo che inizi con https://, senza percorso. Ad esempio: https://portal.example.com",
-      "publicNote": "Questi indirizzi sono visibili a chiunque: i browser li ricevono con ogni pagina."
+      "publicNote": "Questi indirizzi sono visibili a chiunque: i browser li ricevono con ogni pagina.",
+      "confirmRemoveTitle": "Rimuovere questo sito?",
+      "confirmRemoveBody": "{site} non potrà più mostrare BOW. Le pagine di quel sito che mostrano BOW smetteranno subito di funzionare."
     }
   },
   "data": {
@@ -4223,6 +4741,11 @@
     "setupGuideTitle": "Passaggi di configurazione",
     "setupGuideCopy": "Copia",
     "setupGuideCopied": "Copiato",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Non viene salvata alcuna chiave. Le query vengono eseguite con l'identità Google configurata sul server: un account di servizio collegato o una configurazione di Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -4250,6 +4773,24 @@
         {
           "title": "Esporta il certificato dell'SMS Provider",
           "body": "Per impostazione predefinita il sito usa un certificato autofirmato. Esegui questo comando in PowerShell sull'SMS Provider e incolla l'output in SMS Provider certificate (PEM). Salta questo passaggio se il certificato proviene da una CA già considerata attendibile da questo server."
+        }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Registra un'app in Microsoft Entra",
+          "body": "Nell'interfaccia di amministrazione di Microsoft Entra vai su App registrations > New registration. Scegli \"Accounts in this organizational directory only\". Nella pagina Overview dell'app, copia Directory (tenant) ID e Application (client) ID nei campi qui sotto."
+        },
+        {
+          "title": "Aggiungi l'URI di reindirizzamento",
+          "body": "Nell'app vai su Authentication > Add a platform > Web e incolla questo URI di reindirizzamento."
+        },
+        {
+          "title": "Concedi le autorizzazioni Microsoft Graph",
+          "body": "In API permissions > Add a permission > Microsoft Graph > Delegated permissions, aggiungi Mail.Read, User.Read, offline_access, openid e profile. Per consentire agli agenti di spostare, preparare o inviare email, aggiungi anche Mail.ReadWrite e Mail.Send. Poi fai clic su \"Grant admin consent\" così agli utenti non verrà chiesto di approvare l'app. Usa solo autorizzazioni Delegated, non Application: il connettore legge solo la casella di posta dell'utente che ha effettuato l'accesso."
+        },
+        {
+          "title": "Crea un segreto client",
+          "body": "In Certificates & secrets > New client secret, crea un segreto e copia il suo Value (non il Secret ID) in Client Secret qui sotto. Non potrai più visualizzare il valore in seguito."
         }
       ]
     },
@@ -4301,10 +4842,29 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nome della raccolta documenti, oppure * per tutte le raccolte visibili. Il campo vuoto seleziona la raccolta predefinita solo in modalità REST moderno."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL del server Exchange",
+      "urlDescription": "Indirizzo del server Exchange, ad es. https://mail.example.com. Il percorso di Exchange Web Services (/EWS/Exchange.asmx) viene aggiunto se lo ometti.",
+      "sharedTitle": "Cassette postali condivise",
+      "sharedDescription": "Facoltativo. Indirizzi delle cassette postali condivise o di team da includere, separati da virgole, ad es. support@example.com, sales@example.com. Exchange decide chi può aprire ciascuna: ogni persona vede solo le cassette a cui il proprio account ha già accesso.",
+      "ownTitle": "Includi la cassetta postale dell'account",
+      "ownDescription": "Disattiva questa opzione se accedi con un account di servizio la cui cassetta postale non è rilevante. La prima cassetta condivisa diventa quella predefinita."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
+    "postgresqlMulti": {
+      "databasesTitle": "Database",
+      "databasesDescription": "Nomi di database, pattern glob ed esclusioni con !, separati da virgole, ad es. tenant_*, !tenant_test. La corrispondenza distingue maiuscole e minuscole. Tutti i database corrispondenti vengono uniti in un unico insieme di tabelle con una colonna tenant_db.",
+      "discoveryDatabaseTitle": "Database di rilevamento",
+      "discoveryDatabaseDescription": "Database usato per elencare i database del server. Predefinito: postgres.",
+      "tableExcludeTitle": "Pattern di esclusione tabelle",
+      "tableExcludeDescription": "Espressione regolare facoltativa; le tabelle il cui nome corrisponde non vengono indicizzate, ad es. ^day_\\d{'{'}2{'}'}. Modificarla rimuove alla successiva indicizzazione le tabelle appena escluse e la loro selezione nell'agente."
+    },
+    "qlikCloud": {
+      "appFilterDescription": "Nomi o ID delle app separati da virgole negli spazi selezionati (facoltativo). Se vuoto, include tutte le app corrispondenti. Usa gli ID per nomi contenenti virgole."
     },
     "qlikOnPrem": {
       "appFilterTitle": "Filtro applicazioni",
@@ -4434,7 +4994,21 @@
     "firstPage": "Prima pagina",
     "previousPage": "Pagina precedente",
     "nextPage": "Pagina successiva",
-    "lastPage": "Ultima pagina"
+    "lastPage": "Ultima pagina",
+    "inRangeStart": "Da",
+    "inRangeEnd": "A",
+    "resetFilter": "Cancella",
+    "noRowsToShow": "Nessuna riga da mostrare",
+    "filteredRows": "{shown} di {total} righe",
+    "clearFilters": "Cancella filtri",
+    "expand": "Espandi tabella",
+    "collapse": "Chiudi schermo intero",
+    "search": "Cerca…",
+    "selectAll": "Seleziona tutto",
+    "blankValue": "(Vuoto)",
+    "noMatches": "Nessun valore corrispondente",
+    "moreValues": "Mostrati i primi {n}: digita per restringere",
+    "alsoFilteredAbove": "Questa colonna è filtrata anche in Filtri, sopra"
   },
   "sharedReport": {
     "backToApp": "Torna all’app",
@@ -4445,12 +5019,31 @@
     "madeWith": "Realizzato con {brand}",
     "fork": "Crea copia"
   },
+  "sharedConversation": {
+    "loading": "Caricamento conversazione…",
+    "signInTitle": "Accesso richiesto",
+    "signInBody": "Devi accedere per visualizzare questa conversazione.",
+    "signIn": "Accedi",
+    "deniedTitle": "Accesso negato",
+    "deniedBody": "Non hai l'autorizzazione per visualizzare questa conversazione. Chiedi al proprietario di condividerla con te.",
+    "goHome": "Vai alla home",
+    "notFoundTitle": "Conversazione non trovata",
+    "notFoundBody": "Questa conversazione potrebbe non essere più condivisa o non esistere.",
+    "byAuthor": "di {name}",
+    "fork": "Duplica",
+    "forking": "Duplicazione…",
+    "loadOlder": "Carica messaggi precedenti",
+    "poweredBy": "Con tecnologia {brand}"
+  },
   "errors": {
     "shell_rules.tool_required": "Le regole dei comandi richiedono uno strumento shell remoto.",
     "shell_rules.invalid": "Regole dei comandi non valide.",
     "shell_confirmation.invalid_scope": "Ambito di autorizzazione non valido.",
     "shell_confirmation.report_required": "Le autorizzazioni di sessione richiedono un report.",
     "shell_confirmation.rule_mismatch": "Regola di comando non valida, oppure il pattern non corrisponde a questo comando.",
+    "tool_permission_mode.allow_all_off": "\"Consenti tutto\" è disattivato per questa organizzazione.",
+    "tool_permission_mode.allow_all_default_needs_switch": "\"Consenti tutto\" può essere il predefinito solo mentre è attivo.",
+    "tool_permission_mode.judge_model_unavailable": "Scegli un modello decisionale attivo per il giudice della modalità Auto.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "L’aggiornamento del catalogo non è riuscito perché il rilevamento era incompleto. Il catalogo precedente e le selezioni delle tabelle sono stati conservati.",
@@ -4489,6 +5082,10 @@
     "connection.table_preview_failed": "Anteprima non riuscita: {reason}",
     "data_source.not_found": "Origine dati non trovata",
     "file.not_found": "File non trovato",
+    "system_logs.instance_admin_required": "Solo un amministratore dell’istanza può usare i log di sistema.",
+    "system_logs.invalid_range": "L'ora di inizio deve precedere l'ora di fine.",
+    "system_logs.delete_failed": "Impossibile eliminare i file di log in {directory}. Verifica che la cartella esista e sia scrivibile.",
+    "system_logs.disabled": "I log di sistema sono disattivati su questo server. Per attivarli, imposta BOW_SYSTEM_LOGS_ENABLED=true (o system_logs.enabled in bow-config.yaml) e riavvia il server.",
     "verification.invalid": "Token di verifica non valido o scaduto",
     "body.invalid_json": "Corpo JSON non valido",
     "organization.not_found": "Organizzazione non trovata",
@@ -4506,6 +5103,9 @@
     "role.not_found": "Ruolo non trovato",
     "group.not_found": "Gruppo non trovato",
     "group.managed_by_scim": "Questo gruppo è gestito dal tuo provider di identità (SCIM). Modificalo lì.",
+    "group.managed_externally": "Questo gruppo è sincronizzato dal tuo provider di identità; modifica i membri lì.",
+    "group.manager_not_member": "Solo i membri registrati del gruppo possono diventarne gestori.",
+    "group.manager_protected": "Solo un amministratore dell'organizzazione può rimuovere o declassare un gestore del gruppo.",
     "instruction.not_found": "Istruzione non trovata",
     "instruction.version_not_found": "Versione dell'istruzione non trovata",
     "instruction.label_not_found": "Etichetta dell'istruzione non trovata",
@@ -4523,7 +5123,14 @@
       "model_id_not_editable": "Solo i modelli personalizzati su provider Azure, AWS Bedrock o personalizzati (compatibili con OpenAI) possono avere l'ID modello modificato",
       "model_id_duplicate": "Il modello «{model_id}» esiste già su questo provider",
       "model_is_group_default": "Questo modello è il predefinito dei gruppi: {groups}. Cambia prima il loro predefinito.",
-      "group_default_invalid": "Il modello deve essere abilitato ed essere un modello di chat di questa organizzazione."
+      "group_default_invalid": "Il modello deve essere abilitato ed essere un modello di chat di questa organizzazione.",
+      "group_default_not_available": "Questo gruppo non può usare quel modello. Chiedi prima a un amministratore di dare accesso al gruppo.",
+      "group_default_priority_admin_only": "Solo un amministratore può cambiare la priorità di un gruppo.",
+      "provider_holds_default": "Questo provider contiene il modello predefinito dell'organizzazione. Chiedi prima a un amministratore di cambiare il predefinito.",
+      "provider_manager_admin_only": "Solo un amministratore può farlo su questo provider.",
+      "provider_manager_not_member": "Solo un membro di questa organizzazione può gestire un provider.",
+      "provider_key_required_for_new_destination": "Inserisci di nuovo la chiave API quando cambi la destinazione a cui si collega questo provider.",
+      "provider_host_identity_admin_only": "Questo provider accede con l'identità cloud del server stesso. Solo un amministratore può cambiare la destinazione o passare a questo tipo di accesso."
     },
     "data_source.in_use": "L'agente \"{agent}\" è ancora in uso ({reference}), quindi non può essere eliminato. Non è stato eliminato nulla.",
     "memory.disabled": "La memoria utente è disattivata in questa organizzazione.",
@@ -4579,6 +5186,10 @@
     "connection.kms_login_rejected": "KMS Lighthouse non ha accettato queste credenziali, quindi non sono state salvate. Controlla nome utente e password, oppure il token API, e riprova.",
     "connection.kms_login_paused": "KMS Lighthouse ha rifiutato di recente queste credenziali, quindi i nuovi tentativi sono sospesi per alcuni minuti e non sono state salvate. Controlla le credenziali o riprova più tardi.",
     "connection.kms_session_refused": "KMS Lighthouse ha accettato queste credenziali ma ne ha rifiutato la sessione, quindi non possono essere usate e non sono state salvate. Chiedi all'amministratore di KMS se questo account può usare l'API di KMS.",
+    "connection.confluence_login_rejected": "Confluence non ha accettato questo token di accesso personale o queste credenziali, quindi non è stato salvato. Controllalo oppure crea un nuovo token in Confluence in Profilo > Token di accesso personali.",
+    "connection.confluence_login_captcha": "Confluence richiede un CAPTCHA per questo account dopo accessi non riusciti, quindi non è stato salvato. Accedi una volta a Confluence dal browser per sbloccarlo, oppure usa un token di accesso personale.",
+    "connection.jira_login_rejected": "Jira non ha accettato questo token di accesso personale o queste credenziali, quindi non è stato salvato. Controllalo oppure crea un nuovo token in Jira in Profilo > Token di accesso personali.",
+    "connection.jira_login_captcha": "Jira richiede un CAPTCHA per questo account dopo accessi non riusciti, quindi non è stato salvato. Accedi una volta a Jira dal browser per sbloccarlo, oppure usa un token di accesso personale.",
     "access_request.disabled": "Le richieste di accesso sono disattivate per questa organizzazione.",
     "access_request.not_allowed": "Questa dashboard non richiede una richiesta di accesso.",
     "access_request.already_has_access": "Hai già accesso a questa dashboard.",
@@ -4591,7 +5202,29 @@
     "frame_ancestors.too_many": "Puoi indicare al massimo {max} siti.",
     "connection.query_not_found": "Query non trovata su questa connessione.",
     "connection.query_finished": "Questa query è già terminata ({status}).",
-    "connection.query_not_killable": "Questa query non può essere fermata da BOW: il suo client applica un proprio limite di tempo."
+    "connection.query_not_killable": "Questa query non può essere fermata da BOW: il suo client applica un proprio limite di tempo.",
+    "connection.slack_channels_not_slack": "La selezione dei canali è disponibile solo per le connessioni Slack.",
+    "connection.slack_channels_too_many": "Al massimo {max} canali per agente.",
+    "connection.slack_channels_not_ids": "Questi non sono ID di canali Slack: {ids}",
+    "connection.slack_channels_unavailable": "Slack non ha risposto: {detail}",
+    "review_item.not_found": "Elemento di revisione non trovato",
+    "agent_import.invalid_bundle": "Questo file non è un pacchetto di esportazione agente valido.",
+    "agent_import.name_taken": "Esiste già un agente chiamato “{name}”.",
+    "agent_import.no_connection": "Associa almeno una connessione per importare l’agente.",
+    "agent_import.failed": "Impossibile importare l’agente.",
+    "account_link_required": "Esiste già un account con questa email. Chiedi al tuo amministratore di collegarlo.",
+    "invite_link_required": "Questo metodo di accesso non può accettare il tuo invito. Usa il link di invito ricevuto via email o contatta il tuo amministratore.",
+    "integration.connected_elsewhere": "Questo account è già collegato a un'altra organizzazione in questa installazione. Scollegalo prima lì.",
+    "organization.multiple_not_enabled": "Questa installazione consente una sola organizzazione.",
+    "organization.create_instance_admin_required": "Solo un amministratore dell'istanza può creare un'organizzazione.",
+    "organization.create_license_required": "Per creare un'altra organizzazione serve una licenza Enterprise.",
+    "organization.name_required": "Inserisci un nome per l'organizzazione.",
+    "organization.name_too_long": "Il nome dell'organizzazione può contenere al massimo {max} caratteri.",
+    "organization.name_taken": "Esiste già un'organizzazione chiamata «{name}».",
+    "organization.signup_domains_instance_admin_required": "Solo un amministratore dell'istanza può assegnare domini di registrazione a un'organizzazione.",
+    "organization.signup_domain_claimed": "Il dominio {domain} è già assegnato a un'altra organizzazione.",
+    "organization.member_instance_admin": "Questo account appartiene a un amministratore dell'istanza. Solo un amministratore dell'istanza può aggiungerlo a un'organizzazione.",
+    "workspace.access_required": "Il tuo account può usare le app condivise con te, ma non l'area di lavoro."
   },
   "email": {
     "dashboardShare": {
@@ -4800,6 +5433,7 @@
       "published": "Pubblicata il {date}",
       "dataAsOf": "Dati aggiornati {time}",
       "refreshFailing": "Aggiornamento non riuscito",
+      "refreshFailingAction": "Scopri perché l’aggiornamento non è riuscito",
       "lastEdit": "Ultima modifica: {time}",
       "scheduledRefresh": "Aggiornamento pianificato"
     },
@@ -4899,6 +5533,9 @@
       "failing": "{n} con aggiornamento non riuscito | {n} con aggiornamento non riuscito",
       "stale": "{n} non modificata da 90 giorni | {n} non modificate da 90 giorni",
       "show": "Mostrale"
+    },
+    "refreshes": {
+      "openEditor": "Apri nell’editor"
     }
   },
   "excel": {
@@ -5254,6 +5891,7 @@
       "toastCreated": "Caso di test creato",
       "toastDeleteFailed": "Impossibile eliminare il caso di test",
       "saveFailed": "Impossibile salvare il caso di test",
+      "runFailed": "Caso di test salvato, ma non è stato possibile avviare l'esecuzione",
       "emptyDescription": "I test valutano come i tuoi agenti rispondono a prompt e regole."
     },
     "filter": {
@@ -5425,6 +6063,8 @@
       "colTools": "Strumenti",
       "colDuration": "Durata",
       "colCost": "Costo",
+      "colModel": "Modello",
+      "pivotModel": "Mostra le esecuzioni che hanno usato questo modello",
       "colFeedback": "Feedback",
       "expandRow": "Mostra chiamate a strumenti",
       "pivotReport": "Mostra questa conversazione",
@@ -5958,7 +6598,8 @@
       "windowNote": "L'utilizzo si azzera all'inizio di ogni mese.",
       "dailyNote": "giornaliero dall'inizio del mese",
       "disabledTitle": "Il monitoraggio dell'utilizzo non è abilitato",
-      "disabledNote": "L'utilizzo per utente (token, query e dati analizzati) viene monitorato quando la funzione Limiti di utilizzo è abilitata nel tuo piano."
+      "disabledNote": "L'utilizzo per utente (token, query e dati analizzati) viene monitorato quando la funzione Limiti di utilizzo è abilitata nel tuo piano.",
+      "today": "Oggi: {used} / {limit}"
     },
     "appearance": {
       "title": "Aspetto",
@@ -6039,7 +6680,22 @@
     "reports": "Report recenti",
     "suggestInstruction": "Suggerisci istruzione",
     "suggestInstructionWithQuery": "Suggerisci l'istruzione “{query}”",
-    "suggestionHint": "inviata per revisione"
+    "suggestionHint": "inviata per revisione",
+    "placeholderInReport": "Cerca in questo report, report, agenti, istruzioni…",
+    "inThisReport": "In questo report",
+    "reportScopeHint": "Digita report: per cercare solo in questo report",
+    "reportPrefix": "report:",
+    "tabs": {
+      "all": "Tutto",
+      "reports": "Report",
+      "agents": "Agenti",
+      "instructions": "Istruzioni",
+      "dashboards": "Dashboard"
+    },
+    "tabsLabel": "Categorie",
+    "tabsHint": "categorie",
+    "dashboards": "Dashboard",
+    "untitledDashboard": "Dashboard senza titolo"
   },
   "promptParams": {
     "title": "Compila i parametri — {title}",
@@ -6403,7 +7059,7 @@
     "newQuota": "Nuova quota",
     "noDirectQuota": "Predefinita",
     "noPoliciesFound": "Nessun criterio di quota trovato",
-    "noPoliciesHint": "Crea una quota per limitare l'uso mensile di AI e dati.",
+    "noPoliciesHint": "Crea una quota per limitare l'uso giornaliero e mensile di AI e dati.",
     "none": "Nessuna",
     "principalTypes": {
       "group": "Gruppo",
@@ -6425,7 +7081,20 @@
     "tokensShort": "Token",
     "unlimited": "Illimitata",
     "update": "Aggiorna",
-    "users": "Utenti"
+    "users": "Utenti",
+    "dayShort": "Giorno",
+    "monthShort": "Mese",
+    "limitPerUser": "Limite per utente",
+    "perDay": "Al giorno",
+    "perMonth": "Al mese",
+    "resetsDaily": "Si azzera alle 00:00 {tz}",
+    "resetsMonthly": "Si azzera il 1°",
+    "tokensLabel": "Token",
+    "queriesLabel": "Query",
+    "dataLabel": "Dati analizzati (MB)",
+    "spendLabel": "Spesa LLM (USD)",
+    "limitsHint": "Lascia vuoto per illimitato. Imposta un limite giornaliero, mensile o entrambi: la richiesta viene bloccata quando uno dei due è raggiunto. I limiti mensili di query e dati valgono per connessione; quelli giornalieri sommano tutte le connessioni.",
+    "dailyAboveMonthly": "Il limite giornaliero non può superare quello mensile."
   },
   "serviceAccounts": {
     "active": "Attivo",
@@ -6639,7 +7308,10 @@
     "exitFullscreen": "Esci da schermo intero",
     "searchColumns": "Cerca colonne…",
     "noColumns": "Nessuna colonna corrispondente",
-    "centrality": "Centralità"
+    "centrality": "Centralità",
+    "usedHeader": "Utilizzi",
+    "usedTooltip": "Query eseguite che hanno usato questa colonna (i tentativi falliti pesano meno nel ranking)",
+    "sortedByUsage": "Le più usate per prime"
   },
   "fork": {
     "preparing": "Preparazione della tua copia…",
@@ -6647,7 +7319,9 @@
     "nothingRan": "Impossibile creare la tua copia: nessuna delle sue query è stata eseguita con le tue credenziali."
   },
   "quota": {
-    "resetsOn": "si azzera il {date}"
+    "resetsOn": "si azzera il {date}",
+    "todayLabel": "{metric} · oggi",
+    "resetsDailyAndMonthly": "Oggi si azzera alle 00:00 {tz} · mese {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Impara durante la notte",
@@ -7148,6 +7822,9 @@
       "denied": "Non hai accesso a questo contenuto. Chiedi al proprietario di condividerlo con te.",
       "notAllowed": "Questo contenuto non è abilitato per questa applicazione. Un editor può consentirlo nelle impostazioni di incorporamento in BOW.",
       "failed": "Impossibile caricare questo contenuto. Riprova tra un momento."
+    },
+    "signin": {
+      "intentFailed": "Impossibile confermare l'app a cui stai accedendo. Non è stato inviato nulla. Riprova."
     }
   },
   "connectedApps": {
@@ -7205,6 +7882,10 @@
     "shareToggleLabel": "Rendi disponibile a tutta l’organizzazione",
     "shareToggleHint": "Aggiunge “{name}” ai connettori di tutti. Ognuno accede con il proprio account: nessuno vede i dati degli altri.",
     "useAsAgent": "Usa come agente",
+    "enableForChat": "Attiva per la chat",
+    "disableForChat": "Disattiva per la chat",
+    "enabledHint": "Attivo — l'IA può usarlo nella chat",
+    "disabledHint": "Disattivato — l'IA non lo userà nella chat",
     "movedToAgents": "{name} ora è un agente"
   },
   "tablePreview": {
@@ -7229,6 +7910,9 @@
     "subtitle": "Righe di esempio da {connection}, lette in tempo reale dalla sorgente.",
     "close": "Chiudi",
     "button": "Anteprima"
+  },
+  "confluenceFileScope": {
+    "allSpaces": "Tutti gli spazi visibili a questa identità"
   },
   "kmsFileScope": {
     "headerSubtitle": "La cartella radice stabilisce da dove parte la navigazione. Le autorizzazioni KMS decidono cosa l'agente può cercare e leggere.",
@@ -7296,7 +7980,26 @@
     "updateFailed": "Impossibile aggiornare i permessi",
     "addIncomplete": "Impossibile salvare alcune iscrizioni o permessi. Controlla l’elenco e riprova.",
     "added": "Membri aggiunti",
-    "addFailed": "Impossibile aggiungere i membri"
+    "addFailed": "Impossibile aggiungere i membri",
+    "inherited": "Accesso ereditato",
+    "inheritedHint": "Queste persone e gruppi raggiungono l'agente tramite una cartella o una connessione. Modifica l'accesso all'origine.",
+    "viaFolder": "Tramite la cartella {name}",
+    "viaConnection": "Tramite la connessione {name}",
+    "inheritedHidden": "Altri potrebbero avere accesso tramite una cartella o una connessione che non gestisci.",
+    "permissionCap": {
+      "title": "Limite della modalità di autorizzazione",
+      "hint": "Limita la modalità di autorizzazione dei report che usano questo agente. Chiedi: ogni strumento segue la propria impostazione. Auto: un modello può decidere.",
+      "none": "Nessun limite",
+      "ask": "Chiedi",
+      "auto": "Auto"
+    },
+    "pii": {
+      "title": "Criterio PII",
+      "hint": "Si applica a ogni richiesta che include questo agente, oltre al criterio del modello. Vince l'opzione più restrittiva per ogni regola.",
+      "disabled": "La protezione PII è disattivata per questa organizzazione.",
+      "saved": "Criterio PII salvato",
+      "saveError": "Impossibile salvare il criterio PII"
+    }
   },
   "productUpdates": {
     "checkbox": "Inviami gli aggiornamenti del prodotto",
@@ -7414,5 +8117,310 @@
       "stale": "Il processo che eseguiva questa query non risponde più; il suo posto è stato liberato.",
       "busy": "Nessun posto si è liberato in tempo: la connessione era al limite di query simultanee."
     }
+  },
+  "slackChannels": {
+    "button": "Canali",
+    "title": "Canali Slack di questo agente",
+    "subtitle": "Scegli quali canali Slack legge questo agente.",
+    "allChannels": "Tutti i miei canali",
+    "allChannelsHint": "Ogni canale di cui ciascuna persona è membro.",
+    "selectedChannels": "Solo i canali selezionati",
+    "connectRequired": "Accedi con Slack su questa connessione per scegliere i canali.",
+    "searchPlaceholder": "Cerca canali",
+    "notYourChannel": "non nel tuo Slack",
+    "noMatch": "Nessun canale corrispondente.",
+    "selectedCount": "{n} selezionati",
+    "includeDms": "Includi i messaggi diretti",
+    "includeDmsHint": "Legge anche i messaggi diretti e di gruppo di ciascuna persona.",
+    "membershipNote": "Ogni persona continua a vedere solo i canali di cui è membro.",
+    "saveFailed": "Impossibile salvare i canali",
+    "saved": "Canali salvati",
+    "summaryAll": "Legge tutti i canali e i messaggi diretti",
+    "summaryAllNoDms": "Legge tutti i canali, senza messaggi diretti",
+    "summarySome": "Legge {names}",
+    "summarySomeWithDms": "Legge {names} e i messaggi diretti",
+    "loadFailed": "Impossibile caricare i canali di questo agente. Chiudi e riprova.",
+    "privateChannel": "Canale privato",
+    "privateCount": "{n} canale privato | {n} canali privati"
+  },
+  "agentClone": {
+    "menu": "Clona agente",
+    "titleFor": "Clona {name}",
+    "name": "Nome",
+    "description": "Descrizione",
+    "defaultName": "Copia di {name}",
+    "alwaysIncluded": "Sempre incluso:",
+    "always": {
+      "settings": "Impostazioni",
+      "tables": "Tabelle",
+      "tools": "Strumenti",
+      "prompts": "Prompt",
+      "files": "File"
+    },
+    "parts": {
+      "instructions": "Istruzioni",
+      "access": "Accesso"
+    },
+    "choices": {
+      "copy": "Copia",
+      "link": "Condividi",
+      "none": "Niente",
+      "sameAccess": "Stesse persone",
+      "onlyMe": "Solo io"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Copie proprie, modificate separatamente",
+        "link": "Stesse istruzioni; le modifiche valgono per entrambi",
+        "none": "Solo istruzioni globali"
+      },
+      "access": {
+        "same": "Stesse persone e permessi",
+        "only_me": "Solo tu, finché non lo condividi"
+      }
+    },
+    "footnote": "Query salvate, valutazioni, liste, conversazioni e dashboard non vengono clonate. Il nuovo agente parte in addestramento (in sviluppo se lo è questo).",
+    "submit": "Clona",
+    "cloning": "Clonazione…",
+    "nameTaken": "Esiste già un agente con questo nome.",
+    "instructionsChanged": "Le istruzioni sono cambiate durante la clonazione. Riprova.",
+    "linkBlocked": "Queste istruzioni sono usate anche da agenti o cartelle che non gestisci, quindi non possono essere condivise. Copiale, oppure chiedi a chi le gestisce.",
+    "linkPending": "Queste istruzioni hanno modifiche in attesa di approvazione, quindi non possono ancora essere condivise. Approva o rifiuta prima quelle modifiche, oppure copia le istruzioni.",
+    "notInFolder": "Non gestisci la cartella di {name}, quindi il nuovo agente è stato creato al livello principale.",
+    "done": "{name} creato",
+    "failed": "Impossibile clonare l'agente"
+  },
+  "agentImport": {
+    "title": "Importa agente",
+    "subtitle": "Ricrea un agente da uno zip esportato: tabelle, istruzioni, valutazioni e query salvate.",
+    "stepUpload": "Carica",
+    "stepConnections": "Connessioni",
+    "stepReview": "Verifica",
+    "stepTables": "Tabelle",
+    "dropHere": "Trascina qui lo zip esportato dell’agente o fai clic per sceglierlo",
+    "dropHint": "Il .zip scaricato con Esporta agente",
+    "reading": "Lettura del pacchetto…",
+    "mapTitle": "Associa connessioni",
+    "mapHint": "Il pacchetto nomina connessioni dell’ambiente di origine. Scegli quale connessione usare qui per ciascuna.",
+    "tablesInBundle": "{n} tabelle nel pacchetto",
+    "toolsInBundle": "{n} strumenti",
+    "searchConnections": "Cerca connessioni…",
+    "skipConnection": "Salta questa connessione",
+    "willSkip": "Saltata — tabelle e strumenti non vengono importati",
+    "noAccess": "Non puoi creare agenti su questa connessione",
+    "indexingPending": "Questa connessione è ancora in indicizzazione — le tabelle verranno applicate al termine",
+    "allTablesFound": "Trovate tutte le {n} tabelle",
+    "someTablesFound": "Trovate {found} tabelle su {total}",
+    "showMissing": "quali mancano?",
+    "autoMatched": "associata per nome",
+    "createConnection": "Crea nuova connessione",
+    "continue": "Continua",
+    "back": "Indietro",
+    "mapAtLeastOne": "Associa almeno una connessione",
+    "nameLabel": "Nome dell’agente",
+    "nameTaken": "Esiste già un agente chiamato “{name}” — scegli un altro nome",
+    "nameRenamed": "Esiste già un agente chiamato “{name}”, quindi l’importazione riceve un nuovo nome",
+    "whatToImport": "Cosa importare",
+    "tablesLine": "{n} tabelle attive su {conns} connessione/i",
+    "includeInstructions": "{n} istruzioni ({folders} cartelle)",
+    "includeEvals": "{n} suite di valutazione ({cases} casi)",
+    "includeQueries": "{n} query salvate",
+    "includeStarters": "{n} spunti di conversazione",
+    "publishLabel": "Pubblica le istruzioni importate",
+    "publishHint": "Disattivato: istruzioni e query arrivano come bozze da rivedere. Attivato: ognuna mantiene lo stato esportato.",
+    "skippedConnections": "Saltate: {names}",
+    "membersLeftOut": "{n} membro/i del pacchetto non esistono qui e verranno esclusi",
+    "importButton": "Importa agente",
+    "doneTitle": "“{name}” è stato importato",
+    "doneLine": "{tables} tabelle attive · {instructions} istruzioni · {evals} suite di valutazione · {queries} query salvate",
+    "finish": "Fine",
+    "openAgent": "Apri agente",
+    "previewFailed": "Impossibile leggere il pacchetto",
+    "importFailed": "Importazione non riuscita",
+    "bundleWarnings": "{n} file del pacchetto sono stati saltati",
+    "chipConnections": "{n} connessioni",
+    "chipTables": "{n} tabelle",
+    "chipInstructions": "{n} istruzioni",
+    "chipEvals": "{n} valutazioni",
+    "chipQueries": "{n} query"
+  },
+  "markdownTable": {
+    "title": "Tabella",
+    "copyFailed": "Impossibile copiare la tabella"
+  },
+  "createOrganization": {
+    "title": "Crea organizzazione",
+    "description": "Un'organizzazione separata, con membri, dati e impostazioni propri.",
+    "nameLabel": "Nome",
+    "namePlaceholder": "es. Finanza",
+    "nameRequired": "Inserisci un nome.",
+    "adminEmailLabel": "Email del primo amministratore",
+    "optional": "Facoltativo",
+    "adminEmailPlaceholder": "nome{'@'}azienda.it",
+    "adminEmailHint": "Invieremo a questa persona un invito a unirsi come amministratore. Anche tu sarai amministratore.",
+    "adminEmailInvalid": "Inserisci un indirizzo email valido.",
+    "submit": "Crea organizzazione",
+    "created": "Organizzazione «{name}» creata",
+    "switching": "Passaggio in corso…",
+    "inviteSent": "È stato inviato un invito a {email}.",
+    "inviteNoSmtp": "L'email non è configurata, quindi non è stato inviato alcun invito a {email}. Copia il link di invito dalla pagina Membri.",
+    "inviteNotSent": "Non è stato possibile inviare l'invito a {email}. Invita di nuovo la persona dalla pagina Membri.",
+    "adminAdded": "{email} è stato aggiunto come amministratore.",
+    "failed": "Impossibile creare l'organizzazione."
+  },
+  "vizFilter": {
+    "filter": "Filtra",
+    "title": "Filtri",
+    "clear": "Cancella",
+    "noData": "Nessun dato da filtrare",
+    "noFilters": "Nessun filtro applicato",
+    "addFilter": "Aggiungi filtro",
+    "column": "Colonna",
+    "value": "Valore",
+    "apply": "Applica",
+    "valuesMore": "{first} +{n}",
+    "op": {
+      "equals": "uguale a",
+      "not_equals": "diverso da",
+      "contains": "contiene",
+      "not_contains": "non contiene",
+      "starts_with": "inizia con",
+      "ends_with": "finisce con",
+      "is_empty": "è vuoto",
+      "is_not_empty": "non è vuoto",
+      "before": "prima di",
+      "after": "dopo",
+      "is_true": "è vero",
+      "is_false": "è falso",
+      "between": "tra",
+      "in": "è uno di",
+      "not_in": "non è uno di"
+    },
+    "or": "O",
+    "and": "E"
+  },
+  "connectionTools": {
+    "tab": "Strumenti",
+    "intro": "Scegli cosa possono fare gli agenti in questo sistema. Agenti e utenti possono rendere uno strumento più restrittivo, mai meno di un'impostazione bloccata qui.",
+    "empty": "Questa connessione non ha ancora strumenti.",
+    "loadFailed": "Impossibile caricare gli strumenti.",
+    "saveFailed": "Impossibile salvare la modifica.",
+    "on": "Attivo",
+    "off": "Disattivato",
+    "enabled": "{name} è disponibile per gli agenti",
+    "enableGroup": "Attiva tutti gli strumenti {group}",
+    "policyFor": "Criterio per {name}",
+    "lock": "Blocca il criterio di {name}",
+    "unlock": "Sblocca il criterio di {name}",
+    "lockHint": "Bloccato: agenti e utenti possono renderlo più restrittivo, mai meno.",
+    "needsScope": "Richiede {scope}",
+    "missingScopes": "Il tuo accesso non include {scopes}. Un amministratore lo concede nella registrazione dell'app Entra; poi accedi di nuovo.",
+    "grantAccess": "Accedi di nuovo",
+    "builtinReadHint": "Sempre disponibili: la lettura non modifica mai nulla.",
+    "effect": {
+      "read": {
+        "title": "Lettura",
+        "hint": "Consulta; non modifica nulla."
+      },
+      "modify": {
+        "title": "Modifica",
+        "hint": "Modifica i dati dell'utente; reversibile."
+      },
+      "external": {
+        "title": "Esterne",
+        "hint": "Altri lo vedono e non si può annullare. La revisione automatica non è disponibile."
+      },
+      "destructive": {
+        "title": "Distruttive",
+        "hint": "Elimina o blocca. Chiede sempre prima."
+      }
+    },
+    "builtinBadge": "Integrato"
+  },
+  "cachedColumns": {
+    "title": "Colonne",
+    "hint": "Le descrizioni e l’indicatore di riaggregazione provengono dal catalogo di origine. Ciò che modifichi qui viene mantenuto a ogni aggiornamento.",
+    "column": "Colonna",
+    "type": "Tipo",
+    "description": "Descrizione",
+    "details": "Dettagli",
+    "aggregation": "Riaggregazione",
+    "descriptionPlaceholder": "Nessuna descrizione nell’origine. Descrivi questa colonna per l’agente.",
+    "additive": "Additiva",
+    "notAdditive": "Non additiva",
+    "unknown": "Sconosciuta",
+    "additiveHint": "I valori possono essere sommati tra le righe.",
+    "notAdditiveHint": "Sommare tra le righe dà un numero sbagliato. All’agente viene detto di non farlo.",
+    "unknownHint": "Impossibile determinarla dalla query. Scegli un’opzione perché l’agente lo sappia.",
+    "undecided": "Non è stato possibile determinare la riaggregazione per: {columns}. Impostala perché l’agente sappia se possono essere sommate.",
+    "copiedFrom": "Copiata da {source}",
+    "measureFrom": "Misura {source}",
+    "computedAs": "Calcolata: {expression}",
+    "edited": "Modificata",
+    "editedHint": "Impostata da un amministratore. Un aggiornamento non la cambierà.",
+    "reset": "Ripristina il valore di origine",
+    "drift": "Definizione cambiata",
+    "driftHint": "La definizione di origine di questa colonna è cambiata dall’ultima volta che la tabella l’ha descritta.",
+    "driftPrevious": "In precedenza: {expression}",
+    "markReviewed": "Segna come verificata",
+    "rlsTitle": "L’origine usa la sicurezza a livello di riga",
+    "rlsBody": "{tables} è protetta dalla sicurezza a livello di riga nell’origine. Questa copia contiene ogni riga che la connessione può leggere e i ruoli dell’origine non vengono riportati. Decidi chi vede quali righe nella scheda Sicurezza a livello di riga.",
+    "rlsOpen": "Apri Sicurezza a livello di riga",
+    "rlsSaveFirst": "Disponibile dopo il salvataggio della tabella.",
+    "generatedDescription": "Generata dalle colonne e mantenuta aggiornata a ogni aggiornamento. Modificala per scriverne una tua.",
+    "reasons": {
+      "sum": "somma",
+      "count": "conteggio",
+      "numeric_column": "valore numerico",
+      "distinct_count": "conteggio dei distinti",
+      "average": "media",
+      "ratio": "rapporto",
+      "min_max": "minimo / massimo",
+      "time_intelligence": "intelligenza temporale",
+      "share_of_total": "quota di un totale",
+      "statistic": "statistica",
+      "offset": "costante aggiunta dopo l’aggregazione",
+      "unreadable": "definizione non leggibile",
+      "complex": "troppo complessa da classificare",
+      "not_numeric": "non è un numero",
+      "grouping_key": "chiave di raggruppamento",
+      "key": "identificatore",
+      "set_by_admin": "impostata da un amministratore"
+    }
+  },
+  "apps": {
+    "title": "Le tue app",
+    "subtitle": "Apri un'app per iniziare.",
+    "openWorkspace": "Apri l'area di lavoro",
+    "search": "Cerca app",
+    "untitled": "App senza titolo",
+    "inApplication": "In {name}",
+    "allApps": "Tutte le app",
+    "language": "Lingua",
+    "account": "Account",
+    "signOut": "Esci",
+    "loadFailed": "Impossibile caricare le tue app.",
+    "retry": "Riprova",
+    "noMatches": "Nessuna app corrisponde a “{query}”.",
+    "empty": {
+      "title": "Ancora nessuna app",
+      "body": "Quando qualcuno condividerà un'app con te, comparirà qui."
+    },
+    "requestAccess": {
+      "prompt": "Ti serve più di queste app?",
+      "button": "Richiedi accesso completo",
+      "sent": "Richiesta inviata. Un amministratore la esaminerà.",
+      "failed": "Impossibile inviare la richiesta. Riprova."
+    },
+    "showMore": "Mostra altro"
+  },
+  "hostApps": {
+    "newUserRole": "Le nuove persone entrano come",
+    "newUserRoleHelp": "Per gli account creati accedendo tramite questa applicazione. Chi ha già un account mantiene il proprio ruolo.",
+    "newUserRoleApp": "Utente app",
+    "newUserRoleAppHelp": "Può usare le app condivise con lui, non l'area di lavoro.",
+    "newUserRoleMember": "Membro",
+    "newUserRoleMemberHelp": "Può usare anche l'area di lavoro: report, agenti e dashboard.",
+    "newPeopleAs": "le nuove persone entrano come {role}"
   }
 }

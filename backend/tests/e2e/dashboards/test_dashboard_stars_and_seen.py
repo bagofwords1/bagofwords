@@ -143,6 +143,8 @@ def test_seen_is_per_organization(corpus, test_client):
     resp = test_client.post(f"/api/organizations/{corpus.cast.org_id}/members", headers=as_(corpus, "admin"),
                             json={"organization_id": corpus.cast.org_id, "email": stranger.email, "role": "member"})
     assert resp.status_code == 200, resp.text
+    # Someone who already has an account joins directly.
+    assert resp.json()["user_id"], resp.text
     home, here = stranger.headers(corpus.cast.other_org_id), stranger.headers(corpus.cast.org_id)
 
     at_home = _seen(test_client, home)

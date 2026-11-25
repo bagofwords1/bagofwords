@@ -16,6 +16,12 @@ from app.data_sources.clients.qlik_sense_client import (
 )
 
 
+def _basic_client(**kwargs):
+    """Exercise the REST-only mode separately from rich Engine discovery."""
+    return QlikSenseClient(include_master_items=False, include_lineage=False,
+                           include_sheet_objects=False, **kwargs)
+
+
 # ---------------------------------------------------------------------------
 # REST fixtures (shapes from qlik.dev REST API docs)
 # ---------------------------------------------------------------------------
@@ -73,14 +79,14 @@ ITEMS_APPS_SINGLE_PAGE = {
 
 APP_METADATA_POPULATED = {
     "tables": [
-        {"name": "Sales", "rows": 12345, "isLoose": False},
-        {"name": "Customers", "rows": 420},
+        {"name": "Sales", "no_of_rows": 12345, "is_loose": False},
+        {"name": "Customers", "no_of_rows": 420},
     ],
     "fields": [
-        {"name": "OrderID", "srcTables": ["Sales", "Customers"], "tags": ["$key", "$integer"]},
-        {"name": "Region", "srcTables": ["Sales"], "tags": ["$ascii", "$text"]},
-        {"name": "Sales", "srcTables": ["Sales"], "tags": ["$numeric"]},
-        {"name": "CustName", "srcTables": ["Customers"], "tags": ["$text"]},
+        {"name": "OrderID", "src_tables": ["Sales", "Customers"], "tags": ["$key", "$integer"]},
+        {"name": "Region", "src_tables": ["Sales"], "tags": ["$ascii", "$text"]},
+        {"name": "Sales", "src_tables": ["Sales"], "tags": ["$numeric"]},
+        {"name": "CustName", "src_tables": ["Customers"], "tags": ["$text"]},
     ],
 }
 
@@ -136,17 +142,17 @@ def _install_rest(client: QlikSenseClient, url_to_payload, default=None):
 
 class TestTransport:
     def test_connect_requires_base_url(self):
-        client = QlikSenseClient(base_url="", api_key="x")
+        client = _basic_client(base_url="", api_key="x")
         with pytest.raises(RuntimeError, match="base_url is required"):
             client.connect()
 
     def test_connect_requires_some_credential(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key=None)
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key=None)
         with pytest.raises(RuntimeError, match="api_key or .*client_id"):
             client.connect()
 
     def test_connect_accepts_oauth_without_api_key(self):
-        client = QlikSenseClient(
+        client = QlikSenseClient(include_master_items=False, include_lineage=False, include_sheet_objects=False,
             base_url="https://tenant.qlikcloud.com",
             client_id="cid",
             client_secret="sec",
@@ -157,7 +163,7 @@ class TestTransport:
         assert client._http is not None
 
     def test_rest_get_sets_bearer_header(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="secret-xyz")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="secret-xyz")
         session = _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
         client._rest_get("/api/v1/users/me")
         _, kwargs = session.get.call_args
@@ -165,7 +171,7 @@ class TestTransport:
         assert kwargs["headers"]["Accept"] == "application/json"
 
     def test_rest_get_propagates_http_errors(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         client.connect()
         err_resp = MagicMock(status_code=500, content=b"boom", text="boom")
         client._http = MagicMock()
@@ -180,7 +186,7 @@ class TestTransport:
 
 class TestTestConnection:
     def test_success(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         _install_rest(client, {
             "/api/v1/users/me": USERS_ME_OK,
             "/api/v1/items": ITEMS_APPS_SINGLE_PAGE,
@@ -191,7 +197,7 @@ class TestTestConnection:
         assert "Connected to Qlik Cloud" in result["message"]
 
     def test_auth_failure(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         client.connect()
         err_resp = MagicMock(status_code=401, content=b"nope", text="nope")
         client._http = MagicMock()
@@ -201,7 +207,7 @@ class TestTestConnection:
         assert "Authentication failed" in result["message"]
 
     def test_empty_tenant(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         _install_rest(client, {
             "/api/v1/users/me": USERS_ME_OK,
             "/api/v1/items": {"data": [], "links": {}},
@@ -213,7 +219,7 @@ class TestTestConnection:
 
     def test_test_connection_is_O1_in_tenant_size(self):
         """Must not iterate pages in test_connection (fast, bounded)."""
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         session = _install_rest(client, {
             "/api/v1/users/me": USERS_ME_OK,
             "/api/v1/items": ITEMS_APPS_SINGLE_PAGE,
@@ -229,7 +235,7 @@ class TestTestConnection:
 
 class TestListApps:
     def test_pagination_follows_links_next(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         _install_rest(client, {
             "/api/v1/items": ITEMS_APPS_PAGE_1,
             "https://tenant.qlikcloud.com/api/v1/items?page=2": ITEMS_APPS_PAGE_2,
@@ -241,7 +247,7 @@ class TestListApps:
         assert apps[0]["space_name"] == "Sales"
 
     def test_space_filter_by_id(self):
-        client = QlikSenseClient(
+        client = QlikSenseClient(include_master_items=False, include_lineage=False, include_sheet_objects=False,
             base_url="https://tenant.qlikcloud.com",
             api_key="x",
             space_filter="sp-sales,sp-ops",
@@ -254,7 +260,7 @@ class TestListApps:
         assert sorted(a["id"] for a in apps) == ["app-1", "app-3"]
 
     def test_space_filter_by_name(self):
-        client = QlikSenseClient(
+        client = QlikSenseClient(include_master_items=False, include_lineage=False, include_sheet_objects=False,
             base_url="https://tenant.qlikcloud.com",
             api_key="x",
             space_filter="Sales",
@@ -272,7 +278,7 @@ class TestListApps:
 
 class TestGetSchemas:
     def test_phase1_rest_only_builds_tables_and_keys(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x", max_concurrency=1)
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x", max_concurrency=1)
         _install_rest(client, {
             "/api/v1/items": {"data": ITEMS_APPS_PAGE_1["data"][:1], "links": {}},
             "/api/v1/apps/app-1/data/metadata": APP_METADATA_POPULATED,
@@ -298,7 +304,7 @@ class TestGetSchemas:
         assert "Sales/Pipeline 2025/Customers" in fk_targets
 
     def test_phase2_qix_fallback_when_rest_empty(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x", max_concurrency=1)
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x", max_concurrency=1)
         _install_rest(client, {
             "/api/v1/items": {"data": ITEMS_APPS_PAGE_1["data"][:1], "links": {}},
             "/api/v1/apps/app-1/data/metadata": APP_METADATA_EMPTY,
@@ -332,7 +338,7 @@ class TestGetSchemas:
         assert "Sales/Pipeline 2025/Customers" in fk_targets
 
     def test_error_isolation_one_app_failure_does_not_abort(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x", max_concurrency=1)
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x", max_concurrency=1)
         _install_rest(client, {
             "/api/v1/items": {"data": ITEMS_APPS_PAGE_1["data"], "links": {}},
             "/api/v1/apps/app-1/data/metadata": APP_METADATA_POPULATED,
@@ -372,7 +378,7 @@ class TestGetSchemas:
         assert client.unindexed_table_prefixes() == []
 
     def test_get_schema_by_full_name(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x", max_concurrency=1)
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x", max_concurrency=1)
         _install_rest(client, {
             "/api/v1/items": {"data": ITEMS_APPS_PAGE_1["data"][:1], "links": {}},
             "/api/v1/apps/app-1/data/metadata": APP_METADATA_POPULATED,
@@ -381,7 +387,7 @@ class TestGetSchemas:
         assert [c.name for c in tbl.columns] == ["OrderID", "CustName"]
 
     def test_get_schema_not_found(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         _install_rest(client, {"/api/v1/items": {"data": [], "links": {}}})
         with pytest.raises(RuntimeError, match="Table not found"):
             client.get_schema("Missing/App/Table")
@@ -465,7 +471,7 @@ def _fake_connect(canned: List[dict]):
 
 class TestExecuteQuery:
     def test_build_and_fetch_happy_path(self, monkeypatch):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         client.connect()
 
         canned = [
@@ -511,12 +517,12 @@ class TestExecuteQuery:
         assert cube_def["qMeasures"][0]["qDef"]["qDef"] == "Sum([Sales])"
 
     def test_requires_app(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         with pytest.raises(ValueError, match="app"):
             client.execute_query(dimensions=["X"])
 
     def test_requires_dim_or_measure(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         with pytest.raises(ValueError, match="dimension or measure"):
             client.execute_query(app="app-1")
 
@@ -527,14 +533,15 @@ class TestExecuteQuery:
 
 class TestDescription:
     def test_description_mentions_hypercube(self):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="x")
         text = client.description
         assert "Qlik" in text
         assert "hypercube" in text.lower()
         # The three canonical examples are present
-        assert "Sum([Sales])" in text
+        assert "measures=" in text
         assert "filters=" in text
-        assert "Count([OrderID])" in text
+        assert "object_id=" in text
+        assert "search=" in text
 
 
 # ---------------------------------------------------------------------------
@@ -568,7 +575,7 @@ class TestOAuthM2M:
             client_secret="sec-1",
         )
         kwargs.update(overrides)
-        return QlikSenseClient(**kwargs)
+        return _basic_client(**kwargs)
 
     def test_fetch_token_and_use_it_on_rest_calls(self, monkeypatch):
         client = self._oauth_client()
@@ -672,7 +679,7 @@ class TestOAuthM2M:
 
     def test_api_key_takes_priority_over_oauth_when_both_set(self, monkeypatch):
         """If api_key is present, we never hit /oauth/token."""
-        client = QlikSenseClient(
+        client = QlikSenseClient(include_master_items=False, include_lineage=False, include_sheet_objects=False,
             base_url="https://tenant.qlikcloud.com",
             api_key="direct-key",
             client_id="cid",
@@ -779,7 +786,7 @@ class TestQixTransportContract:
     ]
 
     def test_connect_uses_additional_headers_and_carries_bearer(self, monkeypatch):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="secret-xyz")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="secret-xyz")
         client.connect()
         _install_rest(client, {"/api/v1/items": {"data": [], "links": {}}})
         connect = _StrictFakeConnect(self._CUBE_CANNED)
@@ -804,7 +811,7 @@ class TestQixTransportContract:
         A transport-level break therefore shows up as an app that indexes with no
         tables rather than as an error, so assert the socket is really reached.
         """
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="k")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="k")
         client.connect()
         connect = _StrictFakeConnect([
             {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 10}}},
@@ -828,7 +835,7 @@ class TestQixTransportContract:
         result by one — the failure is silent and returns wrong data, so this is
         pinned rather than left to chance.
         """
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="k")
+        client = _basic_client(base_url="https://tenant.qlikcloud.com", api_key="k")
         client.connect()
         _install_rest(client, {"/api/v1/items": {"data": [], "links": {}}})
         connect = _StrictFakeConnect([

@@ -11,6 +11,10 @@ features:
 
 auth:
   mode: "hybrid" # hybrid | local_only | sso_only
+  # Instance administrators. With features.allow_multiple_organizations they
+  # are the only people who can create organizations. The environment variable
+  # BOW_SUPERUSER_EMAILS (comma-separated) replaces this list when set.
+  # superuser_emails: ["it-admin@company.com"]
 
 google_oauth:
   enabled: false
@@ -26,6 +30,12 @@ google_oauth:
 #  client_auth_method: basic
 #  discovery: true
 #  uid_claim: sub
+#  # Several organizations on one deployment: place people by group at each
+#  # sign-in. See docs/guides/multiple-organizations.md.
+#  org_mapping:
+#    - group: "<group object id>"
+#      organization: "Finance"   # organization id, or exact name
+#      role: member              # member (default) | admin
  # Optional overrides:
  # redirect_path: /api/auth/okta/callback
  # extra_authorize_params: { prompt: login }
@@ -110,6 +120,24 @@ otel:
 #   # to use the pre-3.13 checks while the proxy CA is fixed; chains are still
 #   # verified against the trust store and hostnames are still checked.
 #   tls_strict_x509: true
+#   # Let BigQuery connections authenticate as this deployment's own Google
+#   # identity (Application Default Credentials: an attached service account, or
+#   # a Workload Identity Federation config named by
+#   # GOOGLE_APPLICATION_CREDENTIALS) instead of a pasted service-account key.
+#   # Off by default: once on, anyone who can create a connection can query as
+#   # that identity. Env: BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true.
+#   # See docs/guides/bigquery-keyless-auth.md.
+#   allow_google_default_credentials: false
+
+# system_logs:
+#   # Admin → System logs: keep the server's own log output as files that
+#   # instance administrators can read in the app. Off by default: while off,
+#   # nothing is captured or written and the page is not offered.
+#   # Env: BOW_SYSTEM_LOGS_ENABLED=true.
+#   enabled: true
+#   directory: logs/system   # shared storage, so every replica's lines show. Env: BOW_SYSTEM_LOGS_DIR
+#   retention_days: 7        # Env: BOW_SYSTEM_LOGS_RETENTION_DAYS
+#   max_size_mb: 1024        # total for the directory, oldest deleted first. Env: BOW_SYSTEM_LOGS_MAX_SIZE_MB
 
 # storage:
 #   # Where uploads, thumbnails, decks, logos, avatars and extract caches live.

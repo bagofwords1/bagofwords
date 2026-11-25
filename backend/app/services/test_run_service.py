@@ -321,7 +321,22 @@ class TestRunService:
 
         return head
 
+    async def _require_org_build(self, db: AsyncSession, organization, build_id: Optional[str]) -> None:
+        """A caller-supplied instruction build must belong to the organization."""
+        if not build_id:
+            return
+        from app.models.instruction_build import InstructionBuild
+        owned = await db.scalar(
+            select(InstructionBuild.id).where(
+                InstructionBuild.id == str(build_id),
+                InstructionBuild.organization_id == str(organization.id),
+            )
+        )
+        if owned is None:
+            raise HTTPException(status_code=404, detail="Build not found")
+
     async def create_run(self, db: AsyncSession, organization, current_user, case_ids: Optional[List[str]] = None, trigger_reason: Optional[str] = "manual", build_id: Optional[str] = None, folder_id: Optional[str] = None) -> TestRun:
+        await self._require_org_build(db, organization, build_id)
         # Resolve cases set
         if not case_ids or len(case_ids) == 0:
             raise HTTPException(status_code=400, detail="case_ids is required")
@@ -443,6 +458,13 @@ class TestRunService:
             db.add(result)
             created_results.append((result, case))
         await db.commit()
+        # Load the run's eager `build` relationship before it is serialized.
+        # The object was built in this session, so `build` was never loaded;
+        # TestRunSchema reads `build_number`, which touches it, and a lazy load
+        # during response validation raises MissingGreenlet — a 500 for every
+        # run started in an org that has a main build (the run itself was
+        # already committed). create_run_batch refreshes the same way.
+        await db.refresh(run)
         for result, _case in created_results:
             await db.refresh(result)
 
@@ -833,6 +855,7 @@ class TestRunService:
         origin_user_id: Optional[str] = None,
         wake_on_finish: bool = False,
     ) -> tuple[TestRun, List[TestResult]]:
+        await self._require_org_build(db, organization, build_id)
         # Resolve cases from inputs
         cases = await self._resolve_cases_inputs(db, str(organization.id), case_ids, suite_id)
         if not cases:

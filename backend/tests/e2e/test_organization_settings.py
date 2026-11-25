@@ -291,3 +291,72 @@ def test_voice_input_feature_defaults_off_and_toggle_persists(
         fetched = get_organization_settings(user_token=user_token, org_id=org_id)
         assert fetched["config"]["enable_voice_input"]["value"] is value
         assert fetched["config"]["enable_voice_input"]["state"] == ("enabled" if value else "disabled")
+
+
+def _put_settings(test_client, token, org_id, config):
+    return test_client.put(
+        "/api/organization/settings",
+        json={"config": config},
+        headers={"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)},
+    )
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("first, second", [
+    ({"ai_analyst_name": "Insight Bot"}, {"bow_credit": False}),
+    ({"bow_credit": False}, {"ai_analyst_name": "Numbers"}),
+    ({"ai_analyst_name": "Ledger"}, {"bow_credit": True}),
+])
+def test_general_settings_saved_one_field_at_a_time_keep_each_other(
+    test_client, get_organization_settings, create_user, login_user, whoami, first, second
+):
+    """Settings → General saves each field on its own. Saving one key of
+    config.general must keep every other stored key, in any order."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)['organizations'][0]['id']
+
+    assert _put_settings(test_client, token, org_id, {"general": first}).status_code == 200
+    assert _put_settings(test_client, token, org_id, {"general": second}).status_code == 200
+
+    general = get_organization_settings(user_token=token, org_id=org_id)["config"]["general"]
+    for key, value in {**first, **second}.items():
+        assert general[key] == value
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("bad_name", ["", "   "])
+def test_general_settings_reject_empty_analyst_name(
+    test_client, get_organization_settings, create_user, login_user, whoami, bad_name
+):
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)['organizations'][0]['id']
+    assert _put_settings(test_client, token, org_id, {"general": {"ai_analyst_name": "Kept"}}).status_code == 200
+
+    resp = _put_settings(test_client, token, org_id, {"general": {"ai_analyst_name": bad_name}})
+
+    assert resp.status_code == 400
+    general = get_organization_settings(user_token=token, org_id=org_id)["config"]["general"]
+    assert general["ai_analyst_name"] == "Kept"
+
+
+@pytest.mark.e2e
+def test_general_settings_writer_does_not_touch_icon(
+    test_client, get_organization_settings, upload_organization_icon, create_user, login_user, whoami
+):
+    """The icon is owned by the icon endpoints: a settings save, whether it
+    omits the icon fields or sends other values, leaves the stored icon as is."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)['organizations'][0]['id']
+    uploaded = upload_organization_icon(icon_content=create_test_png_image(), user_token=token, org_id=org_id)
+    icon_key = uploaded["config"]["general"]["icon_key"]
+    icon_url = uploaded["config"]["general"]["icon_url"]
+
+    assert _put_settings(test_client, token, org_id, {"general": {"bow_credit": False}}).status_code == 200
+    assert _put_settings(test_client, token, org_id, {"general": {"icon_key": None, "icon_url": "https://elsewhere.example/x.png"}}).status_code == 200
+
+    general = get_organization_settings(user_token=token, org_id=org_id)["config"]["general"]
+    assert general["icon_key"] == icon_key
+    assert general["icon_url"] == icon_url

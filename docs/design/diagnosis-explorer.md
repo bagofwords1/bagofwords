@@ -134,6 +134,8 @@ wildcard   := word containing "*"
 | `judge.context` | 1–5 | `judge_context_score` ★ |
 | `model` | text | `primary_model_id` ★ (the planner's model) |
 | `provider` | enum | `primary_provider` ★ |
+| `llm` | text | `EXISTS` on `llm_usage_records.model_id` for the run (any model it called: planner, tool calls, Auto routing) |
+| `routed` | boolean | `EXISTS` on `llm_usage_records.routed` for the run |
 | `cost` | money | `total_cost_usd` ★ |
 | `tokens` `tokens.in` `tokens.out` `tokens.cache_read` | number | `total_tokens` ★ `prompt_tokens` ★ `completion_tokens` ★ `cache_read_tokens` |
 | `duration` `thinking` `first_token` | duration | existing `*_ms` columns |

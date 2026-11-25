@@ -1591,7 +1591,15 @@ class InstructionSyncService:
         if path_prefix:
             conditions.append(Instruction.source_file_path.like(f'{path_prefix}%'))
 
-        stmt = select(Instruction).where(and_(*conditions))
+        stmt = (
+            select(Instruction)
+            .options(
+                selectinload(Instruction.data_sources),
+                selectinload(Instruction.labels),
+                selectinload(Instruction.references),
+            )
+            .where(and_(*conditions))
+        )
         result = await db.execute(stmt)
         instructions = result.scalars().all()
 

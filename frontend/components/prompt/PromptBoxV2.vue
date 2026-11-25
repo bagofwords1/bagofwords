@@ -1,5 +1,18 @@
 <template>
-    <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : 'p-3 pb-3 sm:p-4 sm:pb-8'">
+    <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : 'px-3 pt-2 pb-2 sm:px-4'">
+        <!-- Allow all is on for this report: say so for as long as it is. -->
+        <div
+            v-if="allowAllActive"
+            data-testid="allow-all-banner"
+            class="mb-2 px-3 py-1.5 rounded-md border border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-200 text-xs flex items-center gap-2"
+            role="status"
+        >
+            <Icon name="heroicons-shield-exclamation" class="w-4 h-4 flex-shrink-0" />
+            <span class="flex-1 min-w-0">{{ $t('prompt.permissionMode.allowAllBanner') }}</span>
+            <button type="button" class="underline flex-shrink-0 hover:text-amber-900 dark:hover:text-amber-100" @click="selectPermissionMode('ask')">
+                {{ $t('prompt.permissionMode.switchToAsk') }}
+            </button>
+        </div>
         <!-- Thinking indicator (visible while a completion is running).
              While running, Enter queues the typed prompt; steering happens
              from a queued chip's "send now" action. Report pages only: the
@@ -8,7 +21,7 @@
              only feedback needed. -->
         <Transition name="thinking-fade">
             <div
-                v-if="(isThinking || hasBackgroundTasks) && props.report_id"
+                v-if="((isThinking && (!hideWorkingIndicator || isAwaitingInput)) || hasBackgroundTasks) && props.report_id"
                 class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
                 aria-live="polite"
                 data-testid="status-row"
@@ -17,17 +30,15 @@
                     <Icon name="heroicons:hand-raised" class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
                     <span class="text-gray-600 dark:text-gray-300">{{ $t('prompt.awaitingConfirmation') }}</span>
                 </template>
-                <template v-else-if="isThinking">
-                    <Spinner class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
-                    <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                    <span class="text-ink-muted tabular-nums">{{ thinkingElapsedLabel }}</span>
+                <template v-else-if="isThinking && !hideWorkingIndicator">
+                    <span class="h-3 w-3 rounded-full bg-ink" role="status" :aria-label="$t('prompt.thinking')" />
                 </template>
                 <!-- Background sub-agents: independent of the working label — the
                      parent can be idle while children run (docs/design/sub-agents.md A9). -->
                 <BackgroundTasksIndicator
                     v-if="hasBackgroundTasks"
                     :waves="props.backgroundWaves as any[]"
-                    :has-working-label="isThinking"
+                    :has-working-label="isThinking && (!hideWorkingIndicator || isAwaitingInput)"
                     @stopSubAgent="(id) => emit('stopSubAgent', id)"
                     @stopWave="(id) => emit('stopWave', id)"
                     @scrollToMessage="(id) => emit('scrollToMessage', id)"
@@ -161,11 +172,11 @@
             >
                 <span class="text-green-500">●</span>
                 <span class="truncate max-w-[160px]">{{ excelSelectionLabel }}</span>
-                <span class="text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
+                <span class="text-ink-muted hover:text-ink-2 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
             </button>
         </div>
 
-        <!-- /compact receipt: pending → running → result -->
+        <!-- /compact and /clear receipt: pending → running → result -->
         <div
             v-if="compactStatus.phase !== 'idle'"
             data-testid="compact-status"
@@ -179,10 +190,10 @@
             <Spinner v-if="compactStatus.phase === 'running'" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
             <UIcon v-else-if="compactStatus.phase === 'pending'" name="i-heroicons-clock" class="w-3.5 h-3.5 shrink-0" />
             <UIcon v-else-if="compactStatus.phase === 'error' || compactStatus.degraded" name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5 shrink-0 text-amber-500" />
-            <UIcon v-else name="i-heroicons-archive-box-arrow-down" class="w-3.5 h-3.5 shrink-0" />
+            <UIcon v-else :name="compactStatus.command === 'clear' ? 'i-heroicons-scissors' : 'i-heroicons-archive-box-arrow-down'" class="w-3.5 h-3.5 shrink-0" />
             <span class="flex-1 min-w-0 truncate">
-                <template v-if="compactStatus.phase === 'pending'">{{ $t('prompt.slash.compact.pending') }}</template>
-                <template v-else-if="compactStatus.phase === 'running'">{{ $t('prompt.slash.compact.running') }}</template>
+                <template v-if="compactStatus.phase === 'pending'">{{ compactStatus.command === 'clear' ? $t('prompt.slash.clear.pending') : $t('prompt.slash.compact.pending') }}</template>
+                <template v-else-if="compactStatus.phase === 'running'">{{ compactStatus.command === 'clear' ? $t('prompt.slash.clear.running') : $t('prompt.slash.compact.running') }}</template>
                 <template v-else>{{ compactStatus.message }}<template v-if="compactStatus.degraded"> · {{ $t('prompt.slash.compact.degraded') }}</template></template>
             </span>
             <button
@@ -239,7 +250,7 @@
                     :class="i === slashIndex ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'"
                     @mousedown.prevent="applySlashCommand(cmd)"
                 >
-                    <UIcon name="i-heroicons-archive-box-arrow-down" class="w-4 h-4 mt-0.5 text-gray-500 dark:text-gray-400 shrink-0" />
+                    <UIcon :name="cmd.icon || 'i-heroicons-archive-box-arrow-down'" class="w-4 h-4 mt-0.5 text-gray-500 dark:text-gray-400 shrink-0" />
                     <span class="min-w-0">
                         <span class="font-mono text-gray-900 dark:text-white">/{{ cmd.name }}</span>
                         <span class="block text-gray-500 dark:text-gray-400">{{ $t(cmd.descriptionKey) }}</span>
@@ -249,7 +260,7 @@
             </div>
 
             <!-- Input area -->
-            <div ref="composerInputAreaRef" :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-3 pb-3'" @keydown.capture="onComposerKeydown">
+            <div ref="composerInputAreaRef" :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-4 pb-5'" @keydown.capture="onComposerKeydown">
                 <!-- Instructions -->
                 <button
                 class="hidden"
@@ -275,7 +286,7 @@
                     @update:mentions="handleMentionsUpdate"
                     @submit="submit"
                     :placeholder="placeholder"
-                    :rows="props.rows || (props.compact ? 1 : 2)"
+                    :rows="props.rows || 1"
                     :compact="props.compact"
                     :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
                 />
@@ -388,7 +399,7 @@
                         <UTooltip :text="isCompactPrompt ? modeLabel : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
                             <button
                                 class="rounded-md px-2 py-1 text-xs flex items-center"
-                                :class="mode === 'training' ? 'text-sky-600 bg-sky-50 hover:bg-sky-100 border border-sky-200' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'"
+                                :class="mode === 'training' ? 'text-sky-600 dark:text-sky-300 bg-sky-50 dark:bg-sky-950 hover:bg-sky-100 dark:hover:bg-sky-900/50 border border-sky-200 dark:border-sky-800' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'"
                             >
                                 <Icon :name="modeIcon" class="w-4 h-4" />
                                 <span v-if="!isCompactPrompt" class="ms-1">{{ modeLabel }}</span>
@@ -602,6 +613,25 @@
                         </button>
                     </UTooltip>
 
+                    <!-- Permission mode for tool calls (Ask / Auto / Allow all).
+                         Hidden where the box edits something else (a scheduled
+                         task), whose runs nobody watches anyway, and when the
+                         session has no tool that can change anything: with
+                         only read-only tools there is nothing for it to decide. -->
+                    <PermissionModePicker
+                        v-if="props.persistSelection && showPermissionChip"
+                        :key="'perm-' + (props.popoverOffset || 0)"
+                        :model-value="permissionMode"
+                        :org-default="orgPermissionDefault"
+                        :allow-all-enabled="allowAllEnabled"
+                        :agent-cap="agentPermissionCap"
+                        :unknown="permissionSettingsFailed"
+                        :stored-unknown="storedPermissionModeUnknown"
+                        :compact="isCompactPrompt"
+                        @update:model-value="selectPermissionMode"
+                        @retry="retryPermissionMode"
+                    />
+
                     <!-- Model selector: search, provider groups, effort -->
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="selectedModelTooltip" :popper="{ strategy: 'fixed', placement: 'top' }">
@@ -704,6 +734,7 @@ import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
 import ConnectorsMenu from '~/components/connectors/ConnectorsMenu.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
+import PermissionModePicker from '@/components/prompt/PermissionModePicker.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import { parseSlashCommand, matchingSlashCommands, parseCompactArgs, type CompactArgs, type ParsedSlashCommand, type SlashCommandDef } from '~/utils/slashCommands'
@@ -726,6 +757,8 @@ const props = defineProps({
         default: null
     },
     latestInProgressCompletion: Object,
+    // The transcript owns the active-run indicator when its message is present.
+    hideWorkingIndicator: Boolean,
     // Live sub-agent waves of the report (GET /reports/{id}/sub-agents → waves);
     // drives the background-tasks indicator next to the working counter.
     backgroundWaves: { type: Array, default: () => [] },
@@ -788,8 +821,7 @@ const props = defineProps({
     // floats at the bottom of the report; inside a modal it just makes the box
     // narrower than every other field.
     flush: { type: Boolean, default: false },
-    // Visible lines in the editor. 0 keeps the chat-view default (1 compact,
-    // else 2); the automation modals ask for a taller box because a standing
+    // Visible lines in the editor. 0 keeps the one-line chat-view default; the automation modals ask for a taller box because a standing
     // task is written once and read back later, not dashed off like a chat.
     rows: { type: Number, default: 0 },
     // Show the project chip without a report behind it: the pick is held in the
@@ -799,13 +831,15 @@ const props = defineProps({
     initialModel: { type: String, default: '' },
     // Initial reasoning level (report.reasoning_effort); '' = Default
     initialEffort: { type: String, default: '' },
+    // Initial permission mode (report.permission_mode); '' = the org default
+    initialPermissionMode: { type: String, default: '' },
     // Save model / effort picks onto the report. Off where the box edits
     // something else that has its own model (a scheduled task), so
     // configuring the task never changes the conversation's model.
     persistSelection: { type: Boolean, default: true }
 })
 
-const emit = defineEmits(['update:availableFolders','update:folderIds','submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
+const emit = defineEmits(['update:availableFolders','update:folderIds','submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','contextCleared','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
 
 // ── Project chip / picker ────────────────────────────────────────────────
 // The chip mirrors the report's project and doubles as the move control:
@@ -866,6 +900,7 @@ const canCreateInstructions = computed(() => canManageInstructionsForSelectedAge
 
 const { t, locale } = useI18n()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const text = ref('')
 const composerInputAreaRef = ref<HTMLElement | null>(null)
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
@@ -931,62 +966,12 @@ let dragCounter = 0 // Track enter/leave for nested elements
 // Thinking indicator: covers the whole run, from the moment the user submits
 // (isSubmitting) through the in-progress completion reported by the parent.
 const isThinking = computed(() => isSubmitting.value || !!props.latestInProgressCompletion)
-const thinkingStartedAt = ref<number | null>(null)
-const thinkingElapsedSeconds = ref(0)
-let thinkingTimer: ReturnType<typeof setInterval> | null = null
-
-// Server timestamps are naive-UTC (no Z suffix) — parse them as UTC or the
-// elapsed time is off by the local timezone offset.
-function parseServerTimestamp(v: any): number | null {
-    if (!v) return null
-    const s = String(v)
-    const t = Date.parse(/Z|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z')
-    return Number.isNaN(t) ? null : t
-}
-
-// immediate: also starts the timer when the component mounts mid-run
-// (e.g. page refresh while a completion is streaming). In that case the
-// parent passes the run's server-side start on latestInProgressCompletion
-// so the elapsed counter resumes from the true start instead of 0s.
-watch(isThinking, (active) => {
-    if (active) {
-        if (thinkingTimer) return // submit → in-progress handoff: keep counting
-        const serverStart = parseServerTimestamp((props.latestInProgressCompletion as any)?.startedAt)
-        thinkingStartedAt.value = serverStart ?? Date.now()
-        thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
-        thinkingTimer = setInterval(() => {
-            if (thinkingStartedAt.value !== null) {
-                thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
-            }
-        }, 1000)
-    } else {
-        if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null }
-        thinkingStartedAt.value = null
-        thinkingElapsedSeconds.value = 0
-    }
-}, { immediate: true })
-
 const hasBackgroundTasks = computed(() => ((props.backgroundWaves as any[]) || []).some((w: any) =>
     ['collecting', 'running', 'firing'].includes(w?.status)
 ))
 
-const thinkingElapsedLabel = computed(() => {
-    const s = thinkingElapsedSeconds.value
-    if (s < 60) return `${s}s`
-    return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
-})
-
 // Run is paused on a confirmation card — the agent isn't working, the user is.
 const isAwaitingInput = computed(() => !!(props.latestInProgressCompletion as any)?.awaitingInput)
-
-// "Thinking" until the completion streams its first visible output (the parent
-// passes hasFirstToken on latestInProgressCompletion), then "Working".
-const thinkingLabel = computed(() => {
-    const completion: any = props.latestInProgressCompletion
-    return completion?.hasFirstToken
-        ? t('prompt.working', 'Working')
-        : t('prompt.thinking', 'Thinking')
-})
 
 // Excel selection hint
 const { isExcel, excelSelection } = useExcel()
@@ -1270,10 +1255,259 @@ const modelIdForPayload = computed<string | null>(() =>
 )
 
 async function loadRouting() {
+    // useMyFetch reports HTTP failures in error, it does not throw.
+    const { data, error } = await useMyFetch('/api/organization/settings')
+    if (error?.value || !data.value) {
+        // The mode the server applies is unknown: never show the Ask label for it.
+        permissionSettingsFailed.value = true
+        if (props.persistSelection) toast.add({ title: t('prompt.permissionMode.loadFailed'), color: 'red' })
+        return
+    }
+    permissionSettingsFailed.value = false
+    const cfg = (data.value as any)?.config
+    routingOn.value = !!cfg?.model_routing?.value
+    const pm = cfg?.tool_permission_mode?.value || {}
+    allowAllEnabled.value = pm.allow_all_enabled === true
+    // Allow all can be the org default only while its switch is on.
+    const defaults = allowAllEnabled.value ? ['ask', 'auto', 'allow_all'] : ['ask', 'auto']
+    orgPermissionDefault.value = (defaults.includes(pm.default_mode) ? pm.default_mode : 'ask')
+}
+
+// ── Permission mode (Ask / Auto / Allow all) ───────────────────────────────
+// null = follow the org default (which may be Allow all while its switch is
+// on). The landing page sends a mode only when the user picked one, so a new
+// report starts from the default.
+type PermissionMode = 'ask' | 'auto' | 'allow_all'
+const PERMISSION_MODES = ['ask', 'auto', 'allow_all']
+const asPermissionMode = (v: any): PermissionMode | null => (PERMISSION_MODES.includes(v) ? v : null)
+const permissionMode = ref<PermissionMode | null>(asPermissionMode(props.initialPermissionMode))
+const orgPermissionDefault = ref<PermissionMode>('ask')
+const allowAllEnabled = ref(false)
+// The org settings failed to load: the default and the switch are unknown.
+const permissionSettingsFailed = ref(false)
+// The strictest cap among the report's agents (ask | auto), else null. The
+// run applies the strictest cap of its agents, so the chip and the banner
+// show the capped mode. An Auto report has no agents attached here: no cap
+// is shown for it.
+// Whether this session offers a connection tool that is not read-only
+// (POST /tools/session_summary: the run's own agents and tool catalog). The
+// chip shows only then. Until the first answer it stays hidden, so sessions
+// without tools never flash it; if the check fails it shows (the safe side).
+// A later re-check keeps the previous answer on screen while it runs.
+type ToolPresence = 'loading' | 'yes' | 'no' | 'unknown'
+const sessionToolPresence = ref<ToolPresence>('loading')
+const showPermissionChip = computed(() => sessionToolPresence.value === 'yes' || sessionToolPresence.value === 'unknown')
+let toolPresenceSeq = 0
+let toolPresenceTimer: ReturnType<typeof setTimeout> | null = null
+async function refreshSessionToolPresence() {
+    if (!props.persistSelection) return
+    const seq = ++toolPresenceSeq
     try {
-        const { data } = await useMyFetch('/api/organization/settings')
-        routingOn.value = !!(data.value as any)?.config?.model_routing?.value
-    } catch {}
+        const { data, error } = await useMyFetch('/tools/session_summary', {
+            method: 'POST',
+            body: {
+                report_id: props.report_id || null,
+                data_source_ids: (selectedDataSources.value || []).map((ds: any) => String(ds.id)),
+            },
+        })
+        if (seq !== toolPresenceSeq) return
+        const v = (data.value as any)?.has_non_read_tools
+        sessionToolPresence.value = error.value || typeof v !== 'boolean' ? 'unknown' : (v ? 'yes' : 'no')
+    } catch {
+        if (seq === toolPresenceSeq) sessionToolPresence.value = 'unknown'
+    }
+}
+watch(
+    () => [props.report_id, (selectedDataSources.value || []).map((ds: any) => String(ds.id)).sort().join(','), folderScope.value.join(',')].join('|'),
+    () => {
+        if (toolPresenceTimer) clearTimeout(toolPresenceTimer)
+        toolPresenceTimer = setTimeout(refreshSessionToolPresence, 250)
+    },
+    { immediate: true },
+)
+onBeforeUnmount(() => { if (toolPresenceTimer) clearTimeout(toolPresenceTimer) })
+
+const agentPermissionCap = computed<'ask' | 'auto' | null>(() => {
+    const caps = (selectedDataSources.value || []).map((ds: any) => ds?.max_permission_mode)
+    return caps.includes('ask') ? 'ask' : caps.includes('auto') ? 'auto' : null
+})
+// The banner follows the mode the next run uses: the report's own, else the
+// default. Never in a scheduled task's editor (persistSelection off): it edits
+// no report, and its runs are unattended. If the settings failed to load, a
+// report's own Allow all still shows it.
+const allowAllActive = computed(() => {
+    if (!props.persistSelection) return false
+    // An agent of the report caps the mode below Allow all (the run applies it).
+    if (agentPermissionCap.value) return false
+    if (permissionSettingsFailed.value) return permissionMode.value === 'allow_all'
+    return (permissionMode.value ?? orgPermissionDefault.value) === 'allow_all' && allowAllEnabled.value
+})
+
+// The last mode the server is known to hold for this report. Saves and
+// read-backs go one at a time: a pick made while one is in flight is sent
+// after it, so the server applies them in the order they were made and only
+// the latest pick decides the chip.
+let confirmedPermissionMode: PermissionMode | null = permissionMode.value
+let permissionSavePending = false
+let permissionReadPending = false
+// The saves and reads in flight, as one promise: true when the last one
+// worked. A prompt sent meanwhile waits for it (the run reads the stored
+// mode), and is not sent if it failed.
+let permissionSaveLoop: Promise<boolean> | null = null
+// A save got no answer (a timeout, a network fault): the client gave up, but
+// the server may still apply it. Until it is seen applied, or this long has
+// passed, every send reads the stored mode first.
+let unconfirmedPermissionSave: { wanted: PermissionMode | null, until: number } | null = null
+const UNCONFIRMED_SAVE_WINDOW_MS = 120000
+// The report's stored mode could not be read back after such a save: it is
+// unknown, the chip says so, and nothing is sent until it is read or saved.
+const storedPermissionModeUnknown = ref(false)
+
+function selectPermissionMode(m: PermissionMode | null) {
+    permissionMode.value = m
+    persistPermissionMode()
+}
+
+function persistPermissionMode() {
+    // Landing page: there is no report yet; the choice rides on the create call.
+    if (!props.report_id || !props.persistSelection) return
+    permissionSavePending = true
+    runPermissionSync()
+}
+
+function runPermissionSync(): Promise<boolean> {
+    if (!permissionSaveLoop) {
+        permissionSaveLoop = syncPermissionMode().finally(() => { permissionSaveLoop = null })
+    }
+    return permissionSaveLoop
+}
+
+async function syncPermissionMode(): Promise<boolean> {
+    let ok = true
+    while (permissionSavePending || permissionReadPending) {
+        if (permissionSavePending) {
+            permissionSavePending = false
+            ok = await savePermissionMode()
+        } else {
+            permissionReadPending = false
+            ok = await readStoredPermissionMode()
+        }
+    }
+    return ok
+}
+
+// A save or read that hangs must not hold the composer: past this it has no answer.
+const PERMISSION_SAVE_TIMEOUT_MS = 15000
+
+async function savePermissionMode(): Promise<boolean> {
+    const wanted = permissionMode.value
+    let error: any = null
+    try {
+        const res = await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ permission_mode: wanted || '' }),
+            timeout: PERMISSION_SAVE_TIMEOUT_MS,
+        })
+        error = res.error?.value
+    } catch (e) {
+        // A throw (no organization, a network fault) is a failed save too.
+        error = e
+    }
+    if (!error) {
+        confirmedPermissionMode = wanted
+        storedPermissionModeUnknown.value = false
+        return true
+    }
+    const answered = !!(error?.statusCode || error?.status || error?.response?.status)
+    if (!answered) {
+        // No answer: the server may have applied the change, or may still
+        // apply it. Read the stored mode back and show that.
+        unconfirmedPermissionSave = { wanted, until: Date.now() + UNCONFIRMED_SAVE_WINDOW_MS }
+        if (!await readStoredPermissionMode()) return false
+        if (confirmedPermissionMode === wanted) return true  // it was applied
+        if (!permissionSavePending) {
+            toast.add({ title: t('prompt.permissionMode.saveFailed'), description: t('errors.network'), color: 'red' })
+        }
+        return false
+    }
+    if (!permissionSavePending) {
+        // e.g. Allow all was switched off for the org meanwhile: show the
+        // mode the server will actually use. (A newer pick still to be sent
+        // decides instead.)
+        permissionMode.value = confirmedPermissionMode
+        toast.add({ title: t('prompt.permissionMode.saveFailed'), description: getErrorMessage(error), color: 'red' })
+    }
+    return false
+}
+
+// Read the report's stored mode and show it. False when it cannot be read:
+// the chip then says the mode is unknown.
+async function readStoredPermissionMode(): Promise<boolean> {
+    let data: any = null
+    let error: any = null
+    try {
+        const res = await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'GET',
+            // Never an answer shared with a read that started before the save.
+            query: { _: Date.now() },
+            timeout: PERMISSION_SAVE_TIMEOUT_MS,
+        })
+        data = res.data?.value
+        error = res.error?.value
+    } catch (e) {
+        error = e
+    }
+    if (error || !data) {
+        storedPermissionModeUnknown.value = true
+        if (!permissionSavePending) {
+            toast.add({ title: t('prompt.permissionMode.loadFailed'), description: t('errors.network'), color: 'red' })
+        }
+        return false
+    }
+    const stored = asPermissionMode(data.permission_mode)
+    storedPermissionModeUnknown.value = false
+    confirmedPermissionMode = stored
+    if (unconfirmedPermissionSave
+        && (stored === unconfirmedPermissionSave.wanted || Date.now() > unconfirmedPermissionSave.until)) {
+        unconfirmedPermissionSave = null
+    }
+    // A newer pick still to be sent decides the chip instead.
+    if (!permissionSavePending) permissionMode.value = stored
+    return true
+}
+
+function retryPermissionMode() {
+    if (permissionSettingsFailed.value) loadRouting()
+    if (storedPermissionModeUnknown.value && props.report_id && props.persistSelection) {
+        permissionReadPending = true
+        runPermissionSync()
+    }
+}
+
+// Whether a prompt may be sent now, as far as the permission mode goes. Waits
+// for a mode switch still being saved (false if it failed). While the stored
+// mode is not known for sure (a save got no answer), it is read first: false
+// if it cannot be read, or if it is not the mode the chip showed. The chip
+// then shows the stored mode, a toast names it, and the next send goes out:
+// a prompt is only ever sent under the mode the user saw.
+async function permissionModeSettled(): Promise<boolean> {
+    if (permissionSaveLoop && !await permissionSaveLoop) return false
+    if (!props.report_id || !props.persistSelection) return true
+    if (!storedPermissionModeUnknown.value && !unconfirmedPermissionSave) return true
+    const wasUnknown = storedPermissionModeUnknown.value
+    const shown = permissionMode.value
+    permissionReadPending = true
+    if (!await runPermissionSync()) return false
+    if (wasUnknown || permissionMode.value !== shown) {
+        const now = permissionMode.value ?? orgPermissionDefault.value
+        toast.add({
+            title: t('prompt.permissionMode.tooltip', { mode: t(`prompt.permissionMode.modes.${now}.label`) }),
+            color: 'amber',
+        })
+        return false
+    }
+    return true
 }
 
 // Legacy popper (for current Nuxt UI stable)
@@ -1404,13 +1638,16 @@ const compactionState = computed<CompactionState | null>(() => contextEstimate.v
 // status chip above the composer is the user-visible receipt: pending (the
 // agent is still running), running, then what it bought — or why not.
 type CompactPhase = 'idle' | 'pending' | 'running' | 'done' | 'nothing' | 'error'
-const compactStatus = ref<{ phase: CompactPhase, message?: string, degraded?: boolean }>({ phase: 'idle' })
-const pendingCompact = ref<CompactArgs | null>(null)
+type ContextCommand = 'compact' | 'clear'
+// A context command held while the agent runs (both are idle-only server-side).
+type PendingContextAction = { command: 'compact', args: CompactArgs } | { command: 'clear' }
+const compactStatus = ref<{ phase: CompactPhase, message?: string, degraded?: boolean, command?: ContextCommand }>({ phase: 'idle' })
+const pendingCompact = ref<PendingContextAction | null>(null)
 let compactStatusTimer: ReturnType<typeof setTimeout> | null = null
 
-function setCompactStatus(phase: CompactPhase, message?: string, degraded = false) {
+function setCompactStatus(phase: CompactPhase, message?: string, degraded = false, command: ContextCommand = 'compact') {
     if (compactStatusTimer) { clearTimeout(compactStatusTimer); compactStatusTimer = null }
-    compactStatus.value = { phase, message, degraded }
+    compactStatus.value = { phase, message, degraded, command }
     if (phase === 'done' || phase === 'nothing') {
         compactStatusTimer = setTimeout(() => {
             if (compactStatus.value.phase === phase) compactStatus.value = { phase: 'idle' }
@@ -1426,11 +1663,17 @@ function dismissCompactStatus() {
 }
 
 async function compactContext(args: CompactArgs = {}) {
-    if (!props.report_id || isCompacting.value) return
+    if (!props.report_id) return
+    if (isCompacting.value) {
+        // Another context command is mid-request: hold this one, it fires
+        // when that request settles (see the isCompacting watcher).
+        pendingCompact.value = { command: 'compact', args }
+        return
+    }
     if (props.latestInProgressCompletion) {
         // The agent is mid-run: compacting now would race the run's own
         // context. Hold the command and fire it the moment the run ends.
-        pendingCompact.value = args
+        pendingCompact.value = { command: 'compact', args }
         setCompactStatus('pending')
         return
     }
@@ -1450,7 +1693,7 @@ async function compactContext(args: CompactArgs = {}) {
                 // started, or the run that just ended is still wrapping up
                 // server-side. Stay pending and retry — on the next idle
                 // transition, and on a backoff while the composer is idle.
-                pendingCompact.value = args
+                pendingCompact.value = { command: 'compact', args }
                 setCompactStatus('pending')
                 scheduleCompactRetry()
                 return
@@ -1490,24 +1733,79 @@ async function compactContext(args: CompactArgs = {}) {
     }
 }
 
-// Fire a deferred /compact once the run that blocked it is over.
+// ── /clear ──────────────────────────────────────────────────────────────
+// A fresh agent context: earlier turns stay in the transcript behind a
+// "Context cleared" divider, but the agent no longer sees them. No LLM call.
+// Idle-only like /compact, and deferred the same way while a run streams.
+async function clearContext() {
+    if (!props.report_id) return
+    if (isCompacting.value) {
+        // A /compact (or another /clear) is mid-request. Dropping the command
+        // here left the user believing the context was cleared: hold it, it
+        // fires when that request settles (see the isCompacting watcher).
+        pendingCompact.value = { command: 'clear' }
+        return
+    }
+    if (props.latestInProgressCompletion) {
+        pendingCompact.value = { command: 'clear' }
+        setCompactStatus('pending', undefined, false, 'clear')
+        return
+    }
+    isCompacting.value = true
+    setCompactStatus('running', undefined, false, 'clear')
+    try {
+        const response = await useMyFetch(`/reports/${props.report_id}/context/clear`, { method: 'POST' })
+        const errorValue = (response as any)?.error?.value
+        if (errorValue) {
+            const status = errorValue?.statusCode || errorValue?.status || errorValue?.response?.status
+            if (status === 409) {
+                pendingCompact.value = { command: 'clear' }
+                setCompactStatus('pending', undefined, false, 'clear')
+                scheduleCompactRetry()
+                return
+            }
+            throw errorValue
+        }
+        compactRetryAttempt = 0
+        const result = (response as any)?.data?.value
+        if (result?.status === 'cleared') {
+            // The page draws the divider and drops the compaction divider.
+            emit('contextCleared', result)
+            setCompactStatus('done', t('prompt.slash.clear.done'), false, 'clear')
+        } else {
+            setCompactStatus('nothing', t('prompt.slash.clear.nothing'), false, 'clear')
+        }
+        await refreshContextEstimate(true)
+    } catch (err: any) {
+        console.error('Failed to clear context:', err)
+        const detail = err?.data?.detail || err?.message || ''
+        setCompactStatus('error', t('prompt.slash.clear.failed'), false, 'clear')
+        toast.add({ title: t('prompt.slash.clear.failed'), description: detail || undefined, color: 'red' })
+    } finally {
+        isCompacting.value = false
+    }
+}
+
+// Fire a deferred /compact or /clear once the run that blocked it is over.
 let compactRetryTimer: ReturnType<typeof setTimeout> | null = null
 let compactRetryAttempt = 0
 const COMPACT_RETRY_MAX = 8
 
 function firePendingCompact() {
     if (props.latestInProgressCompletion || !pendingCompact.value || isCompacting.value) return
-    const args = pendingCompact.value
+    const action = pendingCompact.value
     pendingCompact.value = null
-    compactContext(args)
+    if (action.command === 'clear') clearContext()
+    else compactContext(action.args)
 }
 
 function scheduleCompactRetry() {
     if (compactRetryTimer) clearTimeout(compactRetryTimer)
     if (compactRetryAttempt >= COMPACT_RETRY_MAX) {
         compactRetryAttempt = 0
+        const command = pendingCompact.value?.command || 'compact'
         pendingCompact.value = null
-        setCompactStatus('error', t('prompt.slash.compact.failed'))
+        setCompactStatus('error', t(command === 'clear' ? 'prompt.slash.clear.failed' : 'prompt.slash.compact.failed'), false, command)
         return
     }
     const delay = Math.min(1500 * Math.pow(1.6, compactRetryAttempt), 15000)
@@ -1523,10 +1821,21 @@ watch(() => props.latestInProgressCompletion, (running) => {
     compactRetryTimer = setTimeout(() => { compactRetryTimer = null; firePendingCompact() }, 800)
 })
 
+// A command held behind another context request runs as soon as that request
+// settles. Not when a retry is already scheduled (409 backoff) — that timer
+// owns the pending command.
+watch(isCompacting, (busy) => {
+    if (busy || !pendingCompact.value || compactRetryTimer) return
+    firePendingCompact()
+})
+
 function runSlashCommand(cmd: ParsedSlashCommand) {
     if (cmd.name === 'compact') {
         text.value = ''
         compactContext(parseCompactArgs(cmd.args))
+    } else if (cmd.name === 'clear') {
+        text.value = ''
+        clearContext()
     }
 }
 
@@ -1763,6 +2072,7 @@ function buildSubmitPayload() {
         mode: mode.value,                 // 'chat' | 'training'
         model_id: modelIdForPayload.value,    // backend model id ('auto' → null → router engages)
         reasoning_effort: selectedEffort.value,  // null = Default
+        permission_mode: permissionMode.value,   // null = the org default
         files: imageFiles                 // image files for immediate display in chat
     }
 }
@@ -1817,6 +2127,20 @@ async function submit() {
     if (props.report_id && dataSourceSelectorRef.value && !await dataSourceSelectorRef.value.settleScope()) return
     if (isSubmitting.value || !canSubmit.value) return
     if (isListening.value) abortVoiceInput()
+
+    // A permission-mode switch still being saved, or a stored mode that is
+    // not known for sure: the run reads the stored mode, so wait for it; if
+    // that failed or changed the chip (a toast says so) send nothing.
+    if (props.report_id && (permissionSaveLoop || unconfirmedPermissionSave || storedPermissionModeUnknown.value)) {
+        isSubmitting.value = true
+        let saved = false
+        try {
+            saved = await permissionModeSettled()
+        } finally {
+            isSubmitting.value = false
+        }
+        if (!saved || !canSubmit.value) return
+    }
 
     // A completion is running: Enter/arrow adds the prompt to the queue
     // instead of starting (or clobbering) a run.
@@ -2029,7 +2353,6 @@ onBeforeUnmount(() => {
     window.removeEventListener('prompt:prefill', handlePromptPrefill)
     window.removeEventListener('keydown', handleEscKey)
     if (compactRO) { compactRO.disconnect(); compactRO = null }
-    if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null }
 })
 
 watch(() => props.report_id, async (newId, oldId) => {
@@ -2104,6 +2427,25 @@ defineExpose({
     chooseFolder: (id: string) => dataSourceSelectorRef.value?.chooseFolder(id),
     toggleDataSource: (ds: any) => dataSourceSelectorRef.value?.toggleDataSource?.(ds),
     getProject: () => currentProject.value?.id || null,
+    // Rerun (a control outside the box) passes the send button's gates, minus
+    // the text check: nothing uploading, a usable model, a settled agent scope.
+    // Returns null when the prompt can't be sent now, else the model to send:
+    // the earlier turn's model while this user can still pick it, otherwise
+    // the box's current choice (an explicit model id has no server fallback).
+    prepareRerun: async (modelId?: string | null): Promise<{ model_id: string | null } | null> => {
+        if (isSubmitting.value || isHydratingDataSources.value || hasFilesUploading.value
+            || !selectedModel.value || !hasDataSourceOrFile.value) return null
+        if (props.report_id && dataSourceSelectorRef.value && !await dataSourceSelectorRef.value.settleScope()) return null
+        // A mode switch still being saved: the run reads the stored mode.
+        if (!await permissionModeSettled()) return null
+        if (!modelId) return { model_id: null }
+        const known = models.value.some(m => String(m.id) === String(modelId))
+        return { model_id: known ? modelId : modelIdForPayload.value }
+    },
+    // A control outside the box that sends a prompt itself (starter and
+    // follow-up questions) waits for a mode switch still being saved; false
+    // if that save failed (its toast says so): send nothing then.
+    permissionModeSettled,
     // Send a prompt on behalf of a control outside the box (the empty state's
     // starter questions), through the same gating as the send button.
     submitPrompt: async (value: string) => {
@@ -2126,6 +2468,14 @@ watch(() => props.initialMode, (newVal) => {
         mode.value = newVal
     }
 }, { immediate: true })
+
+// Adopt the report's saved permission mode when it arrives (hydrate only, never
+// persist back).
+watch(() => props.initialPermissionMode, (v) => {
+    const next = asPermissionMode(v)
+    confirmedPermissionMode = next
+    if (next !== permissionMode.value) permissionMode.value = next
+})
 
 // Adopt the report's saved reasoning level when it arrives (same rule as the
 // model below: hydrate the ref directly so it never persists back).
@@ -2186,6 +2536,7 @@ async function createReport() {
         // sentinel and means nothing on create.
         if (payload.model_id) body.model_id = payload.model_id
         if (payload.reasoning_effort) body.reasoning_effort = payload.reasoning_effort
+        if (payload.permission_mode) body.permission_mode = payload.permission_mode
         if (projectExplicitlyPicked.value) {
             if (currentProject.value?.id) body.project_id = currentProject.value.id
             else delete body.project_id
@@ -2260,23 +2611,6 @@ onBeforeUnmount(() => window.removeEventListener('report:mutated', onReportAgent
 <style scoped>
 .placeholder-gray-400::placeholder { color: #9ca3af; }
 
-/* Shining "Thinking" label, à la Codex */
-.thinking-shimmer {
-    background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: thinking-shimmer 2s linear infinite;
-}
-/* RTL locales (he/ar): sweep the shine in reading direction, right to left. */
-[dir="rtl"] .thinking-shimmer {
-    animation-direction: reverse;
-}
-@keyframes thinking-shimmer {
-    0% { background-position: -100% 0; }
-    100% { background-position: 100% 0; }
-}
 .thinking-fade-enter-active, .thinking-fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
 .thinking-fade-enter-from, .thinking-fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

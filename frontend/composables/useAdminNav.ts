@@ -1,5 +1,6 @@
-import { useCan } from '~/composables/usePermissions'
+import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
+import { useAppSettings } from '~/composables/useAppSettings'
 
 // The admin area's navigation, in one place. Before this, the same list lived
 // in layouts/settings.vue (tabs), layouts/default.vue (the Admin link's
@@ -21,6 +22,9 @@ export interface AdminNavChild {
   description: string
   width: AdminPageWidth
   permission?: string
+  // With `resourceType`, holding `permission` on any one resource of that type
+  // is enough (e.g. a group manager sees the Groups page for their groups).
+  resourceType?: string
   feature?: string
 }
 
@@ -29,9 +33,16 @@ export interface AdminNavItem {
   label: string
   icon: string
   permission: string
+  // With `resourceType`, holding `permission` on any one resource of that type
+  // is enough (a provider manager sees the LLM page for their providers).
+  resourceType?: string
   description?: string
   width?: AdminPageWidth
   feature?: string
+  superuserOnly?: boolean
+  // Offered only when GET /api/settings reports `<key>.enabled === true`: a
+  // feature the deployment turns on in its configuration.
+  enabledBySetting?: string
   // Sub-pages rendered by the same route, selected with ?tab=<key>.
   children?: AdminNavChild[]
 }
@@ -45,7 +56,8 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     children: [
       { key: 'members', label: 'settings.membersTabs.members', icon: 'i-heroicons-users', description: 'settings.adminPages.members', width: 'wide' },
       { key: 'roles', label: 'settings.membersTabs.roles', icon: 'i-heroicons-identification', description: 'settings.adminPages.roles', width: 'wide', permission: 'manage_roles', feature: 'custom_roles' },
-      { key: 'groups', label: 'settings.membersTabs.groups', icon: 'i-heroicons-rectangle-group', description: 'settings.adminPages.groups', width: 'wide', permission: 'manage_groups', feature: 'custom_roles' },
+      // `manage_members` org-wide, or as the manager of at least one group.
+      { key: 'groups', label: 'settings.membersTabs.groups', icon: 'i-heroicons-rectangle-group', description: 'settings.adminPages.groups', width: 'wide', permission: 'manage_members', resourceType: 'group', feature: 'custom_roles' },
       // Service accounts are a core (non-EE) capability — no feature flag.
       { key: 'service_accounts', label: 'settings.membersTabs.serviceAccounts', icon: 'i-heroicons-command-line', description: 'serviceAccounts.subtitle', width: 'wide', permission: 'manage_service_accounts' },
       { key: 'quotas', label: 'settings.membersTabs.quotas', icon: 'i-heroicons-scale', description: 'settings.adminPages.quotas', width: 'wide', permission: 'manage_settings', feature: 'usage_limits' },
@@ -53,12 +65,14 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     ],
   },
   // cpu-chip is the model icon everywhere else (the composer's model picker).
-  { name: 'models', label: 'settings.llm', icon: 'i-heroicons-cpu-chip', permission: 'manage_llm', description: 'settings.adminPages.models', width: 'wide' },
+  // `manage_llm` org-wide, or as the manager of at least one LLM provider.
+  { name: 'models', label: 'settings.llm', icon: 'i-heroicons-cpu-chip', permission: 'manage_llm', resourceType: 'llm_provider', description: 'settings.adminPages.models', width: 'wide' },
   { name: 'ai_settings', label: 'settings.aiSettings', icon: 'i-heroicons-adjustments-horizontal', permission: 'manage_settings', description: 'settings.aiSettingsPage.subtitle', width: 'narrow' },
   { name: 'pii', label: 'settings.piiTab', icon: 'i-heroicons-eye-slash', permission: 'manage_settings', feature: 'pii_protection', description: 'settings.pii.subtitle', width: 'narrow' },
   { name: 'general', label: 'settings.general', icon: 'i-heroicons-building-office', permission: 'manage_settings', description: 'settings.subtitle', width: 'narrow' },
   { name: 'integrations', label: 'settings.integrations.title', icon: 'i-heroicons-chat-bubble-left-right', permission: 'manage_settings', description: 'settings.integrations.subtitle', width: 'wide' },
   { name: 'audit', label: 'settings.auditLogs', icon: 'i-heroicons-clipboard-document-list', permission: 'view_audit_logs', description: 'settings.audit.subtitle', width: 'wide' },
+  { name: 'system-logs', label: 'settings.systemLogsTab', icon: 'i-heroicons-command-line', permission: 'full_admin_access', superuserOnly: true, enabledBySetting: 'system_logs', description: 'settings.systemLogs.subtitle', width: 'wide' },
   { name: 'identity-provider', label: 'settings.identityProviderTab', icon: 'i-heroicons-finger-print', permission: 'manage_identity_providers', description: 'settings.adminPages.identityProvider', width: 'narrow' },
   { name: 'smtp', label: 'settings.smtpTab', icon: 'i-heroicons-envelope', permission: 'manage_settings', description: 'settings.adminPages.smtp', width: 'narrow' },
   { name: 'license', label: 'settings.license', icon: 'i-heroicons-key', permission: 'manage_settings', description: 'settings.licensePage.subtitle', width: 'narrow' },
@@ -78,19 +92,23 @@ export function resolveAdminPage(path: string, tab?: string) {
 
 export function useAdminNav() {
   const { hasFeature } = useEnterprise()
+  const { data: currentUser } = useAuth()
+  const { settings: appSettings } = useAppSettings()
 
-  const allowed = (permission?: string, feature?: string) => {
+  const allowed = (permission?: string, feature?: string, resourceType?: string) => {
     if (feature && !hasFeature(feature)) return false
-    if (permission && !useCan(permission)) return false
+    if (permission && !(resourceType ? useCanAny(permission, resourceType) : useCan(permission))) return false
     return true
   }
 
   const visibleItems = computed(() =>
     ADMIN_NAV_ITEMS
-      .filter(item => allowed(item.permission, item.feature))
+      .filter(item => allowed(item.permission, item.feature, item.resourceType))
+      .filter(item => !item.superuserOnly || currentUser.value?.is_superuser === true)
+      .filter(item => !item.enabledBySetting || appSettings.value?.[item.enabledBySetting]?.enabled === true)
       .map(item => ({
         ...item,
-        children: item.children?.filter(child => allowed(child.permission, child.feature)),
+        children: item.children?.filter(child => allowed(child.permission, child.feature, child.resourceType)),
       }))
   )
 
@@ -98,7 +116,26 @@ export function useAdminNav() {
   // actually open, so the click never bounces off permissions.global.ts.
   const firstAccessibleItem = computed(() => visibleItems.value[0] || null)
 
-  return { visibleItems, firstAccessibleItem }
+  // Where the Admin entry opens: the first page this person's admin powers
+  // unlock, rather than Members for everyone. Members is visible to every
+  // member (view_members), so it only makes sense as the landing page for
+  // whoever manages people org-wide. Anyone else opens their own page: LLM for
+  // an LLM manager, Audit logs for an auditor, AI settings for a settings
+  // manager, Groups for a group manager, Service accounts, and so on.
+  const adminLanding = computed<string | null>(() => {
+    const items = visibleItems.value
+    if (!items.length) return null
+    if (useCan('manage_members')) return '/settings/members'
+    const page = items.find(item => item.name !== 'members' && !item.children?.length)
+    if (page) return `/settings/${page.name}`
+    // Members sub-pages behind a real admin permission (the Members list
+    // itself carries none).
+    const sub = items.find(item => item.name === 'members')?.children?.find(child => child.permission)
+    if (sub) return `/settings/members?tab=${sub.key}`
+    return `/settings/${items[0].name}`
+  })
+
+  return { visibleItems, firstAccessibleItem, adminLanding }
 }
 
 // Paths under /settings that are NOT part of the admin console. The channel

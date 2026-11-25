@@ -69,12 +69,21 @@ async def _release_sources(db, release: ArtifactRelease) -> set[str]:
     own = set(await release_data_source_ids(db, release.id))
     if own:
         return own
-    codes = "\n".join(c for (c,) in (await db.execute(
+    step_codes = [c for (c,) in (await db.execute(
         select(Step.code).join(Query, Query.default_step_id == Step.id)
-        .where(Query.artifact_release_id == str(release.id)))).all() if c)
-    rows = (await db.execute(select(DataSource.id, DataSource.name).where(
+        .where(Query.artifact_release_id == str(release.id)))).all() if c]
+    codes = "\n".join(step_codes)
+    rows = (await db.execute(select(DataSource.id, DataSource.name, DataSource.previous_names).where(
         DataSource.organization_id == str(release.organization_id), DataSource.deleted_at.is_(None)))).all()
-    return {str(i) for i, name in rows if name and str(name) in codes}
+    named = {str(i) for i, name, _ in rows if name and str(name) in codes}
+    # Code saved before a rename spells the agent's former name. A former
+    # name counts only as a client key the code uses (client_keys' rule), not
+    # wherever the word appears: an agent once called "orders" is not used by
+    # every query that reads FROM orders.
+    from app.services.client_keys import client_reach, sources_for_client_keys
+    keys = [k for code in step_codes for k in client_reach(code).keys]
+    keyed, _ = sources_for_client_keys(rows, keys)
+    return named | set(keyed)
 
 
 async def effective_agent_ids(db, artifact: Artifact, release: ArtifactRelease, organization, user) -> list[str]:

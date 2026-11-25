@@ -202,7 +202,7 @@ def test_connection_refresh_schema(
 
 
 @pytest.mark.e2e
-def test_connection_delete_with_domains_cascades(
+def test_connection_delete_keeps_linked_agents(
     create_connection,
     create_domain_from_connection,
     delete_connection,
@@ -212,13 +212,13 @@ def test_connection_delete_with_domains_cascades(
     login_user,
     whoami,
 ):
-    """Test that deleting a connection with linked domains succeeds and cascades properly.
+    """Deleting a connection with linked agents succeeds, and keeps the agents.
 
     The connection deletion should:
     - Remove the connection
-    - Cascade delete DataSourceTable records linked via ConnectionTable
-    - Remove domain_connection junction records
-    - Delete domains that only have this connection (single-connection domains)
+    - Remove the agents' tables that came from it, and the domain_connection links
+    - Keep every agent, including one that had only this connection (it is left
+      with no connection)
     """
     if not CONNECTION_TEST_DB_PATH.exists():
         pytest.skip(f"SQLite test database missing at {CONNECTION_TEST_DB_PATH}")
@@ -254,13 +254,14 @@ def test_connection_delete_with_domains_cascades(
 
     assert delete_response.status_code == 200
 
-    # Domain should be deleted since it only had this one connection
+    # The agent stays, now with no connection.
     domain_after = get_data_source(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
     )
-    assert domain_after is None, "Domain with single connection should be deleted when connection is deleted"
+    assert domain_after is not None, "an agent is never deleted with its connection"
+    assert domain_after["connections"] == []
 
 
 @pytest.mark.e2e
@@ -616,6 +617,26 @@ def test_athena_config_is_validated_on_every_api_path(
         )
         assert updated.status_code == 400, updated.text
         assert updated.json()["error_code"] == "connection.config_invalid", updated.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("bad_config", [
+    {"host": "db.example.com", "databases": "!tenant_test"},
+    {"host": "db.example.com", "databases": "tenant_*", "table_exclude_pattern": "(unclosed"},
+    {"host": "db.example.com", "databases": "tenant_*", "table_exclude_pattern": "x{5000}"},
+])
+def test_postgresql_multi_config_is_validated_on_create(
+    test_client, create_user, login_user, whoami, bad_config,
+):
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    body = {"name": "Multi", "type": "postgresql_multi", "config": bad_config, "credentials": {}}
+
+    response = test_client.post("/api/connections", json=body, headers=headers)
+    assert response.status_code == 400, response.text
+    assert response.json()["error_code"] == "connection.config_invalid", response.text
 
 
 @pytest.mark.e2e

@@ -166,11 +166,15 @@ def _cached_meta_for(ct):
     if getattr(ct, "kind", None) != KIND_BOW:
         return False, None, None, None
     ts = getattr(ct, "last_refreshed_at", None)
+    # No description from the admin: say what the columns themselves establish
+    # (grain, measures and whether each may be summed, source, schedule).
+    meta = getattr(ct, "metadata_json", None)
+    generated = meta.get("generated_description") if isinstance(meta, dict) else None
     return (
         True,
         ts.isoformat(timespec="minutes") if ts else None,
         _next_refresh_for(ct),
-        getattr(ct, "description", None),
+        (getattr(ct, "description", None) or "").strip() or generated or None,
     )
 
 
@@ -236,6 +240,12 @@ def _cap_keeping_cached(tables, top_k: int):
 
 
 logger = logging.getLogger(__name__)
+
+def _since_stamp(connection) -> Optional[str]:
+    """When an unreachable connection went down, as a stable UTC minute."""
+    from app.ai.tools.implementations.agent_focus_common import format_since
+    return format_since(getattr(connection, "unreachable_since", None))
+
 
 class SchemaContextBuilder:
     """
@@ -597,7 +607,8 @@ class SchemaContextBuilder:
                                 for k in ("role", "kind", "hidden", "is_partition",
                                           "relationship_key", "returns", "format_string",
                                           "data_category", "display_folder", "sort_by_column",
-                                          "summarize_by", "contents", "from_form")
+                                          "summarize_by", "contents", "from_form",
+                                          "additive", "additive_reason", "source")
                                 if k in canon_meta
                             } or None
                         columns.append({
@@ -659,7 +670,10 @@ class SchemaContextBuilder:
                     # rather than silently emptied.
                     if active_only and not conn_is_active:
                         if conn_id:
-                            unhealthy_conns.setdefault(conn_id, {"name": conn_name, "type": conn_type})
+                            unhealthy_conns.setdefault(conn_id, {
+                                "name": conn_name, "type": conn_type,
+                                "since": _since_stamp(getattr(ct, 'connection', None)),
+                            })
                         continue
 
                     normalized.append({
@@ -721,7 +735,10 @@ class SchemaContextBuilder:
                     # silently emptied when a sibling connection is still live.
                     if active_only and not conn_is_active:
                         if conn_id:
-                            unhealthy_conns.setdefault(conn_id, {"name": conn_name, "type": conn_type})
+                            unhealthy_conns.setdefault(conn_id, {
+                                "name": conn_name, "type": conn_type,
+                                "since": _since_stamp(getattr(ct, 'connection', None)),
+                            })
                         continue
 
                     normalized.append({
@@ -908,6 +925,7 @@ class SchemaContextBuilder:
             if split_file_scopes:
                 file_scopes, tables = self._build_file_scopes(ds, tables)
                 await self._stamp_index_times(file_scopes)
+                await self._stamp_slack_scopes(ds, file_scopes)
             else:
                 file_scopes = []
 
@@ -916,6 +934,15 @@ class SchemaContextBuilder:
             # Apply top_k cap last (to the remaining structured tables only)
             if top_k is not None and top_k > 0:
                 tables = _cap_keeping_cached(tables, top_k)
+
+            # Column cap: stamp the budget on every table and rank
+            # the columns of the wide ones that will be rendered. Runs after
+            # every column filter above (excluded_columns, per-user overlay),
+            # so it only ever narrows what this user may already see.
+            await self._rank_wide_table_columns(
+                tables, with_stats=with_stats, top_k=top_k,
+                filtered=bool(table_names or name_patterns),
+            )
 
             # Query MCP tools for this data source's MCP/custom_api connections
             mcp_tools = [] if self.hide_mcp_tools else await self._build_mcp_tools(ds)
@@ -940,6 +967,14 @@ class SchemaContextBuilder:
                     mcp_tools=mcp_tools,
                     file_scopes=file_scopes,
                     browser_scope=self._browser_scope(ds),
+                    # ORM rows always carry `connections`; a caller passing a
+                    # shape without it is not claiming the agent has none.
+                    # Standing context only: a lookup filtered to tables or
+                    # connections is not asking about this agent.
+                    no_connections=(
+                        hasattr(ds, 'connections') and not (ds.connections or [])
+                        and not (table_names or name_patterns or connection_ids)
+                    ),
                     # Only flag connections as unavailable when at least one other
                     # connection is live — if EVERY connection is down the source
                     # renders nothing and is dropped as before (an all-dead agent
@@ -977,7 +1012,7 @@ class SchemaContextBuilder:
                         description="One row per " + ("run" if name == "bow.runs" else "tool call") + ". " + BowClient.description,
                     ))
                 ds_sections.append(TablesSchemaContext.DataSource(
-                    info=DataSourceSummarySchema(id=SOURCE_ID, name="BOW", type="bow", context=BowClient.description),
+                    info=DataSourceSummarySchema(id=SOURCE_ID, name="BOW", type="bow", context=BowClient.description_for(getattr(self.report, "id", None))),
                     tables=bow_tables,
                 ))
 
@@ -993,6 +1028,84 @@ class SchemaContextBuilder:
                 logger.warning("agent list tables skipped: %s", exc)
 
         return TablesSchemaContext(data_sources=ds_sections)
+
+    def _column_budget(self) -> int:
+        from app.ai.context.column_ranking import DEFAULT_COLUMN_BUDGET
+        try:
+            if self.organization_settings is not None:
+                v = self.organization_settings.get_config("top_k_schema_columns")
+                v = v.value if hasattr(v, "value") else v
+                if isinstance(v, (int, float)):
+                    return int(v)
+        except Exception:
+            pass
+        return DEFAULT_COLUMN_BUDGET
+
+    def _top_k_hint(self) -> int:
+        try:
+            if self.organization_settings is not None:
+                v = self.organization_settings.get_config("top_k_schema")
+                v = v.value if hasattr(v, "value") else v
+                if isinstance(v, (int, float)) and v > 0:
+                    return int(v)
+        except Exception:
+            pass
+        return 10
+
+    async def _rank_wide_table_columns(self, tables, *, with_stats: bool, top_k: Optional[int], filtered: bool) -> None:
+        """Rank the columns of wide tables (more columns than the budget).
+
+        Bounded on purpose: usage is loaded only for the wide tables that the
+        planner render will show in full (the top-k by table score, plus cached
+        relations), or for every matched table on a filtered build
+        (describe_tables / create_data name patterns). One query for the column
+        stats and one for instruction column references, whatever the table
+        count — so the cost does not grow with ``column_stats`` rows elsewhere
+        in the org or with the size of the catalog. Tables outside that set
+        rank structurally, lazily, if a render ever reaches them.
+        """
+        from app.ai.context.column_ranking import rank_table_columns
+        from app.data_sources.routines import is_routine
+
+        budget = self._column_budget()
+        for t in tables:
+            t.column_budget = budget
+        if budget <= 0 or not with_stats:
+            return
+        wide = [t for t in tables if len(t.columns or []) > budget and not is_routine(t)]
+        if not wide:
+            return
+        if not filtered:
+            k = top_k if (top_k is not None and top_k > 0) else self._top_k_hint()
+            render_ids = {id(t) for t in tables[:k]} | {id(t) for t in tables if getattr(t, "is_cached", False)}
+            wide = [t for t in wide if id(t) in render_ids]
+        ids = [str(t.id) for t in wide if getattr(t, "id", None)]
+        if not ids:
+            return
+        stats: Dict[str, Dict[str, Any]] = {}
+        instr_cols: Dict[str, set] = {}
+        try:
+            from app.services.column_usage_service import ColumnUsageService
+            # Bounded per table: only the top rows by usage can rank into the
+            # budget (4x headroom covers recency reordering).
+            stats = await ColumnUsageService().load_stats(self.db, ids, per_table_limit=max(4 * budget, 200))
+            rows = await self.db.execute(
+                select(InstructionReference.object_id, InstructionReference.column_name).where(
+                    InstructionReference.object_type == 'datasource_table',
+                    InstructionReference.object_id.in_(ids),
+                    InstructionReference.column_name.isnot(None),
+                    InstructionReference.deleted_at.is_(None),
+                )
+            )
+            for oid, col in rows.all():
+                if col:
+                    instr_cols.setdefault(str(oid), set()).add(str(col).lower())
+        except Exception as exc:
+            logger.warning("column stats load failed; ranking structurally: %s", exc)
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        for t in wide:
+            rank_table_columns(t, stats.get(str(t.id)), instr_cols.get(str(t.id)), now)
 
     async def _append_list_tables(self, ds_sections, ds_filter, table_names, name_patterns) -> None:
         from app.schemas.bow_source_schema import SOURCE_ID
@@ -1038,25 +1151,48 @@ class SchemaContextBuilder:
         "sharepoint_onprem",
         "documentum",
         "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "onedrive", "google_drive",
-        "outlook_mail", "gmail_mail", "onenote", "teams_messages",
+        "outlook_mail", "gmail_mail", "exchange_onprem", "onenote", "teams_messages", "slack_messages",
         "github_repo", "gitlab_repo", "bitbucket_repo",
         "kms_lighthouse",
+        "confluence_dc",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint_onprem",
         "documentum",
-        "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
+        "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem",
         # OneNote search is local (over the walked hierarchy), not a provider
         # call, but it is still a first-class search the agent should prefer
         # over paging the whole catalog.
         "onenote",
         "kms_lighthouse",
+        # Confluence Data Center: CQL full-text search, as the connection's identity.
+        "confluence_dc",
         # Teams: Microsoft Search over chatMessage, as the signed-in user.
         "teams_messages",
+        # Slack: search.messages, as the signed-in user.
+        "slack_messages",
     }
     # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
     # account IS the scope. Everything else enforces a path/glob scope.
-    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "teams_messages"}
+    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages", "slack_messages"}
+
+    async def _stamp_slack_scopes(self, ds, file_scopes) -> None:
+        """Tell the model which Slack channels this run reads, so it doesn't
+        go looking in the others."""
+        slack = [fs for fs in file_scopes if fs.type == "slack_messages" and fs.connection_id]
+        if not slack:
+            return
+        try:
+            # The same scope the run's Slack client gets (run_scope): the
+            # union across this run's agents, pinned agents winning — not this
+            # agent's own choice alone, or the note and the client disagree.
+            from app.services.slack_channel_scope import describe_scope, run_scope
+            run_ids = [str(getattr(d, "id", "")) for d in (self.data_sources or [])]
+            pinned = [str(getattr(d, "id", "")) for d in (getattr(self.report, "data_sources", None) or [])]
+            for fs in slack:
+                fs.note = describe_scope(await run_scope(self.db, str(fs.connection_id), run_ids, pinned))
+        except Exception:  # context is best-effort; never fail the build
+            logger.debug("slack channel scope note unavailable", exc_info=True)
 
     async def _stamp_index_times(self, file_scopes) -> None:
         """Attach each file scope's last completed shared index time, so the
@@ -1130,9 +1266,13 @@ class SchemaContextBuilder:
                 base = " / ".join(str(cfg[k]) for k in ("site_url", "drive_name", "folder_path") if cfg.get(k))
             elif c.type == "documentum":
                 base = " / ".join(str(cfg[k]) for k in ("rest_url", "repository", "root_path") if cfg.get(k))
+            elif c.type == "exchange_onprem":
+                base = " / ".join(str(cfg[k]) for k in ("ews_url", "shared_mailboxes") if cfg.get(k))
             elif c.type == "kms_lighthouse":
                 # Folder id 0 is a real id; only a missing or blank value is left out.
                 base = " / ".join(str(cfg[k]) for k in ("base_url", "root_folder_id") if cfg.get(k) not in (None, ""))
+            elif c.type == "confluence_dc":
+                base = " / ".join(str(cfg[k]) for k in ("base_url", "spaces") if cfg.get(k))
             cid = str(c.id)
             ftabs = by_conn.get(cid, [])
             sample = [t.name for t in ftabs[:5] if getattr(t, 'name', None)]
@@ -1163,6 +1303,16 @@ class SchemaContextBuilder:
                 from app.data_sources.clients.kms_lighthouse_client import planner_scope_note
                 enforces_scope = False
                 note = planner_scope_note(cfg)
+            if c.type == "confluence_dc":
+                # The space list (when set) is a hard scope the client enforces on
+                # search, browse and read; with no list the identity is the scope.
+                from app.data_sources.clients.confluence_dc_client import planner_scope_note as _confluence_note
+                note = _confluence_note(cfg)
+            if c.type == "exchange_onprem":
+                # Says whose mail this is: one shared service account, or each
+                # user's own sign-in. The tool surface alone cannot tell.
+                from app.data_sources.clients.exchange_onprem_client import planner_scope_note as _mail_note
+                note = _mail_note(cfg, getattr(c, "auth_policy", None) == "user_required")
             try:
                 cap = int(cfg.get("max_catalog_objects") or 0)
             except (TypeError, ValueError):
@@ -1218,9 +1368,14 @@ class SchemaContextBuilder:
             ToolPolicyService, resolve_effective_policy, normalize_tool_policy,
         )
 
+        from app.data_sources.clients.connector_actions import CALLABLE_TOOL_CONNECTION_TYPES
+        from app.services.tool_policy_service import agent_admin_setting, clamp_to_effect, is_policy_locked
+
         mcp_conn_ids = []
         for conn in (getattr(ds, 'connections', None) or []):
-            if getattr(conn, 'type', None) in ('mcp', 'custom_api', 'remote_ssh', 'remote_smb'):
+            # Tool providers and built-in connectors with write actions — the
+            # same set the run's tool catalog draws from.
+            if getattr(conn, 'type', None) in CALLABLE_TOOL_CONNECTION_TYPES:
                 mcp_conn_ids.append(str(conn.id))
         if not mcp_conn_ids:
             return []
@@ -1253,12 +1408,15 @@ class SchemaContextBuilder:
                 if not model_visible(getattr(t, "metadata_json", None)):
                     continue
                 overlay = overlays.get(str(t.id))
-                is_enabled = overlay.is_enabled if overlay else t.is_enabled
+                # This agent's own rule under the connection's ceiling (off
+                # there = off here; a locked policy only tightens), then the
+                # effect's limits — the same resolution the run uses.
+                is_enabled, admin_policy = agent_admin_setting(t, overlay)
                 if not is_enabled:
                     continue
-                admin_policy = overlay.policy if overlay else t.policy
                 from app.services.remote_shell_policy import display_policy
-                effective = display_policy(t.connection, t.name, admin_policy, user_prefs.get(str(t.id)))
+                effective = clamp_to_effect(t, display_policy(
+                    t.connection, t.name, admin_policy, user_prefs.get(str(t.id)), locked=is_policy_locked(t)))
                 if effective == "deny":
                     continue
                 # Carry the argument schema through, minus admin-locked

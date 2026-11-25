@@ -268,7 +268,11 @@ def seed_agent_executions():
     feedback={"direction", "message"},
     tools=[{"name", "action", "status", "duration_ms", "attempt", "error", "step_id"}],
     usage=[{"model", "provider", "prompt_tokens", "completion_tokens", "cache_read_tokens",
-    "cache_creation_tokens", "cost", "scope"}].
+    "cache_creation_tokens", "cost", "scope", "routed", "baseline_model" (a model id)}],
+    decisions=[{"token_usage": {...}, "total_duration_ms", "tool"}]: planner decisions, each
+    with a completion block (and a tool execution when "tool" names one), the way the
+    trace modal reads them.
+    exposed=[agent ids the run was given], used=[agent ids it used].
     """
     def _seed(org_id, report_id, runs):
         from sqlalchemy import create_engine
@@ -280,6 +284,8 @@ def seed_agent_executions():
         from app.models.llm_usage_record import LLMUsageRecord
         from app.models.llm_provider import LLMProvider
         from app.models.llm_model import LLMModel
+        from app.models.plan_decision import PlanDecision
+        from app.models.completion_block import CompletionBlock
 
         url = os.environ["TEST_DATABASE_URL"]
         sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
@@ -363,6 +369,18 @@ def seed_agent_executions():
                     session.flush()
                     created_ids.append(ae.id)
 
+                    # The agents the run was given / used, as AgentV2 records
+                    # them (folder_monitoring.record_exposed_agents /
+                    # record_used_agents). Omit "exposed" for a run that
+                    # predates exposure recording.
+                    from app.models.agent_execution import execution_exposed_agents, folder_execution_agents
+                    for agent_id in run.get("exposed") or []:
+                        session.execute(execution_exposed_agents.insert().values(
+                            execution_id=ae.id, agent_id=agent_id))
+                    for agent_id in run.get("used") or []:
+                        session.execute(folder_execution_agents.insert().values(
+                            execution_id=ae.id, agent_id=agent_id))
+
                     for i, tool in enumerate(run.get("tools") or []):
                         status = tool.get("status", "success")
                         session.add(ToolExecution(
@@ -414,7 +432,38 @@ def seed_agent_executions():
                             total_cost_usd=u.get("cost", 0.0),
                             input_cost_usd=u.get("cost", 0.0),
                             output_cost_usd=0.0,
+                            routed=bool(u.get("routed", False)),
+                            # The router stores the baseline as an LLMModel id.
+                            baseline_model_id=(_model(session, u["baseline_model"], provider_type)
+                                               if u.get("baseline_model") else None),
                             created_at=created_at + timedelta(milliseconds=1),
+                        ))
+
+                    for i, d in enumerate(run.get("decisions") or []):
+                        at = created_at + timedelta(seconds=i)
+                        pd = PlanDecision(
+                            agent_execution_id=ae.id, seq=i, loop_index=i, analysis_complete=False,
+                            action_name=d.get("tool"), created_at=at,
+                            metrics_json={"total_duration_ms": d.get("total_duration_ms", 1_000),
+                                          "token_usage": d["token_usage"]},
+                        )
+                        session.add(pd)
+                        session.flush()
+                        te_id = None
+                        if d.get("tool"):
+                            te = ToolExecution(
+                                agent_execution_id=ae.id, plan_decision_id=pd.id, tool_name=d["tool"],
+                                arguments_json={}, status="success", success=True,
+                                started_at=at, completed_at=at, duration_ms=100, created_at=at,
+                            )
+                            session.add(te)
+                            session.flush()
+                            te_id = te.id
+                        session.add(CompletionBlock(
+                            completion_id=system_completion.id, agent_execution_id=ae.id,
+                            source_type="tool" if te_id else "decision", plan_decision_id=pd.id,
+                            tool_execution_id=te_id, block_index=i, loop_index=i,
+                            title=d.get("tool") or "answer", status="completed", created_at=at,
                         ))
                 session.commit()
         finally:

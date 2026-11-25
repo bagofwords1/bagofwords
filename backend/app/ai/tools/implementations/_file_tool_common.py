@@ -38,10 +38,12 @@ logger = logging.getLogger(__name__)
 FILE_SOURCE_TYPES = {
     "sharepoint_onprem",
     "documentum",
-    "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
-    "network_dir", "s3", "gcs", "azure_blob", "onenote", "teams_messages",
+    "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem",
+    "network_dir", "s3", "gcs", "azure_blob", "onenote", "teams_messages", "slack_messages",
     # KMS Lighthouse: live only (no catalog), read with the caller's identity.
     "kms_lighthouse",
+    # Confluence Data Center: live only (no catalog), read with the caller's identity.
+    "confluence_dc",
     # Code connections: a cached clone served by a NetworkDirClient subclass.
     "github_repo", "gitlab_repo", "bitbucket_repo",
     # Hybrid connectors (QUERY + file capabilities). ServiceNow serves record
@@ -50,6 +52,8 @@ FILE_SOURCE_TYPES = {
     # that strip file rows from Tables views (schema_context_builder,
     # data_source_service) — it has no file catalog rows to strip.
     "servicenow",
+    # Jira Data Center: tables plus issues as documents (live; same rule as servicenow).
+    "jira_dc",
 }
 
 
@@ -99,6 +103,21 @@ def friendly_tool_error(operation: str, connection_name: str, exc: Exception) ->
     from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError
     from app.data_sources.clients.documentum_client import DocumentumHTTPError
     from app.data_sources.clients._graph_throttle import GraphThrottledError
+    from app.data_sources.clients._exchange_ews import ExchangeError
+    if isinstance(exc, ExchangeError) and exc.code == "Unauthorized":
+        name = connection_name or "Exchange Server"
+        return (
+            f"Windows authentication failed for '{name}'. Do NOT retry: repeated attempts with a "
+            "wrong password can lock the account. Tell the user to update this connection's "
+            "Windows credentials — for a user-required connection, their own — then continue "
+            "with the remaining sources."
+        )
+    if isinstance(exc, ExchangeError) and exc.code == "ErrorServerBusy":
+        name = connection_name or "Exchange Server"
+        return (
+            f"The Exchange server behind '{name}' is throttling requests right now. Do NOT retry "
+            "in a loop; tell the user it is temporarily busy and continue with the remaining sources."
+        )
     if isinstance(exc, GraphThrottledError):
         name = connection_name or "this source"
         wait = max(1, int(round(exc.retry_after)))
@@ -120,6 +139,21 @@ def friendly_tool_error(operation: str, connection_name: str, exc: Exception) ->
         return (
             f"Documentum denied access to that object for the current identity on '{name}' — the "
             "repository ACL does not grant Browse/Read. Do not retry; tell the user which document was denied."
+        )
+    from app.data_sources.clients._atlassian_dc_http import AtlassianHTTPError
+    if isinstance(exc, AtlassianHTTPError) and exc.kind in ("auth", "captcha"):
+        name = connection_name or "this source"
+        return (
+            f"The server did not accept the credentials for '{name}' ({exc}). Do NOT retry: repeated "
+            "password attempts can lock the account behind a CAPTCHA. For a user-required connection the "
+            f"user must connect '{name}' with their own personal access token; otherwise an admin must "
+            "update the connection's credentials. Continue with the remaining sources."
+        )
+    if isinstance(exc, AtlassianHTTPError) and exc.kind == "throttled":
+        name = connection_name or "this source"
+        return (
+            f"'{name}' is rate-limiting requests right now. Do NOT retry this call in a loop; tell the "
+            "user the source is temporarily throttled and continue with the remaining sources."
         )
     if isinstance(exc, SharePointHTTPError) and exc.status == 401:
         return (
@@ -388,8 +422,21 @@ async def resolve_file_client(
     from app.services.connection_service import ConnectionService
 
     service = ConnectionService()
+    config_overrides = None
+    if resolved_conn.type == "slack_messages":
+        # Each agent may narrow the shared Slack connection to its channels.
+        # One rule for every entry point (see slack_channel_scope.run_scope):
+        # union of the run's agents on this connection, pinned agents win;
+        # with no report, every agent linked to the connection.
+        from app.services.slack_channel_scope import client_overrides, run_scope
+        run_ids = [str(ds.id) for ds, conn in attached if str(conn.id) == str(resolved_conn.id)] if report else None
+        pinned = [str(ds.id) for ds in (getattr(report, "data_sources", None) or [])] if report else []
+        config_overrides = client_overrides(await run_scope(db, str(resolved_conn.id), run_ids, pinned))
     try:
-        client = await service.construct_client(db, resolved_conn, current_user)
+        # Only Slack passes overrides; every other type keeps the exact call
+        # it always made.
+        extra = {"config_overrides": config_overrides} if config_overrides else {}
+        client = await service.construct_client(db, resolved_conn, current_user, **extra)
     except Exception as e:
         return None, f"Failed to construct client: {e}"
 

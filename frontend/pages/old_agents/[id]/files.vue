@@ -55,7 +55,7 @@
             <template v-if="globsOf(conn).length">
               <code v-for="g in globsOf(conn)" :key="g" class="inline-block mr-1.5 mb-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">{{ g }}</code>
             </template>
-            <span v-else class="text-gray-500 italic">whole path</span>
+            <span v-else class="text-ink-muted italic">whole path</span>
           </div>
         </div>
 

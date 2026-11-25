@@ -45,11 +45,27 @@ async def _find_platform_by_phone_number_id(
     """Look up the WhatsApp ExternalPlatform row for a given phone_number_id."""
     if not phone_number_id:
         return None
-    for platform in await _list_whatsapp_platforms(db):
-        config = platform.platform_config or {}
-        if config.get("phone_number_id") == phone_number_id:
-            return platform
-    return None
+    matches = [
+        platform for platform in await _list_whatsapp_platforms(db)
+        if (platform.platform_config or {}).get("phone_number_id") == phone_number_id
+    ]
+    if not matches:
+        return None
+    # The number is the routing key, so it should name one platform. If older
+    # data has it connected more than once, choose predictably: active first,
+    # then the oldest connection.
+    matches.sort(key=lambda p: (
+        0 if p.is_active else 1,
+        p.created_at.isoformat() if getattr(p, "created_at", None) is not None else "",
+        str(p.id),
+    ))
+    if len(matches) > 1:
+        logging.getLogger(__name__).warning(
+            "WHATSAPP: %d platforms share phone_number_id %s (organizations: %s); using platform %s",
+            len(matches), phone_number_id,
+            ", ".join(sorted({str(p.organization_id) for p in matches})), matches[0].id,
+        )
+    return matches[0]
 
 
 @router.get("/api/settings/integrations/whatsapp/webhook")

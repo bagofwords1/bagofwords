@@ -7,6 +7,7 @@ Maps connection types to their OAuth provider configuration and manages token li
 import asyncio
 import base64
 import hashlib
+import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -142,12 +143,26 @@ def get_oauth_params(connection: Connection) -> dict:
             ),
         }
 
+        scopes = scopes_map[conn_type]
+        # Write actions a connection admin turned on (send_email, post_message,
+        # ...) need their own delegated scopes: Mail.ReadWrite, Mail.Send,
+        # ChannelMessage.Send. Recorded on the connection when its tools change.
+        cfg = connection.config
+        if isinstance(cfg, str):
+            try:
+                cfg = json.loads(cfg)
+            except Exception:
+                cfg = {}
+        extra = [x for x in ((cfg or {}).get("action_scopes") or []) if isinstance(x, str) and x not in scopes.split()]
+        if extra:
+            scopes = f"{scopes} {' '.join(extra)}"
+        authority = (os.getenv("BOW_GRAPH_TOKEN_BASE_URL") or "https://login.microsoftonline.com").rstrip("/")
         return {
-            "authorize_url": f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize",
-            "token_url": f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
+            "authorize_url": f"{authority}/{tenant_id}/oauth2/v2.0/authorize",
+            "token_url": f"{authority}/{tenant_id}/oauth2/v2.0/token",
             "client_id": client_id,
             "client_secret": client_secret,
-            "scopes": scopes_map[conn_type],
+            "scopes": scopes,
             "provider_name": "microsoft",
         }
 
@@ -502,7 +517,68 @@ def get_oauth_params(connection: Connection) -> dict:
             "token_endpoint_auth_method": "client_secret_post",
         }
 
+    if conn_type == "slack_messages":
+        client_id = creds.get("oauth_client_id")
+        client_secret = creds.get("oauth_client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for Slack. "
+                "Configure the Slack app's Client ID and Secret in the connection credentials."
+            )
+        # USER token scopes, all read-only. They are sent as `user_scope` (see
+        # the authorize route): sent as `scope` Slack would mint a bot token,
+        # which sees only channels the bot was invited to and cannot search.
+        # DM scopes are always requested: whether an agent reads DMs is a
+        # per-agent choice made after sign-in, on the same token.
+        from app.data_sources.clients.slack_messages_client import DM_SCOPES, REQUIRED_SCOPES
+        scopes = [*REQUIRED_SCOPES, *DM_SCOPES]
+        return {
+            "authorize_url": "https://slack.com/oauth/v2/authorize",
+            "token_url": "https://slack.com/api/oauth.v2.access",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scopes": ",".join(scopes),
+            "provider_name": "slack",
+            "token_endpoint_auth_method": "client_secret_post",
+        }
+
     raise ValueError(f"OAuth not supported for connection type: {conn_type}")
+
+
+def normalize_slack_token_response(token_data: dict) -> dict:
+    """Pull the USER token out of a Slack ``oauth.v2.access`` response.
+
+    Slack answers HTTP 200 with ``ok: false`` on failure. The code exchange
+    puts the user token under ``authed_user`` (a top-level ``access_token``
+    there is a bot token, present only when bot scopes were requested); a
+    token-rotation REFRESH answers flat, with ``token_type: "user"`` at the top
+    level. Without rotation the token never expires — no ``expires_in``, so
+    ``expires_at`` stays None and the refresh path never fires; with rotation
+    it expires every 12 hours and is refreshed through this same function.
+    """
+    if not token_data.get("ok"):
+        raise ValueError(f"Slack rejected the sign-in: {token_data.get('error') or 'unknown error'}")
+    user = token_data.get("authed_user") or {}
+    if not user.get("access_token") and token_data.get("token_type") == "user":
+        # A token-rotation REFRESH answers flat: the user token, its refresh
+        # token and expiry at the top level (the code exchange nests them).
+        user = token_data
+    token = user.get("access_token")
+    if not token:
+        raise ValueError(
+            "Slack returned no user token. Add the scopes under User Token Scopes "
+            "(not Bot Token Scopes) in the Slack app, then sign in again."
+        )
+    expires_in = user.get("expires_in")
+    return {
+        "access_token": token,
+        "refresh_token": user.get("refresh_token"),
+        "expires_at": (
+            datetime.fromtimestamp(time.time() + int(expires_in), tz=timezone.utc).isoformat()
+            if expires_in else None
+        ),
+        "token_type": "Bearer",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +669,8 @@ async def exchange_code_for_tokens(
         raise ValueError(f"OAuth token exchange failed: {resp.text}")
 
     token_data = resp.json()
+    if oauth_params.get("provider_name") == "slack":
+        return normalize_slack_token_response(token_data)
     expires_in = token_data.get("expires_in", 3600)
     return {
         "access_token": token_data["access_token"],
@@ -664,6 +742,10 @@ async def refresh_access_token(
         logger.error(f"OAuth token refresh rejected: {desc}")
         raise ValueError(f"OAuth token refresh rejected: {desc}")
 
+    if oauth_params.get("provider_name") == "slack":
+        tokens = normalize_slack_token_response(token_data)
+        tokens["refresh_token"] = tokens.get("refresh_token") or refresh_token
+        return tokens
     expires_in = token_data.get("expires_in", 3600)
     return {
         "access_token": token_data["access_token"],

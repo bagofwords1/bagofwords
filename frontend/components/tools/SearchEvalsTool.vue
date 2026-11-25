@@ -1,16 +1,14 @@
 <template>
-  <div class="mt-1">
-    <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-      <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-        {{ queryLabel ? t('tools.searchEvals.searchingFor', { query: queryLabel }) : t('tools.searchEvals.searching') }}
-      </span>
-      <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-        <span class="align-middle">{{ queryLabel ? t('tools.searchEvals.searchedFor', { query: queryLabel }) : t('tools.searchEvals.searched') }}</span>
-        <span v-if="total > 0" class="ms-1.5 text-chat-3 text-ink-muted">· {{ total === 1 ? t('tools.searchEvals.matchSingular', { count: total }) : t('tools.searchEvals.matchPlural', { count: total }) }}</span>
-      </span>
-    </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-magnifying-glass" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ queryLabel ? t('tools.searchEvals.searchingFor', { query: queryLabel }) : t('tools.searchEvals.searching') }}</template>
+      <template v-else>{{ queryLabel ? t('tools.searchEvals.searchedFor', { query: queryLabel }) : t('tools.searchEvals.searched') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else><span v-if="total > 0" class="ms-1.5 text-chat-3 text-ink-muted">· {{ total === 1 ? t('tools.searchEvals.matchSingular', { count: total }) : t('tools.searchEvals.matchPlural', { count: total }) }}</span></template></div>
 
     <div v-if="items.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
       <ul class="ms-1 space-y-1 leading-snug">
@@ -20,9 +18,9 @@
             {{ item.name || t('tools.searchEvals.unnamed') }}
           </NuxtLink>
           <span v-if="item.suite_name" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.suite_name }}</span>
-          <span v-if="item.status === 'draft'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-amber-100 text-amber-800 flex-shrink-0">{{ t('tools.searchEvals.statusDraft') }}</span>
+          <span v-if="item.status === 'draft'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 flex-shrink-0">{{ t('tools.searchEvals.statusDraft') }}</span>
           <span v-else-if="item.status === 'archived'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex-shrink-0">{{ t('tools.searchEvals.statusArchived') }}</span>
-          <span v-if="item.auto_generated" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-purple-100 text-purple-800 flex-shrink-0">{{ t('tools.searchEvals.autoBadge') }}</span>
+          <span v-if="item.auto_generated" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 flex-shrink-0">{{ t('tools.searchEvals.autoBadge') }}</span>
         </li>
       </ul>
     </div>
@@ -30,10 +28,16 @@
     <div v-if="status !== 'running' && !items.length" class="text-chat-2 text-ink-muted ms-1">
       {{ t('tools.searchEvals.empty') }}
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 
@@ -69,14 +73,5 @@ const total = computed<number>(() => {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
+.tool-call-details { overflow-wrap: anywhere; }
 </style>

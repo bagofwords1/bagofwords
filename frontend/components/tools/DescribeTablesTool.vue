@@ -1,55 +1,18 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header (click to expand/collapse results) -->
-    <Transition name="fade" appear>
-      <div
-        class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="hasContent && toggleCollapsed()"
-        :aria-expanded="!isCollapsed"
-      >
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>Searching&nbsp;</span>
-          <Transition name="fade-in" mode="out-in">
-            <span :key="queryLabel || ''">{{ queryLabel }}</span>
-          </Transition>
-          <span>…</span>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center min-w-0">
-          <Icon
-            v-if="hasContent"
-            :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-            class="w-3 h-3 me-1 text-ink-muted rtl-flip flex-shrink-0"
-          />
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
-          <span class="align-middle flex-shrink-0">Searched&nbsp;</span>
-          <span v-if="headerTables.length" class="flex items-center min-w-0 overflow-hidden">
-            <span
-              v-for="(item, idx) in headerTables"
-              :key="idx"
-              class="inline-flex items-center flex-shrink-0"
-            >
-              <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 me-1" :class="{ 'ms-1': idx > 0 }" />
-              <UIcon
-                v-if="isFastConnectionName(item.connection_name)"
-                name="heroicons-bolt"
-                class="w-2.5 h-2.5 me-0.5 text-amber-500 flex-shrink-0"
-                title="Cached locally — this read did not query the source"
-              />
-              <bdi class="font-medium">{{ item.full_name || item.name || 'table' }}</bdi>
-              <span v-if="idx < headerTables.length - 1 || headerExtraCount > 0">,</span>
-            </span>
-            <span v-if="headerExtraCount > 0" class="ms-1 text-ink-muted flex-shrink-0">+{{ headerExtraCount }} more</span>
-          </span>
-          <Transition v-else name="fade-in" mode="out-in">
-            <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
-          </Transition>
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-table-cells" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>{{ headerLabel }}</template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else>
+      <template v-if="headerTables.length"><span v-if="headerExtraCount > 0" class="ms-1 text-ink-muted flex-shrink-0">+{{ headerExtraCount }} more</span></template>
+      <template v-else></template></template></div>
     <!-- Preview of top tables (collapsed by default; click header to toggle) -->
     <Transition name="fade">
-      <div v-if="!isCollapsed && topTables && topTables.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
+      <div v-if="toolHeaderExpanded && topTables && topTables.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(item, idx) in topTables.slice(0, 10)" :key="idx">
             <!-- Header row -->
@@ -69,21 +32,24 @@
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1">
                 <!-- Columns -->
+                <div v-if="columnsNote(item)" class="text-chat-3 text-ink-muted mb-1" :data-testid="`describe-cols-note-${item.name}`">{{ columnsNote(item) }}</div>
                 <div v-if="(item.columns || []).length" class="text-gray-500 dark:text-gray-400 mb-1">
                   <table class="min-w-0 text-chat-2">
                     <thead class="text-ink-muted">
                       <tr>
-                        <th class="text-start pe-4 font-normal">Column</th>
-                        <th class="text-start font-normal">Type</th>
+                        <th class="text-start pe-4 font-normal">{{ t('tools.describeTables.column') }}</th>
+                        <th class="text-start pe-4 font-normal">{{ t('tools.describeTables.type') }}</th>
+                        <th v-if="hasColumnUsage(item)" class="text-end font-normal">{{ t('tools.describeTables.used') }}</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="(col, cidx) in columnsHead(item)" :key="cidx">
-                        <td class="pe-4 text-gray-600 dark:text-gray-400">{{ col.name }}</td>
-                        <td class="text-ink-muted">{{ col.dtype || 'any' }}</td>
+                      <tr v-for="(col, cidx) in columnsHead(item)" :key="cidx" :data-testid="`describe-col-${item.name}-${col.name}`">
+                        <td class="pe-4 text-gray-600 dark:text-gray-400" dir="ltr">{{ col.name }}</td>
+                        <td class="pe-4 text-ink-muted">{{ col.dtype || 'any' }}</td>
+                        <td v-if="hasColumnUsage(item)" class="text-end nums text-ink-muted">{{ col.usage_count ? formatInt(col.usage_count) : '—' }}</td>
                       </tr>
                       <tr v-if="columnsTruncated(item)">
-                        <td colspan="2" class="text-ink-muted">…</td>
+                        <td :colspan="hasColumnUsage(item) ? 3 : 2" class="text-ink-muted">{{ t('tools.describeTables.more', { count: (item.columns || []).length - COLUMNS_HEAD }) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -131,14 +97,18 @@
         </ul>
       </div>
     </Transition>
+  
+    </div>
   </div>
-
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { isFastConnectionName } from '~/composables/useFastTable'
 import { computed, ref } from 'vue'
-import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
 interface ToolExecution {
@@ -156,6 +126,7 @@ interface Props {
 
 const props = defineProps<Props>()
 const emit = defineEmits<{ (e: 'openInstruction', id: string): void }>()
+const { t } = useI18n()
 
 const status = computed<string>(() => props.toolExecution?.status || '')
 
@@ -171,7 +142,22 @@ const queryLabel = computed<string>(() => {
   // Fallback to summary parsing if present
   const sum = props.toolExecution?.result_summary || ''
   const m = sum.match(/^Searching\s+(.+?)…?$/)
-  return m ? m[1] : 'tables'
+  if (m) return m[1]
+  return columnTerms.value ? '' : 'tables'
+})
+
+// describe_tables `columns` (column search), echoed by the result or taken
+// from the call's arguments while it runs.
+const columnTerms = computed<string>(() => {
+  const rj = props.toolExecution?.result_json || {}
+  let c: any = rj.search_columns
+  if (c == null) c = (props.toolExecution as any)?.arguments_json?.columns
+  if (Array.isArray(c)) return c.filter(Boolean).join(', ')
+  return typeof c === 'string' ? c : ''
+})
+const searchLabel = computed<string>(() => {
+  const cols = columnTerms.value ? t('tools.describeTables.columnsMatching', { terms: columnTerms.value }) : ''
+  return [queryLabel.value, cols].filter(Boolean).join(' · ')
 })
 
 // Extract top tables from backend (lightweight preview)
@@ -211,6 +197,17 @@ const dedupedTables = computed<any[]>(() => {
 })
 const headerTables = computed<any[]>(() => dedupedTables.value.slice(0, HEADER_MAX_TABLES))
 const headerExtraCount = computed<number>(() => Math.max(0, dedupedTables.value.length - HEADER_MAX_TABLES))
+// Built as one string: in a multi-line template Vue's whitespace condensing
+// dropped the spaces after the commas ("orders,events").
+const headerLabel = computed<string>(() => {
+  if (status.value === 'running') return t('tools.describeTables.searching', { query: searchLabel.value })
+  if (!headerTables.value.length) return t('tools.describeTables.searched', { names: searchLabel.value })
+  let names = headerTables.value.map((item: any) => item.full_name || item.name || 'table').join(', ')
+  if (columnTerms.value) names += ` · ${t('tools.describeTables.columnsMatching', { terms: columnTerms.value })}`
+  return headerExtraCount.value > 0
+    ? t('tools.describeTables.searchedMore', { names, count: headerExtraCount.value })
+    : t('tools.describeTables.searched', { names })
+})
 
 const expandedItems = ref<Set<number>>(new Set())
 function toggleItem(index: number) {
@@ -233,22 +230,50 @@ function inferIconTypeFromItem(item: any): string {
   }
 }
 
-function columnsHead(item: any, max = 8): any[] {
+const COLUMNS_HEAD = 12
+
+// Most used first (usage_count from ColumnStats); unused columns keep the
+// order the agent saw them in.
+function sortedColumns(item: any): any[] {
+  const cols = Array.isArray(item?.columns) ? item.columns : []
+  return cols
+    .map((c: any, i: number) => ({ c, i }))
+    .sort((a: any, b: any) => (Number(b.c?.usage_count || 0) - Number(a.c?.usage_count || 0)) || (a.i - b.i))
+    .map((x: any) => x.c)
+}
+
+function columnsHead(item: any, max = COLUMNS_HEAD): any[] {
   try {
-    const cols = Array.isArray(item?.columns) ? item.columns : []
-    return cols.slice(0, max)
+    return sortedColumns(item).slice(0, max)
   } catch {
     return []
   }
 }
 
-function columnsTruncated(item: any, max = 8): boolean {
+function columnsTruncated(item: any, max = COLUMNS_HEAD): boolean {
   try {
     const cols = Array.isArray(item?.columns) ? item.columns : []
     return cols.length > max
   } catch {
     return false
   }
+}
+
+function hasColumnUsage(item: any): boolean {
+  return (item?.columns || []).some((c: any) => Number(c?.usage_count || 0) > 0)
+}
+
+// "Top 60 of 5,000 columns" for a wide table, "12 of 5,000 columns match
+// retry" for a column search.
+function columnsNote(item: any): string {
+  const total = Number(item?.columns_total || 0)
+  const shown = (item?.columns || []).length
+  if (item?.columns_matched != null) {
+    if (!Number(item.columns_matched)) return t('tools.describeTables.noMatch', { terms: columnTerms.value })
+    return t('tools.describeTables.matchingOf', { matched: formatInt(item.columns_matched), total: formatInt(total), terms: columnTerms.value })
+  }
+  if (total > shown && shown > 0) return t('tools.describeTables.showingOf', { shown: formatInt(shown), total: formatInt(total) })
+  return ''
 }
 
 function formatInt(n: number): string {
@@ -315,18 +340,6 @@ function lastUsedLabel(item: any): string {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 /* Fade transition for initial appear and toggles */
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;

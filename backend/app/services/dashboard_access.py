@@ -86,6 +86,18 @@ async def can_edit(db, artifact: Artifact, user) -> bool:
 
     if user is None or not await principal_belongs_to_org(db, user, str(artifact.organization_id)):
         return False
+    # Editing is the workspace. An app user (a member without
+    # access_workspace) reads what is published and shared with them, even a
+    # dashboard they own or were given to edit while they had the workspace:
+    # no draft, no unpublished changes, no editor's controls.
+    # Asked of the resolver directly (memoized per request): the list page
+    # calls this once per card, and membership was just checked above.
+    if not getattr(user, "is_service_account", False):
+        from app.core.permission_resolver import has_workspace_access, resolve_permissions
+
+        resolved = await resolve_permissions(db, str(user.id), str(artifact.organization_id))
+        if not has_workspace_access(resolved.org_permissions):
+            return False
     if is_owner(artifact, user):
         return True
     if await _edit_granted(db, artifact, user):
@@ -163,9 +175,10 @@ CAP_SETTINGS = "settings"        # schedule, chat, Data tab, link name, notes
 CAP_RUN_IDENTITY = "run_identity"  # viewer <-> creator credentials, "editors can share"
 CAP_TRANSFER = "transfer"        # hand the dashboard to another editor
 CAP_ANALYTICS = "analytics"      # read the dashboard's view counts
+CAP_DELETE = "delete"            # delete the dashboard and every version of it
 
 _EDITOR_CAPS = {CAP_VIEW, CAP_EDIT, CAP_PUBLISH, CAP_SHARE, CAP_SETTINGS, CAP_ANALYTICS}
-_OWNER_CAPS = _EDITOR_CAPS | {CAP_MAKE_PUBLIC, CAP_RUN_IDENTITY, CAP_TRANSFER}
+_OWNER_CAPS = _EDITOR_CAPS | {CAP_MAKE_PUBLIC, CAP_RUN_IDENTITY, CAP_TRANSFER, CAP_DELETE}
 
 
 async def capabilities(db, artifact: Artifact, user) -> set[str]:

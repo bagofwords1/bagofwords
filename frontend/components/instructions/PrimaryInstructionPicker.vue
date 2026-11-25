@@ -51,7 +51,7 @@
                         <span v-text-dir class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
                             {{ inst.title || 'Untitled instruction' }}
                         </span>
-                        <span v-if="inst.id === currentInstructionId" class="text-2xs px-1 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 rounded shrink-0">
+                        <span v-if="inst.id === currentInstructionId" class="text-2xs px-1 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded shrink-0">
                             Current
                         </span>
                     </div>

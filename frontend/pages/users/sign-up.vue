@@ -64,7 +64,7 @@
 
       <p v-if="authMode !== 'sso_only' && !setupRequired" class="mt-6 text-sm text-center text-gray-500 dark:text-gray-400">
         {{ $t('auth.alreadyHaveAccount') }}
-        <NuxtLink to="/users/sign-in" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
+        <NuxtLink :to="signInLink" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
           {{ $t('auth.signIn') }}
         </NuxtLink>
       </p>
@@ -104,6 +104,10 @@ const email = ref('');
 const password = ref('');
 const inviteToken = ref('');
 const error_message = ref('')
+// Someone who already has an account takes the invite with them to sign-in.
+const signInLink = computed(() => inviteToken.value
+  ? { path: '/users/sign-in', query: { invite_token: inviteToken.value } }
+  : '/users/sign-in')
 
 // Shape of an entry in /api/settings -> oidc_providers. `label` and `brand`
 // are derived server-side so the button can show a real product name and logo
@@ -228,7 +232,13 @@ async function signInWithCredentials(email: string, password: string) {
 
     // Check if the user has an organization (same as sign-in flow)
     const org = await fetchOrganization();
-    if (!org || !org.id) {
+    // Sign-up reached from a page that needed a session (an embedded
+    // artifact's sign-in popup, /embed-signin) returns there, as sign-in
+    // does. Same-origin paths only.
+    const back = route.query.redirect
+    if (org?.id && typeof back === 'string' && back.startsWith('/') && !back.startsWith('//')) {
+      navigateTo(back);
+    } else if (!org || !org.id) {
       navigateTo('/organizations/new');
     } else {
       navigateTo('/');
@@ -255,13 +265,14 @@ if (productUpdatesPrompt.value) {
 }
 
 try {
-  const response = await $fetch('/api/auth/register', {
+  // Inside a host application's sign-in window this registration, and only
+  // this one, is that application's: it is sent with the host's intent or not
+  // at all (utils/embedSignupIntent.ts).
+  const response = await submitWithEmbedIntent(route.query.redirect, headers => $fetch('/api/auth/register', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(payload),
-  });
+  }));
 
   if (!response) {
     error_message.value = t('auth.registrationError')
@@ -269,10 +280,19 @@ try {
     return
   }
 
+  // Registration consumed the invite; nothing is left to accept after sign-in.
+  try { sessionStorage.removeItem('bow.pendingInviteToken') } catch (_) {}
+
   // Add automatic login after successful registration
   await signInWithCredentials(email.value, password.value)
 
 } catch (error: any) {
+  if (error instanceof EmbedIntentError) {
+    // Nothing was sent: no account exists. Submitting again retries.
+    error_message.value = t('embed.signin.intentFailed')
+    isSubmitting.value = false
+    return
+  }
   console.error('Error fetching data:', error);
   error_message.value = extractErrorMessage(error, t('auth.registrationError'))
   isSubmitting.value = false

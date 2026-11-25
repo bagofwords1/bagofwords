@@ -152,13 +152,13 @@ async def run_slack_socket_listeners(
     clients: Dict[str, SlackSocketClient] = {}
     tasks: Dict[str, asyncio.Task] = {}
 
-    async def _make_handler():
+    def _make_handler(platform_id: str):
+        # Each socket belongs to one platform (it was opened with that
+        # platform's app token), so its events are handled as that platform.
         async def _handler(event_payload: dict) -> None:
             async with async_session_maker() as db:
-                await handle_slack_event(db, event_payload)
+                await handle_slack_event(db, event_payload, platform_id=platform_id)
         return _handler
-
-    handler = await _make_handler()
 
     while not (stop_event and stop_event.is_set()):
         try:
@@ -193,7 +193,7 @@ async def run_slack_socket_listeners(
             for pid, app_token in active.items():
                 task = tasks.get(pid)
                 if task is None or task.done():
-                    client = SlackSocketClient(app_token, handler)
+                    client = SlackSocketClient(app_token, _make_handler(pid))
                     clients[pid] = client
                     tasks[pid] = asyncio.create_task(client.run())
                     logger.info("SLACK_SOCKET: listener task started for platform %s", pid)

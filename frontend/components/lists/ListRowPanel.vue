@@ -65,7 +65,7 @@
             <span class="truncate">
               <b class="font-medium text-gray-800 dark:text-gray-200">{{ h.actor_type === 'agent' ? $t('lists.row.agent') : (h.actor_name || '') }}</b>
               {{ $t('lists.row.action.' + h.action) }}
-              <span class="font-mono text-gray-500">{{ changedNames(h) }}</span>
+              <span class="font-mono text-ink-muted">{{ changedNames(h) }}</span>
             </span>
             <span class="ms-auto shrink-0 text-ink-muted">{{ shortTime(h.created_at) }}</span>
             <button v-if="canManage && (h.action === 'update' || h.action === 'revert')" type="button" data-testid="list-row-revert" class="shrink-0 underline decoration-dotted hover:text-gray-900 dark:hover:text-white" @click="revert(h)">{{ $t('lists.row.revert') }}</button>

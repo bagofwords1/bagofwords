@@ -146,10 +146,13 @@ class SandboxJob:
     loadables: Optional[Dict] = None
     params: Optional[Dict] = None
     client_keys: List[str] = field(default_factory=list)
+    # Former client key -> current key (namespace.ClientsDict).
+    client_aliases: Dict[str, str] = field(default_factory=dict)
     http_enabled: bool = False
     load_step_enabled: bool = False
     lists_enabled: bool = False
     browser_enabled: bool = False
+    search_summaries: bool = False
     # pptx mode
     visualizations: Optional[List[Dict]] = None
     report: Optional[Dict] = None
@@ -709,6 +712,8 @@ def run_job(
             "loadables": job.loadables,
             "params": dict(job.params or {}),
             "client_keys": list(job.client_keys or []),
+            "search_summaries": job.search_summaries,
+            "client_aliases": dict(job.client_aliases or {}),
             "http_enabled": bool(job.http_enabled and http_get is not None),
             "load_step_enabled": bool(job.load_step_enabled),
             "lists_enabled": bool(job.lists_enabled and lists_submit is not None),

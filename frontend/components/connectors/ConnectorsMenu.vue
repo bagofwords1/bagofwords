@@ -28,8 +28,8 @@
               class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800/70"
               :data-testid="`connector-row-${ds.id}`"
             >
-              <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 w-4 shrink-0" />
-              <span class="flex-1 min-w-0 truncate text-gray-800 dark:text-gray-200"><bdi>{{ ds.name }}</bdi></span>
+              <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 w-4 shrink-0" :class="{ 'opacity-50': isOff(ds) }" />
+              <span class="flex-1 min-w-0 truncate text-gray-800 dark:text-gray-200" :class="{ 'opacity-50': isOff(ds) }"><bdi>{{ ds.name }}</bdi></span>
               <button
                 v-if="statusOf(ds) === 'sign_in'"
                 type="button"
@@ -41,10 +41,23 @@
                 <Spinner v-if="connectingId === ds.id" class="w-3 h-3 animate-spin" />
                 {{ $t('connectors.signIn') }}
               </button>
-              <span v-else class="shrink-0 inline-flex items-center gap-1.5 text-2xs text-ink-muted" :title="statusLabel(ds)">
-                <span class="w-2 h-2 rounded-full" :class="statusOf(ds) === 'offline' ? 'bg-red-500' : 'bg-green-500'" />
-                {{ statusLabel(ds) }}
-              </span>
+              <template v-else>
+                <span class="shrink-0 inline-flex items-center gap-1.5 text-2xs text-ink-muted" :title="statusLabel(ds)">
+                  <span class="w-2 h-2 rounded-full" :class="statusOf(ds) === 'offline' ? 'bg-red-500' : 'bg-green-500'" />
+                  {{ statusLabel(ds) }}
+                </span>
+                <!-- Chat on/off — only for the person's OWN connectors (the backend
+                     enforces the choice only on those). Keeps sign-in separate. -->
+                <UToggle
+                  v-if="canToggle(ds)"
+                  size="xs"
+                  :model-value="ds.chat_enabled !== false"
+                  :aria-label="(ds.chat_enabled !== false ? $t('connectors.disableForChat') : $t('connectors.enableForChat'))"
+                  :title="(ds.chat_enabled !== false ? $t('connectors.enabledHint') : $t('connectors.disabledHint'))"
+                  :data-testid="`connector-toggle-${ds.id}`"
+                  @update:model-value="(v) => setChatEnabled(ds, v)"
+                />
+              </template>
             </li>
           </ul>
           <div class="mt-1 border-t border-gray-100 dark:border-gray-800 pt-1">
@@ -75,7 +88,7 @@ import PlugIcon from '~/components/icons/PlugIcon.vue'
 import BrowseConnectorsModal from '~/components/connectors/BrowseConnectorsModal.vue'
 
 const { t } = useI18n()
-const { connectors, loading, load, connectorStatus } = useConnectors()
+const { connectors, loading, load, connectorStatus, setChatEnabled } = useConnectors()
 const { connectingId, startConnect, asCredentialsModalSource } = useDataSourceConnect()
 
 const showBrowse = ref(false)
@@ -86,6 +99,17 @@ const showCredsModal = ref(false)
 const credsDs = ref<any>(null)
 
 const statusOf = (ds: any) => connectorStatus(ds)
+
+// The chat toggle applies only to the person's OWN connectors. The backend is
+// the single source of truth for "personal": it sends `chat_enabled` (true/false)
+// only for personal connectors and null for everything else, using the same
+// predicate the run-time filter uses. So we show the toggle only when the backend
+// marked it (chat_enabled != null) AND the connector is in a usable state. A
+// 'shared' connector shows status only; 'sign_in' shows the Connect button.
+const TOGGLEABLE = ['connected', 'service_account', 'offline']
+const canToggle = (ds: any) => ds?.chat_enabled != null && TOGGLEABLE.includes(statusOf(ds))
+// True when a toggleable connector is currently switched off (visual dimming).
+const isOff = (ds: any) => canToggle(ds) && ds.chat_enabled === false
 const connectedCount = computed(() => connectors.value.filter((ds) => ['connected', 'shared', 'service_account'].includes(statusOf(ds))).length)
 const needsSignInCount = computed(() => connectors.value.filter((ds) => ['sign_in', 'offline'].includes(statusOf(ds))).length)
 

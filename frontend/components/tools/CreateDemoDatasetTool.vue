@@ -1,34 +1,16 @@
 <template>
-  <div class="mt-1" data-testid="create-demo-dataset-tool">
+  <div class="min-w-0" data-testid="create-demo-dataset-tool">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-        <span v-if="phase === 'designing'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ t('tools.createDemoDataset.designing', { name: args.name || '' }) }}</span>
-        </span>
-        <span v-else-if="phase === 'review'" class="flex items-center text-gray-700 dark:text-gray-300">
-          <Icon name="heroicons-clipboard-document-check" class="w-3 h-3 me-1 text-blue-500" />
-          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? t('tools.createDemoDataset.waitingReview') : t('tools.createDemoDataset.review') }}</span>
-        </span>
-        <span v-else-if="phase === 'working'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">{{ workingLabel }}</span>
-        </span>
-        <span v-else-if="phase === 'created'" class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-emerald-500" />
-          <span>{{ t('tools.createDemoDataset.created') }}</span>
-        </span>
-        <span v-else-if="phase === 'rejected'" class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ outputStatus === 'timed_out' ? t('tools.createDemoDataset.timedOut') : t('tools.createDemoDataset.rejected') }}</span>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
-          <span>{{ t('tools.createDemoDataset.failed') }}</span>
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-chart-bar" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="phase === 'designing'">{{ t('tools.createDemoDataset.designing', { name: args.name || '' }) }}</template>
+      <template v-else-if="phase === 'review'">{{ readonly ? t('tools.createDemoDataset.waitingReview') : t('tools.createDemoDataset.review') }}</template>
+      <template v-else-if="phase === 'working'">{{ workingLabel }}</template>
+      <template v-else-if="phase === 'created'">{{ t('tools.createDemoDataset.created') }}</template>
+      <template v-else-if="phase === 'rejected'">{{ outputStatus === 'timed_out' ? t('tools.createDemoDataset.timedOut') : t('tools.createDemoDataset.rejected') }}</template>
+      <template v-else>{{ t('tools.createDemoDataset.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded || (phase === 'review')" class="tool-call-details w-full min-w-0 mt-2">
 
     <div v-if="phase === 'failed' && message" class="text-chat-2 text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat">
       {{ message }}
@@ -53,7 +35,7 @@
             <span v-if="datasetEmoji" class="text-base leading-none flex-shrink-0">{{ datasetEmoji }}</span>
             <Icon v-else name="heroicons-circle-stack" class="w-4 h-4 text-blue-500 flex-shrink-0" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto">{{ connectionName || args.name }}</span>
-            <span class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
+            <span class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-ink-muted flex-shrink-0">
               {{ t('tools.createDemoDataset.badge') }}
             </span>
             <span class="flex-1"></span>
@@ -135,7 +117,7 @@
               <input
                 v-if="interactive"
                 type="checkbox"
-                class="mt-0.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-0 flex-shrink-0"
+                class="mt-0.5 h-3 w-3 rounded border-line-strong text-blue-600 focus:ring-0 flex-shrink-0"
                 :checked="isChecked(a.name)"
                 :disabled="!canCreateAgents"
                 @click.stop
@@ -156,7 +138,7 @@
                 <span class="mt-0.5 flex flex-wrap gap-1">
                   <span
                     v-for="tn in a.tables" :key="tn"
-                    class="text-chat-3 px-1.5 py-0 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 font-mono"
+                    class="text-chat-3 px-1.5 py-0 rounded-full bg-gray-100 dark:bg-gray-800 text-ink-muted font-mono"
                   >{{ tn }}</span>
                 </span>
               </span>
@@ -195,7 +177,7 @@
             <span class="flex-1"></span>
             <template v-if="!showFeedback">
               <button
-                class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                class="px-2.5 py-1 text-chat-2 rounded-md text-ink-muted hover:text-ink-2 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                 :disabled="responding"
                 data-testid="demo-dataset-request-changes"
                 @click="showFeedback = true"
@@ -212,7 +194,7 @@
             </template>
             <template v-else>
               <button
-                class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                class="px-2.5 py-1 text-chat-2 rounded-md text-ink-muted hover:text-ink-2 hover:bg-gray-50 dark:hover:bg-gray-800"
                 :disabled="responding"
                 @click="showFeedback = false"
               >{{ t('tools.createDemoDataset.cancel') }}</button>
@@ -242,10 +224,18 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+// Open by default: what was created (agents, tables) is the result of
+// this call, not a detail of it. It also opens itself for review while waiting.
+const toolHeaderExpanded = activityRef(true)
+
 import { computed, ref, watch } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
@@ -470,13 +460,6 @@ function formatBytes(n: number): string {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

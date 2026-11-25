@@ -34,8 +34,6 @@
  *    instruction diff rendered in a pre) and keeps that direction. */
 [dir="rtl"] .monaco-editor,
 [dir="rtl"] .monaco-editor *,
-[dir="rtl"] .ag-root,
-[dir="rtl"] .ag-root *,
 [dir="rtl"] pre:not([dir]),
 [dir="rtl"] code:not([dir]),
 [dir="rtl"] kbd,
@@ -47,9 +45,11 @@
   text-align: left;
 }
 
-/* 2a. Grid cell VALUES are data, not code. Column order stays LTR (it is
- *     the query's column order), but a Hebrew name or status must read and
- *     align right-to-left — in an English UI too, where nothing forces LTR
+/* 2a. Grid cell VALUES are data, not code. The grid itself is not forced
+ *     LTR: in an RTL locale it runs with ag-grid's own `enableRtl`
+ *     (AgGridComponent.vue), so the first column sits on the right. Each
+ *     value still reads in its own direction — a Hebrew name or status must
+ *     read and align right-to-left — in an English UI too, where nothing forces LTR
  *     but the cell still inherits it. `plaintext` resolves each cell's text
  *     from its own first strong character and `start` aligns it by that
  *     result; numbers have no strong character and keep the grid's left
@@ -324,9 +324,8 @@ html[dir="rtl"] .bidi-label { text-align: right; }
 .markstream-vue :is(th, td).text-right { text-align: end; }
 
 /* ag-grid's paging footer, translated in RTL locales: lay it out right to
- * left so "1 עד 50 מתוך 236" reads in order. The grid itself (columns)
- * keeps ag-grid's own direction (enableRtl is a separate decision). */
+ * left so "1 עד 50 מתוך 236" reads in order. The grid runs with ag-grid's
+ * `enableRtl` in these locales, which already swaps the first/previous/next/
+ * last arrow glyphs — so no extra mirroring here (a scaleX(-1) on top would
+ * point every arrow the wrong way). */
 html[dir="rtl"] .ag-paging-panel { direction: rtl; }
-/* The first/previous/next/last buttons swap sides with it; mirror their
- * arrows so each still points the way it moves. */
-html[dir="rtl"] .ag-paging-panel .ag-icon { transform: scaleX(-1); }

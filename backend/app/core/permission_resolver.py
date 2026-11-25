@@ -81,6 +81,14 @@ RESOURCE_PERM_IMPLIES: dict[str, dict[str, set[str]]] = {
         # Managing all agents on a connection includes being able to create them.
         "manage_data_sources": {"create_data_sources"},
     },
+    "llm_provider": {
+        # A provider manager (resource grant set on the provider by an org LLM
+        # admin) manages that provider and its models — not org-wide LLM
+        # settings. Implying `manage_llm` on the provider lets the
+        # resource-scoped route door admit them; each route then checks the
+        # specific provider (app/routes/llm.py, _require_provider_manage).
+        "manage": {"manage_llm"},
+    },
     "project": {
         # Managing a project implies seeing it.
         "manage": {"view"},
@@ -240,6 +248,14 @@ async def assert_principal_belongs_to_org(db: AsyncSession, user, org_id: str) -
         raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
 
+def has_workspace_access(org_permissions) -> bool:
+    """Whether a resolved org permission set may use the BOW workspace (as
+    opposed to only the artifacts shared with its holder)."""
+    from app.core.permissions_registry import WORKSPACE_ACCESS
+
+    return FULL_ADMIN in org_permissions or WORKSPACE_ACCESS in org_permissions
+
+
 async def resolve_assignable_system_role(
     db: AsyncSession, org_id: str, role_name: str,
 ) -> Optional[Role]:
@@ -288,6 +304,20 @@ async def ensure_system_role_assignment(
     """
     from app.models.role_assignment import RoleAssignment
 
+    if role_name == "member":
+        # Provisioning paths ask for `member` by name. A membership that was
+        # created as an app user's (a host application's sign-in, see
+        # core/workspace_access) gets the role it says, not the workspace.
+        from app.core.permissions_registry import APP_USER_ROLE
+        from app.models.membership import Membership
+
+        stated = (await db.execute(
+            select(Membership.role).where(
+                Membership.user_id == user_id, Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None)).limit(1)
+        )).scalar_one_or_none()
+        if stated == APP_USER_ROLE:
+            role_name = APP_USER_ROLE
     role = await resolve_assignable_system_role(db, org_id, role_name)
     if not role:
         return
@@ -308,6 +338,71 @@ async def ensure_system_role_assignment(
         principal_type="user",
         principal_id=user_id,
     ))
+
+
+async def lift_app_user(db: AsyncSession, org_id: str, user_id: str, role_name: str) -> bool:
+    """Replace an app user's ``app_user`` role with the workspace system role
+    ``role_name`` (their other roles and groups are untouched). A no-op,
+    returning False, for anyone who is not an app user. Does NOT commit.
+    """
+    from app.core.permissions_registry import APP_USER_ROLE
+    from app.models.membership import Membership
+    from app.models.role_assignment import RoleAssignment
+
+    membership = (await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == org_id,
+            Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).scalars().first()
+    if membership is None or (membership.role or "").lower() != APP_USER_ROLE:
+        return False
+    membership.role = role_name
+    await db.flush()  # ensure_system_role_assignment below reads the stated role
+    app_role = await resolve_assignable_system_role(db, org_id, APP_USER_ROLE)
+    if app_role is not None:
+        for row in (await db.execute(
+            select(RoleAssignment).where(
+                RoleAssignment.organization_id == org_id,
+                RoleAssignment.role_id == app_role.id,
+                RoleAssignment.principal_type == "user",
+                RoleAssignment.principal_id == user_id,
+            )
+        )).scalars().all():
+            await db.delete(row)
+    await ensure_system_role_assignment(db, org_id, user_id, role_name)
+    invalidate_rbac_memo(db, user_id, org_id)
+    return True
+
+
+async def sync_app_user_label(db: AsyncSession, org_id: str, user_id: str) -> None:
+    """Keep the legacy ``Membership.role`` string telling app users and
+    workspace members apart after a role assignment changed: the sign-in
+    paths read it (OIDC organization mapping, invitations), and an answered
+    "request full access" is closed. ``admin`` is left alone. Does NOT commit.
+    """
+    from app.core.permissions_registry import APP_USER_ROLE
+    from app.models.membership import Membership
+
+    membership = (await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == org_id,
+            Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).scalars().first()
+    if membership is None or membership.role not in (APP_USER_ROLE, "member"):
+        return
+    invalidate_rbac_memo(db, user_id, org_id)
+    workspace = has_workspace_access((await resolve_permissions(db, user_id, org_id)).org_permissions)
+    if workspace and membership.role == APP_USER_ROLE:
+        membership.role = "member"
+        from app.services.app_launcher import resolve_requests
+        await resolve_requests(db, org_id, user_id)
+    elif not workspace and membership.role == "member":
+        membership.role = APP_USER_ROLE
+    invalidate_rbac_memo(db, user_id, org_id)
 
 
 async def materialize_pending_rbac(
@@ -474,6 +569,25 @@ async def insert_membership_if_absent(db: AsyncSession, membership):
         return existing, False
 
 
+def live_pending_invite():
+    """SQL predicate for an invite that can still be claimed: a membership row
+    nobody holds yet, not removed, and not past ``invite_expires_at``.
+
+    Every path that turns an invite into a membership — by email or by link —
+    uses this, so an expired invite is never claimed; it stays pending until
+    an admin resends it (which opens a new window). Invites written before
+    expiry existed have no ``invite_expires_at`` and do not expire.
+    """
+    from datetime import datetime
+    from app.models.membership import Membership
+
+    return and_(
+        Membership.user_id.is_(None),
+        Membership.deleted_at.is_(None),
+        or_(Membership.invite_expires_at.is_(None), Membership.invite_expires_at > datetime.utcnow()),
+    )
+
+
 async def claim_pending_invite(db: AsyncSession, user, org_id: str):
     """Attach an open email invite to ``user`` instead of creating a second row.
 
@@ -487,8 +601,8 @@ async def claim_pending_invite(db: AsyncSession, user, org_id: str):
 
     Returns the claimed ``Membership`` (with its role assignment ensured and
     pending RBAC materialized), or ``None`` when there is no open invite to claim.
-    Expiry is intentionally ignored — this mirrors ``_attach_open_memberships``,
-    which claims invites regardless of ``invite_expires_at``. Does NOT commit.
+    An expired invite is not claimed (``live_pending_invite``, the same rule
+    as ``_attach_open_memberships``). Does NOT commit.
 
     An invite is always admin intent, so ``directory_provider`` is deliberately
     left as-is (NULL for a hand-issued invite): stamping it would make an
@@ -508,8 +622,7 @@ async def claim_pending_invite(db: AsyncSession, user, org_id: str):
         select(Membership).where(
             func.lower(Membership.email) == email,
             Membership.organization_id == str(org_id),
-            Membership.user_id.is_(None),
-            Membership.deleted_at.is_(None),
+            live_pending_invite(),
         ).order_by(role_rank, Membership.created_at.asc(), Membership.id.asc()).limit(1)
     )).scalars().first()
     if invite is None:
@@ -676,19 +789,6 @@ async def _resolve_permissions_inner(
         ).limit(1)
     )).first()
 
-    # Baseline: every member of the org holds these regardless of which roles
-    # they have, because they are hidden from the role editor and so cannot be
-    # granted through it (see permissions_registry.BASELINE_PERMISSIONS).
-    # Without this, a user whose only role is a custom one holds neither
-    # `view_reports` nor `manage_files` and cannot use the product at all.
-    # Gated on the Membership row so it never leaks to a non-member, and so
-    # service accounts (bound via ServiceAccount, no Membership) keep exactly
-    # the permissions their role grants.
-    if membership_row is not None:
-        from app.core.permissions_registry import BASELINE_PERMISSIONS
-
-        org_permissions.update(BASELINE_PERMISSIONS)
-
     # Transitional backward-compat net: a membership that resolves to NO RBAC
     # role assignment (e.g. a user provisioned via SCIM/LDAP/OIDC before the
     # assignment backfill ran) falls back to the permissions implied by its
@@ -717,6 +817,23 @@ async def _resolve_permissions_inner(
             else:
                 org_permissions.update(DEFAULT_MEMBER_PERMISSIONS)
             role_names.append("member")
+
+    # Baseline: every *workspace* member of the org holds these regardless of
+    # which roles they have, because they are hidden from the role editor and
+    # so cannot be granted through it (see permissions_registry.
+    # BASELINE_PERMISSIONS). Without this, a user whose only role is a custom
+    # one holds neither `view_reports` nor `manage_files` and cannot use the
+    # product at all.
+    # Gated on the Membership row so it never leaks to a non-member, and so
+    # service accounts (bound via ServiceAccount, no Membership) keep exactly
+    # the permissions their role grants. Gated on `access_workspace` (run
+    # after the role union and the legacy net, which can both grant it) so an
+    # app user — a member whose roles withhold the workspace — holds only
+    # what their roles carry. Keep in step with resolve_permissions_bulk.
+    if membership_row is not None and has_workspace_access(org_permissions):
+        from app.core.permissions_registry import BASELINE_PERMISSIONS
+
+        org_permissions.update(BASELINE_PERMISSIONS)
 
     # 4. Fetch resource grants (user, groups, and roles the user has)
     grant_principal_conditions = [
@@ -763,6 +880,8 @@ async def _resolve_permissions_inner(
         if isinstance(perms, list):
             resource_permissions[key].update(perms)
 
+    apply_group_manager_grants(resource_permissions, await managed_group_ids(db, org_id, user_id))
+
     # Connection `manage_data_sources` grant ⇒ `manage` on every agent fully
     # backed by those connections. Expanded here (rather than at check time) so
     # the per-agent `manage` superset (instructions/entities/evals) and list
@@ -796,6 +915,70 @@ async def _resolve_permissions_inner(
         resource_permissions=resource_permissions,
         role_names=role_names,
     )
+
+
+GROUP_MANAGER_PERMISSION = "manage_members"
+
+
+async def managed_group_ids_by_org(db: AsyncSession, user_id: str, org_ids) -> dict:
+    """org id → ids of the groups ``user_id`` currently manages there, in one query.
+
+    The single source of truth for the group-manager role. A grant row alone is
+    not enough: the holder must be the *user* named on it, still be a live
+    member of the group and of the organization, and the group must be a live,
+    hand-managed group (an imported group's membership belongs to the identity
+    provider, so it has no managers). Grants on groups held by a group or a
+    role never count.
+    """
+    from app.models.membership import Membership
+
+    org_ids = [str(o) for o in org_ids]
+    out: dict[str, set] = {o: set() for o in org_ids}
+    if not org_ids:
+        return out
+    rows = (await db.execute(
+        select(ResourceGrant.organization_id, ResourceGrant.resource_id, ResourceGrant.permissions)
+        .join(Group, and_(
+            Group.id == ResourceGrant.resource_id,
+            Group.organization_id == ResourceGrant.organization_id,
+        ))
+        .join(GroupMembership, and_(
+            GroupMembership.group_id == Group.id,
+            GroupMembership.user_id == str(user_id),
+            GroupMembership.deleted_at.is_(None),
+        ))
+        .join(Membership, and_(
+            Membership.user_id == str(user_id),
+            Membership.organization_id == ResourceGrant.organization_id,
+            Membership.deleted_at.is_(None),
+        ))
+        .where(
+            ResourceGrant.organization_id.in_(org_ids),
+            ResourceGrant.resource_type == "group",
+            ResourceGrant.principal_type == "user",
+            ResourceGrant.principal_id == str(user_id),
+            ResourceGrant.deleted_at.is_(None),
+            Group.deleted_at.is_(None),
+            Group.external_provider.is_(None),
+        )
+    )).all()
+    for org_id, gid, perms in rows:
+        if isinstance(perms, list) and GROUP_MANAGER_PERMISSION in perms:
+            out[str(org_id)].add(str(gid))
+    return out
+
+
+async def managed_group_ids(db: AsyncSession, org_id: str, user_id: str) -> set:
+    """Ids of the groups ``user_id`` currently manages in ``org_id``."""
+    return (await managed_group_ids_by_org(db, user_id, [org_id]))[str(org_id)]
+
+
+def apply_group_manager_grants(resource_permissions: dict, managed: set) -> None:
+    """Replace whatever group grants were loaded with the authoritative set."""
+    for key in [k for k in resource_permissions if k[0] == "group"]:
+        del resource_permissions[key]
+    for gid in managed:
+        resource_permissions[("group", gid)] = {GROUP_MANAGER_PERMISSION}
 
 
 def _group_default_model_ids(pairs) -> set:
@@ -931,15 +1114,36 @@ async def resolve_permissions_bulk(
         from app.models.membership import Membership
         from app.core.permissions_registry import BASELINE_PERMISSIONS
 
-        member_org_ids = (await db.execute(
-            select(Membership.organization_id).where(
+        member_rows = (await db.execute(
+            select(Membership.organization_id, Membership.role).where(
                 Membership.user_id == user_id,
                 Membership.organization_id.in_(org_ids),
                 Membership.deleted_at.is_(None),
             )
-        )).scalars().all()
-        for org_id in member_org_ids:
-            if org_id in org_perms:
+        )).all()
+        for org_id, legacy_role in member_rows:
+            if org_id not in org_perms:
+                continue
+            # The legacy-role net of _resolve_permissions_inner: a membership
+            # with no role assignment at all falls back to its role string, so
+            # whoami never reports such a member as an app user while the
+            # routes still let them in.
+            if not role_ids_by_org[org_id]:
+                if legacy_role == "admin":
+                    org_perms[org_id].add(FULL_ADMIN)
+                    role_names_by_org[org_id].append("admin")
+                elif legacy_role == "member":
+                    from app.core.permissions_registry import DEFAULT_MEMBER_PERMISSIONS
+
+                    override = await resolve_assignable_system_role(db, org_id, "member")
+                    if override is not None and override.organization_id is not None \
+                            and isinstance(override.permissions, list):
+                        org_perms[org_id].update(override.permissions)
+                    else:
+                        org_perms[org_id].update(DEFAULT_MEMBER_PERMISSIONS)
+                    role_names_by_org[org_id].append("member")
+            # Only alongside workspace access, as in _resolve_permissions_inner.
+            if has_workspace_access(org_perms[org_id]):
                 org_perms[org_id].update(BASELINE_PERMISSIONS)
 
         # 3. Resource grants (1 query) for user / groups / roles across all orgs.
@@ -990,6 +1194,8 @@ async def resolve_permissions_bulk(
         owned_by_org: dict[str, list] = {}
         for o_id, ds_id in owned_rows:
             owned_by_org.setdefault(o_id, []).append(str(ds_id))
+        # Group managers: one query across every org, not one per org.
+        managed_by_org = await managed_group_ids_by_org(db, str(user_id), org_ids)
         for org_id in org_ids:
             res_perms = res_perms_by_org[org_id]
             managed_conn_ids = [rid for (rtype, rid), perms in res_perms.items()
@@ -1000,6 +1206,7 @@ async def resolve_permissions_bulk(
                 res_perms.setdefault(("data_source", ds_id), set()).add("manage")
             for model_id in _group_default_model_ids(group_defaults_by_org.get(org_id, [])):
                 res_perms.setdefault(("llm_model", model_id), set()).add("use")
+            apply_group_manager_grants(res_perms, managed_by_org.get(org_id, set()))
             from app.services.folder_service import expand_folder_permissions
             await expand_folder_permissions(db, org_id, res_perms)
             result[org_id] = ResolvedPermissions(
@@ -1144,6 +1351,48 @@ def llm_access_control_active() -> bool:
         return False
 
 
+async def group_granted_model_ids(db: AsyncSession, org_id: str, group_id: str) -> tuple[bool, set]:
+    """(all_models, model ids) a group's members may use *because of the group*,
+    not counting the group's own default / small default.
+
+    Used to bound what a group manager may pick as their group's default: a
+    group default grants ``use`` to the group's members, so letting a manager
+    pick any model would let them hand their group access an admin never gave
+    it. The answer is the explicit ``use`` grants on the group itself and on the
+    roles assigned to the group. ``all_models`` is True when a role assigned to
+    the group carries full admin access (every model is then usable). Open
+    (unrestricted) models are not listed; callers add them.
+    """
+    from app.models.role import Role
+    from app.models.role_assignment import RoleAssignment
+
+    ra_stmt = select(RoleAssignment.role_id).where(
+        RoleAssignment.organization_id == str(org_id),
+        RoleAssignment.principal_type == "group",
+        RoleAssignment.principal_id == str(group_id),
+    )
+    if hasattr(RoleAssignment, "deleted_at"):
+        ra_stmt = ra_stmt.where(RoleAssignment.deleted_at.is_(None))
+    role_ids = [str(r) for r in (await db.execute(ra_stmt)).scalars().all()]
+    if role_ids:
+        perms_rows = (await db.execute(select(Role.permissions).where(Role.id.in_(role_ids)))).scalars().all()
+        if any(isinstance(p, list) and FULL_ADMIN in p for p in perms_rows):
+            return True, set()
+
+    conds = [and_(ResourceGrant.principal_type == "group", ResourceGrant.principal_id == str(group_id))]
+    if role_ids:
+        conds.append(and_(ResourceGrant.principal_type == "role", ResourceGrant.principal_id.in_(role_ids)))
+    rows = (await db.execute(
+        select(ResourceGrant.resource_id, ResourceGrant.permissions).where(
+            or_(*conds),
+            ResourceGrant.organization_id == str(org_id),
+            ResourceGrant.resource_type == "llm_model",
+            ResourceGrant.deleted_at.is_(None),
+        )
+    )).all()
+    return False, {str(rid) for rid, perms in rows if isinstance(perms, list) and "use" in perms}
+
+
 async def get_accessible_model_ids(
     db: AsyncSession, user_id: str, org_id: str,
 ) -> tuple[bool, list[str]]:
@@ -1266,6 +1515,49 @@ async def get_user_ids_with_permission(
     return out
 
 
+async def _user_id_belongs_to_org(db: AsyncSession, user_id: str, org_id: str) -> bool:
+    """``principal_belongs_to_org`` for callers that hold only a user id.
+
+    Covers both bindings (Membership for humans, a live ServiceAccount row for
+    service accounts) and is memoized on the session like the RBAC memo, so the
+    public-data-source check costs one small query per (user, org) per request.
+    """
+    try:
+        memo = db.info.setdefault("_org_binding_memo", {})
+    except Exception:
+        memo = None
+    if not isinstance(memo, dict):
+        memo = None
+    key = (user_id, org_id)
+    if memo is not None and key in memo:
+        return memo[key]
+
+    from app.models.membership import Membership
+    from app.models.service_account import ServiceAccount
+
+    bound = (await db.execute(
+        select(Membership.id).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == org_id,
+            Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).first() is not None
+    if not bound:
+        bound = (await db.execute(
+            select(ServiceAccount.id).where(
+                ServiceAccount.user_id == user_id,
+                ServiceAccount.organization_id == org_id,
+                ServiceAccount.disabled_at.is_(None),
+                ServiceAccount.deleted_at.is_(None),
+            ).limit(1)
+        )).first() is not None
+    # Only a positive answer is cached: a binding created later in the same
+    # session (org bootstrap) must be seen.
+    if memo is not None and bound:
+        memo[key] = bound
+    return bound
+
+
 async def user_can_access_data_source(
     db: AsyncSession, user_id: str, org_id: str, ds, ds_id: str = None,
 ) -> bool:
@@ -1275,8 +1567,15 @@ async def user_can_access_data_source(
     target = str(ds_id) if ds_id is not None else (str(ds.id) if ds is not None else None)
     if ceiling is not None and target not in ceiling:
         return False
+    # A data source is only ever accessible inside its own organization:
+    # neither the public shortcut nor an admin role in `org_id` extends to a
+    # data source that belongs to a different one.
+    ds_org_id = getattr(ds, 'organization_id', None) if ds is not None else None
+    if isinstance(ds_org_id, str) and ds_org_id != str(org_id):
+        return False
+    # "Public" means open to every member of the owning organization.
     if ds is not None and getattr(ds, 'is_public', False):
-        return True
+        return await _user_id_belongs_to_org(db, str(user_id), str(org_id))
     is_admin, accessible = await get_accessible_data_source_ids(db, user_id, org_id)
     if is_admin:
         return True

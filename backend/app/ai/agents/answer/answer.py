@@ -1,3 +1,4 @@
+from app.ai.llm.pii.context import pii_context
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
@@ -89,12 +90,12 @@ The planner agent decided that you should answer the question below with the dat
 
 Instructions:
 **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
-{instructions_context}
+{pii_context(instructions_context)}
 
 You have been given:
 
 - Schemas:
-{schemas}
+{pii_context(schemas)}
 
 - Selected Widget:
 {widget.title if widget else "No widget available"}

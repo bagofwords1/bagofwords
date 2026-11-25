@@ -300,7 +300,10 @@ async def prepare_message(db, artifact, release, organization, user, thread: Rep
 def _texts(blocks) -> tuple[str, list[str]]:
     """(the answer, the narration before it): the last block with text is
     the reply; earlier ones are the agent's steps along the way."""
-    said = [b["content"] for b in sorted(blocks or [], key=lambda b: (b.get("block_index") or 0)) if b.get("content")]
+    # This surface renders answers itself and has no source chips: a citation
+    # marker that slipped in must not be shown as text.
+    from app.ai.citations import strip_citations
+    said = [strip_citations(b["content"]) for b in sorted(blocks or [], key=lambda b: (b.get("block_index") or 0)) if b.get("content")]
     return (said[-1] if said else ""), said[:-1]
 
 

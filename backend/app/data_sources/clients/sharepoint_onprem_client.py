@@ -10,17 +10,15 @@ import hashlib
 import io
 import json
 import mimetypes
-import threading
 from urllib.parse import quote, unquote, urlsplit
 
 import pandas as pd
 import requests
-from app.core.egress import pinned_session
-from requests_ntlm import HttpNtlmAuth
 
 from app.ai.prompt_formatters import Table
 from app.data_sources.clients.base import Capability, DataSourceClient
 from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
+from app.data_sources.clients._windows_auth_session import WindowsAuthSessions
 from app.data_sources.clients._document_text import (
     DOC_EXTS, doc_text_is_usable, doc_text_looks_garbled, extract_document_text_from_bytes,
 )
@@ -137,9 +135,10 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
         self._max_bytes = int(max_file_size_mb) * 1024 * 1024
         self._username, self._password = username, password
         self.kerberos, self.principal = kerberos, principal
-        if not kerberos and (not username or not password):
-            raise ValueError("NTLM requires a domain username and password.")
-        self._local = threading.local()
+        self._sessions = WindowsAuthSessions(
+            username, password, kerberos=kerberos, principal=principal,
+            headers={"Accept": "application/json;odata=nometadata"},
+        )
         from app.data_sources.clients._sharepoint_2010 import Sharepoint2010API
         from app.data_sources.clients._sharepoint_rest import SharepointRestAPI
         adapter_class = Sharepoint2010API if api_mode == "2010" else SharepointRestAPI
@@ -150,38 +149,7 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
         return self._adapter.description
 
     def _session(self):
-        # requests.Session is not thread-safe. Each worker gets its own auth
-        # context and connection pool; never mutate process Kerberos variables.
-        if self.kerberos and hasattr(self._local, "session") and self._local.creds.lifetime < 120:
-            self._local.session.close()
-            del self._local.session
-        if not hasattr(self._local, "session"):
-            session = pinned_session()
-            session.trust_env = False  # no ambient proxy / .netrc credentials
-            if self.kerberos:
-                try:
-                    import gssapi
-                    from requests_gssapi import HTTPSPNEGOAuth, REQUIRED
-                except ImportError as exc:
-                    raise ValueError("Install the kerberos extra and mount krb5.conf plus a client keytab.") from exc
-                import os
-                keytab = os.environ.get("KRB5_CLIENT_KTNAME")
-                name = gssapi.Name(self.principal, gssapi.NameType.kerberos_principal) if self.principal else None
-                creds = gssapi.Credentials(usage="initiate", name=name,
-                                          **({"store": {"client_keytab": keytab}} if keytab else {}))
-                self._local.creds = creds
-                session.auth = HTTPSPNEGOAuth(creds=creds, mutual_authentication=REQUIRED,
-                                             mech=gssapi.MechType.kerberos,
-                                             opportunistic_auth=True)
-            else:
-                session.auth = HttpNtlmAuth(self._username, self._password)
-            # Internal CA support is deployment-owned, not an arbitrary file
-            # path submitted through the connection form.
-            import os
-            session.verify = os.environ.get("REQUESTS_CA_BUNDLE") or True
-            session.headers["Accept"] = "application/json;odata=nometadata"
-            self._local.session = session
-        return self._local.session
+        return self._sessions.get()
 
     def _request_bytes(self, method, url, *, byte_limit, file_content=False, accepted_statuses=(200,), **kwargs):
         """Bounded read-only HTTP shared by REST and SOAP, with one fresh-session retry.
@@ -214,9 +182,7 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
             except requests.exceptions.SSLError as exc:
                 raise ValueError("SharePoint TLS verification failed. Install the issuing CA in the backend trust store.") from exc
             except requests.RequestException as exc:
-                if hasattr(self._local, "session"):
-                    self._local.session.close()
-                    del self._local.session
+                self._sessions.reset()
                 if attempt:
                     raise ValueError("Cannot reach SharePoint. Check DNS, network access, and server availability.") from exc
 

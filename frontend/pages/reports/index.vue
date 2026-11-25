@@ -419,7 +419,7 @@
                                 <button
                                     type="button"
                                     @click.stop="confirmDelete(report.id)"
-                                    class="text-gray-300 dark:text-gray-600 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    class="text-ink-subtle hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
                                 >
                                     <UIcon name="i-heroicons-archive-box" class="w-4 h-4" />
                                 </button>

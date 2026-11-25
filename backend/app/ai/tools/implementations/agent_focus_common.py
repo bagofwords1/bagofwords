@@ -81,6 +81,103 @@ async def signin_required_ids(db, agents: List[Any], user: Any) -> set:
         return set()
 
 
+def agent_is_unreachable(ds: Any) -> bool:
+    """True when every connection of the agent is flagged unreachable.
+
+    ``Connection.is_active`` is the cached health flag a failed probe clears
+    (ConnectionService._record_probe_outcome). construct_clients builds no
+    client for such a connection, so an agent with nothing else is dropped from
+    the run. Tool-provider connections (MCP / custom API / remote server) are
+    built whatever the flag says, so one of those keeps the agent reachable.
+    """
+    conns = list(getattr(ds, "connections", None) or [])
+    if not conns:
+        return False
+    from app.services.connection_tool_gateway import TOOL_CONNECTION_TYPES
+    return all(
+        getattr(c, "is_active", True) is False and getattr(c, "type", None) not in TOOL_CONNECTION_TYPES
+        for c in conns
+    )
+
+
+def agent_unreachable_since(ds: Any):
+    """When an unreachable agent's last connection went down (UTC), or None
+    when that is not known for every connection. The agent was still usable
+    through whichever connection went down last, so that one dates it."""
+    stamps = [getattr(c, "unreachable_since", None) for c in (getattr(ds, "connections", None) or [])]
+    if not stamps or any(s is None for s in stamps):
+        return None
+    return max(stamps)
+
+
+def format_since(stamp) -> Optional[str]:
+    """A stable, minute-precision UTC stamp for prompts and tool results."""
+    return stamp.strftime("%Y-%m-%dT%H:%MZ") if stamp else None
+
+
+async def folder_branch_agents(db, organization: Any, user: Any, report: Any) -> Tuple[List[Any], bool]:
+    """``(agents, queryable)`` for a folder-scoped report: every agent the user
+    can access in the report's folders (plus its pins), BEFORE the sign-in
+    filter. ``queryable`` is False when no folder may be queried at all (the
+    user only curates them in training)."""
+    from app.services.folder_service import load_report_folders, training_curator_only, visible_branch
+    attached = list(getattr(report, "data_sources", None) or [])
+    branch: set = set()
+    queryable = False
+    for fid in await load_report_folders(db, report):
+        if await training_curator_only(db, organization.id, getattr(user, "id", None), fid, getattr(report, "mode", None)):
+            continue
+        queryable = True
+        branch.update(await visible_branch(db, organization.id, getattr(user, "id", None), fid))
+    if not queryable and not attached:
+        return [], False
+    chosen = {a.id for a in attached}
+    agents = [a for a in await accessible_agents(db, organization, user) if a.folder_id in branch or a.id in chosen]
+    return agents, queryable
+
+
+async def signin_scope_agents(db, organization: Any, user: Any, report: Any,
+                              working_set: Optional[List[Any]] = None) -> List[Any]:
+    """Every agent and connector this report's runs may reach for this user,
+    including the ones a run leaves out because the user has not signed in.
+
+    ``working_set`` is the run's own agents when the caller has them (AgentV2);
+    otherwise it is resolved here. It already holds the person's own connectors
+    (mail, Teams, Drive, per-user MCP), connected or not. A folder-scoped
+    report's agents are added on top: resolve_run_agents filters those by
+    sign-in before the run starts, so a working set never contains them.
+
+    Callers pass the result to ``signin_required_ids`` to learn which of them
+    actually need this user's sign-in.
+    """
+    out: List[Any] = []
+    seen: set = set()
+
+    def _add(items):
+        for ds in items or []:
+            key = str(getattr(ds, "id", ""))
+            if key and key not in seen:
+                seen.add(key)
+                out.append(ds)
+
+    if working_set is None:
+        try:
+            working_set = await resolve_run_agents(db, organization, user, report)
+        except Exception:
+            working_set = []
+    _add(working_set)
+    if report is None or user is None:
+        return out
+    try:
+        if getattr(report, "agent_folder_id", None):
+            agents, _ = await folder_branch_agents(db, organization, user, report)
+            from app.services.data_source_service import DataSourceService
+            _add(a for a in agents if DataSourceService.is_execution_live(a))
+    except Exception:
+        logger.warning("sign-in scope: folder agents unavailable", exc_info=True)
+    return out
+
+
 def run_scope_agents(runtime_ctx: dict[str, Any]) -> list[Any]:
     """The agents a tool call may resolve against: the run's working set plus
     the report's own attachments, de-duplicated, attachments last.
@@ -189,31 +286,43 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
                 curator_only = True
         if curator_only:
             return []
+    # The user's chat on/off choices. These gate only the connectors that are
+    # AUTO-JOINED to a run (the whole point of a personal connector: it rides
+    # along with every run). A connector a user EXPLICITLY pinned or selected
+    # for this report/scheduled task is an explicit in-scope choice and is kept
+    # — a composer-wide default must not override an explicit selection.
+    disabled: set = set()
+    if user is not None:
+        from app.services.connector_preference_service import get_disabled_connector_ids
+        disabled = await get_disabled_connector_ids(
+            db, str(getattr(user, "id", "") or ""), str(organization.id)
+        )
+
+    def _autojoin_personal(ds) -> bool:
+        return _is_personal_connector(ds) and str(ds.id) not in disabled
+
     if agent_ids is not None:
         # A run with its own agents (a scheduled task's selection): exactly
         # those, re-checked against what the running user can use today. Like a
-        # pinned selection, the person's own connectors join it (see below).
+        # pinned selection, the person's own connectors join it (see below) —
+        # except ones switched off for chat. Connectors explicitly in agent_ids
+        # are kept regardless (an explicit selection wins over the default).
         wanted = {str(i) for i in agent_ids}
         reachable = await accessible_agents(db, organization, user)
         agents = [a for a in reachable if str(a.id) in wanted]
-        agents += [ds for ds in reachable if str(ds.id) not in wanted and _is_personal_connector(ds)]
+        agents += [ds for ds in reachable if str(ds.id) not in wanted and _autojoin_personal(ds)]
     elif getattr(report, "agent_folder_id", None):
-        from app.services.folder_service import visible_branch
-        branch = set()
-        queryable = False
-        for fid in await load_report_folders(db, report):
-            if await training_curator_only(db, organization.id, getattr(user, "id", None), fid, getattr(report, "mode", None)):
-                continue
-            queryable = True
-            branch.update(await visible_branch(db, organization.id, getattr(user, "id", None), fid))
+        in_branch, queryable = await folder_branch_agents(db, organization, user, report)
         if not queryable and not attached:
             return []
-        chosen = {a.id for a in attached}
-        agents = [a for a in await accessible_agents(db, organization, user) if a.folder_id in branch or a.id in chosen]
-        agents, _ = await DataSourceService().filter_user_usable_data_sources(db, agents, user)
-        if not agents:
+        agents, _ = await DataSourceService().filter_user_usable_data_sources(db, in_branch, user)
+        if not agents and not in_branch:
             from fastapi import HTTPException
             raise HTTPException(409, "No available agents in this folder")
+        # Agents are here but each needs this user's sign-in: the run starts
+        # with none of them, and the planner is told which ones to ask the
+        # user to connect (AgentV2._signin_required_agents). Failing the
+        # request instead hid the one thing the user could do about it.
     elif attached:
         # A pinned selection is used as pinned, MCP tools included, so pinning
         # still narrows what a run offers. The person's OWN connectors (mail,
@@ -227,13 +336,20 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         if not visible_pins:
             from fastapi import HTTPException
             raise HTTPException(409, "A selected agent is unavailable")
+        # Auto-joined personal connectors, minus the ones switched off for chat.
+        # A connector the user explicitly pinned is in ``visible_pins`` and is
+        # kept regardless of the toggle.
         personal = [
             ds for ds in reachable
-            if str(ds.id) not in chosen and _is_personal_connector(ds)
+            if str(ds.id) not in chosen and _autojoin_personal(ds)
         ]
         agents = visible_pins + personal
     else:
-        agents = await accessible_agents(db, organization, user)
+        # Auto: every accessible agent, minus personal connectors switched off.
+        agents = [
+            ds for ds in await accessible_agents(db, organization, user)
+            if not (_is_personal_connector(ds) and str(ds.id) in disabled)
+        ]
     if exclude_personal_connectors:
         agents = [ds for ds in agents if not _is_personal_connector(ds)]
     from app.services.connected_application_service import filter_agents
@@ -256,6 +372,31 @@ def scope_report_to_run_agents(report: Any, agents: List[Any]) -> None:
     set_committed_value(report, "data_sources", list(agents))
     focus = [str(x) for x in (getattr(report, "focused_data_source_ids", None) or []) if str(x) in ids]
     set_committed_value(report, "focused_data_source_ids", focus or None)
+
+
+def run_agents_context(agents: Any, report: Any) -> tuple:
+    """``(run_agent_ids, pinned_agent_ids)`` for construct_clients: the run's
+    agents and the ones the report pins — what the chat tools and the planner
+    note scope a shared Slack connection by."""
+    return ([str(a.id) for a in (agents or [])],
+            [str(d.id) for d in (getattr(report, "data_sources", None) or [])])
+
+
+async def construct_agent_clients(svc, db, ds: Any, user: Any, *, where: str,
+                                  run_agents: Optional[tuple] = None) -> Dict[str, Any]:
+    """Build one agent's clients per connection, for run start and for agents
+    attached mid-run alike. A connection that cannot be set up gets a stand-in
+    client (see construct_clients) and is logged; when every connection fails,
+    construct_clients raises."""
+    connection_errors: list = []
+    extra = {"run_agents": run_agents} if run_agents is not None else {}
+    clients = await svc.construct_clients(db, ds, user, connection_errors=connection_errors, **extra) or {}
+    for ce in connection_errors:
+        logger.warning(
+            "%s: connection %s on %s unavailable for this run — %s",
+            where, ce.get("connection_name"), getattr(ds, "name", "?"), ce.get("error"),
+        )
+    return clients
 
 
 async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
@@ -354,20 +495,34 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
         from app.services.folder_knowledge import record_knowledge_scope
         await record_knowledge_scope(db, report, organization, user)
     clients: Dict[str, Any] = {}
+    # Agents with no connection that this user may not use. Any other agent
+    # the user cannot reach is dropped by AgentV2 for having no client; a
+    # connectionless agent never has one, so it has to be dropped here.
+    denied_connectionless: set = set()
     for ds in agents:
+        # Each connection on its own: one that cannot be set up for this user
+        # (an unreachable server, a missing sign-in) gets a stand-in client
+        # that raises its real error when used, instead of taking the agent's
+        # other connections — and every MCP tool on the agent — out of the run.
+        # When every connection fails, construct_clients still raises.
         try:
-            agent_clients = await svc.construct_clients(db, ds, user) or {}
+            agent_clients = await construct_agent_clients(
+                svc, db, ds, user, where="run agents", run_agents=run_agents_context(agents, report))
             if eval_targets and ds.connections and not agent_clients:
                 raise HTTPException(409, "An eval target is unavailable")
             clients.update(agent_clients)
         except HTTPException as e:
             if eval_targets or e.status_code != 403:
                 raise
+            if not (getattr(ds, "connections", None) or []):
+                denied_connectionless.add(str(ds.id))
             logger.warning("run agents: skipping %s — %s", getattr(ds, "name", "?"), e.detail)
         except Exception:
             if eval_targets:
                 raise
             logger.exception("run agents: client construction failed for %s", getattr(ds, "name", "?"))
+    if denied_connectionless:
+        agents = [a for a in agents if str(a.id) not in denied_connectionless]
     return agents, clients
 
 
@@ -429,11 +584,17 @@ async def resolve_candidate_agents(
     return visible, "attached", {str(a.id) for a in visible}
 
 
-async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any]) -> str:
+async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any],
+                             context_hub: Any = None) -> str:
     """Full tables/tools schema + always-on instructions for the given agents —
     the same shape an attached agent's eager context has. Used by search_agents
     results AND set_report_agents success observations, so the planner can act
-    on the schema immediately even if the rendered context lags a turn."""
+    on the schema immediately even if the rendered context lags a turn.
+
+    ``context_hub``: the run's hub. Its MCP catalog is applied to the rendered
+    sections, so MCP tools are listed only when the run can call them (with
+    their deferred flag and policy) — never "in your tool list" for an agent
+    whose connection could not be set up for this run."""
     import logging
     logger = logging.getLogger(__name__)
     if not data_sources:
@@ -444,9 +605,25 @@ async def render_agents_full(db, organization: Any, report: Any, user: Any, data
         from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
         builder = SchemaContextBuilder(db, data_sources, organization, report, user=user)
         ctx = await builder.build(with_stats=True, data_source_ids=ds_ids)
+        unavailable: List[str] = []
+        if context_hub is not None and hasattr(context_hub, "apply_mcp_catalog_to"):
+            sections = list(getattr(ctx, "data_sources", None) or [])
+            had_tools = {id(s): bool(getattr(s, "mcp_tools", None)) for s in sections}
+            context_hub.apply_mcp_catalog_to(sections)
+            unavailable = [
+                getattr(getattr(s, "info", None), "name", None) or "?"
+                for s in sections if had_tools.get(id(s)) and not getattr(s, "mcp_tools", None)
+            ]
         schema_xml = ctx.render_combined(top_k_per_ds=10, index_limit=1000)
         if schema_xml:
             parts.append(schema_xml)
+        if unavailable:
+            parts.append(
+                "<note>MCP tools of " + ", ".join(unavailable) + " are not in your tool list at this "
+                "step. For an agent that just joined this run they are added from the next step; "
+                "otherwise a connection could not be set up for this run, or its tools are off. "
+                "Call an MCP tool only once it is listed in <mcp_tools>.</note>"
+            )
     except Exception:
         logger.exception("render_agents_full: schema render failed")
     try:

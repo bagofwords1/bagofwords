@@ -1,20 +1,22 @@
 <template>
-  <div class="widget-container" :class="{ 'widget-container--expanded': expanded }" :data-testid="expanded ? 'data-panel' : undefined">
+  <div class="widget-container" :class="{ 'widget-container--expanded': expanded, 'widget-container--compact': compact }" :data-testid="expanded ? 'data-panel' : undefined">
     <!-- Widget header with title and toggle. In the side panel there is
          nothing to collapse: the header stays pinned at the top as the
          card's toolbar while the result scrolls beneath it. -->
-    <div class="widget-header" :class="{ 'widget-header--expanded': expanded }" @click="toggleCollapsed">
+    <div class="widget-header" :class="{ 'widget-header--expanded': expanded || compact }" @click="toggleCollapsed">
       <div class="flex items-center justify-between w-full min-w-0">
         <div class="flex items-center min-w-0">
-          <Icon v-if="!expanded" :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 dark:text-gray-400 rtl-flip" />
-          <Icon v-else :name="showVisual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 me-1.5 text-ink-muted flex-shrink-0" />
+          <!-- Leading content from the host (e.g. a citation's number) -->
+          <slot name="header-prefix" />
+          <Icon v-if="!expanded && !compact" :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 dark:text-gray-400 rtl-flip" />
+          <Icon v-else-if="expanded" :name="showVisual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 me-1.5 text-ink-muted flex-shrink-0" />
           <h3 class="widget-title truncate" :class="{ 'text-sm': expanded }">{{ widgetTitle }}</h3>
           <span v-if="effectiveStep?.data?.info?.source?.id === 'builtin:bow'" class="ms-2 shrink-0 text-chat-3 text-ink-muted inline-flex items-center gap-1">
             <img src="/assets/logo-128.png" class="w-3 h-3 object-contain" alt="" />
             {{ t('tools.createData.bowSource') }}
           </span>
           <button
-            v-if="queryId && canRunCustomCode && (canEdit || !readonly)"
+            v-if="queryId && canRunCustomCode && (canEdit || !readonly) && !compact"
             @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-ink-muted rounded transition-colors flex items-center"
             :title="t('tools.widgetPreview.editQueryCode')"
@@ -24,7 +26,7 @@
           </button>
         </div>
         <div class="flex items-center gap-3">
-          <UTooltip v-if="queryId" :text="t('tools.widgetPreview.copyIdTooltip')">
+          <UTooltip v-if="queryId && !compact" :text="t('tools.widgetPreview.copyIdTooltip')">
             <button
               @click.stop="copyQueryId"
               class="flex items-center gap-0.5 text-chat-3 text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 font-mono transition-colors"
@@ -54,7 +56,7 @@
               <Icon name="heroicons:arrows-pointing-out" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
-          <UTooltip v-if="hasChartForDownload" :text="t('tools.widgetPreview.downloadPng')">
+          <UTooltip v-if="hasChartForDownload && !compact" :text="t('tools.widgetPreview.downloadPng')">
             <button
               @click.stop="downloadChartPNG"
               class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
@@ -63,7 +65,7 @@
             </button>
           </UTooltip>
           <UDropdown
-            v-if="hasDataForDownload"
+            v-if="hasDataForDownload && !compact"
             :items="downloadItems"
             :popper="{ placement: 'bottom-end' }"
             :ui="{ width: 'w-48', item: { padding: 'px-2.5 py-1.5' } }"
@@ -93,7 +95,7 @@
 
     <!-- Collapsible content -->
     <Transition name="slide-fade">
-      <div v-if="!isCollapsed" class="widget-content" :class="{ 'widget-content--expanded': expanded }">
+      <div v-if="!isCollapsed" class="widget-content" :class="{ 'widget-content--expanded': expanded, 'widget-content--compact': compact }">
         <!-- Error / empty state when step has an error -->
         <template v-if="hasStepError">
           <div class="min-h-[80px] flex items-center text-xs text-ink-muted">
@@ -104,7 +106,7 @@
           <!-- Params value bar: what this snapshot ran with + try other
                values in place. Viewer-mode runs only — the shared snapshot
                changes through the editor's Save, never from here. -->
-          <div v-if="cardParamSpecs.length" class="mb-2 flex flex-wrap items-center gap-2 text-xs border-b border-gray-50 dark:border-gray-800 pb-2" data-testid="param-value-bar" @click.stop>
+          <div v-if="cardParamSpecs.length && !compact" class="mb-2 flex flex-wrap items-center gap-2 text-xs border-b border-gray-50 dark:border-gray-800 pb-2" data-testid="param-value-bar" @click.stop>
             <label v-for="spec in editableCardSpecs" :key="spec.name" class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
               <span class="text-2xs">{{ spec.label || spec.name }}</span>
               <select v-if="cardParamOptions[spec.name] && spec.type !== 'list'" v-model="cardParamValues[spec.name]"
@@ -118,7 +120,7 @@
                 :data-testid="`card-param-${spec.name}`" />
             </label>
             <span v-for="spec in identityCardSpecs" :key="spec.name"
-              class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 text-2xs">
+              class="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-2xs">
               {{ spec.label || spec.name }}: scoped to you
             </span>
             <button v-if="editableCardSpecs.length && !readonly" @click.stop="runCardParams" :disabled="cardRunLoading"
@@ -133,7 +135,7 @@
           </div>
 
           <!-- Tab Navigation -->
-          <div v-if="showTabs" class="flex border-b border-gray-100 dark:border-gray-800 mb-2">
+          <div v-if="showTabs" class="widget-tabs flex border-b border-gray-100 dark:border-gray-800 mb-2">
             <button
               v-if="showVisual"
               @click="activeTab = 'chart'"
@@ -173,7 +175,7 @@
           </div>
 
           <!-- Filter Row (above chart) - uses shared filter system, hidden on code tab -->
-          <div v-if="hasData && visualizationId && reportId && activeTab !== 'code'" class="flex justify-end mb-2">
+          <div v-if="hasData && visualizationId && reportId && activeTab !== 'code' && !compact" class="flex justify-end mb-2">
             <VisualizationFilter
               :report-id="reportId"
               :visualization-id="visualizationId"
@@ -207,6 +209,7 @@
                       :view="normalizedView"
                       :reportThemeName="reportThemeName"
                       :reportOverrides="reportOverrides"
+                      :expandable="false"
                     />
                     <template #fallback>
                       <div class="flex items-center justify-center w-full h-full">
@@ -215,7 +218,7 @@
                     </template>
                   </Suspense>
                 </div>
-                <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" :class="expanded ? 'h-full' : 'h-[340px]'">
+                <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" :class="compact ? 'h-[190px]' : (expanded ? 'h-full' : 'h-[340px]')">
                   <Suspense>
                     <RenderVisual :widget="effectiveWidget" :data="filteredData" :data_model="effectiveStep?.data_model" :view="normalizedView" />
                     <template #fallback>
@@ -234,7 +237,7 @@
                 v-if="(showTabs && activeTab === 'table') || (!showTabs && isTableType)"
                 :class="tableHeightClass"
               >
-                <RenderTable :widget="widget" :step="{ ...(filteredStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" />
+                <RenderTable :widget="widget" :step="{ ...(filteredStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" :expandable="false" />
               </div>
             </Transition>
 
@@ -289,7 +292,7 @@
                        rendered an empty box for that beat. The local Suspense
                        gives that wait a spinner; ClientOnly's fallback covers
                        the SSR/hydration pass before it. -->
-                  <div class="relative rounded overflow-hidden border border-gray-200 dark:border-gray-700" :class="expanded ? 'flex-1 min-h-[250px]' : 'h-[250px]'">
+                  <div class="relative rounded overflow-hidden border border-gray-200 dark:border-gray-700" :class="expanded ? 'flex-1 min-h-[250px]' : (compact ? 'h-[170px]' : 'h-[250px]')">
                     <ClientOnly>
                       <Suspense>
                         <MonacoEditor
@@ -395,6 +398,20 @@
             </button>
           </div>
           <div class="flex items-center space-x-2">
+            <!-- Connection admins only, and only where a custom table can be
+                 created from this result (see useCacheCandidate). -->
+            <button
+              v-if="canSaveAsCachedTable"
+              data-testid="save-as-cached-table"
+              :disabled="cacheModalLoading"
+              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center whitespace-nowrap hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
+              :title="t('tools.widgetPreview.saveAsCachedTableTooltip')"
+              @click.stop="openCacheModal"
+            >
+              <Icon v-if="!cacheModalLoading" name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500 me-1" />
+              <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 me-1 animate-spin" />
+              {{ t('tools.widgetPreview.saveAsCachedTable') }}
+            </button>
             <button
               v-if="!effectiveStep?.created_entity_id"
               class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -426,11 +443,24 @@
       @close="openEntityModal = false"
       @saved="handleEntitySaved"
     />
+
+    <CustomQueryModal
+      v-if="cacheModalMounted && cacheCandidate && cacheConnection"
+      v-model="cacheModalOpen"
+      :connection-id="cacheConnection.id"
+      :connection-name="cacheConnection.name"
+      :connection-type="cacheConnection.type || ''"
+      :initial-sql="cacheDefinition"
+      :initial-name="cacheInitialName"
+      :activate-for-datasource-id="cacheCandidate.dataSourceId"
+      @vue:mounted="onCacheModalMounted"
+      @saved="onCachedTableSaved"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, defineAsyncComponent, inject, onMounted, onUnmounted, unref } from 'vue'
+import { computed, ref, watch, nextTick, defineAsyncComponent, inject, provide, onMounted, onUnmounted, unref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { cardHydrationRequest, deriveViewerRun } from '~/utils/viewerRunHydration'
@@ -445,6 +475,10 @@ import RenderTable from '../RenderTable.vue'
 import Spinner from '../Spinner.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import EntityCreateModal from '../entity/EntityCreateModal.vue'
+import { cacheCandidateFrom, cacheTableNameFor } from '~/utils/cacheCandidate'
+import { fetchCacheDefinition, useCacheConnections } from '~/composables/useCacheCandidate'
+import { useCachedTableNames } from '~/composables/useFastTable'
+const CustomQueryModal = defineAsyncComponent(() => import('@/components/datasources/CustomQueryModal.vue'))
 import { useExcel } from '~/composables/useExcel'
 import VisualizationFilter from '@/components/dashboard/VisualizationFilter.vue'
 import {
@@ -452,6 +486,7 @@ import {
   evaluateFilters as sharedEvaluateFilters,
   type FilterGroup
 } from '~/composables/useSharedFilters'
+import { GRID_FILTER_BRIDGE, createReportFilterBridge } from '~/utils/valueFilter'
 
 interface ToolExecution {
   id: string
@@ -473,6 +508,13 @@ const props = defineProps<{
   canExpand?: boolean
   /** Rendering inside that side panel: full width, full height, no collapse. */
   expanded?: boolean
+  /**
+   * A small read-only glance at the result (e.g. a citation's hover preview):
+   * the same title, tabs, chart, grid and code, at reduced heights and without
+   * the collapse toggle, filters, parameter bar, edit, copy-id and download
+   * controls. Pair with `readonly`.
+   */
+  compact?: boolean
   // Show the Edit button even in readonly mode (readonly hides the whole
   // bottom action bar; hosts like the Data modal want edit without the bar)
   canEdit?: boolean
@@ -722,6 +764,25 @@ function handleSharedFilterUpdate(ev: Event) {
   if (reportId.value && detail.reportId !== reportId.value) return
   sharedFilters.value = JSON.parse(JSON.stringify(detail.filters || []))
 }
+
+// The table's header filter writes into these same shared filters (one
+// condition per column), so there is ONE filter here: what a header filters,
+// the chart and the Filters popover show too. The grid lists values from
+// every row, not just the filtered ones.
+provide(GRID_FILTER_BRIDGE, createReportFilterBridge({
+  filters: () => sharedFilters.value,
+  vizId: () => (reportId.value && visualizationId.value ? String(visualizationId.value) : null),
+  rows: () => {
+    const rows = effectiveStep.value?.data?.rows
+    return Array.isArray(rows) ? rows : []
+  },
+  commit: (groups) => {
+    sharedFilters.value = JSON.parse(JSON.stringify(groups))
+    window.dispatchEvent(new CustomEvent('filter:updated', {
+      detail: { reportId: reportId.value, filters: sharedFilters.value, source: filterInstanceId }
+    }))
+  },
+}))
 
 // Count active filters for this visualization
 const activeFilterCount = computed(() => {
@@ -1112,6 +1173,7 @@ const isMetricCardType = computed(() => {
 // Adjust height for compact metric cards - dynamically based on content
 const chartHeightClass = computed(() => {
   if (isMetricCardType.value) return 'flex items-start'
+  if (props.compact) return 'h-[190px]'
   return props.expanded ? 'h-full' : 'h-[340px]'
 })
 
@@ -1165,6 +1227,80 @@ const executedQueries = computed(() => {
 
 // Check if we have executed queries to show
 const hasExecutedQueries = computed(() => executedQueries.value.length > 0)
+
+// --- Save as cached table ---------------------------------------------------
+// Offered on a result that one query against one connection produced, to the
+// admins of that connection. The dialog is the same one the agent's tables
+// page uses, opened with this result's query already in it.
+const { isCustomQueriesEnabled } = useOrgSettings()
+const { ensureLoaded: ensureCacheConnections, connectionFor: cacheConnectionFor } = useCacheConnections()
+const { ensureLoaded: ensureCachedTableNames } = useCachedTableNames()
+
+const cacheCandidate = computed(() => {
+  if (props.compact || props.readonly || !canViewCode.value) return null
+  if (!isCustomQueriesEnabled.value) return null
+  // The card can show a run other than the one this tool execution recorded:
+  // a parameterized query re-run with other values, or a viewer's own run.
+  // The query on record would then not be the query behind the rows.
+  if (cardParamSpecs.value.length || viewerRun.value?.queryId) return null
+  const candidate = cacheCandidateFrom(props.toolExecution?.result_json)
+  if (!candidate) return null
+  return useCan('manage_connection', { type: 'connection', id: candidate.connectionId }) ? candidate : null
+})
+
+watch(cacheCandidate, (c) => { if (c) ensureCacheConnections(c.connectionId) }, { immediate: true })
+
+const cacheConnection = computed(() => cacheConnectionFor(cacheCandidate.value))
+const canSaveAsCachedTable = computed(() => !!cacheCandidate.value && !!cacheConnection.value)
+
+// Mounted on first use: the dialog is large, and creating it already open
+// skips its open transition so it never appears.
+const cacheModalMounted = ref(false)
+const cacheModalOpen = ref(false)
+const cacheModalLoading = ref(false)
+// The dialog fills its form when it goes from closed to open. It is loaded on
+// demand, so it must be mounted closed and opened only afterwards: mounted
+// already open, it never sees that transition and shows an empty form.
+const cacheModalReady = ref(false)
+const cacheDefinition = ref('')
+
+async function onCacheModalMounted() {
+  cacheModalReady.value = true
+  await nextTick()
+  cacheModalOpen.value = true
+}
+const cacheInitialName = computed(() => cacheTableNameFor(widgetTitle.value))
+
+async function openCacheModal() {
+  const candidate = cacheCandidate.value
+  const toolExecutionId = props.toolExecution?.id
+  if (!canSaveAsCachedTable.value || !candidate || !toolExecutionId || cacheModalLoading.value) return
+  cacheModalLoading.value = true
+  try {
+    const { definition, error } = await fetchCacheDefinition(candidate, String(toolExecutionId))
+    if (!definition) {
+      toast.add({ title: t('tools.widgetPreview.saveAsCachedTableFailed'), description: error, color: 'red' })
+      return
+    }
+    cacheDefinition.value = definition
+    if (cacheModalReady.value) {
+      cacheModalOpen.value = true
+    } else {
+      // First use: the dialog is loaded on demand and opens itself once it
+      // has mounted (see onCacheModalMounted).
+      cacheModalMounted.value = true
+    }
+  } finally {
+    cacheModalLoading.value = false
+  }
+}
+
+function onCachedTableSaved() {
+  // Later results that read the new table are badged as cached.
+  const loaded = useState<boolean>('bow-cached-table-names-loaded')
+  loaded.value = false
+  ensureCachedTableNames()
+}
 
 // Per-query timing records; a connector that rewrote a query records the
 // request it actually sent there (`sent_request`). Redacted with the code.
@@ -1244,6 +1380,7 @@ const tableHasRows = computed(() => {
 
 const tableHeightClass = computed(() => {
   if (!tableHasRows.value) return 'min-h-[80px]'
+  if (props.compact) return 'h-[200px]'
   return props.expanded ? 'h-full' : 'h-[400px]'
 })
 
@@ -1266,7 +1403,7 @@ watch([showVisual, hasData, hasCode], () => {
 }, { immediate: true })
 
 function toggleCollapsed() {
-  if (props.expanded) return
+  if (props.expanded || props.compact) return
   isCollapsed.value = !isCollapsed.value
 }
 
@@ -1509,6 +1646,25 @@ onMounted(() => {
     } catch {}
   }
   listen('visualization:updated', handleVizUpdated)
+  // create_data's background visualization inference landed. The props side
+  // (result_json / created_step) is patched by the report page; this patches
+  // the copies the card fetched itself before the refinement was written.
+  function handleVizRefined(ev: CustomEvent) {
+    try {
+      const d: any = (ev as any)?.detail || {}
+      const te: any = props.toolExecution
+      const mine = (d.tool_execution_id && String(te?.id) === String(d.tool_execution_id))
+        || (d.step_id && String(te?.created_step_id || '') === String(d.step_id))
+      if (!mine) return
+      if (stepOverride.value && d.data_model) {
+        stepOverride.value = { ...stepOverride.value, data_model: JSON.parse(JSON.stringify(d.data_model)) }
+      }
+      if (hydratedVisualization.value && d.view) {
+        hydratedVisualization.value = { ...hydratedVisualization.value, view: JSON.parse(JSON.stringify(d.view)) }
+      }
+    } catch {}
+  }
+  listen('visualization:refined', handleVizRefined)
   // Live theme updates from dashboard
   function handleThemeChanged(ev: CustomEvent) {
     try {
@@ -1662,6 +1818,25 @@ onMounted(() => {
 
 .widget-content {
   @apply p-3;
+}
+
+/* Compact mode: the host (a popover) supplies the frame. */
+.widget-container--compact {
+  @apply mt-0 mb-0 border-0 shadow-none bg-transparent;
+}
+.widget-content--compact {
+  @apply p-2 overflow-y-auto;
+  max-height: 300px;
+}
+/* A glance has no use for the grid's paging bar; the full result has it. */
+.widget-content--compact :deep(.ag-paging-panel) {
+  display: none;
+}
+.widget-content--compact .widget-tabs {
+  @apply mb-1.5;
+}
+.widget-content--compact .widget-tabs > button {
+  @apply px-2 py-1 text-2xs;
 }
 
 /* Side-panel mode: the same card, sized to the pane the way a document is

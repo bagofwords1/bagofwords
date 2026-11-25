@@ -321,7 +321,10 @@ class TestEvaluationService:
                 )
             ).scalar_one_or_none()
             if comp and isinstance(comp.completion, dict):
-                completion_text = comp.completion.get("content") or ""
+                # Rules and judges score the answer as a reader sees it, not
+                # the `{{cite:…}}` markers the web report turns into chips.
+                from app.ai.citations import strip_citations
+                completion_text = strip_citations(comp.completion.get("content") or "") or ""
         except Exception:
             completion_text = ""
         snapshot["completion_text"] = completion_text

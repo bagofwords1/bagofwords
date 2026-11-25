@@ -1,50 +1,28 @@
 <template>
-  <div class="mt-1 mb-1" :data-testid="`delegate-card-${subAgentId || 'refused'}`">
+  <div class="min-w-0" :data-testid="`delegate-card-${subAgentId || 'refused'}`">
     <!-- Header line -->
-    <div
-      class="flex items-center gap-1.5 text-chat-2 text-gray-500 dark:text-gray-400 min-w-0"
-      :class="{ 'cursor-pointer select-none': canExpand }"
-      @click="canExpand && (expanded = !expanded)"
-    >
-      <Spinner v-if="isLive" class="w-3 h-3 flex-shrink-0 text-ink-muted" />
-      <Icon v-else :name="stateIcon" class="w-3.5 h-3.5 flex-shrink-0" :class="stateIconClass" />
-      <span class="font-medium text-gray-700 dark:text-gray-300 truncate" :class="isLive ? 'tool-shimmer' : ''" dir="auto">{{ title }}</span>
-
-      <!-- Outcome badge -->
-      <span v-if="outcome" class="px-1.5 py-0.5 rounded text-chat-3 font-medium flex-shrink-0" :class="outcomeClass">
-        {{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<span v-if="confidence !== null"> · {{ Math.round(confidence * 100) }}%</span>
-      </span>
-      <span v-else-if="refused" class="px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">{{ t('tools.delegate.refused') }}</span>
-      <span v-else class="text-chat-3 text-ink-muted flex-shrink-0">{{ t(`tools.delegate.status.${displayStatus}`, displayStatus) }}</span>
-
-      <!-- Counters -->
-      <span class="text-chat-3 text-ink-muted flex-shrink-0 tabular-nums" dir="ltr">
-        <template v-if="stepsLabel">{{ stepsLabel }}</template>
-        <template v-if="elapsedLabel"> · {{ elapsedLabel }}</template>
-        <template v-if="tokensLabel"> · {{ tokensLabel }}</template>
-      </span>
-
-      <Icon v-if="canExpand" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-0.5 text-ink-muted" />
-
-      <!-- Stop (only while live, only when interactive) -->
-      <button
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-user-group" :expanded="toolHeaderExpanded" :running="displayStatus === 'in_progress' || displayStatus === 'running'" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>{{ title }}</template>
+      <template #actions><button
         v-if="isLive && !readonly"
         class="ms-auto inline-flex items-center gap-0.5 text-chat-2 text-red-600 hover:text-red-800 flex-shrink-0"
         :disabled="stopping"
         :title="t('tools.delegate.stop')"
         data-testid="delegate-stop"
         @click.stop="stop"
-      >
-        <Icon name="heroicons-stop" class="w-3 h-3" />
-        <span>{{ stopping ? t('tools.delegate.stopping') : t('tools.delegate.stop') }}</span>
-      </button>
-    </div>
+      ><Icon name="heroicons-stop" class="w-3 h-3" /><span>{{ stopping ? t('tools.delegate.stopping') : t('tools.delegate.stop') }}</span></button></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="outcome" class="px-1.5 py-0.5 rounded text-chat-3 font-medium flex-shrink-0" :class="outcomeClass">{{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<span v-if="confidence !== null"> · {{ Math.round(confidence * 100) }}%</span></span><span v-else-if="refused" class="px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-ink-muted flex-shrink-0">{{ t('tools.delegate.refused') }}</span><span v-else class="text-chat-3 text-ink-muted flex-shrink-0">{{ t(`tools.delegate.status.${displayStatus}`, displayStatus) }}</span><span class="text-chat-3 text-ink-muted flex-shrink-0 tabular-nums" dir="ltr">
+      <template v-if="stepsLabel">{{ stepsLabel }}</template>
+      <template v-if="elapsedLabel"> · {{ elapsedLabel }}</template>
+      <template v-if="tokensLabel"> · {{ tokensLabel }}</template></span></div>
 
     <!-- Refused: say why -->
     <p v-if="refused" dir="auto" class="ms-5 mt-0.5 text-chat-2 text-gray-500 dark:text-gray-400">{{ refused }}</p>
 
     <!-- Body -->
-    <div v-if="expanded && canExpand" class="ms-5 mt-1.5 space-y-2 text-chat-2 text-gray-600 dark:text-gray-400">
+    <div v-if="toolHeaderExpanded && canExpand" class="ms-5 mt-1.5 space-y-2 text-chat-2 text-gray-600 dark:text-gray-400">
       <!-- Goal -->
       <p class="text-chat-2 text-gray-500 dark:text-gray-500 line-clamp-3" dir="auto" :title="goal">{{ goal }}</p>
 
@@ -78,7 +56,7 @@
         </div>
         <p v-if="record.unknown" class="text-amber-700 dark:text-amber-400"><span class="font-medium">{{ t('tools.delegate.unknown') }}:</span> <bdi>{{ record.unknown }}</bdi></p>
         <div v-if="record.evidence?.length" class="flex flex-wrap gap-1">
-          <span v-for="(e, i) in record.evidence" :key="i" class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-chat-3 text-gray-500" :title="e.id">{{ e.kind }}<span v-if="e.label">: {{ e.label }}</span></span>
+          <span v-for="(e, i) in record.evidence" :key="i" class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-chat-3 text-ink-muted" :title="e.id">{{ e.kind }}<span v-if="e.label">: {{ e.label }}</span></span>
         </div>
         <p v-if="record.synthesized" class="text-chat-2 text-ink-muted italic">{{ t('tools.delegate.synthesized') }}</p>
       </template>
@@ -86,7 +64,7 @@
       <div v-if="detail?.messages?.length" class="space-y-2" data-testid="sub-agent-message-history">
         <div class="text-chat-3 uppercase tracking-wide text-ink-muted">{{ t('tools.messageSubAgent.messages') }}</div>
         <div v-for="message in detail.messages" :key="message.message_id" class="rounded-md border border-gray-200 dark:border-gray-700 p-2">
-          <div class="flex flex-wrap items-center gap-1 text-chat-3 text-gray-500">
+          <div class="flex flex-wrap items-center gap-1 text-chat-3 text-ink-muted">
             <span>{{ message.sender === 'parent' ? t('tools.messageSubAgent.parent') : title }}</span>
             <span aria-hidden="true" class="inline-block rtl:rotate-180">→</span>
             <span>{{ message.recipient === 'parent' ? t('tools.messageSubAgent.parent') : title }}</span>
@@ -103,10 +81,13 @@
         <span v-if="noteId" class="cursor-pointer hover:text-blue-600" @click.stop="emit('openNote', noteId)">{{ t('tools.delegate.openNote') }}</span>
       </div>
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
@@ -134,7 +115,8 @@ const emit = defineEmits<{ (e: 'openNote', noteId: string): void }>()
 // provides the rows by id; the card reads them so N cards cost one poll.
 const subAgents = inject<any>('subAgents', null)
 
-const expanded = ref(false)
+// Open/closed state of the card; opening it starts the live detail poll.
+const toolHeaderExpanded = ref(false)
 const stopping = ref(false)
 const detail = ref<any>(null)
 const now = ref(Date.now())
@@ -248,14 +230,14 @@ async function stop() {
 
 function syncDetailPolling() {
   if (detailTimer) { clearInterval(detailTimer); detailTimer = null }
-  if (expanded.value && !props.readonly) {
+  if (toolHeaderExpanded.value && !props.readonly) {
     // A finished card already has its result in the wave snapshot, but its
     // durable message history is only returned by the detail endpoint.
     fetchDetail()
     if (isLive.value) detailTimer = setInterval(fetchDetail, 3000)
   }
 }
-watch([expanded, isLive], syncDetailPolling)
+watch([toolHeaderExpanded, isLive], syncDetailPolling)
 // When the run ends, pull the final record once (envelope + calls).
 watch(isLive, (v, prev) => { if (prev && !v) fetchDetail() })
 

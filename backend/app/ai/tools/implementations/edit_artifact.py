@@ -368,16 +368,13 @@ class EditArtifactTool(Tool):
                 )
                 return
         else:
-            # Fast parse-only gate first: a syntax error introduced by the ops
-            # should cost ~1-2s (bare babel-standalone transform) with a
-            # bracket-balance hint, not a full validation render. Gate
-            # unavailable → None → the render pass below decides.
+            from app.ai.tools.implementations._artifact_parse import ParseCheckUnavailable, parse_check_page_code
             try:
-                from app.ai.tools.implementations._artifact_parse import parse_check_page_code
                 _parse_err = await parse_check_page_code(new_code)
-            except Exception as e:
-                logger.warning(f"edit_artifact: parse gate errored, deferring to render validation: {e}")
-                _parse_err = None
+            except ParseCheckUnavailable as exc:
+                yield self._fail(artifact, "validation_unavailable", str(exc),
+                                 {"remediation": "Restore the server JSX compiler and retry the edit."})
+                return
             if _parse_err is not None:
                 yield self._fail(
                     artifact, "parse_error",

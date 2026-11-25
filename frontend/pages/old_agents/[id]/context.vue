@@ -29,7 +29,7 @@
                         <Spinner class="w-4 h-4 me-2" />
                         Loading...
                     </div>
-                    <UButton v-else-if="canUpdateDataSource" icon="heroicons:code-bracket" class="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50 dark:hover:bg-gray-800" @click="showGitModal = true">Connect Git Repository</UButton>
+                    <UButton v-else-if="canUpdateDataSource" icon="heroicons:code-bracket" class="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1 text-xs text-ink hover:bg-gray-50 dark:hover:bg-gray-800" @click="showGitModal = true">Connect Git Repository</UButton>
                 </div>
             </div>
         </div>

@@ -8,6 +8,7 @@ import asyncio
 import importlib
 import logging
 import json
+import uuid
 from datetime import datetime
 from typing import Any, List, Optional
 from uuid import UUID
@@ -92,12 +93,20 @@ def _check_tool_provider_url(conn_type: str, config) -> None:
 
 def _check_network_dir_root(conn_type: str, config) -> None:
     """Save/test-time guard: a network_dir root must pass the root policy
-    (``security.network_dir_allowed_roots``). Enforced again in the client."""
+    (``security.network_dir_allowed_roots``). Enforced again in the client.
+    File-based connectors (duckdb, csv, qvd, pbix, sqlite) get their own
+    local-path policy here too."""
+    cfg = json.loads(config) if isinstance(config, str) else (config or {})
     if conn_type != "network_dir":
+        from app.data_sources.clients._duckdb_lockdown import check_connection_config
+
+        try:
+            check_connection_config(conn_type, cfg)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return
     from app.data_sources.clients.network_dir_client import check_network_dir_root
 
-    cfg = json.loads(config) if isinstance(config, str) else (config or {})
     root = (cfg.get("root_path") or "").strip() if isinstance(cfg.get("root_path"), str) else ""
     if not root:
         return
@@ -147,6 +156,118 @@ def _reject_unsafe_google_keys(credentials) -> None:
                 check_google_token_uri(info)
             except UnsafeURLError as e:
                 raise HTTPException(status_code=400, detail=f"{key}: {e}")
+
+
+def _config_auth_type(config) -> Optional[str]:
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except ValueError:
+            return None
+    return (config or {}).get("auth_type") if isinstance(config, dict) else None
+
+
+def _auth_methods_exclusive(conn_type: str) -> bool:
+    from app.schemas.data_source_registry import get_entry
+
+    try:
+        return bool(get_entry(conn_type).credentials_auth.exclusive_methods)
+    except ValueError:
+        return False
+
+
+def _merge_credential_changes(conn_type: str, existing: Optional[dict], incoming: Optional[dict]) -> dict:
+    """Saved credentials with an edit applied.
+
+    Edits are partial: an omitted or blank value keeps what is saved, so one
+    secret can be rotated without resending the rest (a blank secret box means
+    "unchanged"). Where a connector declares its auth methods exclusive, an
+    explicit ``null`` additionally clears the field — its optional, non-secret
+    fields (a service account to impersonate) must be removable, and the form
+    sends null only for a field the admin emptied.
+    """
+    merged = dict(existing or {})
+    incoming = incoming or {}
+    merged.update({k: v for k, v in incoming.items() if v is not None and v != ""})
+    if _auth_methods_exclusive(conn_type):
+        for key, value in incoming.items():
+            if value is None:
+                merged.pop(key, None)
+    return merged
+
+
+def _prepare_auth_credentials(conn_type: str, config, credentials):
+    """System credentials as they should be stored for the connection's auth
+    method (`config.auth_type`).
+
+    * A method the deployment has not enabled (one that borrows the server's
+      own identity) is refused.
+    * Fields that belong to another method are dropped where the connector
+      declares its methods exclusive, so the saved blob never says two things.
+    * A deployment-identity method has no secret to check by connecting, so
+      its fields are validated against the schema here and its defaults filled
+      in — the client can then rely on what is stored.
+    """
+    from app.schemas.data_source_registry import (
+        auth_variant_enabled, credentials_for_auth_method, get_entry,
+    )
+
+    if not isinstance(credentials, dict) and credentials is not None:
+        return credentials
+    auth_type = _config_auth_type(config)
+    try:
+        options = get_entry(conn_type).credentials_auth
+    except ValueError:
+        return credentials
+    variant = options.by_auth.get(auth_type or options.default)
+    if variant is None or not variant.requires_security_flag:
+        if credentials is None:
+            return None
+        return credentials_for_auth_method(conn_type, auth_type, credentials)
+
+    if not auth_variant_enabled(variant):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{variant.title} is turned off on this deployment. Ask the operator to enable it before using this authentication method.",
+        )
+    from pydantic import ValidationError
+    cleaned = credentials_for_auth_method(conn_type, auth_type, credentials or {})
+    try:
+        validated = variant.schema(**{k: v for k, v in cleaned.items() if v is not None and v != ""})
+    except ValidationError as e:
+        first = e.errors()[0]
+        reason = str(first["msg"]).removeprefix("Value error, ")
+        raise HTTPException(status_code=400, detail=reason)
+    return {**cleaned, **validated.model_dump(exclude_none=True)}
+
+
+async def connectors_deleted_with(db: AsyncSession, connection) -> List[tuple]:
+    """``[(id, name)]`` of the data sources that deleting ``connection``
+    deletes: connectors (someone's own mailbox, an MCP preset; see
+    app/services/data_source_kind.py) whose only connection it is. Every other
+    linked data source is kept. The delete itself and the delete confirmation
+    both use this, so what the warning names is what goes."""
+    from app.models.domain_connection import domain_connection
+    from app.services.data_source_kind import CONNECTOR, KINDS, connection_is_connector
+
+    linked = list(connection.data_sources or [])
+    if not linked:
+        return []
+    counts = dict((await db.execute(
+        select(domain_connection.c.data_source_id, func.count())
+        .where(domain_connection.c.data_source_id.in_([str(ds.id) for ds in linked]))
+        .group_by(domain_connection.c.data_source_id)
+    )).all())
+    out = []
+    for ds in linked:
+        if counts.get(str(ds.id), 0) > 1:
+            continue
+        # With this as its only connection the derived kind is this
+        # connection's; an explicit kind wins, as in data_source_kind().
+        kind = ds.kind if ds.kind in KINDS else (CONNECTOR if connection_is_connector(connection) else None)
+        if kind == CONNECTOR:
+            out.append((str(ds.id), ds.name))
+    return out
 
 
 async def grant_connection_owner(
@@ -342,12 +463,13 @@ def _athena_config_is_multi(config) -> bool:
 
 
 def _validate_connection_config(connection_type: str, config) -> None:
-    if connection_type != "aws_athena" or not isinstance(config, dict):
+    if connection_type not in ("aws_athena", "postgresql_multi") or not isinstance(config, dict):
         return
     from pydantic import ValidationError
-    from app.schemas.data_sources.configs import AWSAthenaConfig
+    from app.schemas.data_sources.configs import AWSAthenaConfig, PostgreSQLMultiConfig
+    config_class = {"aws_athena": AWSAthenaConfig, "postgresql_multi": PostgreSQLMultiConfig}[connection_type]
     try:
-        AWSAthenaConfig(**{k: v for k, v in config.items() if v is not None and v != ""})
+        config_class(**{k: v for k, v in config.items() if v is not None and v != ""})
     except ValidationError as e:
         first = e.errors()[0]
         field = ".".join(str(p) for p in first["loc"]) or "config"
@@ -450,7 +572,8 @@ def _invalidate_engine_pool(connection) -> None:
         sig = _inspect.signature(ClientClass.__init__)
         params = {**(cfg or {}), **creds}
         allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
-        client = ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
         for attr in ("pg_uri", "mysql_uri", "mariadb_uri", "sql_server_uri",
                      "oracle_uri", "trino_uri", "presto_uri", "teradata_uri", "db2_uri"):
             uri = getattr(client, attr, None)
@@ -608,6 +731,7 @@ class ConnectionService:
         _check_network_dir_root(type, config)
         _validate_connection_config(type, config)
         _check_query_tag_label(config)
+        credentials = _prepare_auth_credentials(type, config, credentials)
 
         # Check enterprise license for restricted data sources
         from app.ee.license import is_datasource_allowed, is_enterprise_licensed
@@ -970,6 +1094,7 @@ class ConnectionService:
         current_config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
         if not isinstance(current_config, dict):
             current_config = {}
+        previous_config = current_config
 
         if "config" in updates:
             new_config = updates.pop("config")
@@ -980,6 +1105,12 @@ class ConnectionService:
                 for key in RUNTIME_CONFIG_KEYS:
                     if key not in new_config and key in current_config:
                         new_config = {**new_config, key: current_config[key]}
+                # Server-managed: the scopes the connection's enabled write
+                # actions need (see _refresh_action_scopes). Never taken from
+                # the request, never dropped by a form save.
+                new_config = {k: v for k, v in new_config.items() if k != "action_scopes"}
+                if isinstance(current_config, dict) and current_config.get("action_scopes"):
+                    new_config["action_scopes"] = current_config["action_scopes"]
                 current_config = new_config
             connection.config = json.dumps(new_config) if isinstance(new_config, dict) else new_config
             connection_changed = True
@@ -998,17 +1129,28 @@ class ConnectionService:
                     merged.pop(key, None)
             connection.config = json.dumps(merged)
 
-        if "credentials" in updates:
-            new_credentials = updates.pop("credentials")
-            if new_credentials:
-                # Credential edits are partial updates, like test overrides:
-                # omitted/blank values keep the saved value. Never replace the
-                # entire blob when rotating a single secret or identifier.
-                existing = connection.decrypt_credentials() or {}
-                changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
-                if changes:
-                    connection.encrypt_credentials({**existing, **changes})
-                    connection_changed = True
+        auth_method_changed = _config_auth_type(current_config) != _config_auth_type(previous_config)
+        credential_changes = {}
+        new_credentials = updates.pop("credentials", None) if "credentials" in updates else None
+        if new_credentials:
+            # Credential edits are partial updates, like test overrides:
+            # omitted/blank values keep the saved value. Never replace the
+            # entire blob when rotating a single secret or identifier.
+            credential_changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
+        target_type = updates.get("type", connection.type)
+        # A change of method alone only matters where methods are exclusive;
+        # elsewhere the stored credentials are left exactly as they were.
+        if new_credentials or (auth_method_changed and _auth_methods_exclusive(target_type)):
+            existing = connection.decrypt_credentials() or {}
+            # Merge, then keep only what the (possibly new) auth method owns:
+            # switching method must not leave the previous method's key or
+            # marker in the stored credentials.
+            merged = _prepare_auth_credentials(
+                target_type, current_config, _merge_credential_changes(target_type, existing, new_credentials),
+            )
+            if credential_changes or merged != existing:
+                connection.encrypt_credentials(merged)
+                connection_changed = True
 
         if connection_changed:
             # Drop pooled engines for the PREVIOUS config while it is still on
@@ -1106,7 +1248,12 @@ class ConnectionService:
         - UserConnectionTable/Column (user overlays)
         - domain_connection junction records (DB-level cascade)
 
-        Data sources that only have this connection will also be deleted.
+        Agents are never deleted with a connection: every agent linked to it is
+        unlinked first (the same cleanup as removing a connection from an
+        agent), and one that had no other connection is kept, connectionless,
+        with its instructions, queries, files and description. A connector
+        (someone's own mailbox, an MCP preset) with no other connection is the
+        exception: it is deleted with the connection.
         """
         # Capture the org id as a plain string up front. The retry path below
         # rolls back on a concurrent-write FK violation, and a rollback expires
@@ -1158,9 +1305,15 @@ class ConnectionService:
             from app.services.file_index_store import FileIndexStore
             await FileIndexStore(db).clear(str(connection.id))
 
-            # Agents that existed only through this connection were deleted
-            # above, through the agent delete; any left here share another
-            # connection and only lose this link (domain_connection cascade).
+            # Agents' per-connection settings (their Slack channels) go too —
+            # same reason: SQLite doesn't enforce the FK cascade here.
+            from sqlalchemy import delete as _delete
+            from app.models.data_source_connection_setting import DataSourceConnectionSetting
+            await db.execute(_delete(DataSourceConnectionSetting).where(
+                DataSourceConnectionSetting.connection_id == str(connection.id)))
+
+            # Every agent was unlinked above; the domain_connection cascade
+            # only catches a link added concurrently since.
             await db.delete(connection)
             await db.commit()
             return connection_name
@@ -1168,36 +1321,63 @@ class ConnectionService:
         deleted_config = None
         await _drain()
 
-        # Agents that exist only through this connection go with it — through
-        # the full agent delete (DataSourceService.delete_data_source), the one
-        # place that knows every reference to an agent: content scoped to it,
-        # project / webhook / instruction links, folders, repositories, audit.
-        # A hand-rolled `db.delete(ds)` here used to skip most of that and fail
-        # on Postgres foreign keys. Every such agent is checked first, so one
-        # that cannot be deleted stops the connection delete before anything is
-        # removed.
+        # Unlink every agent first, through the same cleanup as removing a
+        # connection from an agent (its tables and what hangs off them —
+        # stats, usage, feedback, instruction references, overlays, tool
+        # policies, per-connection settings). The ORM cascade on the delete
+        # below misses the references that carry no foreign key. An agent
+        # left with no connection is kept: its instructions, queries, lists,
+        # files and description stay, and a connection can be linked again.
+        #
+        # The exception is a *connector* (someone's Gmail, Outlook, an MCP
+        # preset — app/services/data_source_kind.py) with no other connection:
+        # it is nothing but a line into this connection, so it goes with it,
+        # through the full agent delete.
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         connection = await self.get_connection(db, connection_id, organization)
         has_file_table_cache = connection.type == "network_dir"
-        linked = list(connection.data_sources or [])
+        linked = [
+            (str(ds.id), ds.name, len(ds.connections or []))
+            for ds in (connection.data_sources or [])
+        ]
         agent_count = len(linked)
-        sole = [(str(ds.id), ds.name) for ds in linked if len(ds.connections) == 1]
         if agent_count:
             logger.info(
                 f"Deleting connection {connection.name} ({connection_id}) which is linked to "
-                f"{agent_count} agent(s): {[ds.name for ds in linked]}"
+                f"{agent_count} agent(s): {[name for _, name, _ in linked]}"
             )
-        for ds_id, ds_name in sole:
+        sole_connectors = await connectors_deleted_with(db, connection)
+        # Every connector to delete is checked first, so one that cannot be
+        # deleted stops the connection delete before anything is removed.
+        for ds_id, ds_name in sole_connectors:
             await ds_service._assert_nothing_blocks_agent_delete(db, ds_id, ds_name)
-        deleted_agent_names: list = []
-        for ds_id, ds_name in sole:
-            logger.info(f"Deleting data source {ds_name} ({ds_id}) as it only has this connection")
+        deleted_connector_names: list = []
+        for ds_id, ds_name in sole_connectors:
             await ds_service.delete_data_source(db, ds_id, organization, current_user)
-            deleted_agent_names.append(ds_name)
-        # The loaded connection still lists the agents just deleted; drop the
-        # stale state so the connection delete below re-reads what remains.
-        db.expire_all()
+            deleted_connector_names.append(ds_name)
+        if sole_connectors:
+            db.expire_all()
+            organization = await db.get(Organization, organization_id)
+        connectionless_agent_names: list = []
+        deleted_ids = {ds_id for ds_id, _ in sole_connectors}
+        for ds_id, ds_name, n_connections in linked:
+            if ds_id in deleted_ids:
+                continue
+            await ds_service.remove_connection_from_domain(
+                db=db, data_source_id=ds_id, connection_id=str(connection_id),
+                organization=organization, current_user=current_user,
+            )
+            if n_connections <= 1:
+                connectionless_agent_names.append(ds_name)
+        # Start the delete below from a clean session. The loaded connection
+        # still lists the agents just unlinked, and the unlink's bulk deletes
+        # leave any table rows this session already held in a deleted state —
+        # the connection's ORM cascade would try to delete them a second time.
+        if linked:
+            db.expunge_all()
+        else:
+            db.expire_all()
         organization = await db.get(Organization, organization_id)
 
         try:
@@ -1236,7 +1416,9 @@ class ConnectionService:
                 user_id=current_user_id,
                 resource_type="connection",
                 resource_id=str(connection_id),
-                details={"name": connection_name, "impacted_agents": agent_count, "deleted_agents": deleted_agent_names},
+                details={"name": connection_name, "impacted_agents": agent_count,
+                         "agents_without_connections": connectionless_agent_names,
+                         "deleted_connectors": deleted_connector_names},
             )
         except Exception:
             pass
@@ -1244,7 +1426,10 @@ class ConnectionService:
         return {
             "message": "Connection deleted successfully",
             "impacted_agents": agent_count,
-            "deleted_agents": deleted_agent_names,
+            # Agents that had only this connection: kept, now connectionless.
+            "agents_without_connections": connectionless_agent_names,
+            # Connectors that had only this connection: deleted with it.
+            "deleted_connectors": deleted_connector_names,
         }
 
     async def test_tool_params(
@@ -1368,6 +1553,7 @@ class ConnectionService:
             _check_network_dir_root(data_source_type, config)
             _reject_unsafe_google_keys(credentials)
             _check_query_tag_label(config)
+            credentials = _prepare_auth_credentials(data_source_type, config, credentials)
         except HTTPException as e:
             return {"success": False, "message": e.detail, "connectivity": False}
         except AppError as e:
@@ -1657,6 +1843,7 @@ class ConnectionService:
             connection.consecutive_test_failures = 0
             if not connection.is_active:
                 connection.is_active = True
+            connection.unreachable_since = None
             return
         failures = (connection.consecutive_test_failures or 0) + 1
         connection.consecutive_test_failures = failures
@@ -1666,6 +1853,9 @@ class ConnectionService:
             threshold = 3
         if failures >= threshold and connection.is_active:
             connection.is_active = False
+            # Kept for the whole outage (later failed probes do not move it),
+            # so the agent can say since when the source has been unreachable.
+            connection.unreachable_since = datetime.utcnow()
 
     @staticmethod
     def _sync_agents_with_connection(connection: Connection) -> None:
@@ -1841,7 +2031,8 @@ class ConnectionService:
         manual = (
             variant is not None and "user" in (variant.scopes or [])
             and payload.auth_mode not in ("oauth", "kerberos", KERBEROS_SSO_MODE)
-            and connection.type in ("sharepoint_onprem", "documentum", "kms_lighthouse")
+            and connection.type in ("sharepoint_onprem", "sharepoint_onprem_lists", "exchange_onprem", "documentum", "kms_lighthouse",
+                                    "confluence_dc", "jira_dc")
         )
         if connection.auth_policy != "user_required" or not manual:
             raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual user credentials")
@@ -1857,6 +2048,9 @@ class ConnectionService:
         if connection.type == "kms_lighthouse":
             # Raises when KMS refuses the login, before anything is stored.
             checked = await self._check_kms_member_login(connection, payload.auth_mode, credentials)
+        elif connection.type in ("confluence_dc", "jira_dc"):
+            # Raises when Confluence / Jira refuses the token or login, before anything is stored.
+            checked = await self._check_confluence_member_login(connection, payload.auth_mode, credentials)
         row = await get_user_conn_cred_row(db, connection, user)
         if row is None:
             row = UserConnectionCredentials(connection_id=str(connection.id), user_id=str(user.id),
@@ -1865,7 +2059,7 @@ class ConnectionService:
         row.last_used_at = None
         row.encrypt_credentials(credentials)
         result = {"success": True, "auth_mode": payload.auth_mode}
-        if connection.type == "kms_lighthouse":
+        if connection.type in ("kms_lighthouse", "confluence_dc", "jira_dc"):
             # The identity belongs to this login only: a new login drops the old one.
             metadata = {k: v for k, v in (row.metadata_json or {}).items() if k != "verified_identity"}
             identity = checked.get("identity") if checked else None
@@ -1878,6 +2072,51 @@ class ConnectionService:
         db.add(row)
         await db.commit()
         return result
+
+    async def _check_confluence_member_login(self, connection, auth_mode: str, credentials: dict) -> dict | None:
+        """Check a member's Confluence or Jira Data Center token or login once before it is saved.
+
+        (Confluence: GET /rest/api/user/current; Jira: GET /rest/api/2/myself — each client's test_connection.)
+
+        Returns ``{"identity": ...}`` when Confluence accepted it, and None when it
+        could not decide (unreachable, a server error, a space setting the admin
+        must fix): that login is saved unchecked. Raises a typed 422 when Confluence
+        refused it (401 or an anonymous answer), or when the account is behind a
+        CAPTCHA, so a wrong token never reads as "Connected".
+        """
+        import json
+        from app.core.egress import acheck_connection_params
+        from app.errors import AppError, ErrorCode
+        from app.schemas.data_source_registry import overlay_system_credentials
+        config = connection.config
+        if isinstance(config, str):
+            config = json.loads(config or "{}")
+        config = config or {}
+        creds = overlay_system_credentials(connection, credentials, auth_mode)
+        try:
+            await acheck_connection_params(connection.type, {**config, **creds})
+            client = self._resolve_client_by_type(data_source_type=connection.type, config=config,
+                                                  credentials={**creds, "auth_type": auth_mode})
+            outcome = await client.atest_connection()
+        except Exception as exc:
+            # The class name only: the text may hold a URL or a secret.
+            logger.info("%s member login not checked: %s", connection.type, type(exc).__name__)
+            return None
+        outcome = outcome if isinstance(outcome, dict) else {}
+        refused = outcome.get("login_refused")
+        if refused:
+            jira = connection.type == "jira_dc"
+            if refused == "captcha":
+                code = ErrorCode.CONNECTION_JIRA_LOGIN_CAPTCHA if jira else ErrorCode.CONNECTION_CONFLUENCE_LOGIN_CAPTCHA
+            else:
+                code = ErrorCode.CONNECTION_JIRA_LOGIN_REJECTED if jira else ErrorCode.CONNECTION_CONFLUENCE_LOGIN_REJECTED
+            raise AppError(code, outcome.get("message") or "The server did not accept this login.", status_code=422)
+        if outcome.get("success"):
+            return {"identity": (outcome.get("details") or {}).get("identity")}
+        if outcome.get("reachable"):
+            # Confluence accepted the login; only the connection's space list is off (an admin fix).
+            return None
+        return None
 
     async def _check_kms_member_login(self, connection, auth_mode: str, credentials: dict) -> dict | None:
         """Log in to KMS once with a member's login before it is saved.
@@ -2142,6 +2381,26 @@ class ConnectionService:
                 .execution_options(synchronize_session=False)
             )
 
+    async def _active_tables_by_agent(self, db: AsyncSession, connection: Connection) -> dict:
+        """``{agent_id: {table_name: columns}}`` for the tables each linked agent
+        has active on this connection. Read-only; feeds the schema-change diff.
+        (No try/except: a failed statement would poison the refresh transaction
+        on Postgres anyway, so let it surface like any other refresh error.)"""
+        import copy
+        from app.models.datasource_table import DataSourceTable
+        rows = (await db.execute(
+            select(DataSourceTable.datasource_id, DataSourceTable.name, DataSourceTable.columns)
+            .join(ConnectionTable, ConnectionTable.id == DataSourceTable.connection_table_id)
+            .where(
+                ConnectionTable.connection_id == str(connection.id),
+                DataSourceTable.is_active == True,  # noqa: E712
+            )
+        )).all()
+        out: dict = {}
+        for ds_id, name, columns in rows:
+            out.setdefault(str(ds_id), {})[name] = copy.deepcopy(list(columns or []))
+        return out
+
     async def refresh_schema(self, db: AsyncSession, connection: Connection, current_user: User = None,
                              progress_callback=None, introspection: str = "full",
                              keep_fresh_tables: bool = True, diagnostics_hook=None, defer_file_conversion=False) -> List[ConnectionTable]:
@@ -2163,6 +2422,11 @@ class ConnectionService:
                 org_id=getattr(connection, "organization_id", None),
                 user_id=getattr(current_user, "id", None),
             ):
+                # What each linked agent actively uses BEFORE discovery: a table
+                # dropped upstream is pruned (with its agent rows) inside
+                # _refresh_schema, so the per-agent sync below could otherwise
+                # never report it as removed.
+                prior_active = await self._active_tables_by_agent(db, connection)
                 tables = await self._refresh_schema(
                     db, connection, current_user, progress_callback, introspection,
                     keep_fresh_tables, diagnostics_hook, **({"defer_file_conversion": True} if defer_file_conversion else {}),
@@ -2186,6 +2450,7 @@ class ConnectionService:
                     await DataSourceService().sync_domain_tables_from_connection(
                         db, agent, connection, max_auto_select=None,
                         commit=False, after_commit=notifications,
+                        prior_active_tables=prior_active.get(str(agent.id)),
                     )
                     self.last_synced_domains += 1
                 if progress_callback:
@@ -2835,9 +3100,13 @@ class ConnectionService:
         creds = await self.resolve_credentials(db, connection, current_user)
         # Merge credential overrides (non-empty values win, blank keeps saved)
         if credential_overrides:
-            for k, v in credential_overrides.items():
-                if v is not None and v != "":
-                    creds[k] = v
+            creds = _merge_credential_changes(connection.type, creds, credential_overrides)
+        if getattr(self, "last_credential_identity", "system") == "system":
+            # The (possibly overridden) auth method decides which system
+            # fields count: an edit form testing a switch of method sends the
+            # new method's fields on top of the saved ones.
+            from app.schemas.data_source_registry import credentials_for_auth_method
+            creds = credentials_for_auth_method(connection.type, _config_auth_type(config), creds)
         logger.info(f"construct_client: Credentials resolved, keys={list(creds.keys()) if creds else []}")
 
         params = {**(config or {}), **(creds or {})}
@@ -2871,8 +3140,9 @@ class ConnectionService:
         # time — every test, index, query and tool call builds through here.
         from app.core.egress import acheck_connection_params
         await acheck_connection_params(connection.type, params)
-        client = ClientClass(**allowed)
-        if connection.type == "network_dir":
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
+        if connection.type in ("network_dir", "postgresql_multi"):
             client._bow_connection_id = str(connection.id)
         if connection.type in ("remote_ssh", "remote_smb"):
             client.pool_scope = f"{connection.organization_id}:{connection.id}:{getattr(current_user, 'id', 'system')}"
@@ -3276,6 +3546,59 @@ class ConnectionService:
             return False
         return catalog_ownership_for(connection_type, config) == "per_user"
 
+    async def sync_native_actions(self, db: AsyncSession, connection: Connection) -> bool:
+        """Make a built-in connector's write actions exist as tool rows.
+
+        The actions are defined in code (``ConnectorAction``); this keeps the
+        connection's ConnectionTool rows in step: a new action is added with
+        its effect's safe default (off — write tools never start on), an
+        existing row keeps the admin's settings while its description and
+        schema follow the code, and an action the code no longer has is
+        switched off and marked stale rather than deleted (agents' settings
+        and history keep pointing at it). No network. Returns True on change.
+        """
+        from app.data_sources.clients.connector_actions import EFFECT_DEFAULTS, actions_for_type
+
+        actions = actions_for_type(connection.type)
+        if not actions:
+            return False
+        rows = (await db.execute(
+            select(ConnectionTool).where(ConnectionTool.connection_id == str(connection.id))
+        )).scalars().all()
+        existing = {t.name: t for t in rows}
+        changed = False
+        for action in actions:
+            spec = action.to_tool()
+            row = existing.pop(action.name, None)
+            if row is None:
+                enabled, policy = EFFECT_DEFAULTS[action.effect]
+                insert = _dialect_insert(db)
+                await db.execute(insert(ConnectionTool).values(
+                    id=str(uuid.uuid4()), connection_id=str(connection.id), name=action.name,
+                    description=action.description, input_schema=action.input_schema,
+                    is_enabled=enabled, policy=policy, policy_locked=False,
+                    effect=action.effect, source="native", metadata_json=spec["metadata"],
+                ).on_conflict_do_nothing(index_elements=["connection_id", "name"]))
+                changed = True
+                continue
+            if (row.description != action.description or row.input_schema != action.input_schema
+                    or row.effect != action.effect or row.source != "native"
+                    or row.metadata_json != spec["metadata"]):
+                row.description = action.description
+                row.input_schema = action.input_schema
+                row.effect = action.effect
+                row.source = "native"
+                row.metadata_json = spec["metadata"]
+                changed = True
+        for row in existing.values():
+            if row.source == "native" and not (row.metadata_json or {}).get("stale"):
+                row.is_enabled = False
+                row.metadata_json = {**(row.metadata_json or {}), "stale": True}
+                changed = True
+        if changed:
+            await db.commit()
+        return changed
+
     async def refresh_tools(
         self,
         db: AsyncSession,
@@ -3376,6 +3699,8 @@ class ConnectionService:
                         tool.metadata_json = payload["metadata"]
                     if payload.get("explicit_policy"):
                         tool.policy = payload["explicit_policy"]
+                    tool.effect = effect_from_hints(payload.get("metadata")) or tool.effect
+                    tool.source = _tool_source(connection.type)
                     updated_count += 1
                 else:
                     new_tools.append(dict(
@@ -3391,6 +3716,8 @@ class ConnectionService:
                         # allow. Auto-policied tools keep whatever an admin
                         # sets later (only new rows are seeded).
                         policy=payload.get("explicit_policy") or payload.get("default_policy") or "allow",
+                        effect=effect_from_hints(payload.get("metadata")),
+                        source=_tool_source(connection.type),
                     ))
                     created_count += 1
 
@@ -3467,7 +3794,10 @@ class ConnectionService:
         db: AsyncSession,
         connection_id: str,
     ) -> List[ConnectionTool]:
-        """Get all tools for a connection."""
+        """Get all tools for a connection (built-in actions synced first)."""
+        connection = await db.get(Connection, str(connection_id))
+        if connection is not None:
+            await self.sync_native_actions(db, connection)
         result = await db.execute(
             select(ConnectionTool)
             .filter(ConnectionTool.connection_id == connection_id)
@@ -3482,6 +3812,7 @@ class ConnectionService:
         is_enabled: bool = None,
         policy: str = None,
         connection_id: Optional[str] = None,
+        policy_locked: Optional[bool] = None,
     ) -> ConnectionTool:
         """Update a single tool's enabled state or policy.
 
@@ -3506,7 +3837,15 @@ class ConnectionService:
                     status_code=400,
                     detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
                 )
+            from app.services.tool_policy_service import policy_not_allowed_for
+            reason = policy_not_allowed_for(tool, normalized)
+            if reason:
+                raise HTTPException(status_code=400, detail=reason)
             tool.policy = normalized
+        if policy_locked is not None:
+            tool.policy_locked = bool(policy_locked)
+        if is_enabled is not None:
+            await self._refresh_action_scopes(db, str(tool.connection_id))
 
         await db.commit()
         await db.refresh(tool)
@@ -3532,5 +3871,54 @@ class ConnectionService:
             raise HTTPException(status_code=404, detail="Tool not found")
         for tool in tools:
             tool.is_enabled = is_enabled
+        if tools:
+            await self._refresh_action_scopes(db, str(tools[0].connection_id))
         await db.commit()
         return tools
+
+    async def _refresh_action_scopes(self, db: AsyncSession, connection_id: str) -> None:
+        """Record on the connection which extra sign-in scopes its enabled
+        write actions need (``config.action_scopes``).
+
+        The Microsoft sign-in, its callback and token refresh all read this
+        (``get_oauth_params``), so turning on send_email makes the next sign-in
+        ask for Mail.Send, and a refresh never silently drops a granted scope.
+        Turning a tool off removes its scope from the next sign-in; the tool is
+        blocked by its row either way. Caller commits.
+        """
+        from app.data_sources.clients.connector_actions import NATIVE_ACTION_TYPES, actions_for_type
+
+        connection = await db.get(Connection, str(connection_id))
+        if connection is None or connection.type not in NATIVE_ACTION_TYPES:
+            return
+        enabled = {t.name for t in (await db.execute(
+            select(ConnectionTool).where(ConnectionTool.connection_id == str(connection_id),
+                                         ConnectionTool.is_enabled.is_(True))
+        )).scalars().all()}
+        scopes = sorted({alts[0] for a in actions_for_type(connection.type) if a.name in enabled
+                         for alts in a.required_scopes})
+        cfg = connection.config
+        if isinstance(cfg, str):
+            try:
+                cfg = json.loads(cfg)
+            except Exception:
+                cfg = {}
+        cfg = dict(cfg or {})
+        if cfg.get("action_scopes", []) == scopes:
+            return
+        if scopes:
+            cfg["action_scopes"] = scopes
+        else:
+            cfg.pop("action_scopes", None)
+        connection.config = json.dumps(cfg) if isinstance(connection.config, str) else cfg
+
+
+def _tool_source(conn_type: Optional[str]) -> Optional[str]:
+    if conn_type in ("remote_ssh", "remote_smb"):
+        return "remote"
+    return conn_type if conn_type in ("mcp", "custom_api") else None
+
+
+def effect_from_hints(metadata):
+    from app.data_sources.clients.connector_actions import effect_from_hints as _f
+    return _f(metadata)

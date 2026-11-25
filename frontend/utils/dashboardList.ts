@@ -703,6 +703,28 @@ export function refreshLine(card: DashboardCardData, tab: DashboardTab): 'failin
 }
 
 /**
+ * Where "Refresh failing" leads: the reader's own conversation on the
+ * dashboard, its settings open on Refreshes (ArtifactFrame reads
+ * `?settings=refreshes`, `?dashboard=` picks the dashboard). Null: they have
+ * none -- the page shows the refreshes itself, so nothing is copied or run
+ * just to look.
+ */
+export function refreshesLink(card: Pick<DashboardCardData, 'id' | 'report_id'>): { path: string; query: Record<string, string> } | null {
+  if (!card.report_id) return null
+  return { path: `/reports/${card.report_id}`, query: { dashboard: card.id, settings: 'refreshes' } }
+}
+
+/**
+ * The refresh to open first when reached from "Refresh failing": the newest
+ * failed one with an error, the published version's before a draft's (the
+ * card's status is the published refresh's). Runs are newest first.
+ */
+export function failureToOpen<R extends { status?: string; kind?: string | null; error?: string | null }>(runs: R[]): R | null {
+  const failed = (r: R) => r.status === 'failed' && !!r.error
+  return runs.find(r => failed(r) && r.kind === 'published') || runs.find(failed) || null
+}
+
+/**
  * A refetched page of cards, keeping the local star of every card whose
  * star request is still in flight (`pending`): the response may predate it.
  * Every other card takes the server's. The response is not mutated.

@@ -135,7 +135,7 @@
                                             <span>{{ gm.user_name || gm.user_email }}</span>
                                             <span v-if="gm.user_name && gm.user_email" class="text-ink-muted">{{ gm.user_email }}</span>
                                         </div>
-                                        <div v-if="!groupMembers[m.principal_id]?.length" class="text-2xs text-gray-300 dark:text-gray-600 italic">No members</div>
+                                        <div v-if="!groupMembers[m.principal_id]?.length" class="text-2xs text-ink-muted italic">No members</div>
                                     </div>
                                     <p v-if="isOwnerPrincipal(m)" class="mt-1 text-2xs text-ink-muted">{{ t('agentAccess.ownerHint') }}</p>
                                 </div>
@@ -162,7 +162,86 @@
                     </div>
 
                 </div>
+
+                <!--
+                  Access that does not come from a grant on this agent: folder
+                  and connection grants. Read-only here; it is changed at the
+                  source, so these rows carry no edit or remove control.
+                -->
+                <div v-if="inheritedRows.length || inheritedHidden" class="mt-4" data-testid="agent-inherited-access">
+                    <div class="text-2xs font-semibold uppercase tracking-wider text-ink-muted mb-1">{{ t('agentAccess.inherited') }}</div>
+                    <p class="text-2xs text-ink-muted mb-3">{{ t('agentAccess.inheritedHint') }}</p>
+                    <div class="space-y-1">
+                        <div
+                            v-for="p in inheritedRows"
+                            :key="p.source_type + p.source_id + p.principal_type + p.principal_id"
+                            data-testid="agent-inherited-row"
+                            class="rounded-md border border-dashed border-line px-3 py-2"
+                        >
+                            <div class="flex flex-wrap items-start justify-between gap-2">
+                                <div class="min-w-0 flex items-start gap-1.5">
+                                    <UIcon :name="principalIcon(p)" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0 mt-0.5" />
+                                    <div class="min-w-0">
+                                        <div class="flex flex-wrap items-center gap-1.5">
+                                            <span class="text-xs font-medium text-ink">{{ p.principal_name }}</span>
+                                            <UBadge v-if="isSelf(p)" size="xs" color="blue" variant="subtle">You</UBadge>
+                                            <template v-if="p.principal_type === 'group'">
+                                                <span class="text-2xs text-ink-muted">({{ groupMemberCount(p) }} {{ groupMemberCount(p) === 1 ? 'member' : 'members' }})</span>
+                                                <button
+                                                    @click="toggleGroupExpand(p.principal_id)"
+                                                    class="w-4 h-4 flex items-center justify-center rounded text-ink-muted hover:bg-surface-muted text-xs leading-none"
+                                                >
+                                                    {{ expandedGroups.has(p.principal_id) ? '−' : '+' }}
+                                                </button>
+                                            </template>
+                                        </div>
+                                        <div v-if="p.principal_email" class="text-2xs text-ink-muted break-all">{{ p.principal_email }}</div>
+                                        <div v-if="p.principal_type === 'group' && expandedGroups.has(p.principal_id)" class="mt-1.5 ps-1 space-y-1">
+                                            <div
+                                                v-for="gm in (groupMembers[p.principal_id] || [])"
+                                                :key="gm.user_id"
+                                                class="flex items-center gap-1.5 text-2xs text-ink-muted"
+                                            >
+                                                <UIcon name="i-heroicons-user" class="w-3 h-3 flex-shrink-0" />
+                                                <span>{{ gm.user_name || gm.user_email }}</span>
+                                                <span v-if="gm.user_name && gm.user_email">{{ gm.user_email }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="shrink-0 text-end">
+                                    <div class="text-xs text-ink-muted">{{ t('agentAccess.' + p.access) }}</div>
+                                    <div class="flex items-center justify-end gap-1 text-2xs text-ink-muted">
+                                        <UIcon :name="p.source_type === 'folder' ? 'i-heroicons-folder' : 'i-heroicons-circle-stack'" class="w-3 h-3 flex-shrink-0" />
+                                        <NuxtLink v-if="p.source_type === 'folder'" :to="'/agents/folders/' + p.source_id" class="break-all underline decoration-dotted underline-offset-2 hover:text-ink">{{ t('agentAccess.viaFolder', { name: p.source_name }) }}</NuxtLink>
+                                        <span v-else class="break-all">{{ t('agentAccess.viaConnection', { name: p.source_name }) }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <p v-if="inheritedHidden" class="text-2xs text-ink-muted" data-testid="agent-inherited-hidden">{{ t('agentAccess.inheritedHidden') }}</p>
+                    </div>
+                </div>
             </div>
+
+            <!-- Permission mode cap: the strictest mode a report using this agent may run in -->
+            <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5" data-testid="agent-permission-cap">
+                <label for="agent-permission-cap" class="block text-2xs font-semibold uppercase tracking-wider text-ink-muted mb-2">{{ t('agentAccess.permissionCap.title') }}</label>
+                <USelect
+                    id="agent-permission-cap"
+                    :model-value="form.permissionCap"
+                    :options="permissionCapOptions"
+                    :disabled="!canManageDs || saving.permissionCap"
+                    size="sm"
+                    class="max-w-[16rem]"
+                    data-testid="agent-permission-cap-select"
+                    @update:model-value="onPermissionCapChange"
+                />
+                <p class="text-2xs text-ink-muted mt-2">{{ t('agentAccess.permissionCap.hint') }}</p>
+            </div>
+
+            <!-- PII policy for this agent (enterprise; agent managers) -->
+            <AgentPiiPolicyControl v-if="canManageDs && hasFeature('pii_protection')" :agent-id="agentId" />
 
             <!-- Channels (MCP / Slack / …) — moved to the bottom -->
             <div v-if="connectedChannels.length > 0" class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
@@ -329,6 +408,7 @@ import { useEnterprise } from '~/ee/composables/useEnterprise'
 import Spinner from '~/components/Spinner.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 import AgentIconPicker from '~/components/AgentIconPicker.vue'
+import AgentPiiPolicyControl from '~/components/datasources/AgentPiiPolicyControl.vue'
 
 const props = defineProps<{ agentId: string }>()
 const emit = defineEmits(['updated', 'deleted'])
@@ -347,6 +427,8 @@ const form = reactive({
     isPublic: true,
     // Custom icon override token ("emoji:<grapheme>" | null).
     icon: null as string | null,
+    // Permission mode cap: '' = no cap, else 'ask' | 'auto'.
+    permissionCap: '' as '' | 'ask' | 'auto',
 })
 
 const original = reactive({
@@ -354,7 +436,13 @@ const original = reactive({
     isPublic: true
 })
 
-const saving = reactive({ name: false, public: false, icon: false })
+const saving = reactive({ name: false, public: false, icon: false, permissionCap: false })
+
+const permissionCapOptions = computed(() => [
+    { value: '', label: t('agentAccess.permissionCap.none') },
+    { value: 'ask', label: t('agentAccess.permissionCap.ask') },
+    { value: 'auto', label: t('agentAccess.permissionCap.auto') },
+])
 
 // ── Channel availability ─────────────────────────────────────────────────
 interface ChannelInfo { key: string; name: string; connected: boolean }
@@ -419,7 +507,7 @@ const ownerUserId = computed(() => integration.value?.owner_user_id || null)
 const isFullAdmin = computed(() => orgPerms.value.includes('full_admin_access'))
 const isOwnerPrincipal = (m: MemberGrant) =>
     m.principal_type === 'user' && !!ownerUserId.value && m.principal_id === ownerUserId.value
-const isSelf = (m: MemberGrant) =>
+const isSelf = (m: PrincipalRef) =>
     m.principal_type === 'user' && !!currentUserId.value && m.principal_id === currentUserId.value
 
 // Org-level permissions that imply per-agent management on EVERY agent —
@@ -534,6 +622,8 @@ async function loadDsPermOptions() {
 
 // ── Member types ────────────────────────────────────────────────────────
 
+type PrincipalRef = { principal_type: string; principal_id: string }
+
 interface MemberGrant {
     grant_id: string
     principal_type: string  // "user" | "group"
@@ -548,6 +638,21 @@ const members = ref<MemberGrant[]>([])
 // The list is the grants and nothing but the grants; authority that doesn't
 // come from a grant is explained by `accessNotice` instead.
 const memberRows = computed(() => members.value)
+
+// Principals that reach the agent through a folder or connection grant rather
+// than a grant on the agent. Read-only: the access is changed at its source.
+interface InheritedPrincipal {
+    principal_type: string
+    principal_id: string
+    principal_name?: string
+    principal_email?: string
+    access: 'query' | 'manage'
+    source_type: 'folder' | 'connection'
+    source_id: string
+    source_name: string
+}
+const inheritedRows = ref<InheritedPrincipal[]>([])
+const inheritedHidden = ref(false)
 
 // User/group/role lookup data
 const allUsers = ref<{ id: string; display_name: string; email?: string }[]>([])
@@ -578,6 +683,7 @@ watch(integration, (ds) => {
         form.name = ds?.name || ''
         form.isPublic = ds?.is_public ?? false
         form.icon = ds?.icon ?? null
+        form.permissionCap = ['ask', 'auto'].includes(ds?.max_permission_mode) ? ds.max_permission_mode : ''
         original.name = form.name
         original.isPublic = form.isPublic
         channelAvailability.value = (ds?.channel_availability && typeof ds.channel_availability === 'object')
@@ -592,6 +698,7 @@ watch(() => props.agentId, async () => {
     await Promise.all([
         fetchIntegration(),
         loadMembers(),
+        loadInherited(),
         loadUsers(),
         loadGroups(),
         loadRoles(),
@@ -614,6 +721,15 @@ async function loadMembers() {
         principal_name: m.principal_name || undefined,
         permissions: m.permissions || [],
     }))
+}
+
+async function loadInherited() {
+    const id = props.agentId
+    const { data, error } = await useMyFetch(`/data_sources/${id}/inherited_access`, { method: 'GET' })
+    if (id !== props.agentId) return
+    const payload = error?.value ? null : (data.value as any)
+    inheritedRows.value = payload?.principals || []
+    inheritedHidden.value = !!payload?.hidden
 }
 
 async function loadUsers() {
@@ -668,7 +784,7 @@ async function toggleGroupExpand(groupId: string) {
     expandedGroups.value.add(groupId)
 }
 
-function groupMemberCount(m: MemberGrant): number {
+function groupMemberCount(m: PrincipalRef): number {
     const group = allGroups.value.find(g => g.id === m.principal_id)
     return group?.member_count || 0
 }
@@ -686,7 +802,7 @@ function formatPermission(perm: string): string {
     return perm.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
-function principalIcon(m: MemberGrant): string {
+function principalIcon(m: PrincipalRef): string {
     if (m.principal_type === 'group') return 'i-heroicons-user-group'
     if (m.principal_type === 'role') return 'i-heroicons-shield-check'
     return 'i-heroicons-user'
@@ -976,6 +1092,22 @@ async function saveIcon(token: string | null) {
         if (integration.value) integration.value.icon_token = prevToken
     }
     saving.icon = false
+}
+
+// Saves on change; "none" clears the cap. On failure the select goes back.
+async function onPermissionCapChange(value: '' | 'ask' | 'auto') {
+    if (!ready.value || saving.permissionCap) return
+    const previous = form.permissionCap
+    form.permissionCap = value
+    saving.permissionCap = true
+    const ok = await updateDataSource({ max_permission_mode: value || 'none' })
+    if (ok) {
+        if (integration.value) integration.value.max_permission_mode = value || null
+        emit('updated')
+    } else {
+        form.permissionCap = previous
+    }
+    saving.permissionCap = false
 }
 
 async function onTogglePublic(value: boolean) {

@@ -180,7 +180,9 @@ class TestConnectionShape:
         c = _client(role="analyst")
         assert c.test_connection()["success"] is True
         (uri, args), = capture
-        assert uri == c.trino_uri
+        # The pool gets the URL object (no field is re-parsed from a string);
+        # its rendered form is the pool identity.
+        assert uri.render_as_string(hide_password=False) == c.trino_uri
         assert args == c._connect_args()
 
     def test_schema_list_parsing(self):

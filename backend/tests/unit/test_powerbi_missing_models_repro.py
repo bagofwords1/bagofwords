@@ -226,3 +226,75 @@ def test_no_models_are_hidden_from_discovery():
     assert names == ["RealModel/Sales", "Usage Metrics Report/Views"]
     # Both were introspected — nothing hidden, nothing dropped.
     assert http.attempted("POST", "datasets/d1/executeQueries")
+
+
+@pytest.mark.parametrize("skipped", ["no_tables", "access_denied"])
+def test_a_model_without_readable_tables_does_not_fail_the_rest(skipped, caplog):
+    """One semantic model with nothing to index — no tables behind it, or no
+    access for this identity — is left out and named in a warning; the readable
+    models are still published and the model's earlier tables are kept."""
+    from app.data_sources.clients.discovery import require_complete_discovery
+
+    http = _FakePowerBIHttp()
+    _wire_tenant(http, [
+        {"id": "d1", "name": "Skipped model"},
+        {"id": "d2", "name": "Readable model"},
+        {"id": "d3", "name": "Another readable"},
+    ])
+    http.route("POST", "/admin/workspaces/getInfo", _resp(401, {}))
+    http.route(
+        "POST", "/groups/ws1/datasets/d1/executeQueries",
+        _colstats_resp([]) if skipped == "no_tables"
+        else _resp(403, {"error": {"code": "PowerBINotAuthorizedException"}}),
+    )
+    http.route("POST", "/groups/ws1/datasets/d2/executeQueries", _colstats_resp(["Orders"]))
+    http.route("POST", "/groups/ws1/datasets/d3/executeQueries", _colstats_resp(["Stock", "Sites"]))
+
+    client = _mk_client(http)
+    with caplog.at_level("WARNING"):
+        published = require_complete_discovery(client, client.get_schemas())
+
+    assert sorted(t.name for t in published) == [
+        "Another readable/Sites", "Another readable/Stock", "Readable model/Orders",
+    ]
+    # Reported as an unread part, so a refresh keeps what it indexed before.
+    assert client.unindexed_table_prefixes() == ["Skipped model"]
+    assert [d["datasetName"] for d in client.index_stats()["unreadable_datasets"]] == ["Skipped model"]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("Skipped model" in m and "not included in the index" in m for m in warnings)
+
+
+def test_a_skipped_model_keeps_the_tables_stored_under_its_earlier_name():
+    """A model renamed since it was indexed still has its tables under the old
+    name; skipping it must protect those too."""
+    http = _FakePowerBIHttp()
+    _wire_tenant(http, [{"id": "d1", "name": "New name"}, {"id": "d2", "name": "Readable model"}])
+    http.route("POST", "/admin/workspaces/getInfo", _resp(401, {}))
+    http.route("POST", "/groups/ws1/datasets/d1/executeQueries", _colstats_resp([]))
+    http.route("POST", "/groups/ws1/datasets/d2/executeQueries", _colstats_resp(["Orders"]))
+    prior = {"Old name/Facts": {
+        "columns": [{"name": "id", "dtype": "Int64"}],
+        "metadata_json": {"powerbi": {
+            "datasetId": "d1", "workspaceId": "ws1", "datasetName": "Old name", "tableName": "Facts"}},
+    }}
+
+    client = _mk_client(http)
+    client.get_schemas(prior_tables=prior, force_refresh=True)
+
+    assert client.unindexed_table_prefixes() == ["New name", "Old name"]
+
+
+def test_skipped_models_do_not_leak_into_the_next_crawl():
+    http = _FakePowerBIHttp()
+    _wire_tenant(http, [{"id": "d1", "name": "Recovering model"}])
+    http.route("POST", "/admin/workspaces/getInfo", _resp(401, {}))
+    http.route("POST", "/groups/ws1/datasets/d1/executeQueries", _colstats_resp([]))
+    client = _mk_client(http)
+    client.get_schemas()
+    assert client.unindexed_table_prefixes() == ["Recovering model"]
+
+    http._routes = [r for r in http._routes if "d1/executeQueries" not in r[1]]
+    http.route("POST", "/groups/ws1/datasets/d1/executeQueries", _colstats_resp(["Facts"]))
+    client._schemas_cache = None
+    assert [t.name for t in client.get_schemas()] == ["Recovering model/Facts"]
+    assert client.unindexed_table_prefixes() == []

@@ -28,7 +28,8 @@ queries are stored in BOW, not in the source library.
 - Default bounds: 5,000 catalog files and 50 MB per file; maximum configurable
   bounds: 50,000 files and 250 MB. Narrow the scope for larger libraries.
 
-Document-library files are supported; arbitrary SharePoint lists, pages,
+Document-library files are supported; SharePoint lists (see
+[Lists](#lists-sharepoint_onprem_lists) below, a separate connector), pages,
 attachments to list items, writes, and Microsoft Graph OAuth are not part of
 this connector. Modern REST requires the ResourcePath endpoints used by this
 connector; the existing live lab uses SharePoint Server Subscription Edition.
@@ -108,6 +109,37 @@ created on SharePoint by this script.
 Remaining deployment checks: actual NTLM/Kerberos negotiation, endpoint exposure,
 public URL/alternate-access mappings, permissions, and farm query limits. See the
 [2010 feedback loop and source comparison](feedback-loops/sharepoint-2010.md).
+
+## Lists (`sharepoint_onprem_lists`)
+
+**SharePoint Server Lists (on-prem)** is a separate, read-only connector that
+exposes a site's lists (custom lists, tasks, issues, contacts, calendars…) as
+tables, over the same Windows authentication and customer requirements as the
+files connector (below). It is the on-premises counterpart of the Graph-based
+**SharePoint Lists** connector and accepts the same JSON query spec
+(`list`, `filter`, `select`, `orderby`, `limit`). It needs SharePoint 2013 or
+later (`/_api/`); SharePoint 2010 lists are not supported yet.
+
+- Every visible generic list on the site (`*`) or a comma-separated set of list
+  names or IDs. Document libraries, hidden lists (opt-in), workflow history,
+  access requests and lists rooted in another site are excluded.
+- Columns are shown by display name with typed values: numbers, yes/no, dates
+  (UTC ISO-8601), person and lookup names, multi-value columns joined with `; `,
+  managed-metadata labels, hyperlinks, calculated values, rich text as plain
+  text. Folders inside a list are not rows.
+- **Filters run in BOW, not in SharePoint.** SharePoint Server refuses a filter
+  or sort on an unindexed column once a list passes the List View Threshold
+  (5,000 items by default), however few rows match. The connector therefore
+  reads lists in ID order (`$top` + `$skiptoken`, threshold-safe at any size) and
+  applies the filter and sort itself, so any column can be filtered on any list.
+  A query reads at most **Max items per query** (default 20,000, up to 100,000);
+  on a larger list the result carries a note saying how much it covered.
+- SharePoint also caps the person/lookup joins in one query (12 by default).
+  Up to 10 such columns come back as names; beyond that, or when the farm's
+  limit is lower, they come back as item IDs and the result says so.
+- Shared NTLM, user-required NTLM (each member's own SharePoint permissions,
+  so the list catalog differs per person) and a Kerberos service account, as
+  for the files connector.
 
 ## Authentication choices
 

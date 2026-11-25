@@ -84,6 +84,8 @@ FIELDS: List[FieldSpec] = [
     FieldSpec("judge.context", "number", RUN, "Judge score for context use, 1–5", sortable=True),
     FieldSpec("model", "text", RUN, "Planner model for the run", facetable=True),
     FieldSpec("provider", "text", RUN, "LLM provider for the run", facetable=True),
+    FieldSpec("llm", "text", RUN, "Any model the run called (planner, tool calls, Auto routing)"),
+    FieldSpec("routed", "boolean", RUN, "Auto routing ran the run on the small model"),
     FieldSpec("cost", "money", RUN, "LLM cost of the run in USD", sortable=True),
     FieldSpec("tokens", "number", RUN, "LLM tokens used by the run", sortable=True),
     FieldSpec("tokens.in", "number", RUN, "Input tokens, cached tokens included", sortable=True),

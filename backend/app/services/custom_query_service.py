@@ -31,7 +31,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduler import scheduler
 from app.core.telemetry import telemetry
 from app.data_sources.fast import artifacts, extractor, incremental, loader, rls
+from app.data_sources.fast import column_metadata, lineage
 from app.data_sources.fast import events as table_events
+from app.data_sources.fast import limits as fast_limits
 from app.ee.license import has_feature
 from app.data_sources.fast.fast_client import FastQueryClient, FastRelation
 from app.models.connection import Connection
@@ -106,6 +108,18 @@ logger = logging.getLogger(__name__)
 # against a live 24.8 server holding 20M rows. The run found two things a fake
 # would not have: an abandoned Arrow stream keeps the client's HTTP session
 # locked, and Arrow carries Enum columns as bare integer codes.
+#
+# Analysis Services (fast/analysis_services_source.py) and SAP BusinessObjects
+# (fast/businessobjects_source.py) have native sources too, tested against
+# fake endpoints only; neither has been run against a live server. They are
+# offered acceleration as queryable connectors (`is_accelerable_type`) and are
+# deliberately in neither set below.
+#
+# Priority ERP (fast/priority_erp_source.py) is the same: a native source
+# (one form paged with $top/$skip, checked against $count where the server
+# answers it), designed from Priority's public REST documentation and tested
+# against a fake endpoint only. Not run against a live server, so in neither
+# set.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
                   "bigquery", "mssql", "oracledb", "posthog", "powerbi",
                   "clickhouse"}
@@ -240,6 +254,43 @@ def _comparable(a, b) -> bool:
         return False
 
 
+def single_query_of(result_json, connection_id: str) -> Optional[str]:
+    """The one query a tool result ran against `connection_id`, or None.
+
+    None unless the result is exactly one captured statement, as text, that
+    this connection answered without error and without going through a cached
+    table. Each exclusion is a result with no single definition worth keeping:
+    several queries (which one?), a structured request (not editable as a
+    query), another connection's query, a failed one, one that already read a
+    cached copy, or a parameterized one (the captured text is one viewer's
+    values, and a card that was re-run with others shows different rows).
+    """
+    from app.services.client_keys import FAST_SUFFIX
+
+    result = result_json if isinstance(result_json, dict) else {}
+    if result.get("parameters"):
+        return None
+    queries, timings = result.get("executed_queries"), result.get("query_timings")
+    if not isinstance(queries, list) or not isinstance(timings, list):
+        return None
+    if len(queries) != 1 or len(timings) != 1:
+        return None
+    query = queries[0]
+    timing = timings[0] if isinstance(timings[0], dict) else {}
+    if not isinstance(query, str) or not query.strip() or timing.get("error"):
+        return None
+    if str(timing.get("connection_id") or "") != str(connection_id):
+        return None
+    if str(timing.get("client_key") or "").endswith(FAST_SUFFIX):
+        return None
+    return query.strip()
+
+
+# How often a one-shot load writes its row count to its run row. Frequent
+# enough to read as live, rare enough to be noise next to the load itself.
+PROGRESS_INTERVAL_SECONDS = 1.0
+
+
 class _Run:
     """One refresh in flight: what it was asked, what it found, what it did.
 
@@ -257,6 +308,9 @@ class _Run:
         self.client = None
         self.load: Optional[dict] = None
         self.rows_read = 0
+        # The source's own row count for a one-shot load, once it has been
+        # asked; with `rows_read` it is how far the load has got.
+        self.source_rows: Optional[int] = None
         self.windows_done = 0
         self.rendered_query: Optional[str] = None
         self.window_from = None
@@ -285,9 +339,12 @@ class _Run:
             with suppress(Exception):
                 self.previous_key = artifacts.decrypt_key(cq.artifact_key_enc)
         self.previous_rows = cq.no_rows if cq.artifact_path else None
+        # The organization's limits, attached to the client when it was
+        # prepared; every unit of work below reads them from here.
+        self.limits = fast_limits.of(self.client)
         # We write the window predicate ourselves unless the admin placed it
         # (placeholders) or the source takes it as request fields.
-        self.at_source = incremental.filters_at_source(self.client)
+        self.at_source = incremental.filters_at_source(self.client, self.sql)
         from app.data_sources.fast.sources import QuerySource, source_for
 
         # Read through the connector's plain `execute_query`: no source built
@@ -409,6 +466,34 @@ class CustomQueryService:
                 ),
             )
 
+    @staticmethod
+    def ensure_definition_allowed(connection: Connection, definition_sql: str, tables: list = None) -> None:
+        """A connector's own rules for what a custom table may be defined as,
+        checked before a row is stored.
+
+        Most connectors have none: the query is whatever the source accepts,
+        and a bad one fails its preview. A connector that must refuse
+        something the source itself would run (Priority's unbounded $expand)
+        declares `check_custom_table_definition`, and it is a 400 here rather
+        than a table saved with a failed first load. `tables` is the
+        connection's indexed catalog (see `_catalog_rows`), for a rule that
+        depends on what a name is there.
+        """
+        kind = (getattr(connection, "type", None) or "").lower()
+        try:
+            from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+            key = next((k for k in REGISTRY if k.lower() == kind), None)
+            check = getattr(resolve_client_class(key), "check_custom_table_definition", None) if key else None
+        except Exception:
+            return
+        if not callable(check):
+            return
+        try:
+            check(definition_sql, tables)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     # -- extraction targets -------------------------------------------------
     #
     # Most sources need nothing beyond the query text: the connection IS the
@@ -438,8 +523,25 @@ class CustomQueryService:
         return meta
 
     @staticmethod
+    def _metadata_with_overrides(existing, columns) -> dict:
+        """`columns` is the admin's complete set of column edits (the API's
+        list form); it replaces whatever was stored. None leaves it alone."""
+        meta = dict(existing) if isinstance(existing, dict) else {}
+        if columns is None:
+            return meta
+        overrides = column_metadata.clean_overrides(columns)
+        if overrides:
+            meta["column_overrides"] = overrides
+        else:
+            meta.pop("column_overrides", None)
+        return meta
+
+    @staticmethod
     def _needs_catalog(client) -> bool:
-        return hasattr(client, "attach_table_metadata") and hasattr(client, "execute_dax_rows")
+        # Clients addressed per target (a Power BI semantic model, an Analysis
+        # Services catalog) resolve it from the connection's indexed catalog.
+        return hasattr(client, "attach_table_metadata") and \
+            getattr(client, "EXTRACTION_SOURCE", None) is not None
 
     async def _prepare_client(
         self, db: AsyncSession, connection: Connection, client, target: Optional[dict]
@@ -450,9 +552,23 @@ class CustomQueryService:
         table references resolve to a semantic model without a tenant crawl)
         and the admin's explicit pin, when there is one. Everything else is
         left alone.
+
+        Every client gets the organization's limits (`fast/limits.py`). This
+        is the one place a client is prepared for extraction — preview,
+        create, manual, scheduled, resumed and incremental refreshes all pass
+        through it — so no path can extract under the defaults by forgetting
+        to look the settings up. The limits are read off the connection's own
+        organization, not the caller's: a scheduled refresh has no caller.
         """
+        client.extraction_limits = await self.limits_for(db, connection)
         if not self._needs_catalog(client):
             return
+        client.attach_table_metadata(await self._catalog_rows(db, connection))
+        client.extraction_target = dict(target) if target else None
+
+    @staticmethod
+    async def _catalog_rows(db: AsyncSession, connection: Connection) -> list:
+        """The connection's indexed tables as `{"name", "metadata_json"}` rows."""
         rows = (
             await db.execute(
                 select(ConnectionTable.name, ConnectionTable.metadata_json).where(
@@ -462,10 +578,135 @@ class CustomQueryService:
                 )
             )
         ).all()
-        client.attach_table_metadata(
-            [{"name": name, "metadata_json": meta} for name, meta in rows]
+        return [{"name": name, "metadata_json": meta} for name, meta in rows]
+
+    async def _check_definition(self, db: AsyncSession, connection: Connection, definition_sql: str) -> None:
+        """`ensure_definition_allowed`, with the catalog for a connector that has rules."""
+        from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+        kind = (connection.type or "").lower()
+        key = next((k for k in REGISTRY if k.lower() == kind), None)
+        try:
+            declared = key and callable(getattr(resolve_client_class(key), "check_custom_table_definition", None))
+        except Exception:
+            declared = False
+        if declared:
+            self.ensure_definition_allowed(connection, definition_sql, await self._catalog_rows(db, connection))
+
+    @staticmethod
+    async def limits_for(db: AsyncSession, connection: Connection) -> fast_limits.FastLimits:
+        """The custom-table limits of the organization that owns `connection`."""
+        from app.models.organization_settings import OrganizationSettings
+
+        row = (
+            await db.execute(
+                select(OrganizationSettings).where(
+                    OrganizationSettings.organization_id == str(connection.organization_id)
+                )
+            )
+        ).scalars().first()
+        return fast_limits.resolve(row)
+
+    # -- column metadata ----------------------------------------------------
+    #
+    # What each column means is inherited from the connection's indexed
+    # catalog (fast/lineage.py, fast/column_metadata.py). Nothing here asks the
+    # source anything: it reads rows indexing already stored.
+
+    # Past this many catalog tables a definition is not matched against: a
+    # definition that plausibly names thousands of tables names none we can
+    # be sure of.
+    LINEAGE_TABLE_LIMIT = 2000
+
+    @staticmethod
+    def overrides_of(cq: ConnectionTable) -> dict:
+        """The admin's per-column edits: `{column: {description?, additive?}}`."""
+        meta = cq.metadata_json if isinstance(cq.metadata_json, dict) else {}
+        raw = meta.get("column_overrides")
+        return dict(raw) if isinstance(raw, dict) else {}
+
+    async def _catalog_for(self, db: AsyncSession, connection: Connection, definition: str) -> list:
+        """The indexed tables `definition` could read, with their columns."""
+        names = (
+            await db.execute(
+                select(ConnectionTable.id, ConnectionTable.name, ConnectionTable.metadata_json).where(
+                    ConnectionTable.connection_id == str(connection.id),
+                    ConnectionTable.kind == KIND_TABLE,
+                    ConnectionTable.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        if lineage.family_of(connection.type) == lineage.FAMILY_DAX:
+            # A measure reference does not name the table that holds it, so
+            # the whole model is needed.
+            wanted = [row.id for row in names]
+        else:
+            wanted = [row.id for row in names if lineage.mentions(definition, row.name, row.metadata_json)]
+        if not wanted or len(wanted) > self.LINEAGE_TABLE_LIMIT:
+            return []
+        rows = (
+            await db.execute(select(ConnectionTable).where(ConnectionTable.id.in_(wanted)))
+        ).scalars().all()
+        return [
+            {"name": r.name, "columns": r.columns or [], "pks": r.pks or [], "fks": r.fks or [],
+             "metadata_json": r.metadata_json}
+            for r in rows
+        ]
+
+    async def describe_columns(
+        self, db: AsyncSession, connection: Connection, *, definition: str, target: Optional[dict],
+        columns: list, previous: Optional[list] = None, overrides: Optional[dict] = None,
+    ) -> column_metadata.Enriched:
+        """`columns` with what the catalog knows about each one's origin.
+
+        Never raises: a table whose columns cannot be described is still a
+        table. On failure the previous descriptions are kept as they were.
+        """
+        plain = [{"name": c.get("name"), "dtype": c.get("dtype")} for c in columns or [] if isinstance(c, dict)]
+        try:
+            tables = await self._catalog_for(db, connection, definition or "")
+            found = lineage.trace(definition or "", tables, connection.type,
+                                  [c["name"] for c in plain], target)
+            return column_metadata.enrich(plain, found, tables, previous=previous, overrides=overrides)
+        except Exception:
+            logger.warning("custom_query.column_metadata_failed", exc_info=True)
+            before = {str(c.get("name")).lower(): c for c in previous or [] if isinstance(c, dict)}
+            kept = [{**before.get(str(c["name"]).lower(), {}), **c} for c in plain]
+            return column_metadata.Enriched(columns=kept)
+
+    @staticmethod
+    def _described(cq: ConnectionTable, connection: Connection, enriched: column_metadata.Enriched,
+                   metadata_json) -> dict:
+        """`metadata_json` with the table-level facts of a description pass."""
+        meta = dict(metadata_json) if isinstance(metadata_json, dict) else {}
+        meta["generated_description"] = column_metadata.describe_table(
+            enriched.columns, sources=enriched.sources, connection_name=connection.name,
+            schedule=column_metadata.schedule_text(
+                cq.refresh_schedule_mode, cq.refresh_interval_minutes, cq.refresh_at_time),
+            aggregated=enriched.aggregated,
         )
-        client.extraction_target = dict(target) if target else None
+        meta["lineage"] = {"sources": enriched.sources, "rls_sources": enriched.rls_sources,
+                           "aggregated": enriched.aggregated}
+        return meta
+
+    async def redescribe(self, db: AsyncSession, connection: Connection, cq: ConnectionTable,
+                         acknowledge_drift=()) -> None:
+        """Describe the stored columns again without reloading any data: after
+        an admin edited a column, changed the schedule, or reviewed a drift
+        flag."""
+        await db.refresh(cq)
+        if cq.deleted_at is not None or not cq.columns:
+            return
+        previous = column_metadata.acknowledge_drift(cq.columns, acknowledge_drift)
+        enriched = await self.describe_columns(
+            db, connection, definition=cq.definition_sql or "", target=self.target_of(cq),
+            columns=cq.columns, previous=previous, overrides=self.overrides_of(cq),
+        )
+        cq.columns = enriched.columns
+        cq.metadata_json = self._described(cq, connection, enriched, cq.metadata_json)
+        await db.commit()
+        await db.refresh(cq)
+        await self._sync_activations(db, cq)
 
     async def list_targets(self, db: AsyncSession, connection: Connection) -> list:
         """The semantic models a custom table on this connection can target.
@@ -599,6 +840,7 @@ class CustomQueryService:
         current_user: User = None,
         target: dict = None,
         refresh_config: dict = None,
+        schedule: dict = None,
     ) -> dict:
         """Run the admin's SQL bounded to 100 rows and return columns + rows.
 
@@ -608,6 +850,7 @@ class CustomQueryService:
         self.ensure_accelerable(connection)
         if not (definition_sql or "").strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
+        written_sql = definition_sql
 
         client = await self.connection_service.construct_client(
             db, connection, current_user
@@ -639,13 +882,28 @@ class CustomQueryService:
             raise HTTPException(status_code=400, detail=f"Query failed: {e}")
 
         refused = None
+        limits = fast_limits.of(client)
         try:
-            extractor.check_budget(est)
+            self._check_budget(est, limits)
         except extractor.ExtractionRefused as e:
             refused = str(e)
 
+        # What the catalog already knows about these columns, so the admin
+        # sees (and can correct) it before anything is saved.
+        enriched = await self.describe_columns(
+            db, connection, definition=written_sql, target=target, columns=cols)
+        schedule = schedule or {}
         return {
-            "columns": cols,
+            "columns": enriched.columns if len(enriched.columns) == len(cols) else cols,
+            "suggested_description": column_metadata.describe_table(
+                enriched.columns, sources=enriched.sources, connection_name=connection.name,
+                schedule=column_metadata.schedule_text(
+                    schedule.get("refresh_schedule_mode"), schedule.get("refresh_interval_minutes"),
+                    schedule.get("refresh_at_time")),
+                aggregated=enriched.aggregated,
+            ),
+            "sources": enriched.sources,
+            "rls_sources": enriched.rls_sources,
             "rows": [[_jsonable(v) for v in r] for r in rows],
             "row_limit": extractor.PREVIEW_ROW_LIMIT,
             "truncated": len(rows) >= extractor.PREVIEW_ROW_LIMIT,
@@ -655,7 +913,167 @@ class CustomQueryService:
             "estimate_supported": est.supported,
             "estimate_note": est.note,
             "budget_error": refused,
-            "filters_at_source": incremental.filters_at_source(client),
+            "filters_at_source": incremental.filters_at_source(client, definition_sql),
+        }
+
+    async def definition_from_result(
+        self, db: AsyncSession, connection: Connection, organization, current_user: User,
+        tool_execution_id: str,
+    ) -> str:
+        """The query behind a result the agent produced, for "save as cached
+        table": the one statement that result ran against `connection`.
+
+        Refused unless the result is a single captured query answered by this
+        connection directly. More than one query has no single definition to
+        keep, a structured (non-text) request is not something the custom
+        table dialog can edit, and a result already read from a cached table
+        would cache the cache.
+
+        The caller is a connection admin (the route requires it), but the
+        result belongs to somebody's conversation. They get its query only if
+        they could read that conversation: the same rule the completions route
+        applies (its owner, an organization admin, or a collaborator on its
+        project), on top of report visibility and permission to view code.
+        Sharing an agent with the report's owner is not enough.
+
+        The result must also still be what its card shows: once the query has
+        been edited, the card displays a later run and this one's text would
+        be the wrong definition.
+        """
+        from app.core.code_visibility import can_view_code
+        from app.core.derived_access import can_view_report
+        from app.core.permission_resolver import resolve_permissions
+        from app.models.agent_execution import AgentExecution
+        from app.models.report import Report
+        from app.models.tool_execution import ToolExecution
+        from sqlalchemy.orm import selectinload
+
+        self.ensure_accelerable(connection)
+        not_found = HTTPException(status_code=404, detail="Result not found")
+        row = (await db.execute(
+            select(ToolExecution, AgentExecution)
+            .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+            .where(ToolExecution.id == str(tool_execution_id),
+                   AgentExecution.organization_id == str(organization.id))
+        )).first()
+        if row is None:
+            raise not_found
+        tool_execution, agent_execution = row
+        report = None
+        if agent_execution.report_id:
+            report = (await db.execute(
+                select(Report).options(selectinload(Report.data_sources))
+                .where(Report.id == agent_execution.report_id)
+            )).scalar_one_or_none()
+        if report is None or not await can_view_report(db, current_user, organization, report):
+            raise not_found
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if not await self._can_read_conversation(db, current_user, report, resolved):
+            raise not_found
+        if not can_view_code(resolved):
+            raise HTTPException(status_code=403, detail="You cannot view the query behind this result")
+        if await self._superseded(db, tool_execution):
+            raise HTTPException(
+                status_code=422,
+                detail="This result's query has been edited since it ran. Open the current "
+                       "result to save it as a cached table.",
+            )
+
+        query = single_query_of(tool_execution.result_json, str(connection.id))
+        if query is None:
+            raise HTTPException(
+                status_code=422,
+                detail="This result cannot be saved as a cached table: it needs to come from one "
+                       "query against this connection.",
+            )
+        return query
+
+    @staticmethod
+    async def _can_read_conversation(db: AsyncSession, user: User, report, resolved) -> bool:
+        """Whether `user` may read a report's conversation: the rule on
+        `GET /reports/{id}/completions` (`view_reports`, owner only, with the
+        read-only bypasses for organization admins and project collaborators)."""
+        from app.core.permission_resolver import FULL_ADMIN
+
+        if str(report.user_id) == str(user.id):
+            return True
+        if FULL_ADMIN in resolved.org_permissions:
+            return True
+        project_id = getattr(report, "project_id", None)
+        if not project_id:
+            return False
+        from sqlalchemy.orm import lazyload
+        from app.models.project import Project
+        from app.services.project_service import project_service
+
+        project = (await db.execute(
+            select(Project).options(lazyload("*")).where(
+                Project.id == project_id, Project.organization_id == report.organization_id)
+        )).scalar_one_or_none()
+        return project is not None and await project_service.user_can_view_project(db, user, project)
+
+    @staticmethod
+    async def _superseded(db: AsyncSession, tool_execution) -> bool:
+        """Whether the query this result created has since moved to another
+        step (it was edited and saved), so its card no longer shows this run."""
+        from app.models.query import Query
+        from app.models.step import Step
+
+        step_id = getattr(tool_execution, "created_step_id", None)
+        if not step_id:
+            return False
+        current = (await db.execute(
+            select(Query.default_step_id)
+            .join(Step, Step.query_id == Query.id)
+            .where(Step.id == str(step_id))
+        )).scalar_one_or_none()
+        return bool(current) and str(current) != str(step_id)
+
+    def capability(self, connection: Connection, *, enabled: bool) -> dict:
+        """Whether a custom table can be created on this connection right now:
+        the feature is on for the organization (`enabled`, the route's beta
+        gate) and the connection can host one. Answers False instead of
+        refusing, so a caller deciding whether to offer the action needs no
+        error handling."""
+        supported = bool(enabled)
+        if supported:
+            try:
+                self.ensure_accelerable(connection)
+            except HTTPException:
+                supported = False
+        return {"supported": supported, "id": str(connection.id), "name": connection.name,
+                "type": connection.type}
+
+    async def progress_of(self, db: AsyncSession, connection_id: str, name: str) -> dict:
+        """One custom table's load state, by name: whether it exists, how its
+        last refresh ended and how far a running one has got. One row and, only
+        while something is running, one run lookup — whatever else the
+        connection holds."""
+        row = (await db.execute(
+            select(ConnectionTable).where(
+                ConnectionTable.connection_id == str(connection_id),
+                ConnectionTable.kind == KIND_BOW,
+                ConnectionTable.deleted_at.is_(None),
+                ConnectionTable.name == name,
+            )
+        )).scalars().first()
+        if row is None:
+            return {"exists": False}
+        live = {}
+        if row.last_refresh_status in ("pending", "running"):
+            live = await runs.live_progress(db, [row.id])
+        state = row.refresh_state if isinstance(row.refresh_state, dict) else {}
+        load = state.get("load") if isinstance(state.get("load"), dict) else None
+        load_progress = None
+        if load and load.get("windows"):
+            load_progress = {"rows": load.get("rows") or 0, "source_rows": load.get("source_rows")}
+        return {
+            "exists": True,
+            "id": str(row.id),
+            "last_refresh_status": row.last_refresh_status,
+            "last_refreshed_at": row.last_refreshed_at.isoformat() if row.last_refreshed_at else None,
+            "refresh_progress": live.get(str(row.id)),
+            "load_progress": load_progress,
         }
 
     async def create(
@@ -675,6 +1093,7 @@ class CustomQueryService:
         target: dict = None,
         refresh_mode: str = None,
         refresh_config: dict = None,
+        columns: list = None,
     ) -> ConnectionTable:
         self.ensure_accelerable(connection)
         name = self.validate_name(name)
@@ -682,6 +1101,7 @@ class CustomQueryService:
 
         if not (definition_sql or "").strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
+        await self._check_definition(db, connection, definition_sql)
         refresh_config = dict(refresh_config or {})
         # New tables get the row-drop guard unless the admin said otherwise
         # (an explicit null turns it off); ones that predate it keep
@@ -703,7 +1123,8 @@ class CustomQueryService:
             fks=[],
             no_rows=0,
             last_refresh_status="pending",
-            metadata_json=self._metadata_with_target({}, target),
+            metadata_json=self._metadata_with_overrides(
+                self._metadata_with_target({}, target), columns),
             refresh_mode=config.mode,
             refresh_config=config.to_dict(),
         )
@@ -812,6 +1233,7 @@ class CustomQueryService:
         target: dict = ...,
         refresh_mode: str = None,
         refresh_config: dict = None,
+        columns: list = None,
     ) -> ConnectionTable:
         sql_changed = False
         before = incremental.RefreshConfig.from_row(cq)
@@ -821,12 +1243,18 @@ class CustomQueryService:
             if new_meta != (cq.metadata_json or {}):
                 cq.metadata_json = new_meta
                 sql_changed = True
+        if columns is not None:
+            # Column edits are settings, not data: they never force a reload.
+            edited_meta = self._metadata_with_overrides(cq.metadata_json, columns)
+            if edited_meta != (cq.metadata_json or {}):
+                cq.metadata_json = edited_meta
         if name is not None and name != cq.name:
             name = self.validate_name(name)
             await self._ensure_name_free(db, connection.id, name, exclude_id=cq.id)
             cq.name = name
             sql_changed = True
         if definition_sql is not None and definition_sql != cq.definition_sql:
+            await self._check_definition(db, connection, definition_sql)
             cq.definition_sql = definition_sql
             sql_changed = True
         if description is not None:
@@ -853,9 +1281,17 @@ class CustomQueryService:
         await db.commit()
         await db.refresh(cq)
 
+        reviewed = [
+            c.get("name") for c in columns or []
+            if isinstance(c, dict) and c.get("acknowledge_drift")
+        ]
         if sql_changed:
             await self.refresh(db, connection, cq, current_user=current_user,
                                trigger=TRIGGER_DEFINITION)
+        if not sql_changed or reviewed:
+            # Nothing was reloaded, but an edited column, a new schedule or a
+            # reviewed drift flag all change what the table says about itself.
+            await self.redescribe(db, connection, cq, acknowledge_drift=reviewed)
         # Delete may have won while the refresh was queued: reload before
         # touching the shared job store (404 if the row is gone). The volume
         # lock is the wrong guard here, it does not reach replicas on another
@@ -1051,6 +1487,37 @@ class CustomQueryService:
             await self._drain(finish_cancelled())
             raise
 
+    async def _reporting_progress(self, run: "_Run", work):
+        """Await `work` (a one-shot load) while writing how far it has got to
+        its run row, so anyone watching the table sees rows arrive instead of
+        a spinner. A one-shot load is one blocking call; without this its run
+        row says nothing between "started" and "finished".
+
+        Written through the run history's own session, like every other
+        progress note, and only when something moved. Failing to write is
+        never the load's problem.
+        """
+        async def report():
+            last = None
+            while True:
+                await asyncio.sleep(PROGRESS_INTERVAL_SECONDS)
+                now = (run.rows_read, run.source_rows)
+                if now == last:
+                    continue
+                last = now
+                await runs.progress(
+                    run.run_id, rows_read=run.rows_read,
+                    inputs={"connection_id": run.connection_id, "source_rows": run.source_rows},
+                )
+
+        reporter = asyncio.create_task(report())
+        try:
+            return await work
+        finally:
+            reporter.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await reporter
+
     def _decide(self, run: "_Run") -> str:
         """Which shape of work this refresh is, with the reason logged."""
         config, state, cq = run.config, run.state, run.cq
@@ -1200,7 +1667,8 @@ class CustomQueryService:
             )
 
             if decision == "single":
-                outcome = await self._in_thread(run, lambda: self._work_single(run))
+                outcome = await self._reporting_progress(
+                    run, self._in_thread(run, lambda: self._work_single(run)))
                 await self._publish(run, outcome, full=True)
                 return
 
@@ -1304,22 +1772,33 @@ class CustomQueryService:
 
     # -- units of work (each runs in a worker thread, off the ORM) ----------
 
+    @staticmethod
+    def _check_budget(est, limits: fast_limits.FastLimits) -> None:
+        """The budget check, under the organization's limits."""
+        extractor.check_budget(est, max_rows=limits.max_rows, max_bytes=limits.max_bytes,
+                               max_scan_bytes=limits.max_scan_bytes)
+
     def _limits(self, run: "_Run") -> loader.Limits:
         return loader.Limits(
-            max_rows=extractor.DEFAULT_MAX_ROWS, max_bytes=extractor.DEFAULT_MAX_BYTES,
+            max_rows=run.limits.max_rows, max_bytes=run.limits.max_bytes,
             deadline=time.monotonic() + extractor.DEFAULT_MAX_SECONDS,
             should_abort=run.abort.is_set, max_seconds=extractor.DEFAULT_MAX_SECONDS,
         )
 
     def _work_single(self, run: "_Run"):
+        def on_rows(total: int) -> None:
+            run.rows_read = total
+
         try:
             est = extractor.estimate(run.client, run.sql)
-            extractor.check_budget(est)
+            self._check_budget(est, run.limits)
+            run.source_rows = int(est.rows) if est.rows else None
             run.rendered_query = run.sql
             return extractor.extract_to_artifact(
                 run.client, run.sql, run.name, run.connection_id,
+                max_rows=run.limits.max_rows, max_bytes=run.limits.max_bytes,
                 should_abort=run.abort.is_set, run_id=run.run_id, config=run.config,
-                previous_rows=run.previous_rows,
+                previous_rows=run.previous_rows, on_rows=on_rows,
             )
         except _PASS_THROUGH:
             raise
@@ -1344,7 +1823,7 @@ class CustomQueryService:
             whole = incremental.Window(lo=start, hi=None, include_nulls=run.wrapped and start is not None)
             rendered = self._render(run, whole)
             est = extractor.estimate(run.client, rendered)
-            extractor.check_budget(est)
+            self._check_budget(est, run.limits)
 
             windows = [incremental.Window(lo=start, hi=None, include_nulls=run.wrapped)]
             total = None
@@ -1362,10 +1841,10 @@ class CustomQueryService:
                     run.note(f"Could not size the load up front ({str(e)[:200]}); loading as one window.",
                              "warning")
                 else:
-                    if total > extractor.DEFAULT_MAX_ROWS:
+                    if total > run.limits.max_rows:
                         raise extractor.ExtractionRefused(
                             f"This query returns {total:,} rows, over the "
-                            f"{extractor.DEFAULT_MAX_ROWS:,}-row limit for a custom table. "
+                            f"{run.limits.max_rows:,}-row limit for a custom table. "
                             f"Narrow it with a WHERE clause or a later start value."
                         )
                     if start is not None and incremental.kind_of(lo) == incremental.kind_of(start):
@@ -1460,7 +1939,7 @@ class CustomQueryService:
             rendered = self._render(run, window)
             run.rendered_query = rendered
             est = extractor.estimate(run.client, rendered)
-            extractor.check_budget(est)
+            self._check_budget(est, run.limits)
             return loader.apply_increment(
                 self._source(run, rendered), rendered, run.previous_path, run.previous_key,
                 run.name, run.connection_id, run.run_id, run.config, window, self._limits(run),
@@ -1500,6 +1979,17 @@ class CustomQueryService:
         db, cq = run.db, run.cq
         old_path = cq.artifact_path
         new_state = self._next_state(run, res, full)
+        # Describe the columns from the catalog as it is now: a reworded
+        # comment follows, an admin's edit stays, a moved definition is flagged.
+        # Read the row again first so edits made while this ran are seen.
+        with suppress(Exception):
+            await db.refresh(cq)
+        enriched = await self.describe_columns(
+            db, run.connection, definition=cq.definition_sql or "", target=self.target_of(cq),
+            columns=res.columns, previous=cq.columns, overrides=self.overrides_of(cq),
+        )
+        for moved in enriched.drift:
+            run.note(moved["message"], "warning")
         try:
             # Conditional on the row still being live: delete takes no
             # lock, so it may have soft-deleted this table mid-extraction.
@@ -1515,7 +2005,7 @@ class CustomQueryService:
                     artifact_path=res.artifact_path,
                     artifact_key_enc=artifacts.encrypt_key(res.artifact_key),
                     artifact_bytes=res.artifact_bytes,
-                    columns=res.columns,
+                    columns=enriched.columns,
                     no_rows=res.row_count,
                     last_refreshed_at=datetime.utcnow(),
                     last_refresh_status="ok",
@@ -1574,6 +2064,12 @@ class CustomQueryService:
         # the schema context reads; leaving them stale would show agents the
         # previous shape of the relation.
         try:
+            await db.refresh(cq)
+            # Merged into the row as it is now, in a statement of its own: the
+            # admin's edits live in the same JSON and must not be overwritten
+            # by a copy read before the load began.
+            cq.metadata_json = self._described(cq, run.connection, enriched, cq.metadata_json)
+            await db.commit()
             await db.refresh(cq)
             await self._sync_activations(db, cq)
         finally:
