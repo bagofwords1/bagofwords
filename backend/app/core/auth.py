@@ -352,11 +352,13 @@ class UserManager(BaseUserManager[User, str]):
             if invite_role:
                 await ensure_system_role_assignment(session, org_id, str(user.id), invite_role)
 
-            if not claimed and invite_role in ("member", "admin"):
+            from app.core.permissions_registry import APP_USER_ROLE
+            if not claimed and invite_role and invite_role != APP_USER_ROLE:
                 # The existing row may be an app user's (created by an embedded
-                # artifact's sign-in). An invite is an admin's explicit grant,
-                # so it replaces the app_user role instead of sitting beside
-                # it with the membership still labelled an app user.
+                # artifact's sign-in). An invite is an admin's explicit grant —
+                # of a system role or the org's own custom role — so it replaces
+                # the app_user role instead of sitting beside it with the
+                # membership still labelled an app user.
                 from app.core.permission_resolver import lift_app_user
                 await lift_app_user(session, org_id, str(user.id), invite_role)
 
