@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 
 import ts from 'typescript'
 import { nextTick, ref, watch } from 'vue'
+
+// The view's frame payload helper (utils/artifactFramePayload.ts), as it imports it.
+const framePayload = { exports: {} }
+new Function('exports', 'module', 'require', ts.transpileModule(
+  readFileSync(new URL('../../utils/artifactFramePayload.ts', import.meta.url), 'utf8'),
+  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
+)(framePayload.exports, framePayload, createRequire(import.meta.url))
 
 // Run: node --test tests/unit/embedViewerRefresh.mjs
 // Inside a host application, a silent renewal for the same viewer keeps the
@@ -45,6 +53,7 @@ const fetched = []
 const seed = { current_user: ALICE }
 const scope = {
   watch, ref, nextTick,
+  artifactFramePayload: framePayload.exports.artifactFramePayload,
   embedCredential: credential,
   viewerContext,
   props: { hostContext: { record: 'r-1' } },

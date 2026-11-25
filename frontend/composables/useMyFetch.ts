@@ -8,7 +8,9 @@
 // the visible "flicker" while a page settles. In-flight-only, never a TTL
 // cache: once a response lands the entry is gone, so nothing is ever served
 // stale. Each caller gets its own clone of the body so one component mutating
-// its copy (sorting in place, etc.) cannot alias another's.
+// its copy (sorting in place, etc.) cannot alias another's. A caller that
+// passes `noClone: true` takes the body as it came, and must never write into
+// it: a shared dashboard's data (one request per page, too large to copy).
 const inflightGets = new Map<string, Promise<any>>()
 
 // The key of a GET that may share an in-flight call. It holds the
@@ -33,7 +35,9 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
   // Ensure organization is loaded before making the request
   const orgResult = embed ? { id: embed.organizationId } : await ensureOrganization()
 
-  opts = opts || {}
+  // Ours, not $fetch's: never sent on.
+  const { noClone, ...fetchOpts } = (opts || {}) as any
+  opts = fetchOpts
   opts.headers = {
     ...opts.headers,
     Authorization: embed ? `Bearer ${embed.token}` : `${token.value}`,
@@ -83,7 +87,7 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
             .finally(() => { inflightGets.delete(key) })
           inflightGets.set(key, inflight)
         }
-        data = cloneBody(await inflight)
+        data = noClone ? await inflight : cloneBody(await inflight)
       } else {
         data = await $fetch(request, {
           baseURL: config.public.baseURL,

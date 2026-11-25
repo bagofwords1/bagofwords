@@ -6023,7 +6023,8 @@ function startArtifactFramePrefetch(artifactId: string) {
     ensureArtifactLibs(artifactPageLibs({ reactBuild: 'development', babel: false, pdf: false }))
     artifactFramePrefetch.value = {
         artifactId,
-        queries: useMyFetch(`/api/queries?report_id=${report_id}&artifact_id=${artifactId}`),
+        // As the frame asks for it: used as it came, never written to (useMyFetch noClone).
+        queries: useMyFetch(`/api/queries?report_id=${report_id}&artifact_id=${artifactId}`, { noClone: true } as any),
         viewerContext: useMyFetch('/api/users/me/viewer_context'),
     }
 }
