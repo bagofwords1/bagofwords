@@ -177,8 +177,11 @@ export function isAckMessage(data: any, state: string): boolean {
 
 /**
  * What the popup concludes from two successive handoff statuses. The server
- * sweeps a consumed handoff, so `ready` followed by `pending` also means the
- * frame took it.
+ * sweeps consumed rows, so `ready` followed by `pending` also means the frame
+ * took it. That reading holds only while the handoff is still within its
+ * lifetime (expired rows are swept too), which is why the popup stops waiting
+ * before then (HANDOFF_WAIT_MS) and why the server reports an unswept,
+ * untaken one as `expired`.
  */
 export function frameTookHandoff(previous: string | null, current: string | null): boolean {
   return current === 'consumed' || (previous === 'ready' && current === 'pending')
@@ -253,9 +256,10 @@ function hintFrame(message: Record<string, unknown>) {
   } catch { /* no BroadcastChannel */ }
 }
 
-// How long the popup waits for the frame. The handed-off session lives 60 s
-// on the server, so there is nothing to wait for after that.
-const HANDOFF_WAIT_MS = 65_000
+// How long the popup waits for the frame, counted from the handoff. It must
+// end before the handed-off session's 60 s server lifetime: past that, an
+// untaken session is swept and its row vanishes just as a taken one's does.
+const HANDOFF_WAIT_MS = 50_000
 const ERROR_ACK_WAIT_MS = 4_000
 
 /** Popup: a provider failure has no session to hand over, so it needs the frame's own acknowledgement. */
@@ -320,6 +324,7 @@ export async function deliverPopupResult(
       let previous: string | null = null
       while (!delivered && Date.now() < deadline) {
         const status = await handoffStatus(flow.challenge)
+        if (status === 'expired') break
         delivered = frameTookHandoff(previous, status)
         if (status) previous = status
         if (!delivered) await sleep(700)

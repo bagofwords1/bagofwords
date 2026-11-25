@@ -190,7 +190,7 @@ async def test_handoff_spends_the_login_code(create_user, sso_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("challenge", ["", "abc", "Z" * 64, "A" * 64, "a" * 63, "a" * 65])
+@pytest.mark.parametrize("challenge", ["", "abc", "Z" * 64, "A" * 64, "a" * 63, "a" * 65, "a" * 64 + "\n"])
 async def test_malformed_challenge_is_refused_and_the_code_survives(create_user, sso_client, challenge):
     """A refused handoff must not burn the code the browser still needs."""
     user = await _load_user(_register(create_user))
@@ -230,4 +230,35 @@ def test_unknown_login_code_cannot_be_handed_off(sso_client):
     )
     assert resp.status_code == 400
     assert sso_client.get(f"/api/auth/exchange/handoff/{challenge}").json() == {"status": "pending"}
+
+
+@pytest.mark.asyncio
+async def test_a_handoff_nobody_took_reads_as_expired_not_as_taken(create_user, sso_client):
+    """The popup closes once the frame took the session. A handoff that simply
+    ran out must not look like that, or the popup closes on a sign-in that
+    never reached the frame."""
+    from sqlalchemy import update
+
+    from app.dependencies import async_session_maker
+    from app.models.login_exchange_code import LoginExchangeCode
+
+    user = await _load_user(_register(create_user))
+    code = await issue_login_code(str(user.id), "a-token")
+    challenge = _challenge("a-frame-that-went-away")
+    status_url = f"/api/auth/exchange/handoff/{challenge}"
+    assert sso_client.post(
+        "/api/auth/exchange/handoff", json={"login_code": code, "code_challenge": challenge}
+    ).status_code == 204
+    assert sso_client.get(status_url).json() == {"status": "ready"}
+
+    async with async_session_maker() as db:
+        await db.execute(
+            update(LoginExchangeCode)
+            .where(LoginExchangeCode.code_hash == challenge)
+            .values(expires_at=datetime.utcnow() - timedelta(seconds=1))
+        )
+        await db.commit()
+
+    assert sso_client.get(status_url).json() == {"status": "expired"}
+    assert sso_client.post("/api/auth/exchange", json={"login_code": "a-frame-that-went-away"}).status_code == 400
 

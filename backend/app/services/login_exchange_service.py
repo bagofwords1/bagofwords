@@ -89,12 +89,16 @@ async def redeem_login_code(code: str) -> str | None:
         return row.access_token
 
 
-_CHALLENGE = re.compile(r"^[a-f0-9]{64}$")
+_CHALLENGE = re.compile(r"[a-f0-9]{64}")
 
 
 def is_valid_challenge(challenge: str) -> bool:
-    """A handoff challenge is the lowercase hex SHA-256 of the receiver's secret."""
-    return bool(challenge) and bool(_CHALLENGE.match(challenge))
+    """A handoff challenge is the lowercase hex SHA-256 of the receiver's secret.
+
+    ``fullmatch``, not ``match``: ``$`` also matches before a trailing newline,
+    which would let a 65-character value through to a 64-character column.
+    """
+    return isinstance(challenge, str) and bool(_CHALLENGE.fullmatch(challenge))
 
 
 async def hand_off_login_code(code: str, challenge: str) -> bool:
@@ -157,8 +161,12 @@ async def hand_off_login_code(code: str, challenge: str) -> bool:
 
 async def handoff_status(challenge: str) -> str:
     """Where a handoff stands: ``pending`` (nothing handed off, or already
-    swept), ``ready`` (waiting for the receiver) or ``consumed`` (the receiver
-    took it). Says nothing else about the row, and nothing without the hash."""
+    swept), ``ready`` (waiting for the receiver), ``consumed`` (the receiver
+    took it) or ``expired`` (handed off, never taken, past its lifetime).
+
+    ``expired`` is reported rather than folded into ``pending`` so the popup
+    never mistakes a session nobody took for one that was taken and swept.
+    Says nothing else about the row, and nothing without the hash."""
     from app.dependencies import async_session_maker
 
     if not is_valid_challenge(challenge):
@@ -173,7 +181,7 @@ async def handoff_status(challenge: str) -> str:
         return "pending"
     if row.consumed_at is not None:
         return "consumed"
-    return "ready" if row.expires_at > datetime.utcnow() else "pending"
+    return "ready" if row.expires_at > datetime.utcnow() else "expired"
 
 
 async def purge_expired_login_codes() -> int:

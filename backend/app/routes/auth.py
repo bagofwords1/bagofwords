@@ -83,7 +83,8 @@ async def hand_off_login_code(payload: LoginCodeHandoff) -> Response:
 
 @router.get("/auth/exchange/handoff/{code_challenge}")
 async def login_code_handoff_status(code_challenge: str) -> JSONResponse:
-    """Whether a handoff is waiting (``ready``) or was taken (``consumed``).
+    """Whether a handoff is waiting (``ready``), was taken (``consumed``) or
+    ran out unclaimed (``expired``); ``pending`` when there is nothing to say.
 
     The frame polls it to learn the popup is done; the popup polls it to learn
     the frame took the session, and only then closes.

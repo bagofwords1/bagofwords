@@ -116,6 +116,13 @@ assert.equal(frameTookHandoff(null, 'ready'), false)
 assert.equal(frameTookHandoff('ready', 'ready'), false)
 assert.equal(frameTookHandoff(null, 'pending'), false)
 assert.equal(frameTookHandoff('ready', null), false)
+// Ran out unclaimed: never a reason to close.
+assert.equal(frameTookHandoff('ready', 'expired'), false)
+assert.equal(frameTookHandoff(null, 'expired'), false)
+// The wait ends inside the server's 60 s lifetime, where ready -> pending can
+// only mean taken and swept.
+const waitMs = Number(/const HANDOFF_WAIT_MS = ([\d_]+)/.exec(source)[1].replace(/_/g, ''))
+assert.ok(waitMs > 0 && waitMs < 60_000, `HANDOFF_WAIT_MS ${waitMs} must be under the 60 s handoff lifetime`)
 console.log('PASS: the popup closes only after the frame took the handoff')
 
 // ── where the frame goes next ──────────────────────────────────────────────

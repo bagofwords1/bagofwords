@@ -148,6 +148,24 @@ const browser = await chromium.launch(launchOptions())
   await context.close()
 }
 
+// ── 3. the frame is gone when the provider returns ─────────────────────────
+// The session is handed off but nobody takes it. The popup must not read the
+// handoff running out as the frame having taken it: it stays open and says so.
+{
+  const { context, page, popup } = await start(browser)
+  await page.evaluate(() => document.querySelector('iframe')?.remove())
+  const closed = popup.waitForEvent('close', { timeout: 75000 }).then(() => true, () => false)
+  const landed = popup.waitForEvent('domcontentloaded')
+  await popup.evaluate((url) => { window.location.href = url }, `${BOW}/users/sign-in?login_code=${mint()}`)
+  await landed
+  const said = popup.getByText(/could not pass it back/i).first()
+  const shown = await said.waitFor({ timeout: 75000 }).then(() => true, () => false)
+  expect(shown && !popup.isClosed(), 'with the frame gone, the popup stays open and says the sign-in could not be passed back')
+  if (OUT && !popup.isClosed()) await popup.screenshot({ path: join(OUT, 'frame-gone-popup-stays.png') })
+  await context.close()
+  await closed
+}
+
 await browser.close()
 console.log(failures ? `\n${failures} expectation(s) failed` : '\nall expectations passed')
 process.exit(failures ? 1 : 0)
