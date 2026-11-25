@@ -10,6 +10,7 @@
 - Changed agent-written documents to take totals from exact column sums instead of adding rows by hand (#1886)
 - Fixed deleted custom tables coming back on every agent after a connection schema reload (#1928)
 - Fixed a custom role set as the sign-up default not being given to users who join through their domain or SSO (#1924)
+- Fixed people joining through SSO, SCIM, LDAP, CSV import or domain signup not getting the org's default member role (#1932)
 - Fixed the in-app dashboard sending its data again when it opens, which crashed the tab on large dashboards (#1927)
 - Fixed slow dashboard opening in the app, caused by background requests loading every step's data (#1916)
 - Fixed charts and tables on your own data: the right currency, fewer series per chart, rankings that show every name, and right-to-left tables on Hebrew pages (#1733)
