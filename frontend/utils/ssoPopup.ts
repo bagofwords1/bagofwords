@@ -118,14 +118,20 @@ export function sha256Hex(text: string): string {
   return Array.from(h, (word) => word.toString(16).padStart(8, '0')).join('')
 }
 
-/** The page the frame opens in the popup. */
-export function ssoPopupUrl(provider: string, state: string, challenge: string, loginHint = ''): string {
+/**
+ * The page the frame opens in the popup. `redirect` is the frame's own
+ * (already same-origin-checked) target: the popup's sign-in reads things off
+ * it, such as the host application of an embed sign-in window, which binds an
+ * account the provider creates to that application's role.
+ */
+export function ssoPopupUrl(provider: string, state: string, challenge: string, loginHint = '', redirect: string | null = null): string {
   const query = new URLSearchParams({
     [SSO_POPUP_QUERY]: state,
     [SSO_POPUP_CHALLENGE_QUERY]: challenge,
     [SSO_POPUP_PROVIDER_QUERY]: provider,
   })
   if (loginHint) query.set('login_hint', loginHint)
+  if (redirect) query.set('redirect', redirect)
   return `/users/sign-in?${query.toString()}`
 }
 
@@ -335,12 +341,13 @@ export function openSsoPopup(
   provider: string,
   handlers: { onResult: (result: SsoPopupResult) => void, onClosed: () => void },
   loginHint = '',
+  redirect: string | null = null,
 ): (() => void) | null {
   const state = randomHex(16)
   // The verifier is what redeems the handoff; only its hash leaves this frame.
   const verifier = randomHex(32)
   const challenge = sha256Hex(verifier)
-  const popup = window.open(ssoPopupUrl(provider, state, challenge, loginHint), 'bow-sso-signin', 'popup,width=520,height=680')
+  const popup = window.open(ssoPopupUrl(provider, state, challenge, loginHint, redirect), 'bow-sso-signin', 'popup,width=520,height=680')
   if (!popup) return null
 
   let channel: BroadcastChannel | null = null

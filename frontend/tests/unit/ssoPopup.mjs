@@ -59,6 +59,12 @@ const query = Object.fromEntries(url.searchParams)
 assert.deepEqual(readPopupRequest(query), { state, challenge, provider: 'entra' })
 assert.equal(query.login_hint, 'ada@example.com')
 assert.equal(new URL(ssoPopupUrl('google', state, challenge), 'https://bow.test').searchParams.has('login_hint'), false)
+// The frame's redirect rides along, so the popup's sign-in reads the same
+// target (an embed sign-in window's host application binds the new account's role).
+const withRedirect = new URL(ssoPopupUrl('entra', state, challenge, '', '/embed-signin?host=host_0123abcd&state=x'), 'https://bow.test')
+assert.equal(withRedirect.searchParams.get('redirect'), '/embed-signin?host=host_0123abcd&state=x')
+assert.deepEqual(readPopupRequest(Object.fromEntries(withRedirect.searchParams)), { state, challenge, provider: 'entra' })
+assert.equal(new URL(ssoPopupUrl('entra', state, challenge), 'https://bow.test').searchParams.has('redirect'), false)
 // Not an ask: a missing or malformed state, challenge or provider.
 assert.equal(readPopupRequest({ challenge, provider: 'entra' }), null)
 assert.equal(readPopupRequest({ sso_popup: 'short', challenge, provider: 'entra' }), null)

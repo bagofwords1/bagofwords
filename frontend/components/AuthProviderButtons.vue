@@ -131,7 +131,7 @@ function startInPopup(name: string) {
       window.location.replace(resultUrl(result, safeRedirectTarget(route.query.redirect)))
     },
     onClosed: () => { loadingProvider.value = null },
-  }, props.loginHint)
+  }, props.loginHint, safeRedirectTarget(route.query.redirect))
   if (!abandonPopup) {
     emit('error', t('embed.gate.popupBlocked'))
     return

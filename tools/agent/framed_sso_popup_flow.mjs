@@ -69,10 +69,15 @@ async function start(browser) {
     if (!res.url().startsWith(BOW) || !path.startsWith('/api/auth/exchange')) return
     calls.push({ path, method: res.request().method(), status: res.status(), fromFrame: res.request().frame() === bowFrame(page) })
   })
-  await page.goto(`${HOST}/`, { waitUntil: 'networkidle' })
-  const frame = bowFrame(page)
+  // Not 'networkidle': a dev server streams hundreds of unbundled modules and
+  // keeps prefetching, so the network may never go quiet. The button is the
+  // signal that the framed sign-in page is ready.
+  await page.goto(`${HOST}/`, { waitUntil: 'load' })
+  await page.waitForFunction((bow) => [...document.querySelectorAll('iframe')].some((f) => f.src.startsWith(bow)), BOW)
+  let frame
+  for (let i = 0; i < 100 && !(frame = bowFrame(page)); i++) await page.waitForTimeout(100)
   const button = frame.getByRole('button', { name: SSO_BUTTON }).first()
-  await button.waitFor()
+  await button.waitFor({ timeout: 120000 })
   const [popup] = await Promise.all([page.waitForEvent('popup'), button.click()])
   await popup.waitForURL((url) => url.origin !== BOW, { timeout: 30000 })
   await popup.waitForLoadState('domcontentloaded')
