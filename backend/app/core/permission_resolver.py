@@ -292,15 +292,46 @@ async def resolve_assignable_system_role(
     )).scalar_one_or_none()
 
 
+async def resolve_assignable_role(
+    db: AsyncSession, org_id: str, role_name: str,
+) -> Optional[Role]:
+    """Return the ``Role`` an assignment for ``role_name`` in ``org_id`` should
+    target, admitting a **custom, org-scoped role** as well as a system role.
+
+    ``resolve_assignable_system_role`` resolves only built-in roles and their
+    per-org overrides, so a provisioning path handed a custom role name — an
+    org's own ``auto_invite_role`` in the sign-up policy, an OIDC mapping's
+    role — got ``None`` and silently granted nothing, leaving the user with no
+    real role. This wrapper falls back to a custom role of that exact name in
+    the org, so every role an admin can pick for auto-provisioning actually
+    reaches the user. A system role still wins on a name collision (it is
+    resolved first), and a missing name still returns ``None``.
+    """
+    system = await resolve_assignable_system_role(db, org_id, role_name)
+    if system is not None:
+        return system
+    return (await db.execute(
+        select(Role).where(
+            Role.organization_id == org_id,
+            Role.name == role_name,
+            Role.is_system == False,
+            Role.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+
+
 async def ensure_system_role_assignment(
     db: AsyncSession, org_id: str, user_id: str, role_name: str,
 ) -> None:
-    """Idempotently ensure ``user_id`` holds the system role ``role_name`` in
+    """Idempotently ensure ``user_id`` holds the role ``role_name`` in
     ``org_id`` (RBAC path). Does NOT commit — the caller commits.
 
     Used by provisioning paths (SCIM/LDAP/OIDC) that create a ``Membership`` so
     the user gets a real ``role_assignment`` instead of relying on the resolver's
-    transitional legacy-role net. Honors a per-org override of the role.
+    transitional legacy-role net. ``role_name`` may be a system role (honoring a
+    per-org override) or a custom, org-scoped role — both resolve through
+    ``resolve_assignable_role`` — so an org's own ``auto_invite_role`` reaches
+    the user instead of being dropped.
     """
     from app.models.role_assignment import RoleAssignment
 
@@ -318,7 +349,7 @@ async def ensure_system_role_assignment(
         )).scalar_one_or_none()
         if stated == APP_USER_ROLE:
             role_name = APP_USER_ROLE
-    role = await resolve_assignable_system_role(db, org_id, role_name)
+    role = await resolve_assignable_role(db, org_id, role_name)
     if not role:
         return
     existing = (await db.execute(
