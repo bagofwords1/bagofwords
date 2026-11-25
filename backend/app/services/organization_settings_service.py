@@ -295,10 +295,10 @@ class OrganizationSettingsService:
                         except Exception as e:
                             raise HTTPException(status_code=400, detail=f"Invalid PII protection config: {e}")
                         for rule in validated.custom_rules:
-                            if not rule.patterns:
+                            if not rule.patterns and not rule.terms:
                                 raise HTTPException(
                                     status_code=400,
-                                    detail=f"Rule '{rule.name}' must have at least one pattern."
+                                    detail=f"Rule '{rule.name}' must have at least one pattern or term."
                                 )
                             for pat in rule.patterns:
                                 err = validate_pattern(pat)

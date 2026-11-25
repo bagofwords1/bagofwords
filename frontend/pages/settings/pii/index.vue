@@ -125,7 +125,12 @@
                                  class="flex items-center justify-between gap-4 px-5 py-3">
                                 <div class="min-w-0">
                                     <div class="text-sm font-medium text-ink truncate">{{ rule.name || $t('settings.pii.ruleName') }}</div>
-                                    <div class="text-xs text-ink-muted font-mono truncate" dir="ltr">{{ rule.patterns.filter(Boolean).join('  ·  ') }}</div>
+                                    <div class="text-xs text-ink-muted font-mono truncate" dir="ltr">{{ [...rule.patterns.filter(Boolean), ...(rule.terms || []).map(t => `"${t}"`)].join('  ·  ') }}</div>
+                                    <div v-if="rule.checksum || rule.context?.length" class="text-xs text-ink-muted truncate" data-testid="pii-custom-rule-conditions">
+                                        <template v-if="rule.checksum">{{ $t('settings.pii.checksumSummary', { name: $t(`settings.pii.checksums.${rule.checksum}`) }) }}</template>
+                                        <template v-if="rule.checksum && rule.context?.length"> · </template>
+                                        <template v-if="rule.context?.length">{{ $t('settings.pii.contextSummary', { words: rule.context.join(', ') }) }}</template>
+                                    </div>
                                 </div>
                                 <div class="flex items-center gap-1 shrink-0">
                                     <UButton color="gray" variant="ghost" size="sm" icon="i-heroicons-pencil-square"
@@ -180,6 +185,17 @@
                         <UButton variant="link" size="xs" icon="i-heroicons-plus" class="mt-1 -ms-2"
                                  @click="draft.patterns.push('')">{{ $t('settings.pii.addPattern') }}</UButton>
                     </div>
+                    <SettingsRow :label="$t('settings.pii.terms')" :description="$t('settings.pii.termsHelp')" stacked for-id="pii-rule-terms">
+                        <UTextarea id="pii-rule-terms" v-model="draft.terms" :rows="3" data-testid="pii-rule-terms"
+                                   textarea-class="text-xs" :placeholder="$t('settings.pii.termsPlaceholder')" />
+                    </SettingsRow>
+                    <SettingsRow :label="$t('settings.pii.checksum')" :description="$t('settings.pii.checksumHelp')" stacked for-id="pii-rule-checksum">
+                        <USelect id="pii-rule-checksum" v-model="draft.checksum" :options="checksumOptions" data-testid="pii-rule-checksum" />
+                    </SettingsRow>
+                    <SettingsRow :label="$t('settings.pii.contextWords')" :description="$t('settings.pii.contextWordsHelp')" stacked for-id="pii-rule-context">
+                        <UInput id="pii-rule-context" v-model="draft.context" data-testid="pii-rule-context"
+                                :placeholder="$t('settings.pii.contextWordsPlaceholder')" />
+                    </SettingsRow>
                     <SettingsRow :label="$t('settings.pii.replacement')" stacked for-id="pii-rule-replacement">
                         <UInput id="pii-rule-replacement" v-model="draft.replacement" dir="ltr" input-class="font-mono text-xs" placeholder="[REDACTED]" />
                     </SettingsRow>
@@ -213,7 +229,7 @@ import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
-import { usePiiSettings, PII_DEFAULT, PII_EXEMPT, PII_NONE, PII_INHERIT, type PiiCustomRule } from '~/composables/usePiiSettings'
+import { usePiiSettings, PII_DEFAULT, PII_EXEMPT, PII_NONE, PII_INHERIT, PII_CHECKSUMS, type PiiCustomRule } from '~/composables/usePiiSettings'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
@@ -275,8 +291,16 @@ const confirmNewPolicy = async () => {
 const showRule = ref(false)
 const savingRule = ref(false)
 const editingRuleId = ref<string | null>(null)
-const draft = reactive<{ name: string; patterns: string[]; replacement: string }>({ name: '', patterns: [''], replacement: '[REDACTED]' })
-const draftValid = computed(() => !!draft.name.trim() && draft.patterns.some(p => p.trim()))
+// terms: one per line; context: comma-separated; checksum: '' = none.
+const draft = reactive<{ name: string; patterns: string[]; replacement: string; terms: string; checksum: string; context: string }>(
+    { name: '', patterns: [''], replacement: '[REDACTED]', terms: '', checksum: '', context: '' })
+const splitLines = (s: string) => [...new Set(s.split('\n').map(x => x.trim()).filter(Boolean))]
+const splitCommas = (s: string) => [...new Set(s.split(',').map(x => x.trim()).filter(Boolean))]
+const draftValid = computed(() => !!draft.name.trim() && (draft.patterns.some(p => p.trim()) || splitLines(draft.terms).length > 0))
+const checksumOptions = computed(() => [
+    { label: t('settings.pii.checksumNone'), value: '' },
+    ...PII_CHECKSUMS.map(c => ({ label: t(`settings.pii.checksums.${c}`), value: c })),
+])
 const ruleToDelete = ref<PiiCustomRule | null>(null)
 
 const openRule = (rule: PiiCustomRule | null) => {
@@ -284,6 +308,9 @@ const openRule = (rule: PiiCustomRule | null) => {
     draft.name = rule?.name || ''
     draft.patterns = rule ? [...rule.patterns] : ['']
     draft.replacement = rule?.replacement || '[REDACTED]'
+    draft.terms = (rule?.terms || []).join('\n')
+    draft.checksum = rule?.checksum || ''
+    draft.context = (rule?.context || []).join(', ')
     showRule.value = true
 }
 const confirmRule = async () => {
@@ -293,6 +320,9 @@ const confirmRule = async () => {
         name: draft.name.trim(),
         patterns: draft.patterns.map(p => p.trim()).filter(Boolean),
         replacement: draft.replacement.trim() || '[REDACTED]',
+        terms: splitLines(draft.terms),
+        checksum: draft.checksum || null,
+        context: splitCommas(draft.context),
     }
     if (editingRuleId.value) {
         pii.custom_rules = pii.custom_rules.map(r => r.id === editingRuleId.value ? { ...r, ...next } : r)

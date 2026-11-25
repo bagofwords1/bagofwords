@@ -183,6 +183,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Outlook Mail | Business app |
 | Exchange Server (on-prem) mail | Business app |
 | Gmail | Business app |
+| Slack messages | Business app |
 | Browser (scoped web pages) | Web |
 | Elasticsearch | Search and observability |
 | OpenSearch | Search and observability |

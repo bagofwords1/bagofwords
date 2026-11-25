@@ -2748,7 +2748,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
-        dev_only=True,
     ),
     "gmail_mail": DataSourceRegistryEntry(
         type="gmail_mail",
