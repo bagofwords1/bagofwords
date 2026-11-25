@@ -1,8 +1,9 @@
 import re
 from functools import lru_cache
 
+import sqlglot
 from sqlglot import exp
-from sqlglot.errors import SqlglotError
+from sqlglot.errors import ErrorLevel, SqlglotError
 
 from app.ai.prompt_formatters import Table
 from app.data_sources.clients.postgresql_multi_catalog import (
@@ -25,6 +26,7 @@ _INTEGER_RANKS = {"tinyint": 0, "smallint": 1, "int": 2, "integer": 2, "bigint":
 _FLOAT_RANKS = {"float": 0, "real": 0, "double": 1}
 _DECIMAL = re.compile(r"^(?:decimal|numeric|dec)(?:\((\d+)(?:,(\d+))?\))?$")
 _TEXT = re.compile(r"^(varchar|varchar\(\d+\)|char\(\d+\))$")
+_STRUCT_TOKENS = re.compile(r"\b(?:struct\s*<|row\s*\()|[<(]|[>)]|,", re.IGNORECASE)
 _MAX_DECIMAL_DIGITS = 38
 _DEFAULT_DECIMAL = (10, 0)
 
@@ -51,12 +53,69 @@ def athena_type(dtype: str | None) -> exp.DataType | None:
 @lru_cache(maxsize=512)
 def _parsed_athena_type(dtype: str) -> exp.DataType | None:
     try:
-        parsed = exp.DataType.build(dtype, dialect="athena")
+        parsed = sqlglot.parse_one(dtype, read="athena", into=exp.DataType, error_level=ErrorLevel.RAISE)
     except (SqlglotError, ValueError):
         return None
-    if any(node.this in _UNUSABLE_TYPES for node in parsed.find_all(exp.DataType)):
+    if not isinstance(parsed, exp.DataType):
+        return None
+    if not all(_is_plain_type_node(node) for node in parsed.walk()):
+        return None
+    if _row_field_counts(parsed) != _source_struct_field_counts(dtype):
         return None
     return parsed
+
+
+def _is_plain_type_node(node: exp.Expression) -> bool:
+    if isinstance(node, exp.DataType):
+        return node.this not in _UNUSABLE_TYPES and _has_its_type_params(node)
+    if isinstance(node, exp.DataTypeParam):
+        param = node.this
+        return isinstance(param, exp.DataType) or (
+            isinstance(param, exp.Literal) and param.is_number and param.name.isdigit()
+        )
+    if isinstance(node, exp.Literal):
+        return isinstance(node.parent, exp.DataTypeParam)
+    if isinstance(node, exp.Identifier):
+        return isinstance(node.parent, exp.ColumnDef)
+    return isinstance(node, exp.ColumnDef)
+
+
+def _has_its_type_params(node: exp.DataType) -> bool:
+    if node.this == exp.DataType.Type.ARRAY:
+        return len(node.expressions) == 1
+    if node.this == exp.DataType.Type.MAP:
+        return len(node.expressions) == 2
+    if node.this == exp.DataType.Type.STRUCT:
+        return len(node.expressions) > 0
+    return True
+
+
+def _row_field_counts(parsed: exp.DataType) -> list[int]:
+    return [
+        len(node.expressions)
+        for node in parsed.walk(bfs=False)
+        if isinstance(node, exp.DataType) and node.this == exp.DataType.Type.STRUCT
+    ]
+
+
+def _source_struct_field_counts(dtype: str) -> list[int] | None:
+    counts: list[int] = []
+    open_frames: list[int | None] = []
+    for match in _STRUCT_TOKENS.finditer(dtype):
+        token = match.group(0)
+        if token in (">", ")"):
+            if not open_frames:
+                return None
+            open_frames.pop()
+        elif token == ",":
+            if open_frames and open_frames[-1] is not None:
+                counts[open_frames[-1]] += 1
+        elif token in ("<", "("):
+            open_frames.append(None)
+        else:
+            open_frames.append(len(counts))
+            counts.append(1)
+    return counts if not open_frames else None
 
 
 def glue_type_family(dtype: str | None) -> str:

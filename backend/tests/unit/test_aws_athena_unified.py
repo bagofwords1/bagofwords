@@ -8,6 +8,7 @@ import pytest
 
 from app.data_sources.clients import aws_athena_client as athena_module
 from app.data_sources.clients.aws_athena_client import AwsAthenaClient
+from tests.unit.test_athena_unified_catalog import UNSAFE_GLUE_TYPES
 from tests.unit.test_aws_athena_client import FakeGlue, _glue_error, make_client, names, wrangler  # noqa: F401
 
 DATABASES = {
@@ -487,13 +488,16 @@ def test_connection_test_succeeds_before_any_unified_table_is_indexed(wrangler):
 INJECTION_PROBE = "x) AS c, (SELECT secret FROM other_db.creds) AS d, CAST(NULL AS x"
 
 
-def test_unsupported_glue_column_type_leaves_the_tenant_out_and_is_never_sent(wrangler):
+@pytest.mark.parametrize("bad_type", [INJECTION_PROBE, *UNSAFE_GLUE_TYPES])
+def test_unsupported_glue_column_type_leaves_the_tenant_out_and_is_never_sent(wrangler, bad_type):
+    import sqlglot
+
     glue = FakeGlue(
         {"a_db": ["orders"], "b_db": ["orders"], "c_db": ["orders"]},
         columns={
             ("a_db", "orders"): [{"Name": "id", "Type": "int"}],
             ("b_db", "orders"): [{"Name": "id", "Type": "int"}, {"Name": "c", "Type": "varchar"}],
-            ("c_db", "orders"): [{"Name": "id", "Type": "int"}, {"Name": "c", "Type": INJECTION_PROBE}],
+            ("c_db", "orders"): [{"Name": "id", "Type": "int"}, {"Name": "c", "Type": bad_type}],
         },
     )
     client = indexed_client(glue)
@@ -501,8 +505,11 @@ def test_unsupported_glue_column_type_leaves_the_tenant_out_and_is_never_sent(wr
         "unreadable_datasets"
     ]
     client.execute_query("SELECT c FROM orders")
-    assert "secret" not in wrangler.calls[-1]["sql"]
+    sent = wrangler.calls[-1]["sql"]
+    assert "secret" not in sent
     assert branch_tenants(wrangler.calls[-1]) == ["a_db", "b_db"]
+    casts = {c.to.sql(dialect="athena") for c in sqlglot.parse_one(sent, read="athena").find_all(sqlglot.exp.Cast)}
+    assert casts == {"VARCHAR"}
 
 
 def test_stored_metadata_with_an_unparseable_type_is_refused_before_athena(wrangler):

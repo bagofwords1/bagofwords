@@ -16,6 +16,7 @@ from app.data_sources.clients.athena_union_rewrite import (
     rewrite_unified,
 )
 from app.data_sources.clients.postgresql_multi_catalog import COLUMN_TYPES_KEY
+from tests.unit.test_athena_unified_catalog import SUPPORTED_GLUE_TYPES, UNSAFE_GLUE_TYPES
 
 CATALOG = "AwsDataCatalog"
 
@@ -423,10 +424,21 @@ INJECTION_PROBE = "x) AS c, (SELECT secret FROM other_db.creds) AS d, CAST(NULL 
 
 
 @pytest.mark.parametrize("sql", ["SELECT c FROM weird", "SELECT * FROM weird WHERE tenant_db = 'nobody'"])
-def test_unparseable_column_type_is_refused_never_emitted(sql):
-    weird = _table("weird", [("c", INJECTION_PROBE)], ["acme_db", "globex_db"], missing={"globex_db": ["c"]})
+@pytest.mark.parametrize("bad_type", [INJECTION_PROBE, *UNSAFE_GLUE_TYPES])
+def test_unparseable_column_type_is_refused_never_emitted(sql, bad_type):
+    weird = _table("weird", [("c", bad_type)], ["acme_db", "globex_db"], missing={"globex_db": ["c"]})
     with pytest.raises(UnsupportedColumnType):
         rewrite_unified(sql, {"weird": weird}, CATALOG)
+
+
+@pytest.mark.parametrize("glue_type, emitted", SUPPORTED_GLUE_TYPES.items())
+def test_missing_column_of_a_plain_athena_type_is_null_cast_to_that_type(glue_type, emitted):
+    shaped = _table("shaped", [("c", glue_type)], ["acme_db", "globex_db"], missing={"globex_db": ["c"]})
+    out = rewrite_unified("SELECT c FROM shaped", {"shaped": shaped}, CATALOG)
+    (sub,) = _unions(_parse(out.sql), "shaped")
+    filled = {_tenant_of(b): _projections(b) for b in _branches(sub)}["globex_db"]["c"].this
+    assert isinstance(filled, exp.Cast) and isinstance(filled.this, exp.Null)
+    assert filled.to.sql(dialect="athena") == emitted
 
 
 @pytest.mark.parametrize("sql, left_out, emptied", [

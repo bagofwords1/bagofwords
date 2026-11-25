@@ -135,8 +135,46 @@ def test_metadata_keeps_existing_keys_and_drops_schema():
 
 INJECTION_PROBE = "x) AS c, (SELECT secret FROM other_db.creds) AS d, CAST(NULL AS x"
 
+UNSAFE_GLUE_TYPES = [
+    "decimal((select secret from other_db.creds),2)",
+    "int) AS c, (SELECT secret FROM other_db.creds) AS d, CAST(NULL AS int",
+    "struct<user-agent:string>",
+    "struct<select:string,z:int>",
+    "struct<not:int>",
+    "struct<a.b:int>",
+    "array<struct<user-agent:string,id:int>>",
+    "struct<id:int,name:string,date:date,user-agent:string,f5:int,f6:int,f7:int,f8:int,f9:int,f10:int>",
+    "array",
+    "map",
+    "array<int>[1,2]",
+    "decimal(1.5,2)",
+]
 
-@pytest.mark.parametrize("bad_type", [INJECTION_PROBE, "uniontype<int,string>", "struct<`a b`:int>", "no such type"])
+SUPPORTED_GLUE_TYPES = {
+    "int": "INTEGER",
+    "bigint": "BIGINT",
+    "double": "DOUBLE",
+    "decimal(12,4)": "DECIMAL(12, 4)",
+    "string": "VARCHAR",
+    "varchar(10)": "VARCHAR(10)",
+    "char(3)": "CHAR(3)",
+    "boolean": "BOOLEAN",
+    "date": "DATE",
+    "timestamp": "TIMESTAMP",
+    "array<string>": "ARRAY(VARCHAR)",
+    "map<string,int>": "MAP(VARCHAR, INTEGER)",
+    "struct<a:int,b:string>": "ROW(a INTEGER, b VARCHAR)",
+    "array<struct<a:int,b:string>>": "ARRAY(ROW(a INTEGER, b VARCHAR))",
+    "struct<f1:int,f2:string,f3:bigint,f4:double,f5:date,f6:boolean,f7:int,f8:string,f9:timestamp,f10:int>": (
+        "ROW(f1 INTEGER, f2 VARCHAR, f3 BIGINT, f4 DOUBLE, f5 DATE, f6 BOOLEAN, "
+        "f7 INTEGER, f8 VARCHAR, f9 TIMESTAMP, f10 INTEGER)"
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "bad_type", [INJECTION_PROBE, "uniontype<int,string>", "struct<`a b`:int>", "no such type", *UNSAFE_GLUE_TYPES]
+)
 def test_tenant_with_an_unsupported_column_type_is_left_out_with_that_reason(bad_type):
     catalog = unify_glue_catalogs({
         "a": [table("orders", [("id", "bigint"), ("c", "varchar")])],
@@ -152,6 +190,18 @@ def test_tenant_with_an_unsupported_column_type_is_left_out_with_that_reason(bad
     ] == [("c", "c", "unsupported column type")]
     assert bad_type not in repr(metadata)
     assert bad_type not in [col.dtype for col in unified.columns]
+
+
+@pytest.mark.parametrize("glue_type", SUPPORTED_GLUE_TYPES)
+def test_tenant_with_a_plain_athena_type_is_kept(glue_type):
+    catalog = unify_glue_catalogs({
+        "a": [table("orders", [("id", "bigint"), ("c", glue_type)])],
+        "b": [table("orders", [("id", "bigint")])],
+    })
+    (unified,) = catalog.tables
+    assert unified.metadata_json["tenants"] == ["a", "b"]
+    assert catalog.excluded == []
+    assert "c" in column_types(catalog)
 
 
 def test_table_whose_every_tenant_has_an_unsupported_type_is_not_unified():
