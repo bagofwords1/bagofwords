@@ -3283,7 +3283,7 @@
       "attributesSaved": "Attributen sparades",
       "attributesSaveFailed": "Det gick inte att spara attributen",
       "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat.",
-      "defaultRoleHint": "Förifyller rollen när du lägger till eller bjuder in en medlem.",
+      "defaultRoleHint": "Rollen nya medlemmar får: förifylls när du lägger till eller bjuder in någon och tillämpas på dem som ansluter via enkel inloggning, SCIM eller domänregistrering. Administratörsroller tilldelas aldrig automatiskt.",
       "defaultRoleSaved": "Standardroll sparad",
       "defaultRoleFailed": "Det gick inte att spara standardrollen",
       "defaultRoleShort": "Standardroll",

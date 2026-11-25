@@ -280,7 +280,8 @@ async def _ensure_org_membership(
         # existing seat, so no seat-cap check is needed on this branch.
         from app.models.user import User
         from app.core.permission_resolver import (
-            claim_pending_invite, insert_membership_if_absent, ensure_system_role_assignment,
+            claim_pending_invite, insert_membership_if_absent,
+            resolve_new_member_role, grant_member_role,
         )
         from app.core.user_lifecycle import reactivate_user_for_membership
         invited_user = (await db.execute(
@@ -310,10 +311,12 @@ async def _ensure_org_membership(
             return
         # Shared race-safe insert (SAVEPOINT + unique index): a concurrent create
         # loses the race without 500'ing the login that triggered this sync.
+        # The org's default role for new members (Members page).
+        role = await resolve_new_member_role(db, organization_id)
         _, created = await insert_membership_if_absent(db, Membership(
             user_id=user_id,
             organization_id=organization_id,
-            role="member",
+            role=role,
         ))
         if not created:
             logger.info(
@@ -325,7 +328,7 @@ async def _ensure_org_membership(
         # app/core/user_lifecycle when the user's last one was removed.
         await reactivate_user_for_membership(db, str(user_id), organization_id)
         # Give the user a real RBAC assignment (not just the legacy string).
-        await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
+        await grant_member_role(db, organization_id, role, user_id=str(user_id))
         logger.info(
             f"OIDC group sync: auto-created org membership for user {user_id} "
             f"in org {organization_id}"

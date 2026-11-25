@@ -301,7 +301,8 @@ class LDAPGroupSyncService:
 
         from app.core.seats import seats_remaining
         from app.core.permission_resolver import (
-            ensure_system_role_assignment, claim_pending_invite, insert_membership_if_absent,
+            claim_pending_invite, insert_membership_if_absent,
+            resolve_new_member_role, grant_member_role,
         )
         from app.core.user_lifecycle import reactivate_user_for_membership
         from app.models.user import User
@@ -351,10 +352,12 @@ class LDAPGroupSyncService:
 
             # Shared race-safe insert: a concurrent create of the same (user, org)
             # loses the race (unique index) without poisoning the batch transaction.
+            # The org's default role for new members (Members page).
+            new_role = await resolve_new_member_role(db, organization_id)
             _, was_created = await insert_membership_if_absent(db, Membership(
                 user_id=user_id,
                 organization_id=organization_id,
-                role="member",
+                role=new_role,
                 directory_provider=self.connection.provider_id,
             ))
             if not was_created:
@@ -365,7 +368,7 @@ class LDAPGroupSyncService:
             # app/core/user_lifecycle when the user's last one was removed.
             await reactivate_user_for_membership(db, str(user_id), organization_id)
             # Give the user a real RBAC assignment (not just the legacy string).
-            await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
+            await grant_member_role(db, organization_id, new_role, user_id=str(user_id))
             logger.info(f"LDAP sync: auto-created org membership for user {user_id} in org {organization_id}")
 
         if skipped:

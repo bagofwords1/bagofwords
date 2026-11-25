@@ -340,6 +340,98 @@ async def ensure_system_role_assignment(
     ))
 
 
+async def _org_custom_role(db: AsyncSession, org_id: str, role_name: str) -> Optional[Role]:
+    """The live role named ``role_name`` that this org owns (not a built-in)."""
+    return (await db.execute(
+        select(Role).where(
+            Role.organization_id == org_id,
+            Role.name == role_name,
+            Role.deleted_at.is_(None),
+        )
+    )).scalars().first()
+
+
+async def resolve_new_member_role(
+    db: AsyncSession, org_id: str, requested: Optional[str] = None,
+) -> str:
+    """Role name a member gets when they join without an admin picking one.
+
+    Used by every self-provisioning path (SCIM, OIDC/LDAP/SAML/Entra sign-in,
+    domain signup), so they honour the org-wide default role from the Members
+    page (``OrganizationSettings.config["default_member_role"]``) the same way
+    the "Add member" flow does.
+
+    ``requested`` is a role a path-specific policy asked for (the domain-signup
+    policy's ``auto_invite_role``). Anything other than plain ``member`` is
+    kept as an explicit choice; ``member`` (that policy's default) or nothing
+    defers to the org default.
+
+    The result always names a live built-in or org role. A role carrying
+    ``full_admin_access`` is never handed out automatically: an identity
+    provider or email domain must not mint organization admins.
+    """
+    from app.models.organization_settings import OrganizationSettings
+
+    name = (requested or "").strip()
+    if not name or name == "member":
+        settings = (await db.execute(
+            select(OrganizationSettings).where(OrganizationSettings.organization_id == org_id)
+        )).scalar_one_or_none()
+        raw = (settings.config or {}).get("default_member_role") if settings else None
+        name = str(raw).strip() if raw and str(raw).strip() else "member"
+    if name == "member":
+        return name
+    role = await resolve_assignable_system_role(db, org_id, name) or await _org_custom_role(db, org_id, name)
+    if role is None or FULL_ADMIN in (role.permissions or []):
+        return "member"
+    return name
+
+
+async def grant_member_role(
+    db: AsyncSession, org_id: str, role_name: str, *,
+    user_id: Optional[str] = None, membership_id: Optional[str] = None,
+) -> None:
+    """Give a new member the RBAC assignment for ``role_name``. Does NOT commit.
+
+    A built-in name goes through ``ensure_system_role_assignment`` (honouring a
+    per-org override). An org-owned (custom) role is assigned by id, which the
+    legacy ``Membership.role`` string alone never does. Pass ``user_id`` for a
+    registered user, or ``membership_id`` for a pending invite (rewritten onto
+    the user at registration by ``materialize_pending_rbac``); a pending
+    invite's built-in role is materialized from its ``role`` string instead.
+    An unknown name falls back to ``member``.
+    """
+    if await resolve_assignable_system_role(db, org_id, role_name):
+        if user_id:
+            await ensure_system_role_assignment(db, org_id, str(user_id), role_name)
+        return
+    custom = await _org_custom_role(db, org_id, role_name)
+    if custom is None:
+        if user_id:
+            await ensure_system_role_assignment(db, org_id, str(user_id), "member")
+        return
+    if user_id:
+        principal_type, principal_id = "user", str(user_id)
+    elif membership_id:
+        principal_type, principal_id = "membership", str(membership_id)
+    else:
+        return
+    held = (await db.execute(
+        select(RoleAssignment.id).where(
+            RoleAssignment.organization_id == org_id,
+            RoleAssignment.role_id == custom.id,
+            RoleAssignment.principal_type == principal_type,
+            RoleAssignment.principal_id == principal_id,
+            RoleAssignment.deleted_at.is_(None),
+        )
+    )).first()
+    if held is None:
+        db.add(RoleAssignment(
+            organization_id=org_id, role_id=custom.id,
+            principal_type=principal_type, principal_id=principal_id,
+        ))
+
+
 async def lift_app_user(db: AsyncSession, org_id: str, user_id: str, role_name: str) -> bool:
     """Replace an app user's ``app_user`` role with the workspace system role
     ``role_name`` (their other roles and groups are untouched). A no-op,

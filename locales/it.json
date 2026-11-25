@@ -3283,7 +3283,7 @@
       "attributesSaved": "Attributi salvati",
       "attributesSaveFailed": "Impossibile salvare gli attributi",
       "importAttributesHint": "Aggiungi colonne {column} per impostare gli attributi, es. {example}. Una cella vuota lascia l'attributo invariato.",
-      "defaultRoleHint": "Precompila il ruolo quando aggiungi o inviti un membro.",
+      "defaultRoleHint": "Il ruolo dei nuovi membri: precompilato quando aggiungi o inviti qualcuno e applicato a chi entra tramite single sign-on, SCIM o registrazione per dominio. I ruoli di amministratore non vengono mai assegnati automaticamente.",
       "defaultRoleSaved": "Ruolo predefinito salvato",
       "defaultRoleFailed": "Impossibile salvare il ruolo predefinito",
       "defaultRoleShort": "Ruolo predefinito",

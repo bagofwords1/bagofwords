@@ -308,11 +308,14 @@ class OrganizationSettingsConfig(BaseModel):
 
     signup_policy: SignupPolicy = SignupPolicy()
 
-    # Org-wide default role for a newly added member when the caller doesn't
-    # pick one explicitly (the "Add member" modal pre-fills from here). Must
-    # name an existing system or per-org role; validated at the service layer.
-    # None/absent resolves to "member". Core (non-EE) setting, separate from
-    # signup_policy.auto_invite_role so it isn't gated behind domain_signup.
+    # Org-wide default role for a new member nobody picked a role for: the
+    # "Add member" modal pre-fills from here, and self-provisioned members
+    # (SCIM, OIDC/LDAP/SAML/Entra sign-in, domain signup) get it through
+    # permission_resolver.resolve_new_member_role (a full-admin role is never
+    # applied automatically). Must name an existing system or per-org role;
+    # validated at the service layer. None/absent resolves to "member". Core
+    # (non-EE) setting; signup_policy.auto_invite_role overrides it for domain
+    # signup only when set to something other than "member".
     default_member_role: Optional[str] = None
 
     # Entra ID profile / job-info sync. Per-org opt-in, configured on the

@@ -306,7 +306,9 @@ async def finish_login(cfg, post, browser, db):
 
 
 async def admit_user(cfg, issuer, subject, identity_hash, email, name, db):
-    from app.core.permission_resolver import ensure_system_role_assignment
+    from app.core.permission_resolver import (
+        grant_member_role, resolve_new_member_role,
+    )
     from app.core.seats import seats_remaining
 
     org = await db.get(Organization, cfg.organization_id)
@@ -380,16 +382,17 @@ async def admit_user(cfg, issuer, subject, identity_hash, email, name, db):
             invite.directory_provider = "saml:" + cfg.name
             role = invite.role
         else:
+            # The org's default role for new members (Members page).
+            role = await resolve_new_member_role(db, cfg.organization_id)
             db.add(
                 Membership(
                     user_id=user.id,
                     organization_id=cfg.organization_id,
-                    role="member",
+                    role=role,
                     directory_provider="saml:" + cfg.name,
                 )
             )
-            role = "member"
-        await ensure_system_role_assignment(db, cfg.organization_id, str(user.id), role)
+        await grant_member_role(db, cfg.organization_id, str(role or "member"), user_id=str(user.id))
     if not identity:
         db.add(
             SAMLIdentity(

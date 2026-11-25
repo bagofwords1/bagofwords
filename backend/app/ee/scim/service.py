@@ -459,16 +459,19 @@ class ScimUserService:
             await enforce_seat_limit(db, organization_id)
 
             # Add membership to existing user
+            # The org's default role for new members (Members page), not a
+            # hardcoded "member".
+            from app.core.permission_resolver import resolve_new_member_role, grant_member_role
+            role = await resolve_new_member_role(db, organization_id)
             membership = Membership(
                 user_id=existing_user.id,
                 organization_id=organization_id,
                 email=existing_user.email,
-                role="member",
+                role=role,
             )
             db.add(membership)
             # Give the user a real RBAC assignment (not just the legacy string).
-            from app.core.permission_resolver import ensure_system_role_assignment
-            await ensure_system_role_assignment(db, organization_id, str(existing_user.id), "member")
+            await grant_member_role(db, organization_id, role, user_id=str(existing_user.id))
 
             # Honor the provisioned active state, same as the create branch
             # below and the PUT/PATCH handlers. Without this, re-provisioning
@@ -525,16 +528,17 @@ class ScimUserService:
         from app.core.seats import enforce_seat_limit
         await enforce_seat_limit(db, organization_id)
 
+        from app.core.permission_resolver import resolve_new_member_role, grant_member_role
+        role = await resolve_new_member_role(db, organization_id)
         membership = Membership(
             user_id=user.id,
             organization_id=organization_id,
             email=user.email,
-            role="member",
+            role=role,
         )
         db.add(membership)
         # Give the user a real RBAC assignment (not just the legacy string).
-        from app.core.permission_resolver import ensure_system_role_assignment
-        await ensure_system_role_assignment(db, organization_id, str(user.id), "member")
+        await grant_member_role(db, organization_id, role, user_id=str(user.id))
         await db.commit()
         await db.refresh(user)
         await db.refresh(membership)
@@ -577,13 +581,19 @@ class ScimUserService:
         await enforce_seat_limit(db, organization_id)
 
         from app.services.organization_service import OrganizationService, INVITE_EXPIRY_DAYS
+        from app.core.permission_resolver import resolve_new_member_role, grant_member_role
+        role = await resolve_new_member_role(db, organization_id)
         membership = Membership(
             organization_id=organization_id,
             email=email,
-            role="member",
+            role=role,
             invite_expires_at=datetime.utcnow() + timedelta(days=INVITE_EXPIRY_DAYS),
         )
         db.add(membership)
+        await db.flush()
+        # A custom default role rides on the pending invite and is rewritten
+        # onto the user when they register.
+        await grant_member_role(db, organization_id, role, membership_id=str(membership.id))
         await db.commit()
         await db.refresh(membership)
 

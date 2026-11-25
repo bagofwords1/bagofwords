@@ -3688,7 +3688,7 @@
       "attributesSaved": "Atributos guardados",
       "attributesSaveFailed": "No se pudieron guardar los atributos",
       "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios.",
-      "defaultRoleHint": "Rellena el rol al añadir o invitar a un miembro.",
+      "defaultRoleHint": "El rol que reciben los nuevos miembros: se rellena al añadir o invitar a alguien y se aplica a quienes se unen mediante inicio de sesión único, SCIM o registro por dominio. Los roles de administrador nunca se aplican automáticamente.",
       "defaultRoleSaved": "Rol predeterminado guardado",
       "defaultRoleFailed": "No se pudo guardar el rol predeterminado",
       "defaultRoleShort": "Rol predeterminado",

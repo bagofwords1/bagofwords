@@ -546,12 +546,21 @@ class UserManager(BaseUserManager[User, str]):
                     "skipping auto-invite for %s", s.organization_id, email
                 )
                 continue
-            role = str(policy.get("auto_invite_role") or "member")
-            session.add(Membership(
+            # The policy's own role when it names one, else the org's default
+            # role for new members (Members page).
+            from app.core.permission_resolver import resolve_new_member_role, grant_member_role
+            role = await resolve_new_member_role(
+                session, s.organization_id, policy.get("auto_invite_role"))
+            invite = Membership(
                 email=email_norm,
                 organization_id=s.organization_id,
                 role=role,
-            ))
+            )
+            session.add(invite)
+            await session.flush()
+            # A custom role rides on the pending invite and is rewritten onto
+            # the user when the invite is attached below.
+            await grant_member_role(session, s.organization_id, role, membership_id=str(invite.id))
             created_for.add(str(s.organization_id))
         await session.flush()
         return created_for
@@ -1203,11 +1212,14 @@ async def admit_directory_identity(session: AsyncSession, identity: dict, ldap_c
             ldap_identity=identity, ldap_dn=identity["dn"])
         session.add(user)
         await session.flush()
-        from app.core.permission_resolver import ensure_system_role_assignment, insert_membership_if_absent
+        from app.core.permission_resolver import (
+            insert_membership_if_absent, resolve_new_member_role, grant_member_role,
+        )
+        role = await resolve_new_member_role(session, ldap_config.organization_id)
         await insert_membership_if_absent(session, Membership(
             user_id=user.id, organization_id=ldap_config.organization_id,
-            role="member", directory_provider=identity["provider"]))
-        await ensure_system_role_assignment(session, ldap_config.organization_id, str(user.id), "member")
+            role=role, directory_provider=identity["provider"]))
+        await grant_member_role(session, ldap_config.organization_id, role, user_id=str(user.id))
     else:
         from app.core.instance_admin import directory_sign_in_refused_for_superuser
         if not user.is_active or directory_sign_in_refused_for_superuser(user):
@@ -1321,13 +1333,17 @@ async def auto_provision_user_for_org(
             from app.core.permission_resolver import claim_pending_invite
             await claim_pending_invite(db, existing_user, organization_id)
         else:
-            role = str(policy.get("auto_invite_role") or "member")
-            from app.core.permission_resolver import insert_membership_if_absent
-            await insert_membership_if_absent(db, Membership(
+            from app.core.permission_resolver import (
+                insert_membership_if_absent, resolve_new_member_role, grant_member_role,
+            )
+            role = await resolve_new_member_role(db, organization_id, policy.get("auto_invite_role"))
+            _, created = await insert_membership_if_absent(db, Membership(
                 user_id=existing_user.id,
                 organization_id=organization_id,
                 role=role,
             ))
+            if created:
+                await grant_member_role(db, organization_id, role, user_id=str(existing_user.id))
         from app.core.user_lifecycle import reactivate_user_for_membership
         await reactivate_user_for_membership(db, str(existing_user.id), organization_id)
         await db.commit()
@@ -1351,13 +1367,17 @@ async def auto_provision_user_for_org(
         from app.core.permission_resolver import claim_pending_invite
         await claim_pending_invite(db, user, organization_id)
     else:
-        role = str(policy.get("auto_invite_role") or "member")
-        from app.core.permission_resolver import insert_membership_if_absent
-        await insert_membership_if_absent(db, Membership(
+        from app.core.permission_resolver import (
+            insert_membership_if_absent, resolve_new_member_role, grant_member_role,
+        )
+        role = await resolve_new_member_role(db, organization_id, policy.get("auto_invite_role"))
+        _, created = await insert_membership_if_absent(db, Membership(
             user_id=user.id,
             organization_id=organization_id,
             role=role,
         ))
+        if created:
+            await grant_member_role(db, organization_id, role, user_id=str(user.id))
 
     await db.commit()
     await db.refresh(user)

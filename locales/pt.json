@@ -3283,7 +3283,7 @@
       "attributesSaved": "Atributos salvos",
       "attributesSaveFailed": "Falha ao salvar os atributos",
       "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado.",
-      "defaultRoleHint": "Preenche a função ao adicionar ou convidar um membro.",
+      "defaultRoleHint": "A função dos novos membros: preenchida ao adicionar ou convidar alguém e aplicada a quem entra por login único, SCIM ou cadastro por domínio. Funções de administrador nunca são atribuídas automaticamente.",
       "defaultRoleSaved": "Função padrão salva",
       "defaultRoleFailed": "Falha ao salvar a função padrão",
       "defaultRoleShort": "Função padrão",

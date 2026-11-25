@@ -3283,7 +3283,7 @@
       "attributesSaved": "Attribute gespeichert",
       "attributesSaveFailed": "Attribute konnten nicht gespeichert werden",
       "importAttributesHint": "Fügen Sie {column}-Spalten hinzu, um Attribute zu setzen, z. B. {example}. Eine leere Zelle lässt das Attribut unverändert.",
-      "defaultRoleHint": "Füllt die Rolle beim Hinzufügen oder Einladen eines Mitglieds vor.",
+      "defaultRoleHint": "Die Rolle neuer Mitglieder: wird beim Hinzufügen oder Einladen vorausgefüllt und gilt für alle, die per Single Sign-On, SCIM oder Domain-Registrierung beitreten. Admin-Rollen werden nie automatisch vergeben.",
       "defaultRoleSaved": "Standardrolle gespeichert",
       "defaultRoleFailed": "Standardrolle konnte nicht gespeichert werden",
       "defaultRoleShort": "Standardrolle",
