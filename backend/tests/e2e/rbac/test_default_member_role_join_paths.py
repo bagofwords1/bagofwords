@@ -483,3 +483,91 @@ async def test_deleted_default_role_falls_back_to_member(
     user_id = await JOIN_PATHS["scim_create"](None, org)
     roles, _ = await _effective(user_id, org.org_id)
     assert roles == {"member"}, sorted(roles)
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial", ["custom_default", "explicit_custom"])
+async def test_accepting_an_invite_grants_the_roles_the_admin_left_on_it(
+    initial, test_client, domain_signup_licensed, single_org, org_with_custom_default, create_role,
+    assign_role, list_role_assignments, create_user, login_user, whoami,
+):
+    """An admin who swaps a pending invite's custom role for another (the
+    Members page edits the invite's role assignments, not its stored name)
+    must see the invitee get only the replacement — never the removed role."""
+    org = org_with_custom_default()
+    headers = _headers(org.admin["token"], org.org_id)
+    replacement = f"replacement_{uuid.uuid4().hex[:6]}"
+    rep = create_role(name=replacement, permissions=["view_reports"],
+                      user_token=org.admin["token"], org_id=org.org_id).json()
+
+    email = f"swapped_{uuid.uuid4().hex[:8]}@test.com"
+    body = {"organization_id": org.org_id, "email": email}
+    if initial == "explicit_custom":
+        body["role"] = org.name
+    r = test_client.post(f"/api/organizations/{org.org_id}/members", json=body, headers=headers)
+    assert r.status_code == 200, r.text
+    invite_id = r.json()["id"]
+
+    # What the Members role editor does: add the new role, delete the old row.
+    pending = list_role_assignments(user_token=org.admin["token"], org_id=org.org_id,
+                                    principal_type="membership", principal_id=invite_id)
+    old = [a for a in pending if a["role_id"] == org.role["id"]]
+    assert old, "the invite should carry its custom role as a pending assignment"
+    assert assign_role(role_id=rep["id"], principal_type="membership", principal_id=invite_id,
+                       user_token=org.admin["token"], org_id=org.org_id).status_code in (200, 201)
+    for a in old:
+        d = test_client.delete(f"/api/organizations/{org.org_id}/role-assignments/{a['id']}", headers=headers)
+        assert d.status_code in (200, 204), d.text
+
+    uid = _register_and_login(create_user, login_user, whoami, email)
+    roles, _ = await _effective(uid, org.org_id)
+    assert roles == {replacement}, sorted(roles)
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_scim_invite_for_an_existing_account_carries_the_default(
+    test_client, enterprise_license, org_with_custom_default, bootstrap_admin,
+):
+    """SCIM can't place an account that already belongs to another org: it
+    issues an invite. The default role must ride on that invite as a pending
+    assignment and reach the person when they accept."""
+    from app.dependencies import async_session_maker
+    from app.ee.scim.service import ScimUserService
+    from app.ee.scim.schemas import ScimUserCreate, ScimEmail
+
+    org = org_with_custom_default()
+    other = bootstrap_admin("elsewhere")  # an account that lives in another org
+    me = test_client.get("/api/users/whoami", headers={"Authorization": f"Bearer {other['token']}"}).json()
+    async with async_session_maker() as db:
+        await ScimUserService().create_user(
+            db, org.org_id,
+            ScimUserCreate(userName=me["email"], emails=[ScimEmail(value=me["email"], primary=True)], active=True),
+        )
+    headers = _headers(org.admin["token"], org.org_id)
+    pending = next(m for m in test_client.get(f"/api/organizations/{org.org_id}/members", headers=headers).json()
+                   if m.get("email") == me["email"])
+    # The person follows the invite link while signed in.
+    link = test_client.get(f"/api/organizations/{org.org_id}/members/{pending['id']}/invite-link", headers=headers)
+    assert link.status_code == 200, link.text
+    accepted = test_client.post("/api/invites/accept", json={"token": link.json()["token"]},
+                                headers={"Authorization": f"Bearer {other['token']}"})
+    assert accepted.status_code == 200, accepted.text
+    uid = me["id"]
+    roles, _ = await _effective(uid, org.org_id)
+    assert org.name in roles and "member" not in roles, sorted(roles)
+
+
+@pytest.mark.e2e
+def test_settings_read_shows_the_role_new_members_actually_get(
+    test_client, enterprise_license, org_with_custom_default,
+):
+    """A default role that was deleted no longer applies (members get
+    "member"); the settings read must say so instead of the stale name."""
+    org = org_with_custom_default()
+    headers = _headers(org.admin["token"], org.org_id)
+    assert test_client.get("/api/organization/default-member-role", headers=headers).json()["role"] == org.name
+    d = test_client.delete(f"/api/organizations/{org.org_id}/roles/{org.role['id']}", headers=headers)
+    assert d.status_code in (200, 204), d.text
+    assert test_client.get("/api/organization/default-member-role", headers=headers).json()["role"] == "member"

@@ -153,7 +153,9 @@ async def resolve_or_admit(db, service, client, config, claims):
             db.add(Membership(user_id=user.id, organization_id=client.organization_id, role=role))
         from app.core.permission_resolver import ensure_system_role_assignment
 
-        await ensure_system_role_assignment(db, client.organization_id, user.id, role)
+        # An invite's custom roles came across with its pending RBAC.
+        await ensure_system_role_assignment(db, client.organization_id, user.id, role,
+                                            allow_custom=invite is None)
         admitted_id = user.id
         await db.commit()
     except (IntegrityError, OperationalError):

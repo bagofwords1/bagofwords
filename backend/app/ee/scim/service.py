@@ -584,13 +584,16 @@ class ScimUserService:
         # The invite carries the org's default member role; accepting it grants
         # that role (custom roles included, via ensure_system_role_assignment).
         from app.services.organization_settings_service import resolve_default_member_role
+        invite_role = await resolve_default_member_role(db, str(organization_id))
         membership = Membership(
             organization_id=organization_id,
             email=email,
-            role=await resolve_default_member_role(db, str(organization_id)),
+            role=invite_role,
             invite_expires_at=datetime.utcnow() + timedelta(days=INVITE_EXPIRY_DAYS),
         )
         db.add(membership)
+        from app.core.permission_resolver import stage_invite_role
+        await stage_invite_role(db, str(organization_id), membership, invite_role)
         await db.commit()
         await db.refresh(membership)
 

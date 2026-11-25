@@ -350,7 +350,10 @@ class UserManager(BaseUserManager[User, str]):
             # ensure_system_role_assignment is a no-op when already held).
             await self._materialize_pending_rbac(session, membership, user.id)
             if invite_role:
-                await ensure_system_role_assignment(session, org_id, str(user.id), invite_role)
+                # Built-ins only: custom roles came across with the pending RBAC
+                # above, as the admin last edited them.
+                await ensure_system_role_assignment(
+                    session, org_id, str(user.id), invite_role, allow_custom=False)
 
             from app.core.permissions_registry import APP_USER_ROLE
             if not claimed and invite_role and invite_role != APP_USER_ROLE:
@@ -360,7 +363,7 @@ class UserManager(BaseUserManager[User, str]):
                 # the app_user role instead of sitting beside it with the
                 # membership still labelled an app user.
                 from app.core.permission_resolver import lift_app_user
-                await lift_app_user(session, org_id, str(user.id), invite_role)
+                await lift_app_user(session, org_id, str(user.id), invite_role, allow_custom=False)
 
             if not claimed:
                 # Hard-delete the retired invite — membership removal is a hard
@@ -550,11 +553,16 @@ class UserManager(BaseUserManager[User, str]):
                 continue
             from app.services.organization_settings_service import resolve_signup_role
             role = await resolve_signup_role(session, str(s.organization_id), policy)
-            session.add(Membership(
+            invite = Membership(
                 email=email_norm,
                 organization_id=s.organization_id,
                 role=role,
-            ))
+            )
+            session.add(invite)
+            # A custom role travels as a pending RBAC row (acceptance grants
+            # only built-ins from the name).
+            from app.core.permission_resolver import stage_invite_role
+            await stage_invite_role(session, str(s.organization_id), invite, role)
             created_for.add(str(s.organization_id))
         await session.flush()
         return created_for

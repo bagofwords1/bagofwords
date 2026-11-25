@@ -322,6 +322,7 @@ async def resolve_assignable_role(
 
 async def ensure_system_role_assignment(
     db: AsyncSession, org_id: str, user_id: str, role_name: str,
+    *, allow_custom: bool = True,
 ) -> None:
     """Idempotently ensure ``user_id`` holds the role ``role_name`` in
     ``org_id`` (RBAC path). Does NOT commit — the caller commits.
@@ -332,6 +333,11 @@ async def ensure_system_role_assignment(
     per-org override) or a custom, org-scoped role — both resolve through
     ``resolve_assignable_role`` — so an org's own ``auto_invite_role`` reaches
     the user instead of being dropped.
+
+    ``allow_custom=False`` resolves built-in roles only. Invite acceptance uses
+    it: an invite's custom roles live in its pending role assignments, which an
+    admin may have edited since; the name in ``Membership.role`` is the one it
+    was created with, and granting it would restore a role the admin removed.
     """
     from app.models.role_assignment import RoleAssignment
 
@@ -349,7 +355,8 @@ async def ensure_system_role_assignment(
         )).scalar_one_or_none()
         if stated == APP_USER_ROLE:
             role_name = APP_USER_ROLE
-    role = await resolve_assignable_role(db, org_id, role_name)
+    resolve = resolve_assignable_role if allow_custom else resolve_assignable_system_role
+    role = await resolve(db, org_id, role_name)
     if not role:
         return
     existing = (await db.execute(
@@ -371,7 +378,8 @@ async def ensure_system_role_assignment(
     ))
 
 
-async def lift_app_user(db: AsyncSession, org_id: str, user_id: str, role_name: str) -> bool:
+async def lift_app_user(db: AsyncSession, org_id: str, user_id: str, role_name: str,
+                        *, allow_custom: bool = True) -> bool:
     """Replace an app user's ``app_user`` role with the workspace system role
     ``role_name`` (their other roles and groups are untouched). A no-op,
     returning False, for anyone who is not an app user. Does NOT commit.
@@ -402,7 +410,7 @@ async def lift_app_user(db: AsyncSession, org_id: str, user_id: str, role_name: 
             )
         )).scalars().all():
             await db.delete(row)
-    await ensure_system_role_assignment(db, org_id, user_id, role_name)
+    await ensure_system_role_assignment(db, org_id, user_id, role_name, allow_custom=allow_custom)
     invalidate_rbac_memo(db, user_id, org_id)
     return True
 
@@ -546,6 +554,30 @@ async def materialize_pending_rbac(
         pass
 
 
+async def stage_invite_role(db: AsyncSession, org_id: str, membership, role_name: str) -> None:
+    """Give a pending invite (``user_id`` NULL) a pending role assignment for
+    ``role_name`` when it is a custom role, as the Add-member path does.
+
+    Invite acceptance grants only built-in roles from ``Membership.role``
+    (``ensure_system_role_assignment(..., allow_custom=False)``), so a custom
+    role must travel as an RBAC row, which an admin can then edit or remove
+    before the invite is accepted. Built-in roles need nothing here. Does NOT
+    commit.
+    """
+    from app.models.role_assignment import RoleAssignment
+
+    if not role_name or await resolve_assignable_system_role(db, org_id, role_name) is not None:
+        return
+    role = await resolve_assignable_role(db, org_id, role_name)
+    if role is None:
+        return
+    await db.flush([membership])
+    db.add(RoleAssignment(
+        organization_id=org_id, role_id=role.id,
+        principal_type="membership", principal_id=str(membership.id),
+    ))
+
+
 async def insert_membership_if_absent(db: AsyncSession, membership):
     """Insert ``membership`` unless a live row for its (user_id, organization_id)
     already exists. Returns ``(row, created)``.
@@ -686,8 +718,10 @@ async def claim_pending_invite(db: AsyncSession, user, org_id: str):
             db.expunge(invite)
         return None
     await materialize_pending_rbac(db, invite, str(user.id))
+    # Built-ins only: the invite's custom roles came across with its pending
+    # RBAC above, as the admin last left them (see ensure_system_role_assignment).
     await ensure_system_role_assignment(
-        db, str(org_id), str(user.id), invite.role or "member"
+        db, str(org_id), str(user.id), invite.role or "member", allow_custom=False,
     )
     return invite
 

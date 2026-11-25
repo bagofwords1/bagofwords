@@ -120,6 +120,18 @@ Screenshots are in `media/pr/default-member-role/`, in `before-*` / `after-*` pa
   `manage_settings`) refuses it.
 - **Both setters validate through `resolve_assignable_role`.** Before, picking
   `member` after customizing the Member role matched two rows and returned a 500.
+- **Invites honor the admin's latest edit** (second review): acceptance grants
+  only built-in roles from an invite's stored name
+  (`ensure_system_role_assignment(..., allow_custom=False)`, the pre-#1924
+  contract). Custom roles travel as the invite's pending role assignments:
+  `stage_invite_role` adds them for domain-signup and SCIM invites, as Add
+  member already did. So an admin who swaps a pending invite's custom role
+  before acceptance doesn't see the old one come back. SAML acceptance now
+  also materializes those pending assignments.
+- **The settings read shows what applies:** `GET /organization/default-member-role`
+  returns `stored_default_member_role`, the same fallback provisioning uses
+  (a deleted or renamed role reads as `member`), never an embedded host's
+  per-request role.
 - **CSV import** passes `role=None`, so `add_member` resolves the default, as
   the modal does.
 - **UI:**
