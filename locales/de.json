@@ -5211,6 +5211,7 @@
     "connection.confluence_login_captcha": "Confluence verlangt für dieses Konto nach fehlgeschlagenen Anmeldungen ein CAPTCHA, daher wurde nichts gespeichert. Melden Sie sich einmal im Browser bei Confluence an, um es aufzuheben, oder verwenden Sie ein persönliches Zugriffstoken.",
     "connection.jira_login_rejected": "Jira hat dieses persönliche Zugriffstoken bzw. diese Anmeldung nicht akzeptiert, daher wurde es nicht gespeichert. Prüfen Sie es oder erstellen Sie in Jira unter Profil > Persönliche Zugriffstoken ein neues Token.",
     "connection.jira_login_captcha": "Jira verlangt für dieses Konto nach fehlgeschlagenen Anmeldungen ein CAPTCHA, daher wurde nichts gespeichert. Melden Sie sich einmal im Browser bei Jira an, um es aufzuheben, oder verwenden Sie ein persönliches Zugriffstoken.",
+    "connection.teamcenter_login_rejected": "Teamcenter hat diese Benutzer-ID und dieses Passwort nicht akzeptiert, daher wurden sie nicht gespeichert. Prüfen Sie sie, auch Gruppe oder Rolle, falls Ihr Standort diese verlangt.",
     "access_request.disabled": "Zugriffsanfragen sind für diese Organisation deaktiviert.",
     "access_request.not_allowed": "Dieses Dashboard benötigt keine Zugriffsanfrage.",
     "access_request.already_has_access": "Du hast bereits Zugriff auf dieses Dashboard.",

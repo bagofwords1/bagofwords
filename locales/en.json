@@ -5983,6 +5983,7 @@
     "connection.confluence_login_captcha": "Confluence requires a CAPTCHA for this account after failed logins, so it was not saved. Sign in to Confluence once in a browser to clear it, or use a personal access token.",
     "connection.jira_login_rejected": "Jira did not accept this personal access token or login, so it was not saved. Check it, or create a new token in Jira under Profile > Personal Access Tokens.",
     "connection.jira_login_captcha": "Jira requires a CAPTCHA for this account after failed logins, so it was not saved. Sign in to Jira once in a browser to clear it, or use a personal access token.",
+    "connection.teamcenter_login_rejected": "Teamcenter did not accept this user ID and password, so they were not saved. Check them, including the group or role if your site requires one.",
     "access_request.disabled": "Access requests are turned off for this organization.",
     "access_request.not_allowed": "This dashboard does not need an access request.",
     "access_request.already_has_access": "You already have access to this dashboard.",

@@ -94,3 +94,11 @@ def derive_mcp_base_url(request: Request) -> str:
 def connection_oauth_redirect_uri() -> str:
     from app.settings.config import settings
     return f"{settings.bow_config.base_url}/api/connections/oauth/callback"
+
+
+def teamcenter_sso_callback_uri() -> str:
+    """Where Teamcenter Security Services returns a member's browser after SSO sign-in (registered by the
+    TcSS admin as the application root URL of Bag of Words)."""
+    from app.settings.config import settings
+    from app.schemas.data_sources.configs import TEAMCENTER_SSO_CALLBACK_PATH
+    return f"{settings.bow_config.base_url}{TEAMCENTER_SSO_CALLBACK_PATH}"

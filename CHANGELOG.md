@@ -2,6 +2,7 @@
 
 ## Version 0.0.638 (November 25, 2026)
 - Added a Microsoft Learn connector for searching and reading Microsoft and Azure documentation, with no sign-in needed (#1929)
+- Added a Siemens Teamcenter connector for parts, BOMs, where-used, engineering changes and attached documents, with Teamcenter SSO sign-in (#1933)
 - Added Rewind to report chat: remove a prompt and everything after it from the chat and the agent's context, then edit and resend it (#1913)
 - Added sending a document the agent writes on WhatsApp to the user as a PDF (#1925)
 - Added a setup guide to the HubSpot connect form, with the redirect URL to copy (#1922)

@@ -5211,6 +5211,7 @@
     "connection.confluence_login_captcha": "O Confluence exige um CAPTCHA para esta conta após logins com falha, por isso nada foi salvo. Entre no Confluence uma vez pelo navegador para liberar, ou use um token de acesso pessoal.",
     "connection.jira_login_rejected": "O Jira não aceitou este token de acesso pessoal ou login, por isso ele não foi salvo. Verifique-o ou crie um novo token no Jira em Perfil > Tokens de acesso pessoal.",
     "connection.jira_login_captcha": "O Jira exige um CAPTCHA para esta conta após logins com falha, por isso nada foi salvo. Entre no Jira uma vez pelo navegador para liberar, ou use um token de acesso pessoal.",
+    "connection.teamcenter_login_rejected": "O Teamcenter não aceitou este ID de usuário e senha, por isso eles não foram salvos. Verifique-os, incluindo o grupo ou a função, se o seu site exigir.",
     "access_request.disabled": "As solicitações de acesso estão desativadas para esta organização.",
     "access_request.not_allowed": "Este painel não precisa de uma solicitação de acesso.",
     "access_request.already_has_access": "Você já tem acesso a este painel.",

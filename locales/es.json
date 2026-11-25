@@ -5908,6 +5908,7 @@
     "connection.confluence_login_captcha": "Confluence exige un CAPTCHA para esta cuenta tras inicios de sesión fallidos, así que no se guardó. Inicia sesión una vez en Confluence desde el navegador para resolverlo, o usa un token de acceso personal.",
     "connection.jira_login_rejected": "Jira no aceptó este token de acceso personal o inicio de sesión, así que no se guardó. Revísalo o crea un token nuevo en Jira, en Perfil > Tokens de acceso personal.",
     "connection.jira_login_captcha": "Jira exige un CAPTCHA para esta cuenta tras inicios de sesión fallidos, así que no se guardó. Inicia sesión una vez en Jira desde el navegador para resolverlo, o usa un token de acceso personal.",
+    "connection.teamcenter_login_rejected": "Teamcenter no aceptó este ID de usuario y contraseña, así que no se guardaron. Revísalos, incluido el grupo o rol si tu sitio lo requiere.",
     "access_request.disabled": "Las solicitudes de acceso están desactivadas para esta organización.",
     "access_request.not_allowed": "Este panel no necesita una solicitud de acceso.",
     "access_request.already_has_access": "Ya tienes acceso a este panel.",

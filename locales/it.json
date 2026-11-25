@@ -5211,6 +5211,7 @@
     "connection.confluence_login_captcha": "Confluence richiede un CAPTCHA per questo account dopo accessi non riusciti, quindi non è stato salvato. Accedi una volta a Confluence dal browser per sbloccarlo, oppure usa un token di accesso personale.",
     "connection.jira_login_rejected": "Jira non ha accettato questo token di accesso personale o queste credenziali, quindi non è stato salvato. Controllalo oppure crea un nuovo token in Jira in Profilo > Token di accesso personali.",
     "connection.jira_login_captcha": "Jira richiede un CAPTCHA per questo account dopo accessi non riusciti, quindi non è stato salvato. Accedi una volta a Jira dal browser per sbloccarlo, oppure usa un token di accesso personale.",
+    "connection.teamcenter_login_rejected": "Teamcenter non ha accettato questo ID utente e questa password, quindi non sono stati salvati. Controllali, inclusi gruppo o ruolo se il tuo sito li richiede.",
     "access_request.disabled": "Le richieste di accesso sono disattivate per questa organizzazione.",
     "access_request.not_allowed": "Questa dashboard non richiede una richiesta di accesso.",
     "access_request.already_has_access": "Hai già accesso a questa dashboard.",

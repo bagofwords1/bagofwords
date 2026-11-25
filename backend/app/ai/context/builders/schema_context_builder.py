@@ -1231,8 +1231,9 @@ class SchemaContextBuilder:
 
         conns = getattr(ds, 'connections', None) or []
         file_conns = [c for c in conns if getattr(c, 'type', None) in self._FILE_SOURCE_TYPES]
+        hybrid_scopes = self._hybrid_document_scopes(conns)
         if not file_conns:
-            return [], tables
+            return hybrid_scopes, tables
 
         file_conn_ids = {str(c.id) for c in file_conns}
         by_conn = defaultdict(list)
@@ -1324,7 +1325,36 @@ class SchemaContextBuilder:
                 supports_search=supports_search, writable=bool(cfg.get("writable")),
                 per_user=bool(per_user), enforces_scope=enforces_scope, note=note,
             ))
-        return scopes, remaining
+        return scopes + hybrid_scopes, remaining
+
+    # Table connectors that also serve documents through the file tools, live.
+    # Their tables stay in the schema (unlike _FILE_SOURCE_TYPES, whose catalog
+    # rows ARE files); they only add a document descriptor so the planner knows
+    # the documents exist and how to reach them.
+    _HYBRID_DOCUMENT_TYPES = {"teamcenter"}
+
+    def _hybrid_document_scopes(self, conns):
+        import json as _json
+        from app.ai.context.sections.tables_schema_section import FileScopeItem
+        scopes = []
+        for c in conns:
+            if getattr(c, "type", None) not in self._HYBRID_DOCUMENT_TYPES:
+                continue
+            cfg = c.config
+            if isinstance(cfg, str):
+                try:
+                    cfg = _json.loads(cfg or "{}")
+                except Exception:
+                    cfg = {}
+            cfg = cfg or {}
+            if cfg.get("include_documents") is False:
+                continue
+            per_user = getattr(c, "auth_policy", None) == "user_required"
+            scopes.append(FileScopeItem(
+                connection_id=str(c.id), name=c.name, type=c.type, base=cfg.get("base_url"),
+                index_mode="none", supports_search=True, per_user=bool(per_user), enforces_scope=False,
+            ))
+        return scopes
 
     def _browser_scope(self, ds) -> Optional[dict]:
         """Extract {url_patterns, allow_downloads} from a data source's browser

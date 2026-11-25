@@ -70,6 +70,10 @@ from app.schemas.data_sources.configs import (
     JiraDcConfig,
     JiraDcTokenCredentials,
     JiraDcUserPassCredentials,
+    TeamcenterConfig,
+    TeamcenterUserPassCredentials,
+    TeamcenterKerberosCredentials,
+    TeamcenterKerberosDelegatedCredentials,
     SharePointOnpremKerberosCredentials,
     ExchangeOnpremConfig,
     ExchangeOnpremNtlmCredentials,
@@ -407,15 +411,18 @@ class SetupStep(BaseModel):
 
 
 SETUP_GUIDE_REDIRECT_URI = "{oauth_redirect_uri}"
+SETUP_GUIDE_TEAMCENTER_SSO_CALLBACK = "{teamcenter_sso_callback}"
 
 
 def resolve_setup_guide(steps: list[SetupStep] | None) -> list[dict] | None:
     if not steps:
         return None
-    from app.core.base_url import connection_oauth_redirect_uri
+    from app.core.base_url import connection_oauth_redirect_uri, teamcenter_sso_callback_uri
     redirect_uri = connection_oauth_redirect_uri()
+    tcss_callback = teamcenter_sso_callback_uri()
     return [
-        {**s.model_dump(), "code": s.code.replace(SETUP_GUIDE_REDIRECT_URI, redirect_uri) if s.code else s.code}
+        {**s.model_dump(), "code": s.code.replace(SETUP_GUIDE_REDIRECT_URI, redirect_uri)
+         .replace(SETUP_GUIDE_TEAMCENTER_SSO_CALLBACK, tcss_callback) if s.code else s.code}
         for s in steps
     ]
 
@@ -998,6 +1005,56 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.jira_dc_client.JiraDcClient",
         requires_license="enterprise",
         version="beta",
+    ),
+    "teamcenter": DataSourceRegistryEntry(
+        type="teamcenter",
+        category="services",
+        title="Siemens Teamcenter",
+        description=(
+            "Query Teamcenter PLM as tables — parts and other business objects with your custom properties, BOMs "
+            "under a revision rule, where-used and engineering-change links — and read the documents attached to "
+            "items (read-only, live). Teamcenter access rules apply; per-user sign-in with Teamcenter SSO "
+            "(Entra ID or Active Directory through Security Services), Kerberos or a Teamcenter login."
+        ),
+        setup_guide=[
+            SetupStep(
+                title="Find the Teamcenter web tier address",
+                body="Use the address Teamcenter clients connect to, with its context path (usually /tc). This should answer with a Teamcenter error page, which confirms the JSON services are on.",
+                code="https://plm.example.com/tc/JsonRestServices/",
+                language="text",
+            ),
+            SetupStep(
+                title="For SSO: register Bag of Words with Teamcenter Security Services",
+                body="In the TcSS Identity Service configuration, add an application ID for Bag of Words with this application root URL, then enter the TcSS login URL (ending in /weblogin/login_redirect) and that application ID below. Users then sign in through your identity provider (Entra ID or Active Directory).",
+                code="{teamcenter_sso_callback}",
+                language="text",
+            ),
+            SetupStep(
+                title="Choose the object types",
+                body="List the business object types to offer as tables by internal name: your part and document revision types (for example A2_PartRevision) and the change types. Test connection reports which exist on the server.",
+            ),
+        ],
+        config_schema=TeamcenterConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(title="Teamcenter user ID and password", schema=TeamcenterUserPassCredentials,
+                                        scopes=["system", "user"]),
+                # TcSS with Windows integrated sign-in: BOW's own keytab answers the login service.
+                "kerberos": AuthVariant(title="Kerberos service account (TcSS Windows sign-in)",
+                                        schema=TeamcenterKerberosCredentials, scopes=["system"]),
+                # Each member's own AD identity through constrained delegation to the TcSS login service.
+                "kerberos_delegated": AuthVariant(title="Kerberos SSO (per-user delegation)",
+                                                  schema=TeamcenterKerberosDelegatedCredentials, scopes=["user"]),
+                # Browser sign-in through Teamcenter Security Services (Entra ID / AD behind TcSS). Shares the
+                # connection sign-in machinery under the "oauth" mode: the TcSS token is stored as the
+                # member's access token and redeemed with Session/loginSSO.
+                "oauth": AuthVariant(title="Sign in with Teamcenter SSO", schema=OAuthDelegatedCredentials,
+                                     scopes=["user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.teamcenter_client.TeamcenterClient",
+        requires_license="enterprise",
     ),
     "monday": DataSourceRegistryEntry(
         type="monday",

@@ -135,6 +135,8 @@ async def save_oauth_credentials(db, connection, user, tokens):
     row.is_active = row.is_primary = True
     metadata = dict(row.metadata_json or {})
     metadata.pop("auto_recovery_disabled", None)
+    # An identity verified for an earlier login belongs to that login only.
+    metadata.pop("verified_identity", None)
     row.metadata_json = metadata
     row.encrypt_credentials(tokens)
     row.expires_at = parse_expires_at(tokens.get("expires_at"))

@@ -153,6 +153,8 @@ class ErrorCode(str, Enum):
     # Jira Data Center member credentials (raised only for type jira_dc)
     CONNECTION_JIRA_LOGIN_REJECTED = "connection.jira_login_rejected"
     CONNECTION_JIRA_LOGIN_CAPTCHA = "connection.jira_login_captcha"
+    # Teamcenter member credentials (raised only for type teamcenter)
+    CONNECTION_TEAMCENTER_LOGIN_REJECTED = "connection.teamcenter_login_rejected"
     CONNECTION_TABLE_NOT_FOUND = "connection.table_not_found"
     # Connection Queries view (query_executions)
     CONNECTION_QUERY_NOT_FOUND = "connection.query_not_found"

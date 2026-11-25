@@ -5211,6 +5211,7 @@
     "connection.confluence_login_captcha": "Confluence exige un CAPTCHA pour ce compte après des échecs de connexion ; il n'a donc pas été enregistré. Connectez-vous une fois à Confluence dans un navigateur pour le lever, ou utilisez un jeton d'accès personnel.",
     "connection.jira_login_rejected": "Jira n'a pas accepté ce jeton d'accès personnel ou cet identifiant ; il n'a donc pas été enregistré. Vérifiez-le ou créez un nouveau jeton dans Jira, sous Profil > Jetons d'accès personnels.",
     "connection.jira_login_captcha": "Jira exige un CAPTCHA pour ce compte après des échecs de connexion ; il n'a donc pas été enregistré. Connectez-vous une fois à Jira dans un navigateur pour le lever, ou utilisez un jeton d'accès personnel.",
+    "connection.teamcenter_login_rejected": "Teamcenter n'a pas accepté cet identifiant et ce mot de passe ; ils n'ont donc pas été enregistrés. Vérifiez-les, ainsi que le groupe ou le rôle si votre site en exige un.",
     "access_request.disabled": "Les demandes d'accès sont désactivées pour cette organisation.",
     "access_request.not_allowed": "Ce tableau de bord n'a pas besoin d'une demande d'accès.",
     "access_request.already_has_access": "Vous avez déjà accès à ce tableau de bord.",
