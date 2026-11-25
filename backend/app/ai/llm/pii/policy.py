@@ -44,7 +44,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .builtin_rules import BUILTIN_PII_RULES
-from .detectors.catalog import DEFAULT_MIN_SCORE, DETECTOR_ENTITIES, DETECTOR_PREFIX, detector_entity
+from .checks import MAX_CONTEXT_WORDS, MAX_TERM_CHARS, MAX_TERMS, VALIDATORS
+from .detectors.catalog import DETECTOR_ENTITIES, DETECTOR_PREFIX, default_min_score, detector_entity
 from .redactor import VALID_ACTIONS, VALID_MODES, DetectorRule, PiiRedactor, _resolve_rules, token_label
 
 DEFAULT_POLICY = "default"
@@ -62,6 +63,9 @@ POLICY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 MAX_POLICIES = 20
 RULE_OPTION_KEYS = ("enabled", "action", "replacement")
 BUILTIN_RULE_IDS = frozenset(spec["id"] for spec in BUILTIN_PII_RULES)
+# Built-in rules added later ship off, so an existing policy never starts
+# redacting more without an admin choosing it.
+BUILTIN_ON_BY_DEFAULT = {spec["id"]: spec.get("enabled_by_default", True) for spec in BUILTIN_PII_RULES}
 DETECTOR_ENTITY_IDS = frozenset(e["id"] for e in DETECTOR_ENTITIES)
 DETECTOR_ERROR_MODES = ("block", "regex_only")
 
@@ -69,6 +73,15 @@ DETECTOR_ERROR_MODES = ("block", "regex_only")
 def custom_rule_id(raw: Dict[str, Any]) -> str:
     """A custom rule's id, derived exactly as the pre-policy resolver did."""
     return str(raw.get("id") or raw.get("name") or "custom")
+
+
+def _clean_words(raw: Any, limit: int, max_chars: int) -> List[str]:
+    """A list of distinct, non-empty strings, in order, within the limits."""
+    out: List[str] = []
+    for w in raw if isinstance(raw, (list, tuple)) else []:
+        if isinstance(w, str) and w.strip() and len(w.strip()) <= max_chars and w.strip() not in out:
+            out.append(w.strip())
+    return out[:limit]
 
 
 def _clean_options(raw: Any) -> Dict[str, Any]:
@@ -165,6 +178,11 @@ def normalize(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             "name": str(r.get("name") or rid),
             "patterns": patterns,
             "replacement": r.get("replacement") if isinstance(r.get("replacement"), str) and r.get("replacement") else "[REDACTED]",
+            # Optional conditions (see checks.py): exact terms, a checksum,
+            # context words that must appear near a match.
+            "terms": _clean_words(r.get("terms"), MAX_TERMS, MAX_TERM_CHARS),
+            "checksum": r.get("checksum") if r.get("checksum") in VALIDATORS else None,
+            "context": _clean_words(r.get("context"), MAX_CONTEXT_WORDS, MAX_TERM_CHARS),
         })
         opts = {k: r[k] for k in ("enabled", "action") if k in r}
         cleaned = _clean_options(opts)
@@ -331,6 +349,9 @@ def policy_as_rule_set(cfg: Dict[str, Any], policy_id: str) -> Dict[str, Any]:
             "id": r["id"],
             "name": r["name"],
             "patterns": r["patterns"],
+            "terms": r.get("terms") or [],
+            "checksum": r.get("checksum"),
+            "context": r.get("context") or [],
             "replacement": opts.get("replacement") or r["replacement"],
             "enabled": opts.get("enabled", True),
             "action": opts.get("action"),
@@ -356,7 +377,7 @@ def _resolve_detector_rules(pol: Dict[str, Any]) -> List[DetectorRule]:
             entity=spec["id"],
             replacement=opts.get("replacement") or spec["replacement"],
             action=opts.get("action") if opts.get("action") in VALID_ACTIONS else pol["mode"],
-            min_score=opts.get("min_score", DEFAULT_MIN_SCORE),
+            min_score=opts.get("min_score", default_min_score(spec["id"])),
             label=token_label(spec["id"]),
         ))
     return rules
@@ -392,7 +413,7 @@ def _rule_state(overrides: Dict[str, Any], rid: str, mode: str, *, enabled_by_de
     return {"action": action, "replacement": ov.get("replacement"), "min_score": ov.get("min_score")}
 
 
-def _merge_rule(states: List[Optional[Dict[str, Any]]], *, detector: bool) -> Dict[str, Any]:
+def _merge_rule(states: List[Optional[Dict[str, Any]]], *, detector: bool, default_score: float = 0.7) -> Dict[str, Any]:
     on = [st for st in states if st is not None]
     if not on:
         return {"enabled": False}
@@ -403,7 +424,7 @@ def _merge_rule(states: List[Optional[Dict[str, Any]]], *, detector: bool) -> Di
         out["replacement"] = winner["replacement"]
     if detector:
         out["min_score"] = min(
-            st["min_score"] if st.get("min_score") is not None else DEFAULT_MIN_SCORE for st in on
+            st["min_score"] if st.get("min_score") is not None else default_score for st in on
         )
     return out
 
@@ -418,7 +439,7 @@ def merge_policies(cfg: Dict[str, Any], policy_ids: List[str]) -> Dict[str, Any]
     pols = [cfg["policies"][pid] for pid in policy_ids]
     builtin = {
         rid: _merge_rule(
-            [_rule_state(p["builtin_overrides"], rid, p["mode"], enabled_by_default=True) for p in pols],
+            [_rule_state(p["builtin_overrides"], rid, p["mode"], enabled_by_default=BUILTIN_ON_BY_DEFAULT[rid]) for p in pols],
             detector=False,
         )
         for rid in sorted(BUILTIN_RULE_IDS)
@@ -434,7 +455,7 @@ def merge_policies(cfg: Dict[str, Any], policy_ids: List[str]) -> Dict[str, Any]
     for eid in sorted(DETECTOR_ENTITY_IDS):
         merged = _merge_rule(
             [_rule_state(p["detector_overrides"], eid, p["mode"], enabled_by_default=False) for p in pols],
-            detector=True,
+            detector=True, default_score=default_min_score(eid),
         )
         if merged["enabled"]:
             detectors[eid] = merged

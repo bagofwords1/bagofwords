@@ -1,4 +1,5 @@
-"""PII detectors (names, locations, organizations) and the registry that picks
+"""PII detectors (names, locations, organizations, checksum-validated
+identifiers such as credit cards) and the registry that picks
 the one this instance uses.
 
 * ``pii.presidio_url`` set in bow-config → the Presidio analyzer service over
@@ -17,7 +18,7 @@ from collections import OrderedDict
 from typing import List, Optional, Sequence, Tuple
 
 from .base import DetectedSpan, Detector, DetectorError
-from .catalog import DETECTOR_ENTITIES, detector_entity
+from .catalog import DEFAULT_MIN_SCORE, DETECTOR_ENTITIES, detector_entity
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,10 @@ def detector_status() -> dict:
     return {
         "available": True,
         "name": detector.name,
-        "entities": [e for e in DETECTOR_ENTITIES if not supported or e["id"] in supported],
+        "entities": [
+            {**{k: e[k] for k in ("id", "name", "replacement", "kind")}, "min_score": e.get("min_score", DEFAULT_MIN_SCORE)}
+            for e in DETECTOR_ENTITIES if not supported or e["id"] in supported
+        ],
     }
 
 

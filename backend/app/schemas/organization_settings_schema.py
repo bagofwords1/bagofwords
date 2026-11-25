@@ -102,6 +102,13 @@ class PiiRule(BaseModel):
     # "replace" swaps matches with ``replacement``; "block" refuses the whole
     # request if this rule matches (block always wins over replace).
     action: Optional[str] = None
+    # Optional conditions (custom rules; see app.ai.llm.pii.checks):
+    # exact words/phrases matched whole-word, case-insensitive;
+    terms: List[str] = []
+    # a checksum each match must pass: luhn | iban | il_id | aba;
+    checksum: Optional[str] = None
+    # words, one of which must appear near a match.
+    context: List[str] = []
 
     @validator('action', pre=True, always=True)
     def validate_action(cls, v):

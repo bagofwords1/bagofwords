@@ -49,7 +49,9 @@ def _reference_scan(config: dict, text: str):
     rules = []
     for spec in BUILTIN_PII_RULES:
         ov = overrides.get(spec["id"], {})
-        if not ov.get("enabled", True):
+        # Rules added later are off unless turned on: an existing config
+        # behaves exactly as it did before they existed.
+        if not ov.get("enabled", spec.get("enabled_by_default", True)):
             continue
         rules.append((spec["name"], ov.get("replacement") or spec["replacement"],
                       ov.get("action") if ov.get("action") in ("replace", "block") else mode,
@@ -309,6 +311,151 @@ def test_http_detector_failures_are_detector_errors(handler):
     assert "Dana" not in str(exc.value)
 
 
+def test_http_detector_offers_only_the_entities_the_service_serves():
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        # The official image's answer: a mix of entities we offer and some we don't.
+        return httpx.Response(200, json=["EMAIL_ADDRESS", "CREDIT_CARD", "PERSON", "UK_NHS", "DATE_TIME"])
+
+    d = _http_detector(handler)
+    assert sorted(d.supported_entities()) == ["CREDIT_CARD", "PERSON", "UK_NHS"]
+    d.supported_entities()
+    assert calls == ["http://presidio.test/supportedentities?language=en"]   # asked once
+
+
+@pytest.mark.parametrize("handler, cached", [
+    (lambda request: httpx.Response(404), True),                                   # a service without the endpoint
+    (lambda request: (_ for _ in ()).throw(httpx.ConnectError("refused")), False),  # down: ask again later
+], ids=["no-endpoint", "unreachable"])
+def test_http_detector_without_an_entity_list_offers_the_ner_entities(handler, cached):
+    calls = []
+
+    def counting(request):
+        calls.append(1)
+        return handler(request)
+
+    d = _http_detector(counting)
+    assert d.supported_entities() == ["PERSON", "LOCATION", "ORGANIZATION", "NRP"]
+    d.supported_entities()
+    assert len(calls) == (1 if cached else 2)
+
+
+def test_detector_status_lists_validated_identifiers_the_detector_supports():
+    from app.ai.llm.pii.detectors import detector_status
+
+    class _Detector(FakeDetector):
+        def supported_entities(self):
+            return ["PERSON", "CREDIT_CARD", "IBAN_CODE"]
+
+    set_detector_for_tests(_Detector())
+    try:
+        entities = {e["id"]: e for e in detector_status()["entities"]}
+    finally:
+        set_detector_for_tests(None, resolved=False)
+    assert set(entities) == {"PERSON", "CREDIT_CARD", "IBAN_CODE"}
+    assert entities["PERSON"]["kind"] == "ner" and entities["CREDIT_CARD"]["kind"] == "pattern"
+
+
+def test_a_validated_identifier_is_redacted_like_any_detector_entity():
+    # CREDIT_CARD from the detector, with the built-in regex rule off: the
+    # detector's span is what gets replaced.
+    det = FakeDetector(names={"4111 1111 1111 1111": "CREDIT_CARD"}, score=1.0)
+    set_detector_for_tests(det)
+    try:
+        r = build_redactor(_policy(
+            builtin_overrides={"credit_card": {"enabled": False}},
+            detector_overrides={"CREDIT_CARD": {"enabled": True}},
+        ))
+        out, result = r.apply("card 4111 1111 1111 1111 on file")
+    finally:
+        set_detector_for_tests(None, resolved=False)
+    assert out == "card [REDACTED_CC] on file"
+    assert [(m["id"], m["count"]) for m in result.matches] == [("presidio.CREDIT_CARD", 1)]
+
+
+# One valid value per validated identifier (public test values from each
+# scheme's documentation / Presidio's own tests).
+VALIDATED_SAMPLES = {
+    "CREDIT_CARD": "4111 1111 1111 1111",
+    "IBAN_CODE": "DE89 3704 0044 0532 0130 00",
+    "ABA_ROUTING_NUMBER": "011000015",
+    "CRYPTO": "1BoatSLRHtKNngkdXEeobR76b53LETtpyT",
+    "US_NPI": "1234567893",
+    "MEDICAL_LICENSE": "BB1388568",
+    "UK_NHS": "943 476 5919",
+    "ES_NIF": "55555555K",
+    "ES_NIE": "X1234567L",
+    "IT_FISCAL_CODE": "RSSMRA85T10A562S",
+    "DE_TAX_ID": "86095742719",
+    "PL_PESEL": "44051401359",
+    "FI_PERSONAL_IDENTITY_CODE": "131052-308T",
+    "SE_PERSONNUMMER": "811228-9874",
+    "TR_NATIONAL_ID": "10000000146",
+    "AU_TFN": "876 543 210",
+    "AU_ABN": "51 824 753 556",
+    "AU_MEDICARE": "2123 45670 1",
+    "IN_AADHAAR": "2345 6789 0124",
+    "KR_RRN": "900101-1234568",
+    "ZA_ID_NUMBER": "8001015009087",
+    "IT_VAT_CODE": "01114601006",
+    "DE_VAT_ID": "DE136695976",
+}
+
+
+# Where the last digit is not the check digit (Medicare: the trailing digit is
+# the card's issue number), the value with a wrong check digit.
+BROKEN_CHECKSUM = {"AU_MEDICARE": "2123 45671 1"}
+
+
+def test_every_validated_identifier_has_a_sample():
+    from app.ai.llm.pii.detectors.catalog import PATTERN_ENTITIES
+    assert {e["id"] for e in PATTERN_ENTITIES} == set(VALIDATED_SAMPLES)
+
+
+@pytest.fixture(scope="module")
+def presidio_patterns_only():
+    """The real in-process detector, without loading a spaCy model: only the
+    pattern recognizers are exercised."""
+    pytest.importorskip("presidio_analyzer")
+    spacy = pytest.importorskip("spacy")
+    from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
+    from presidio_analyzer.nlp_engine import SpacyNlpEngine
+
+    from app.ai.llm.pii.detectors.presidio_inproc import PresidioInprocDetector, _pattern_recognizers
+
+    class _Blank(SpacyNlpEngine):
+        def load(self):
+            self.nlp = {"en": spacy.blank("en")}
+
+    nlp = _Blank(models=[{"lang_code": "en", "model_name": "blank"}])
+    nlp.load()
+    registry = RecognizerRegistry(supported_languages=["en"])
+    for _, cls in _pattern_recognizers():
+        registry.add_recognizer(cls(supported_language="en"))
+    d = PresidioInprocDetector()
+    d._analyzer = AnalyzerEngine(nlp_engine=nlp, registry=registry, supported_languages=["en"])
+    return d
+
+
+@pytest.mark.parametrize("entity", sorted(VALIDATED_SAMPLES))
+def test_validated_identifier_is_found_and_a_broken_checksum_is_not(presidio_patterns_only, entity):
+    from app.ai.llm.pii.detectors.catalog import DEFAULT_MIN_SCORE
+
+    value = VALIDATED_SAMPLES[entity]
+    assert entity in presidio_patterns_only.supported_entities()
+    text = f"row 7: {value} ."
+    hits = [s for s in presidio_patterns_only.detect(text, [entity]) if s.score >= DEFAULT_MIN_SCORE]
+    assert [text[s.start:s.end] for s in hits] == [value]
+
+    # Change one digit: same shape, checksum no longer holds.
+    i = max(i for i, ch in enumerate(value) if ch.isdigit())
+    broken = BROKEN_CHECKSUM.get(entity) or value[:i] + str((int(value[i]) + 1) % 10) + value[i + 1:]
+    text = f"row 7: {broken} ."
+    assert [s for s in presidio_patterns_only.detect(text, [entity]) if s.score >= DEFAULT_MIN_SCORE] == []
+
+
 # --- reversible tokens ------------------------------------------------------------
 
 def _pseudo_policy():
@@ -390,8 +537,13 @@ def test_display_does_not_mask_what_is_only_hidden_from_the_model():
 def test_the_event_stream_restores_text_reasoning_and_tool_arguments():
     from app.ai.llm.llm import _restore_event_stream
     from app.ai.llm.types import (
-        MessageStopEvent, ReasoningCompleteEvent, ReasoningDeltaEvent, TextDeltaEvent,
-        ToolUseCompleteEvent, ToolUseInputDeltaEvent, ToolUseStartEvent,
+        MessageStopEvent,
+        ReasoningCompleteEvent,
+        ReasoningDeltaEvent,
+        TextDeltaEvent,
+        ToolUseCompleteEvent,
+        ToolUseInputDeltaEvent,
+        ToolUseStartEvent,
     )
 
     v = vault_for("org", "r")

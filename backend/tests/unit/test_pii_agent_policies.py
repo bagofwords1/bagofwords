@@ -214,7 +214,7 @@ def _rule_states(cfg, policy_id):
     out = {}
     for rid in pol.BUILTIN_RULE_IDS:
         ov = p["builtin_overrides"].get(rid, {})
-        if ov.get("enabled", True):
+        if ov.get("enabled", pol.BUILTIN_ON_BY_DEFAULT[rid]):
             out[rid] = ov.get("action") or p["mode"]
     return out
 
