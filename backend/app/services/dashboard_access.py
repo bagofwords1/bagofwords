@@ -90,10 +90,14 @@ async def can_edit(db, artifact: Artifact, user) -> bool:
     # access_workspace) reads what is published and shared with them, even a
     # dashboard they own or were given to edit while they had the workspace:
     # no draft, no unpublished changes, no editor's controls.
-    from app.core.workspace_access import has_workspace_access
+    # Asked of the resolver directly (memoized per request): the list page
+    # calls this once per card, and membership was just checked above.
+    if not getattr(user, "is_service_account", False):
+        from app.core.permission_resolver import has_workspace_access, resolve_permissions
 
-    if not await has_workspace_access(db, user, str(artifact.organization_id)):
-        return False
+        resolved = await resolve_permissions(db, str(user.id), str(artifact.organization_id))
+        if not has_workspace_access(resolved.org_permissions):
+            return False
     if is_owner(artifact, user):
         return True
     if await _edit_granted(db, artifact, user):
