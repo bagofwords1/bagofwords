@@ -141,8 +141,10 @@ def test_an_edit_that_adds_a_chart_without_a_viz_is_rejected(
     report = _make_report(create_report, create_user, login_user, whoami)
     artifact_id, viz_id = _run(_seed_page(report["id"], "<h1>Sales</h1>" + VIZLESS))
 
+    # The summary line keeps the page's answer above its charts, so only the
+    # chart check (not the layout note) has a say in these edits.
     added = _edit(report["id"], artifact_id, "<h1>Sales</h1>",
-                  '<h1>Sales</h1><RankChart rows={rows} label="rep" value="total" />')
+                  '<h1>Sales</h1><p>Sales by rep.</p><RankChart rows={rows} label="rep" value="total" />')
     assert added["output"].get("success") is False
     error = added["observation"]["error"]
     assert error["type"] == "contract_errors"
@@ -150,7 +152,7 @@ def test_an_edit_that_adds_a_chart_without_a_viz_is_rejected(
 
     # The same chart given the viz is accepted.
     with_viz = _edit(report["id"], artifact_id, "<h1>Sales</h1>",
-                     '<h1>Sales</h1><RankChart viz={sales} rows={rows} label="rep" value="total" />')
+                     '<h1>Sales</h1><p>Sales by rep.</p><RankChart viz={sales} rows={rows} label="rep" value="total" />')
     assert with_viz["output"].get("success") is True, with_viz["observation"]
 
 
