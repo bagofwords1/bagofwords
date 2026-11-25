@@ -23,6 +23,15 @@ NEW_REPORT_COMMANDS = {"new", "חדש"}
 NEW_REPORT_COMMAND_PLATFORMS = {"teams", "whatsapp", "google_chat"}
 
 
+def _system_completion_id(created) -> "str | None":
+    """The answering (system) completion's id in create_completion's result,
+    started or queued; None when the result doesn't name one."""
+    for completion in getattr(created, "completions", None) or []:
+        if getattr(completion, "role", None) == "system" and getattr(completion, "id", None):
+            return str(completion.id)
+    return None
+
+
 class ExternalPlatformManager:
     """Manages external platform interactions"""
     
@@ -658,6 +667,20 @@ class ExternalPlatformManager:
                 print(f"Failed to send access-revoked DM: {e}")
             return {"success": False, "error": "User is not a member of this organization"}
 
+        # An app user uses the apps shared with them, not the workspace: the
+        # chat platforms are the workspace (they start reports).
+        from app.core.workspace_access import has_workspace_access
+        if not await has_workspace_access(db, user, str(organization.id)):
+            try:
+                await adapter.send_dm(
+                    user_mapping.external_user_id,
+                    "Your account can use the apps shared with you, but not this workspace. "
+                    "Ask your admin for full access.",
+                )
+            except Exception as e:
+                print(f"Failed to send no-workspace-access DM: {e}")
+            return {"success": False, "error": "Workspace access is required"}
+
         # The message is handled as this member in this organization.
         from app.core.request_org import set_request_organization_id
         set_request_organization_id(str(organization.id))
@@ -918,9 +941,19 @@ class ExternalPlatformManager:
                 adapter, channel_id, message_text, self._org_locale(organization),
             )
 
+        # WhatsApp: show "typing…" while the agent works, on top of the 👀
+        # reaction (the indicator is what WhatsApp users expect; the reaction
+        # stays as the fallback if WhatsApp refuses the indicator).
+        typing_run = None
+        if platform_type == "whatsapp" and channel_id and message_ts:
+            from app.services.platform_adapters import whatsapp_typing
+            typing_run = whatsapp_typing.start_run(
+                adapter, adapter.phone_number_id(), channel_id, message_ts,
+            )
+
         # Create completion with thread context (background=True to avoid blocking the webhook)
         try:
-            await self.completion_service.create_completion(
+            created = await self.completion_service.create_completion(
                 db=db,
                 report_id=str(report.id),
                 completion_data=completion_data,
@@ -937,7 +970,12 @@ class ExternalPlatformManager:
         except Exception:
             if teams_bubble:
                 teams_stream.abort_run(channel_id)
+            if typing_run:
+                whatsapp_typing.abort_run(typing_run)
             raise
+        if typing_run:
+            # Only this run's own end stops its indicator from here on.
+            whatsapp_typing.bind_run(typing_run, _system_completion_id(created))
 
 
         return {

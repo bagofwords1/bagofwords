@@ -524,7 +524,8 @@
     "automations": "Automatiseringar",
     "agent": "Agent",
     "agents": "Agenter",
-    "viewAllAgents": "Visa alla agenter →"
+    "viewAllAgents": "Visa alla agenter →",
+    "apps": "Appar"
   },
   "notifications": {
     "title": "Aviseringar",
@@ -1178,6 +1179,9 @@
     "dropHint": "Släpp på ett projekt",
     "movedTo": "Flyttad till {name}",
     "removeFromProject": "Ta bort från projektet",
+    "removedFromProject": "Borttagen från projektet",
+    "removeImpact": "Rapporten flyttas tillbaka till din personliga lista.",
+    "removeImpactShared": "Medlemmar i det här projektet förlorar åtkomst till rapporten. Endast du och de du delat den direkt med behåller den.",
     "empty": "Nytt projekt",
     "moveNoProjects": "Skapa ett projekt för att organisera dina rapporter i mappar.",
     "moveShareDisclosure": "Att flytta en rapport till ett delat projekt låter medlemmarna se den.",
@@ -1319,6 +1323,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM-användning för denna konversation",
     "turnTokensTooltip": "Planerarens LLM-tokens för denna tur",
+    "tokensInOut": "in {input} / ut {output}",
+    "tokensIn": "In",
+    "tokensOut": "Ut",
+    "tokensCached": "Cachat",
+    "stepTokens": "Token",
+    "stepTokensTooltip": "Planerarens anrop för det här steget. Indata inkluderar cachade token. LLM-anrop inuti verktyget räknas inte.",
+    "modelUnknown": "Okänd modell",
+    "modelUnknownTooltip": "Ingen LLM-användning per anrop registrerades för den här körningen",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modeller i den här omgången",
+    "modelCalls": "{count} anrop | {count} anrop",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Automatisk routning körde de här anropen på {model} i stället för {baseline}",
+    "autoRoutedRunTooltip": "Automatisk routning var på för den här körningen",
+    "primaryModel": "Primär",
     "turnUsageTooltip": "LLM-användning för denna tur",
     "setup": "Förberedelse",
     "setupTooltip": "Tid från start till första steget (kontextbygge m.m.)",
@@ -1409,7 +1428,30 @@
       "copied": "Spårnings-JSON kopierad till urklipp",
       "failed": "Det gick inte att exportera spårningen"
     },
-    "hiddenTurns": "{count} senare tur dold: den eller en tidigare tur använde en agent du inte hanterar | {count} senare turer dolda: de eller en tidigare tur använde en agent du inte hanterar"
+    "hiddenTurns": "{count} senare tur dold: den eller en tidigare tur använde en agent du inte hanterar | {count} senare turer dolda: de eller en tidigare tur använde en agent du inte hanterar",
+    "contextColumns": {
+      "ofTotal": "{shown} av {total} kolumner",
+      "allColumns": "{total} kolumner",
+      "why": "Varför dessa kolumner",
+      "reason": {
+        "usage_ranked": "Rankade efter kolumnanvändning",
+        "structural_only": "Ingen användning än: nycklar, tidsstämplar och ID:n först",
+        "all_columns": "Alla kolumner ryms inom gränsen"
+      },
+      "signal": {
+        "mentioned": "{n} nämnda i uppgiften",
+        "usage": "{n} efter användning",
+        "instructions": "{n} refererade i instruktioner",
+        "structural": "{n} nycklar, tidsstämplar eller ID:n",
+        "sample": "{n} som urval ur kolumngrupperna",
+        "schema_order": "{n} i katalogordning"
+      },
+      "shown": "Kolumner i kontexten",
+      "folded": "Grupperade (sökbara med describe_tables)",
+      "otherColumns": "{count} andra kolumner",
+      "usedTimes": "använd {count}×",
+      "score": "poäng {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -1418,10 +1460,10 @@
         "search": "Sökte",
         "files": "Läste filer",
         "inspect": "Granskade data",
-        "data": "Körde {count} frågor",
+        "data": "Körde {count} fråga | Körde {count} frågor",
         "create": "Skapade och uppdaterade resultat",
         "tools": "Använde verktyg",
-        "results": "Körde {count} frågor"
+        "results": "Körde {count} fråga | Körde {count} frågor"
       }
     },
     "tabChat": "Chatt",
@@ -1606,7 +1648,6 @@
       "edit": "Redigera artefakt",
       "confirm": "Bekräfta redigering av artefakt",
       "dashboardEdited": "Instrumentpanel redigerad",
-      "diff": "Diff",
       "rewrite": "Skriv om",
       "plan": "Plan: ",
       "more": "mer",
@@ -2313,6 +2354,19 @@
       "connected": "Ansluten",
       "askAgain": "Fråga igen",
       "readyHint": "Ansluten. Kör frågan igen för att använda den."
+    },
+    "describeTables": {
+      "searching": "Söker {query}…",
+      "searched": "Sökte {names}",
+      "searchedMore": "Sökte {names} +{count}",
+      "columnsMatching": "kolumner som matchar {terms}",
+      "column": "Kolumn",
+      "type": "Typ",
+      "used": "Användningar",
+      "showingOf": "De {shown} främsta av {total} kolumner, mest använda först",
+      "matchingOf": "{matched} av {total} kolumner matchar {terms}",
+      "noMatch": "Ingen kolumn matchar {terms}",
+      "more": "+{count} till"
     }
   },
   "entityCreate": {
@@ -2418,7 +2472,8 @@
       "manage_data_sources": "Hantera agenter",
       "manage_service_accounts": "Hantera tjänstkonton",
       "view_code": "Visa genererad kod",
-      "run_custom_code": "Redigera och köra egen kod"
+      "run_custom_code": "Redigera och köra egen kod",
+      "access_workspace": "Använda arbetsytan"
     },
     "delete": "Ta bort",
     "duplicate": "Duplicera",
@@ -2438,7 +2493,8 @@
       "knowledge": "Agenternas kunskap",
       "code": "Kod",
       "admin": "Administration",
-      "other": "Övrigt"
+      "other": "Övrigt",
+      "workspace": "Arbetsyta"
     },
     "permissionHints": {
       "create_data_source": "Skapa agenter på anslutningar de kan använda",
@@ -2454,7 +2510,8 @@
       "manage_settings": "Ändra organisationens inställningar",
       "manage_llm": "Konfigurera LLM-leverantörer och modeller",
       "view_audit_logs": "Se vem som gjorde vad och när",
-      "manage_identity_providers": "Konfigurera enkel inloggning"
+      "manage_identity_providers": "Konfigurera enkel inloggning",
+      "access_workspace": "Öppna själva arbetsytan: start, rapporter, agenter. Utan den har en medlem bara apparna som delats med hen."
     },
     "fullAdminHint": "Kan göra allt i organisationen",
     "fullAdminAccessTab": "Full administratörsåtkomst omfattar alla agenter, anslutningar och modeller.",
@@ -2562,7 +2619,17 @@
     "noManagedGroupsHint": "Du hanterar inga grupper.",
     "toastManagerAdded": "Medlemmen är nu gruppansvarig",
     "toastManagerRemoved": "Ansvarig-rollen borttagen",
-    "failedToUpdateManager": "Det gick inte att uppdatera gruppansvarig"
+    "failedToUpdateManager": "Det gick inte att uppdatera gruppansvarig",
+    "models": {
+      "title": "Standardmodeller",
+      "hint": "Vad gruppens medlemmar börjar med. Bara modeller som gruppen redan får använda visas.",
+      "default": "Standardmodell",
+      "small": "Liten modell",
+      "orgDefault": "Organisationens standard",
+      "setByAdmin": "{model} (vald av en administratör)",
+      "saved": "Gruppens modeller uppdaterade",
+      "failed": "Det gick inte att uppdatera gruppens modeller"
+    }
   },
   "signupPolicy": {
     "title": "Domänbaserad registrering",
@@ -3218,7 +3285,9 @@
       "defaultRoleHint": "Förifyller rollen när du lägger till eller bjuder in en medlem.",
       "defaultRoleSaved": "Standardroll sparad",
       "defaultRoleFailed": "Det gick inte att spara standardrollen",
-      "defaultRoleShort": "Standardroll"
+      "defaultRoleShort": "Standardroll",
+      "appUser": "Appanvändare",
+      "joinedVia": "Gick med via {app}"
     },
     "organizationName": "Organisationens namn",
     "organizationNameRequired": "Organisationens namn får inte vara tomt.",
@@ -3753,6 +3822,10 @@
         "show_world": {
           "name": "Världsvy",
           "description": "Visar en brytare på sidan Agenter som öppnar Värld: en karta över agenterna, kunskapen, källorna och arbetet som binder samman din organisation. Varje användare ser bara det hen har åtkomst till."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K kolumner per tabell",
+          "description": "Hur många kolumner i en bred tabell agenten ser i sin helhet i kontexten, rankade efter kolumnanvändning, referenser i instruktioner och nycklar/tidsstämplar. Resten sammanfattas per prefix och går att söka med describe_tables. 0 = ingen gräns."
         }
       },
       "permissionMode": {
@@ -3936,7 +4009,27 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: omaskerad",
-      "piiBadgeTooltip": "PII-policyn som den här leverantörens prompter får. Ändra den under Inställningar → Skydd av personuppgifter."
+      "piiBadgeTooltip": "PII-policyn som den här leverantörens prompter får. Ändra den under Inställningar → Skydd av personuppgifter.",
+      "providerManagers": {
+        "title": "Leverantörsansvariga",
+        "hint": "Medlemmar som sköter den här leverantören utan att vara LLM-administratörer.",
+        "can": "De kan ändra inloggningsuppgifter och anslutningsinställningar, slå på eller av dess modeller och redigera modellernas inställningar och routningstips.",
+        "cannot": "De kan inte lägga till modeller, ändra priser, standardmodeller eller modellåtkomst, eller slå på den automatiska routern. En modell de slår på börjar begränsad tills en administratör öppnar den.",
+        "addPlaceholder": "Lägg till en medlem…",
+        "add": "Lägg till",
+        "remove": "Ta bort ansvarig",
+        "loading": "Läser in…",
+        "none": "Inga ansvariga än. Bara LLM-administratörer sköter den här leverantören.",
+        "added": "Ansvarig tillagd",
+        "removed": "Ansvarig borttagen",
+        "failed": "Det gick inte att uppdatera leverantörens ansvariga",
+        "banner": "Du ansvarar för {providers}. Standardmodeller, modellåtkomst, priser och den automatiska routern bestäms av en administratör.",
+        "priceAdminOnly": "Bara en administratör kan ändra priser.",
+        "restricted": "Begränsad: bara personer som en administratör ger åtkomst kan använda den."
+      },
+      "autoRouterModal": {
+        "decisionRestricted": "Bara medlemmar som får använda {model} får beslutet i förväg. Alla andra börjar på den lilla modellen."
+      }
     },
     "licensePage": {
       "title": "Licens",
@@ -4093,6 +4186,8 @@
       "masksValue": "Behåller de 4 sista tecknen",
       "pseudonymizesValue": "Människor ser fortfarande värdet",
       "detectorTitle": "Namn, platser och organisationer",
+      "validatedTitle": "Validerade identifierare",
+      "validatedNote": "Hittas med ett mönster och bekräftas med en kontrollsiffra (Luhn för kort, mod-97 för IBAN, kontrollsiffror för ID-nummer), så de fångar betydligt färre liknande nummer än de vanliga identifierarna ovan. Kontrolleras i användarens meddelande och i data, aldrig i instruktioner eller scheman.",
       "detectorUnavailable": "Att hitta namn, platser och organisationer kräver en PII-detektor, och ingen är konfigurerad på den här instansen. Be din administratör installera backendens pii-tillägg eller konfigurera en Presidio-tjänst.",
       "detectorErrorLabel": "Om detektorn inte är tillgänglig",
       "detectorErrorDesc": "Vad som händer med en förfrågan när detektorn inte kan kontrollera den.",
@@ -4135,7 +4230,81 @@
         "PERSON": "Personnamn",
         "LOCATION": "Plats",
         "ORGANIZATION": "Organisation",
-        "NRP": "Nationalitet, religiös eller politisk grupp"
+        "NRP": "Nationalitet, religiös eller politisk grupp",
+        "CREDIT_CARD": "Kreditkortsnummer (Luhn-kontrollerat)",
+        "IBAN_CODE": "IBAN (kontrollsiffra validerad)",
+        "ABA_ROUTING_NUMBER": "Amerikanskt bankclearingnummer (ABA)",
+        "CRYPTO": "Kryptoplånboksadress (Bitcoin)",
+        "US_NPI": "Amerikanskt nationellt vårdgivar-ID (NPI)",
+        "MEDICAL_LICENSE": "Amerikanskt DEA-registreringsnummer",
+        "UK_NHS": "NHS-nummer (Storbritannien)",
+        "ES_NIF": "NIF / DNI (Spanien)",
+        "ES_NIE": "NIE (Spanien)",
+        "IT_FISCAL_CODE": "Skattekod (Italien)",
+        "DE_TAX_ID": "Skatte-ID (Tyskland)",
+        "PL_PESEL": "PESEL (Polen)",
+        "FI_PERSONAL_IDENTITY_CODE": "Personbeteckning (Finland)",
+        "SE_PERSONNUMMER": "Personnummer (Sverige)",
+        "TR_NATIONAL_ID": "Nationellt ID-nummer (Turkiet)",
+        "AU_TFN": "Skattefilnummer (Australien, TFN)",
+        "AU_ABN": "Företagsnummer (Australien, ABN)",
+        "AU_MEDICARE": "Medicare-nummer (Australien)",
+        "IN_AADHAAR": "Aadhaar-nummer (Indien)",
+        "KR_RRN": "Personregistreringsnummer (Sydkorea)",
+        "ZA_ID_NUMBER": "ID-nummer (Sydafrika)",
+        "IT_VAT_CODE": "Momsregistreringsnummer (Italien)",
+        "DE_VAT_ID": "Momsregistreringsnummer (Tyskland)",
+        "PHONE_NUMBER": "Telefonnummer (internationellt)",
+        "US_SSN": "Amerikanskt socialförsäkringsnummer",
+        "US_ITIN": "Amerikanskt skatte-ID (ITIN)",
+        "US_PASSPORT": "Amerikanskt passnummer",
+        "US_DRIVER_LICENSE": "Amerikanskt körkortsnummer",
+        "US_BANK_NUMBER": "Amerikanskt bankkontonummer",
+        "US_MBI": "Medicare-förmånstagar-ID (MBI)",
+        "UK_NINO": "National Insurance-nummer (Storbritannien)",
+        "UK_PASSPORT": "Passnummer (Storbritannien)",
+        "UK_DRIVING_LICENCE": "Körkortsnummer (Storbritannien)",
+        "UK_POSTCODE": "Postnummer (Storbritannien)",
+        "CA_SIN": "Socialförsäkringsnummer (Kanada)",
+        "SG_NRIC_FIN": "NRIC / FIN (Singapore)",
+        "IN_PAN": "PAN (Indien)",
+        "IN_PASSPORT": "Passnummer (Indien)",
+        "IN_VOTER": "Väljar-ID (Indien)",
+        "ES_PASSPORT": "Passnummer (Spanien)",
+        "IT_DRIVER_LICENSE": "Körkortsnummer (Italien)",
+        "IT_PASSPORT": "Passnummer (Italien)",
+        "IT_IDENTITY_CARD": "ID-kortsnummer (Italien)",
+        "KR_PASSPORT": "Passnummer (Sydkorea)",
+        "PH_PASSPORT": "Passnummer (Filippinerna)"
+      },
+      "agentsTitle": "Policyer per agent",
+      "agentsDesc": "Välj den policy som varje agent lägger till. En agents policy gäller varje förfrågan som omfattar agenten, inklusive andra agenters data i samma chatt, även hos en undantagen leverantör. När flera policyer gäller vinner det strängaste alternativet för varje regel.",
+      "defaultAgentPolicy": "Standard för agenter",
+      "defaultAgentPolicyDesc": "Agenter utan eget val använder den här policyn.",
+      "noAgents": "Inga agenter ännu.",
+      "agentPolicyFor": "PII-policy för {name}",
+      "noAgentPolicy": "Ingen agentpolicy",
+      "inheritAgentPolicy": "Organisationens standard: {policy}",
+      "usedByAgents": "{n} agent | {n} agenter",
+      "contextualTitle": "Kräver ett ord i närheten",
+      "contextualNote": "Ingen kontrollsiffra, så de flesta hittas bara när ett ord som \"pass\" eller \"konto\" står bredvid värdet. Det fungerar i meningar och anteckningar; i tabellrader står kolumnnamnet sällan bredvid värdet, så en del missas där. Kontrolleras i användarens meddelande och i data, aldrig i instruktioner eller scheman.",
+      "termCount": "{n} term | {n} termer",
+      "terms": "Exakta termer",
+      "termsHelp": "Ord eller fraser, en per rad: kodnamn, kundnamn, interna värdnamn. Matchas som hela ord oavsett skiftläge. Tillsammans med mönster eller i stället för dem.",
+      "termsPlaceholder": "Projekt Falk\nAcme Corp",
+      "checksum": "Kontrollsiffra",
+      "checksumHelp": "En träff räknas bara om den klarar den här kontrollen, vilket sållar bort de flesta liknande nummer.",
+      "checksumNone": "Ingen kontrollsiffra",
+      "contextWords": "Kontextord",
+      "contextWordsHelp": "Kommaseparerade. En träff räknas bara om något av orden står inom 60 tecken från den.",
+      "contextWordsPlaceholder": "pass, passnummer",
+      "checksumSummary": "Kontroll: {name}",
+      "contextSummary": "Nära: {words}",
+      "checksums": {
+        "luhn": "Luhn (kortnummer, IMEI, kanadensiskt SIN)",
+        "iban": "IBAN (mod 97)",
+        "il_id": "Israeliskt ID (Teudat Zehut)",
+        "aba": "Amerikanskt bankclearingnummer (ABA)"
       }
     },
     "piiTab": "Personuppgifter",
@@ -4605,6 +4774,24 @@
           "title": "Exportera SMS Providerns certifikat",
           "body": "Platsen använder som standard ett självsignerat certifikat. Kör detta i PowerShell på SMS Providern och klistra in utdata i SMS Provider certificate (PEM). Hoppa över steget om certifikatet kommer från en CA som den här servern redan litar på."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Registrera en app i Microsoft Entra",
+          "body": "Gå till App registrations > New registration i administrationscentret för Microsoft Entra. Välj \"Accounts in this organizational directory only\". Kopiera Directory (tenant) ID och Application (client) ID från appens Overview till fälten nedan."
+        },
+        {
+          "title": "Lägg till omdirigerings-URI:n",
+          "body": "Gå till Authentication > Add a platform > Web i appen och klistra in den här omdirigerings-URI:n."
+        },
+        {
+          "title": "Bevilja Microsoft Graph-behörigheter",
+          "body": "Under API permissions > Add a permission > Microsoft Graph > Delegated permissions lägger du till Mail.Read, User.Read, offline_access, openid och profile. För att låta agenter flytta, skriva utkast till eller skicka e-post lägger du även till Mail.ReadWrite och Mail.Send. Klicka sedan på \"Grant admin consent\" så att användarna inte behöver godkänna appen. Använd endast Delegated-behörigheter, inte Application-behörigheter: anslutningen läser bara den inloggade användarens postlåda."
+        },
+        {
+          "title": "Skapa en klienthemlighet",
+          "body": "Under Certificates & secrets > New client secret skapar du en hemlighet och kopierar dess Value (inte Secret ID) till Client Secret nedan. Värdet kan inte visas igen senare."
+        }
       ]
     },
     "setupGuideCopyFailed": "Kopiering misslyckades — markera texten",
@@ -4667,6 +4854,14 @@
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
+    "postgresqlMulti": {
+      "databasesTitle": "Databaser",
+      "databasesDescription": "Kommaseparerade databasnamn, glob-mönster och !-undantag, t.ex. tenant_*, !tenant_test. Matchningen är skiftlägeskänslig. Alla matchande databaser slås samman till en uppsättning tabeller med en kolumn tenant_db.",
+      "discoveryDatabaseTitle": "Databas för identifiering",
+      "discoveryDatabaseDescription": "Databas som används för att lista serverns databaser. Standard: postgres.",
+      "tableExcludeTitle": "Mönster för att utesluta tabeller",
+      "tableExcludeDescription": "Valfritt reguljärt uttryck; tabeller vars namn matchar indexeras inte, t.ex. ^day_\\d{'{'}2{'}'}. Om du ändrar det tas nyligen uteslutna tabeller och agentens val av dem bort vid nästa indexering."
     },
     "qlikCloud": {
       "appFilterDescription": "Valfria kommaseparerade appnamn eller ID:n i valda utrymmen. Tomt inkluderar alla matchande appar. Använd ID:n för namn som innehåller kommatecken."
@@ -4928,7 +5123,14 @@
       "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
       "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören",
       "model_is_group_default": "Modellen är standardmodell för grupperna: {groups}. Ändra deras standardmodell först.",
-      "group_default_invalid": "Modellen måste vara aktiverad och vara en chattmodell i den här organisationen."
+      "group_default_invalid": "Modellen måste vara aktiverad och vara en chattmodell i den här organisationen.",
+      "group_default_not_available": "Den här gruppen får inte använda den modellen. Be en administratör ge gruppen åtkomst först.",
+      "group_default_priority_admin_only": "Bara en administratör kan ändra en grupps prioritet.",
+      "provider_holds_default": "Den här leverantören har organisationens standardmodell. Be en administratör ändra standarden först.",
+      "provider_manager_admin_only": "Bara en administratör kan göra det hos den här leverantören.",
+      "provider_manager_not_member": "Bara en medlem i den här organisationen kan ansvara för en leverantör.",
+      "provider_key_required_for_new_destination": "Ange API-nyckeln igen när du ändrar vart den här leverantören ansluter.",
+      "provider_host_identity_admin_only": "Den här leverantören loggar in med serverns egen molnidentitet. Bara en administratör kan ändra vart den ansluter eller byta till den inloggningen."
     },
     "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort.",
     "memory.disabled": "Användarminnet är avstängt i den här organisationen.",
@@ -5021,7 +5223,8 @@
     "organization.name_taken": "Det finns redan en organisation med namnet ”{name}”.",
     "organization.signup_domains_instance_admin_required": "Endast en instansadministratör kan tilldela registreringsdomäner till en organisation.",
     "organization.signup_domain_claimed": "Domänen {domain} är redan tilldelad en annan organisation.",
-    "organization.member_instance_admin": "Det här kontot tillhör en instansadministratör. Endast en instansadministratör kan lägga till det i en organisation."
+    "organization.member_instance_admin": "Det här kontot tillhör en instansadministratör. Endast en instansadministratör kan lägga till det i en organisation.",
+    "workspace.access_required": "Ditt konto kan använda apparna som delats med dig, men inte arbetsytan."
   },
   "email": {
     "dashboardShare": {
@@ -5860,6 +6063,8 @@
       "colTools": "Verktyg",
       "colDuration": "Varaktighet",
       "colCost": "Kostnad",
+      "colModel": "Modell",
+      "pivotModel": "Visa körningar som använde den här modellen",
       "colFeedback": "Feedback",
       "expandRow": "Visa verktygsanrop",
       "pivotReport": "Visa den här konversationen",
@@ -6393,7 +6598,8 @@
       "windowNote": "Användningen återställs i början av varje månad.",
       "dailyNote": "per dag sedan månadens början",
       "disabledTitle": "Användningsspårning är inte aktiverad",
-      "disabledNote": "Användning per användare (tokens, frågor och skannade data) spåras när funktionen Användningsgränser är aktiverad i din plan."
+      "disabledNote": "Användning per användare (tokens, frågor och skannade data) spåras när funktionen Användningsgränser är aktiverad i din plan.",
+      "today": "I dag: {used} / {limit}"
     },
     "appearance": {
       "title": "Utseende",
@@ -6474,7 +6680,22 @@
     "reports": "Senaste rapporterna",
     "suggestInstruction": "Föreslå instruktion",
     "suggestInstructionWithQuery": "Föreslå instruktionen ”{query}”",
-    "suggestionHint": "skickad för granskning"
+    "suggestionHint": "skickad för granskning",
+    "placeholderInReport": "Sök i den här rapporten, rapporter, agenter, instruktioner…",
+    "inThisReport": "I den här rapporten",
+    "reportScopeHint": "Skriv report: för att bara söka i den här rapporten",
+    "reportPrefix": "rapport:",
+    "tabs": {
+      "all": "Alla",
+      "reports": "Rapporter",
+      "agents": "Agenter",
+      "instructions": "Instruktioner",
+      "dashboards": "Dashboards"
+    },
+    "tabsLabel": "Kategorier",
+    "tabsHint": "kategorier",
+    "dashboards": "Dashboards",
+    "untitledDashboard": "Namnlös dashboard"
   },
   "promptParams": {
     "title": "Fyll i parametrar — {title}",
@@ -6838,7 +7059,7 @@
     "newQuota": "Ny kvot",
     "noDirectQuota": "Standard",
     "noPoliciesFound": "Inga kvotpolicyer hittades",
-    "noPoliciesHint": "Skapa en kvot för att begränsa månatlig AI- och dataanvändning.",
+    "noPoliciesHint": "Skapa en kvot för att begränsa daglig och månatlig AI- och dataanvändning.",
     "none": "Ingen",
     "principalTypes": {
       "group": "Grupp",
@@ -6860,7 +7081,20 @@
     "tokensShort": "Tokens",
     "unlimited": "Obegränsad",
     "update": "Uppdatera",
-    "users": "Användare"
+    "users": "Användare",
+    "dayShort": "Dag",
+    "monthShort": "Månad",
+    "limitPerUser": "Gräns per användare",
+    "perDay": "Per dag",
+    "perMonth": "Per månad",
+    "resetsDaily": "Nollställs 00:00 {tz}",
+    "resetsMonthly": "Nollställs den 1:a",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Frågor",
+    "dataLabel": "Skannad data (MB)",
+    "spendLabel": "LLM-kostnad (USD)",
+    "limitsHint": "Lämna tomt för obegränsat. Ange en daglig gräns, en månadsgräns eller båda – en begäran blockeras när någon av dem nås. Månadsgränser för frågor och data gäller per anslutning; dagliga gränser räknar alla anslutningar tillsammans.",
+    "dailyAboveMonthly": "Den dagliga gränsen kan inte vara högre än månadsgränsen."
   },
   "serviceAccounts": {
     "active": "Aktivt",
@@ -7074,7 +7308,10 @@
     "exitFullscreen": "Avsluta helskärm",
     "searchColumns": "Sök kolumner…",
     "noColumns": "Inga matchande kolumner",
-    "centrality": "Centralitet"
+    "centrality": "Centralitet",
+    "usedHeader": "Användningar",
+    "usedTooltip": "Körda frågor som använde kolumnen (misslyckade försök väger mindre i rankningen)",
+    "sortedByUsage": "Mest använda först"
   },
   "fork": {
     "preparing": "Förbereder din kopia…",
@@ -7082,7 +7319,9 @@
     "nothingRan": "Din kopia kunde inte skapas: ingen av dess frågor kunde köras med dina inloggningsuppgifter."
   },
   "quota": {
-    "resetsOn": "återställs {date}"
+    "resetsOn": "återställs {date}",
+    "todayLabel": "{metric} · i dag",
+    "resetsDailyAndMonthly": "I dag nollställs 00:00 {tz} · månad {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Lär dig under natten",
@@ -7583,6 +7822,9 @@
       "denied": "Du har inte åtkomst till det här. Be ägaren att dela det med dig.",
       "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i BOW.",
       "failed": "Det gick inte att läsa in. Försök igen om en stund."
+    },
+    "signin": {
+      "intentFailed": "Det gick inte att bekräfta appen du loggar in på. Inget skickades. Försök igen."
     }
   },
   "connectedApps": {
@@ -7640,6 +7882,10 @@
     "shareToggleLabel": "Gör tillgänglig för alla i organisationen",
     "shareToggleHint": "Lägger till ”{name}” bland allas kopplingar. Var och en loggar in med sitt eget konto — ingen ser någon annans data.",
     "useAsAgent": "Använd som agent",
+    "enableForChat": "Aktivera för chatt",
+    "disableForChat": "Inaktivera för chatt",
+    "enabledHint": "På – AI:n kan använda den i chatten",
+    "disabledHint": "Av – AI:n använder den inte i chatten",
     "movedToAgents": "{name} är nu en agent"
   },
   "tablePreview": {
@@ -7746,6 +7992,13 @@
       "none": "Inget tak",
       "ask": "Fråga",
       "auto": "Auto"
+    },
+    "pii": {
+      "title": "PII-policy",
+      "hint": "Gäller varje förfrågan som omfattar den här agenten, utöver modellens policy. Det strängaste alternativet för varje regel vinner.",
+      "disabled": "PII-skydd är avstängt för den här organisationen.",
+      "saved": "PII-policyn sparades",
+      "saveError": "Det gick inte att spara PII-policyn"
     }
   },
   "productUpdates": {
@@ -8083,5 +8336,91 @@
       }
     },
     "builtinBadge": "Inbyggd"
+  },
+  "cachedColumns": {
+    "title": "Kolumner",
+    "hint": "Beskrivningar och flaggan för omaggregering kommer från källkatalogen. Det du ändrar här behålls vid varje uppdatering.",
+    "column": "Kolumn",
+    "type": "Typ",
+    "description": "Beskrivning",
+    "details": "Detaljer",
+    "aggregation": "Omaggregering",
+    "descriptionPlaceholder": "Ingen beskrivning i källan. Beskriv kolumnen för agenten.",
+    "additive": "Additiv",
+    "notAdditive": "Inte additiv",
+    "unknown": "Okänd",
+    "additiveHint": "Värdena kan summeras över rader.",
+    "notAdditiveHint": "Att summera över rader ger ett felaktigt tal. Agenten får veta att den inte ska göra det.",
+    "unknownHint": "Kunde inte avgöras utifrån frågan. Välj ett alternativ så att agenten vet.",
+    "undecided": "Omaggregering kunde inte avgöras för: {columns}. Ange den så att agenten vet om de får summeras.",
+    "copiedFrom": "Kopierad från {source}",
+    "measureFrom": "Mått {source}",
+    "computedAs": "Beräknad: {expression}",
+    "edited": "Redigerad",
+    "editedHint": "Angiven av en administratör. En uppdatering ändrar den inte.",
+    "reset": "Återställ till källan",
+    "drift": "Definitionen har ändrats",
+    "driftHint": "Källdefinitionen för kolumnen har ändrats sedan tabellen senast beskrev den.",
+    "driftPrevious": "Tidigare: {expression}",
+    "markReviewed": "Markera som granskad",
+    "rlsTitle": "Källan använder säkerhet på radnivå",
+    "rlsBody": "{tables} skyddas av säkerhet på radnivå i källan. Den här kopian innehåller alla rader som anslutningen kan läsa, och källans roller följer inte med. Bestäm vem som ser vilka rader på fliken Säkerhet på radnivå.",
+    "rlsOpen": "Öppna Säkerhet på radnivå",
+    "rlsSaveFirst": "Tillgängligt när tabellen har sparats.",
+    "generatedDescription": "Genererad utifrån kolumnerna och hålls aktuell vid varje uppdatering. Redigera den för att skriva en egen.",
+    "reasons": {
+      "sum": "summa",
+      "count": "antal",
+      "numeric_column": "numeriskt värde",
+      "distinct_count": "antal unika",
+      "average": "medelvärde",
+      "ratio": "kvot",
+      "min_max": "minimum / maximum",
+      "time_intelligence": "tidsintelligens",
+      "share_of_total": "andel av en total",
+      "statistic": "statistik",
+      "offset": "konstant adderad efter aggregering",
+      "unreadable": "definitionen kan inte läsas",
+      "complex": "för komplex för att klassificera",
+      "not_numeric": "inte ett tal",
+      "grouping_key": "grupperingsnyckel",
+      "key": "identifierare",
+      "set_by_admin": "angiven av en administratör"
+    }
+  },
+  "apps": {
+    "title": "Dina appar",
+    "subtitle": "Öppna en app för att komma igång.",
+    "openWorkspace": "Öppna arbetsytan",
+    "search": "Sök appar",
+    "untitled": "Namnlös app",
+    "inApplication": "I {name}",
+    "allApps": "Alla appar",
+    "language": "Språk",
+    "account": "Konto",
+    "signOut": "Logga ut",
+    "loadFailed": "Det gick inte att läsa in dina appar.",
+    "retry": "Försök igen",
+    "noMatches": "Inga appar matchar ”{query}”.",
+    "empty": {
+      "title": "Inga appar ännu",
+      "body": "När någon delar en app med dig visas den här."
+    },
+    "requestAccess": {
+      "prompt": "Behöver du mer än de här apparna?",
+      "button": "Begär full åtkomst",
+      "sent": "Begäran skickad. En administratör granskar den.",
+      "failed": "Det gick inte att skicka begäran. Försök igen."
+    },
+    "showMore": "Visa fler"
+  },
+  "hostApps": {
+    "newUserRole": "Nya personer går med som",
+    "newUserRoleHelp": "För konton som skapas vid inloggning via den här applikationen. De som redan har ett konto behåller sin roll.",
+    "newUserRoleApp": "Appanvändare",
+    "newUserRoleAppHelp": "Kan använda apparna som delats med hen, inte arbetsytan.",
+    "newUserRoleMember": "Medlem",
+    "newUserRoleMemberHelp": "Kan också använda arbetsytan: rapporter, agenter och dashboards.",
+    "newPeopleAs": "nya personer går med som {role}"
   }
 }

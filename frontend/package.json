@@ -8,7 +8,7 @@
     "devs": "NODE_TLS_REJECT_UNAUTHORIZED=0 nuxt dev --https --ssl-cert localhost.pem --ssl-key localhost-key.pem",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "patch-package --error-on-fail && nuxt prepare"
   },
   "dependencies": {
     "@nuxt-alt/proxy": "^2.5.8",
@@ -65,6 +65,7 @@
     "nanotar": ">=0.2.1",
     "node-forge": ">=1.4.3",
     "open": ">=11.0.0 <12",
+    "parse5": ">=8.1.1 <9",
     "picomatch": ">=4.0.4",
     "playwright": "1.56.0",
     "postcss": ">=8.5.18",
@@ -91,6 +92,7 @@
     "highlight.js": "^11.11.1",
     "http-proxy": "^1.18.1",
     "nuxt-3-intercom": "^1.1.2",
+    "patch-package": "8.0.0",
     "qs": "^6.16.1",
     "typescript": "^5.4.5",
     "vue-draggable-resizable": "^3.0.0"

@@ -129,13 +129,25 @@ def test_transient_throttling_is_classified_as_rate_limit(provider, body):
 
 # ── our own usage caps are not provider quota ──────────────────────────────
 
+# Every message UsageLimitExceeded can carry, monthly and daily, taken from the
+# service itself so a new cap or reworded message can't silently fall out of
+# the classifier's _INTERNAL_QUOTA_MARKERS. The daily ones carry a reset hint.
+from app.services.usage_policy_service import (  # noqa: E402
+    _LIMIT_MESSAGES,
+    METRIC_LLM_TOKENS,
+    WINDOW_DAILY,
+    build_limit_exceeded,
+)
+
+_INTERNAL_CAP_MESSAGES = sorted(set(_LIMIT_MESSAGES.values())) + [
+    build_limit_exceeded(
+        METRIC_LLM_TOKENS, WINDOW_DAILY, limit=10, used=10, requested=1, tz_name="Asia/Jerusalem"
+    ).detail,
+]
+
 @pytest.mark.parametrize(
     "detail",
-    [
-        "Monthly LLM token quota exceeded.",
-        "Monthly LLM spend quota exceeded.",
-        "Monthly usage quota exceeded.",
-    ],
+    _INTERNAL_CAP_MESSAGES,
 )
 def test_internal_usage_limits_never_classify_as_quota(detail):
     """UsageLimitExceeded says "quota exceeded" too, and must not fall back.
@@ -152,11 +164,7 @@ def test_internal_usage_limits_never_classify_as_quota(detail):
 
 @pytest.mark.parametrize(
     "detail",
-    [
-        "Monthly LLM token quota exceeded.",
-        "Monthly LLM spend quota exceeded.",
-        "Monthly usage quota exceeded.",
-    ],
+    _INTERNAL_CAP_MESSAGES,
 )
 def test_internal_usage_cap_headline_does_not_blame_the_provider(detail):
     """The headline must name the org's own limit, not the vendor.

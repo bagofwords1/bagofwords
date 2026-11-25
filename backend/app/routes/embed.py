@@ -181,6 +181,25 @@ async def delete_embed_session(public_id: str, request: Request, db: AsyncSessio
     return Response(status_code=204)
 
 
+# ── SSO popup: who is signing up through this application ─────────────────
+# See core/workspace_access.py ("signing up through a host application").
+
+@router.post("/{public_id}/sso/intent")
+async def start_sso_sign_in(public_id: str, request: Request, db: AsyncSession = Depends(get_async_db)):
+    """Called by BOW's sign-in and sign-up forms, inside this application's
+    sign-in window, as they submit: the token goes back in the
+    ``X-Embed-Signup`` header of that one request. Public, like the
+    bootstrap: it reveals nothing, and what it grants is a narrower role."""
+    from app.core.workspace_access import INTENT_FORM, INTENT_LIFETIME, issue_signup_intent
+
+    host = await _host(db, public_id)
+    if not host.enabled:
+        raise AppError.forbidden(ErrorCode.HOST_APP_DISABLED, "This host application is disabled")
+    await admit(db, ["embed-sso-intent", str(host.id), _client(request)], SESSION_LIMIT_PER_CLIENT)
+    host = await _host(db, public_id)  # admit() committed
+    return {"token": issue_signup_intent(host, INTENT_FORM), "expires_in": INTENT_LIFETIME}
+
+
 @router.post("/{public_id}/sso/code")
 async def create_sso_code(public_id: str, body: SsoCodeRequest, request: Request,
                           user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db)):
@@ -189,6 +208,7 @@ async def create_sso_code(public_id: str, body: SsoCodeRequest, request: Request
     host = await _host(db, public_id)
     await admit(db, ["embed-sso", host.id, str(user.id)], SESSION_LIMIT_PER_CLIENT)
     code = await service.issue_sso_code(db, host, user, body.code_challenge)
+    host = await _host(db, public_id)
     return {"code": code, "allowed_origins": list(host.allowed_origins or [])}
 
 

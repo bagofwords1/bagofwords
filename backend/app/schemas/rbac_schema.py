@@ -9,11 +9,18 @@ from typing import List, Literal, Optional
 # user who is a member of that group. Accepting them through the generic grant
 # or role routes would let a role or a whole group administer a group.
 GROUP_RESOURCE_TYPE = "group"
+# LLM provider managers (resource_type "llm_provider", permissions ["manage"])
+# are likewise written only by PUT/DELETE /llm/providers/{id}/managers/{user},
+# which require org-wide manage_llm and a single org member as the principal.
+LLM_PROVIDER_RESOURCE_TYPE = "llm_provider"
+DEDICATED_GRANT_RESOURCE_TYPES = (GROUP_RESOURCE_TYPE, LLM_PROVIDER_RESOURCE_TYPE)
 
 
 def _reject_group_grants(value: str) -> str:
     if value == GROUP_RESOURCE_TYPE:
         raise ValueError("Group managers are set on the group itself, not through grants")
+    if value == LLM_PROVIDER_RESOURCE_TYPE:
+        raise ValueError("Provider managers are set on the LLM provider itself, not through grants")
     return value
 
 

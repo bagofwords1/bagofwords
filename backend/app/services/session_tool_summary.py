@@ -41,12 +41,25 @@ async def _run_agents(db, organization, user, report, data_source_ids: Optional[
         return await resolve_run_agents(db, organization, user, report, agent_ids=ids or None)
     # No report yet (the home page): Auto is every agent the user can access;
     # a pinned selection is those agents plus the user's personal connectors,
-    # the same set a report created from it would resolve to.
+    # the same set a report created from it would resolve to — so a personal
+    # connector switched off for chat is excluded here too (auto-joined ones
+    # only), keeping the permission chip consistent with the actual run.
+    disabled: set = set()
+    if user is not None:
+        from app.services.connector_preference_service import get_disabled_connector_ids
+        disabled = await get_disabled_connector_ids(
+            db, str(getattr(user, "id", "") or ""), str(organization.id)
+        )
+
+    def _autojoin_personal(a) -> bool:
+        return _is_personal_connector(a) and str(a.id) not in disabled
+
     reachable = await accessible_agents(db, organization, user)
     if not ids:
-        return reachable
+        return [a for a in reachable if not (_is_personal_connector(a) and str(a.id) in disabled)]
     wanted = set(ids)
-    return [a for a in reachable if str(a.id) in wanted or _is_personal_connector(a)]
+    # Explicitly-selected connectors are kept regardless of the toggle.
+    return [a for a in reachable if str(a.id) in wanted or _autojoin_personal(a)]
 
 
 async def has_non_read_tools(

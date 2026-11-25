@@ -201,12 +201,32 @@ export const DELIVERABLE_TOOLS = new Set<string>([
   'create_agent',
   'create_demo_dataset',
   'send_email',
+  // Actions the user approved or asked to undo: their outcome ("deleted 12
+  // rows", "cancelled") must stay in view after the run folds.
+  'delete_list_rows',
+  'set_report_agents',
+  'cancel_wait',
+  'cancel_scheduled_task',
+  'stop_eval_run',
+  'stop_sub_agent',
 ])
 
 const CODE_TOOLS = new Set(['create_and_execute_code', 'execute_code', 'execute_sql'])
 
 function isDeliverableTool(name: string): boolean {
   return DELIVERABLE_TOOLS.has(name) || (name.startsWith('submit_') && name !== 'submit_list')
+}
+
+/** A `wait` call that is still armed: scheduled, not cancelled, and its wake
+    time not yet passed. Its card carries the countdown and the only Cancel for
+    the pending resume, so the run fold must keep it in view (like a running
+    eval's Stop). `now` is injectable for tests. */
+export function isPendingWait(te: any, now: number = Date.now()): boolean {
+  if (String(te?.tool_name || '') !== 'wait') return false
+  const rj = te?.result_json || {}
+  if (rj.status !== 'scheduled') return false
+  const wakeAt = toMs(rj.wake_at)
+  return wakeAt === null || wakeAt > now
 }
 
 /** Identity of the thing a block delivered. Two blocks with the same key are
@@ -619,7 +639,11 @@ const GROUP_ICONS: Record<string, string> = {
   results: 'heroicons-chart-bar', data: 'heroicons-chart-bar', create: 'heroicons-pencil-square', tools: 'heroicons-wrench-screwdriver',
 }
 
-/** Consecutive calls share a stable row; commentary and steering start a new group. */
+/** Consecutive calls share a stable row; commentary and steering start a new
+    group. A deliverable call (a dashboard, an instruction, a doc… — see
+    DELIVERABLE_TOOLS) is always its own one-call group, so its card renders as
+    a plain row instead of hiding behind a generic "Created and updated
+    results" header. */
 export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) => boolean, settled = true): RunToolGroup[] {
   const groups: RunToolGroup[] = []
   let group: RunToolGroup | undefined
@@ -627,7 +651,10 @@ export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) =
     if (blockHasMessage(block) || breakBefore?.(block)) group = undefined
     const te = block.tool_execution
     if (!te) { group = undefined; continue }
-    const category = toolCategory(String(te.tool_name || ''))
+    const name = String(te.tool_name || '')
+    const standalone = isDeliverableTool(name)
+    if (standalone) group = undefined
+    const category = toolCategory(name)
     if (!group) {
       group = { id: String(block.id), blockIds: [], categories: [], counts: {}, settled, failedCount: 0, current: { name: '', title: '', status: '' }, icon: GROUP_ICONS[category], running: false }
       groups.push(group)
@@ -650,6 +677,7 @@ export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) =
       group.failed = callFailed
     }
     group.running ||= running
+    if (standalone) group = undefined
   }
   return groups
 }

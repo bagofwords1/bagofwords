@@ -61,8 +61,10 @@ def require_complete_discovery(client, result):
     Unread parts (``unindexed_table_prefixes``) and unread entry types
     (``unindexed_entry_types``, e.g. routines) are not fatal: the refresh keeps
     their existing entries and selections and still refreshes the rest.
-    Unreadable Power BI models have no such scoped signal, so they still block
-    publication; their names are surfaced in the error so access can be fixed.
+    The same holds for a semantic model the client names in its diagnostics
+    and also reports as an unread part. A model reported only as a diagnostic
+    has no such scoped signal, so it still blocks publication; its name is
+    surfaced in the error so access can be fixed.
     """
     if isinstance(result, ValidatedDiscovery):
         return result
@@ -81,11 +83,17 @@ def require_complete_discovery(client, result):
         failures.append("no catalog snapshot returned")
     diagnostics = getattr(client, "discovery_diagnostics", None) or []
     if diagnostics:
-        names = ", ".join(
+        try:
+            kept = {str(p) for p in (client.unindexed_table_prefixes() or [])}
+        except Exception:
+            kept = set()
+        names = [
             str((d.get("datasetName") or d.get("name") or "?") if isinstance(d, dict) else d)
-            for d in diagnostics[:5]
-        )
-        failures.append(f"unreadable semantic models: {names}")
+            for d in diagnostics
+        ]
+        blocking = [n for n in names if n not in kept]
+        if blocking:
+            failures.append("unreadable semantic models: " + ", ".join(blocking[:5]))
     if failures:
         # Scope labels and model names, not raw provider responses/credentials,
         # belong in the surfaced message.

@@ -129,7 +129,10 @@ _SAFE_TABLE_FUNCTIONS = frozenset({
     "json_each_text", "jsonb_each", "jsonb_each_text", "json_to_recordset",
     "jsonb_to_recordset", "json_populate_recordset", "jsonb_populate_recordset",
     "json_table", "openjson", "string_split", "generate_array",
-    "generate_date_array", "generate_timestamp_array",
+    "generate_date_array", "generate_timestamp_array", "json_tuple", "stack",
+    "regexp_matches", "json_to_record", "jsonb_to_record", "json_populate_record",
+    "jsonb_populate_record", "jsonb_path_query", "json_object_keys",
+    "jsonb_object_keys", "generate_subscripts",
 })
 
 # Functions that read a table named in a string, run SQL held in a string, or
@@ -139,7 +142,7 @@ _DENIED_FUNCTION = re.compile(
     r"query_to_xml.*|table_to_xml.*|schema_to_xml.*|database_to_xml.*|cursor_to_xml.*|"
     r"dblink.*|pg_read_.*|pg_ls_.*|lo_.*|"
     r"system\$.*|external_query|"
-    r"read_(csv|json|parquet|text|blob|ndjson|xlsx).*|sqlite_scan|postgres_scan|mysql_scan|"
+    r"read_(csv|json|parquet|text|blob|ndjson|xlsx|duckdb).*|sqlite_scan|postgres_.*|mysql_scan|"
     r"openrowset|openquery|opendatasource|"
     r"url|file|s3|gcs|hdfs|remote|remotesecure|mysql|postgresql|jdbc|odbc)$",
     re.IGNORECASE,
@@ -155,6 +158,18 @@ def _func_name(node) -> str:
         return str(node.sql_name() or "")
     except Exception:
         return ""
+
+
+def _refuse_denied_functions(stmt, denied: re.Pattern = _DENIED_FUNCTION) -> None:
+    from sqlglot import exp
+
+    for fn in stmt.find_all(exp.Func):
+        name = _func_name(fn)
+        if name and denied.match(name):
+            raise TableScopeViolation(
+                f"The function {name.upper()}() is not allowed in agent queries, because "
+                "the table it reads cannot be checked. Query the enabled tables directly."
+            )
 
 
 def _resolves_to_cte(table) -> bool:
@@ -226,13 +241,7 @@ def check_table_scope(
                 "read its enabled tables, which are already described in its schema."
             )
 
-        for fn in stmt.find_all(exp.Func):
-            name = _func_name(fn)
-            if name and _DENIED_FUNCTION.match(name):
-                raise TableScopeViolation(
-                    f"The function {name.upper()}() is not allowed in agent queries, because "
-                    "the table it reads cannot be checked. Query the enabled tables directly."
-                )
+        _refuse_denied_functions(stmt)
 
         for tfr in stmt.find_all(exp.TableFromRows):
             inner = tfr.this
@@ -292,23 +301,38 @@ def check_table_scope(
         )
 
 
-def table_refs(sql: str, dialect: str) -> list[Name]:
-    """Every table `sql` reads, as lowercased name parts, CTE names left out.
-
-    Unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`.
-    """
+def _parse_for_refs(sql: str, dialect: str) -> list:
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
 
     try:
-        statements = [s for s in parse_guard_sql(sql, dialect)
-                      if s is not None and not isinstance(s, exp.Semicolon)]
+        return [s for s in parse_guard_sql(sql, dialect)
+                if s is not None and not isinstance(s, exp.Semicolon)]
     except SqlglotError as e:
         raise TableScopeViolation(
             "Could not verify which tables this query reads, so it was not run. "
             "Rewrite it as a plain SELECT over <database>.<table> names."
         ) from e
+
+
+def parse_for_refs(sql: str, dialect: str) -> list:
+    """`sql` parsed once, for callers that run several checks on it
+    (`table_refs_of`, `refuse_unchecked_reads_of`). Unreadable SQL raises."""
+    return _parse_for_refs(sql, dialect)
+
+
+def table_refs(sql: str, dialect: str) -> list[Name]:
+    """Every table `sql` reads, as lowercased name parts, CTE names left out.
+
+    Unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`.
+    """
+    return table_refs_of(_parse_for_refs(sql, dialect))
+
+
+def table_refs_of(statements: list) -> list[Name]:
+    """`table_refs` over statements already parsed by `parse_for_refs`."""
+    from sqlglot import exp
 
     refs: list[Name] = []
     for stmt in statements:
@@ -331,6 +355,26 @@ def table_refs(sql: str, dialect: str) -> list[Name]:
 def one_part_table_refs(sql: str, dialect: str) -> list[str]:
     """Tables read without a database part; unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`."""
     return [ref[0] for ref in table_refs(sql, dialect) if len(ref) == 1]
+
+
+def refuse_unchecked_reads(sql: str, dialect: str, extra_denied: re.Pattern | None = None) -> None:
+    """Raise TableScopeViolation when `sql` calls a denied function, or one matching
+    `extra_denied`, anywhere in the query; unreadable SQL raises too. Applies with no
+    scope attached.
+
+    Deliberately no rule on LATERAL / APPLY sources here: one applied to every
+    connector refused built-ins that read no table (SQL Server `.nodes()`, Spark
+    `inline_outer`, DuckDB `json_tree`). A connector that needs a stricter rule
+    applies it with the engine's own parser (see PostgresqlMultiClient)."""
+    refuse_unchecked_reads_of(_parse_for_refs(sql, dialect), extra_denied)
+
+
+def refuse_unchecked_reads_of(statements: list, extra_denied: re.Pattern | None = None) -> None:
+    """`refuse_unchecked_reads` over statements already parsed by `parse_for_refs`."""
+    for stmt in statements:
+        _refuse_denied_functions(stmt)
+        if extra_denied is not None:
+            _refuse_denied_functions(stmt, extra_denied)
 
 
 def enforce_table_scope(client, query) -> None:

@@ -195,6 +195,7 @@
                                     <span v-if="stepTimingFor(item)!.plannerMs != null">{{ $t('traceModal.plannerShort') }} {{ formatDuration(stepTimingFor(item)!.plannerMs || 0) }}</span>
                                     <span v-if="stepTimingFor(item)!.toolMs != null">{{ $t('traceModal.toolShort') }} {{ formatDuration(stepTimingFor(item)!.toolMs || 0) }}</span>
                                 </div>
+                                <div v-if="stepTimingFor(item)?.inTokens != null" class="text-2xs text-ink-muted font-mono truncate" :title="$t('traceModal.stepTokensTooltip')" data-testid="step-tokens-short">{{ $t('traceModal.tokensInOut', { input: formatTokens(stepTimingFor(item)!.inTokens || 0), output: formatTokens(stepTimingFor(item)!.outTokens || 0) }) }}</div>
                             </button>
                         </template>
                         <!-- Unplaced time, so the rows reconcile with the run total -->
@@ -230,9 +231,31 @@
                             <UIcon name="i-heroicons-clock" class="w-3.5 h-3.5" />
                             {{ formatDuration(traceData.timing_breakdown.total_duration_ms) }}
                         </span>
-                        <span v-if="selectedTurnTokens" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400" :title="selectedTurnHasFullUsage ? $t('traceModal.turnUsageTooltip') : $t('traceModal.turnTokensTooltip')">
+                        <span v-if="selectedTurnSplit" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400 nums" :title="selectedTurnSplit.full ? $t('traceModal.turnUsageTooltip') : $t('traceModal.turnTokensTooltip')" data-testid="turn-tokens-split">
+                            <UIcon name="i-heroicons-cpu-chip" class="w-3.5 h-3.5" />
+                            {{ $t('traceModal.tokensInOut', { input: formatTokens(selectedTurnSplit.input), output: formatTokens(selectedTurnSplit.output) }) }}
+                        </span>
+                        <span v-else-if="selectedTurnTokens" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400" :title="selectedTurnHasFullUsage ? $t('traceModal.turnUsageTooltip') : $t('traceModal.turnTokensTooltip')">
                             <UIcon name="i-heroicons-cpu-chip" class="w-3.5 h-3.5" />
                             {{ $t('traceModal.tokensCount', { count: formatTokens(selectedTurnTokens) }) }}
+                        </span>
+                        <button v-if="traceData" type="button" data-testid="turn-model"
+                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400 disabled:cursor-default"
+                                :disabled="!runModels.length" :aria-expanded="showRunModels"
+                                :title="primaryModelId ? $t('traceModal.modelsHeading') : $t('traceModal.modelUnknownTooltip')"
+                                @click="showRunModels = !showRunModels">
+                            <UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5" />
+                            <span class="font-mono" dir="ltr">{{ primaryModelId || $t('traceModal.modelUnknown') }}</span>
+                            <span v-if="runModels.length > 1" class="text-ink-muted">{{ $t('traceModal.modelsMore', { count: runModels.length - 1 }) }}</span>
+                            <span v-if="traceData.auto_routed" class="px-1.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 text-2xs font-medium"
+                                  :title="routedModel ? $t('traceModal.autoRoutedTooltip', { model: routedModel.model_id, baseline: routedModel.baseline_model_id || '—' }) : $t('traceModal.autoRoutedRunTooltip')"
+                                  data-testid="turn-model-routed">{{ $t('traceModal.autoRouted') }}</span>
+                            <UIcon v-if="runModels.length" :name="showRunModels ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3 h-3" />
+                        </button>
+                        <span v-for="a in traceData?.agents || []" :key="a.id" data-testid="turn-agent" :title="a.name"
+                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400 max-w-[180px]">
+                            <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon="a.icon" class="h-3.5 w-3.5 flex-shrink-0" />
+                            <span v-text-dir class="truncate">{{ a.name }}</span>
                         </span>
                         <span v-if="selectedTurn.llm_cost_usd" class="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-medium text-gray-600 dark:text-gray-400" :title="$t('traceModal.turnUsageTooltip')">
                             {{ formatCost(selectedTurn.llm_cost_usd) }}
@@ -253,6 +276,18 @@
                             <span v-if="selectedTurn.response_score != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
                                 <span>Resp</span><span class="font-semibold">{{ selectedTurn.response_score }}/5</span>
                             </span>
+                        </div>
+                    </div>
+                    <div v-if="selectedTurn && showRunModels && runModels.length" class="px-4 md:px-5 py-2 border-b border-gray-200 dark:border-gray-800 bg-surface-subtle" data-testid="turn-models">
+                        <div class="text-2xs uppercase tracking-wide text-ink-muted mb-1">{{ $t('traceModal.modelsHeading') }}</div>
+                        <div v-for="m in runModels" :key="m.model_id + (m.provider || '')" class="flex items-center gap-2 text-2xs text-ink-2 py-0.5 nums">
+                            <span class="font-mono text-ink truncate min-w-0" dir="ltr" :title="m.model_id">{{ m.model_id }}</span>
+                            <span v-if="m.provider" class="text-ink-muted flex-shrink-0">{{ m.provider }}</span>
+                            <span v-if="m.model_id === primaryModelId" class="flex-shrink-0 px-1.5 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300">{{ $t('traceModal.primaryModel') }}</span>
+                            <span v-if="m.routed" class="flex-shrink-0 px-1.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300" :title="$t('traceModal.autoRoutedTooltip', { model: m.model_id, baseline: m.baseline_model_id || '—' })">{{ $t('traceModal.autoRouted') }}</span>
+                            <span class="ms-auto flex-shrink-0">{{ $t('traceModal.modelCalls', { count: m.calls }, m.calls) }}</span>
+                            <span class="font-mono flex-shrink-0">{{ $t('traceModal.tokensInOut', { input: formatTokens(m.input_tokens), output: formatTokens(m.output_tokens) }) }}</span>
+                            <span class="font-mono flex-shrink-0">{{ formatCost(m.cost_usd) }}</span>
                         </div>
                     </div>
 
@@ -439,6 +474,17 @@
                                                 <div class="flex items-center gap-2 pt-1 border-t border-gray-100 dark:border-gray-800">
                                                     <span class="w-24 md:w-32 text-gray-700 dark:text-gray-300 font-medium">{{ $t('traceModal.stepTotal') }}</span>
                                                     <span class="w-14 text-end font-mono font-medium text-gray-900 dark:text-gray-100">{{ formatDuration(selectedStepTiming.totalMs) }}</span>
+                                                </div>
+                                                <div v-if="selectedStepTiming.inTokens != null || selectedStepTiming.outTokens != null" class="flex items-center gap-2 pt-1 border-t border-gray-100 dark:border-gray-800 nums" :title="$t('traceModal.stepTokensTooltip')" data-testid="step-tokens">
+                                                    <span class="w-24 md:w-32 text-gray-700 dark:text-gray-300 font-medium">{{ $t('traceModal.stepTokens') }}</span>
+                                                    <span class="text-ink-muted">{{ $t('traceModal.tokensIn') }}</span>
+                                                    <span class="font-mono text-gray-900 dark:text-gray-100">{{ selectedStepTiming.inTokens != null ? formatTokens(selectedStepTiming.inTokens) : '—' }}</span>
+                                                    <span class="text-ink-muted ms-2">{{ $t('traceModal.tokensOut') }}</span>
+                                                    <span class="font-mono text-gray-900 dark:text-gray-100">{{ selectedStepTiming.outTokens != null ? formatTokens(selectedStepTiming.outTokens) : '—' }}</span>
+                                                    <template v-if="selectedStepTiming.cachedTokens">
+                                                        <span class="text-ink-muted ms-2">{{ $t('traceModal.tokensCached') }}</span>
+                                                        <span class="font-mono text-gray-900 dark:text-gray-100">{{ formatTokens(selectedStepTiming.cachedTokens) }}</span>
+                                                    </template>
                                                 </div>
                                             </div>
                                         </div>
@@ -672,6 +718,7 @@ interface ToolExecutionUI {
     result_json?: any
     error_message?: string | null
     duration_ms?: number
+    started_at?: string | null
     status?: string
     sub_timings_json?: {
         total_ms?: number
@@ -708,6 +755,30 @@ interface InstructionBuild {
     status: string
 }
 
+// Raw provider counts plus input_tokens, which the server normalizes to
+// "cache included" for every provider (unset when the provider is unknown).
+interface PlannerTokenUsage {
+    prompt_tokens?: number | null
+    completion_tokens?: number | null
+    total_tokens?: number | null
+    cache_read_tokens?: number | null
+    cache_creation_tokens?: number | null
+    input_tokens?: number | null
+}
+
+interface PlanDecisionUI {
+    id: string
+    created_at?: string
+    reasoning?: string | null
+    assistant?: string | null
+    metrics_json?: {
+        total_duration_ms?: number | null
+        first_token_ms?: number | null
+        thinking_ms?: number | null
+        token_usage?: PlannerTokenUsage | null
+    } | null
+}
+
 interface CompletionBlockV2 {
     id: string
     completion_id: string
@@ -717,8 +788,21 @@ interface CompletionBlockV2 {
     status: string
     content?: string
     reasoning?: string
+    plan_decision?: PlanDecisionUI | null
     tool_execution?: ToolExecutionUI
     created_at: string
+}
+
+interface RunModelUsage {
+    model_id: string
+    provider?: string | null
+    calls: number
+    input_tokens: number
+    output_tokens: number
+    cache_read_tokens: number
+    cost_usd: number
+    routed: boolean
+    baseline_model_id?: string | null
 }
 
 interface IterationTiming {
@@ -758,6 +842,9 @@ interface AgentExecutionTraceResponse {
     used_agents?: string[]
     agent_execution: any
     completion_blocks: CompletionBlockV2[]
+    models?: RunModelUsage[]
+    auto_routed?: boolean
+    agents?: Array<{ id: string, name: string, type?: string | null, connector_key?: string | null, icon?: string | null }>
     head_prompt_snippet?: string
     head_context_snapshot?: any
     latest_feedback?: CompletionFeedbackUI | null
@@ -937,6 +1024,34 @@ const selectedTurnTokens = computed(() => {
     if (total > 0) return total
     return (Number(u.prompt_tokens ?? 0) + Number(u.completion_tokens ?? 0)) || 0
 })
+
+// Input / output for the turn, input always including cache. Every LLM call
+// of the run when its usage records exist (same totals as bow.runs);
+// otherwise the planner steps' own counts.
+const selectedTurnSplit = computed(() => {
+    const models = traceData.value?.models || []
+    if (models.length) {
+        return {
+            input: models.reduce((n, m) => n + m.input_tokens, 0),
+            output: models.reduce((n, m) => n + m.output_tokens, 0),
+            full: true,
+        }
+    }
+    let input = 0, output = 0, known = false
+    for (const st of stepTimings.value.values()) {
+        if (st.inTokens != null) { input += st.inTokens; known = true }
+        output += st.outTokens || 0
+    }
+    return known ? { input, output, full: false } : null
+})
+
+// The run's main (planner) model, resolved on the server (rollup, else the
+// planner's usage record). No usage records → unknown, never a guess.
+const runModels = computed(() => traceData.value?.models || [])
+const primaryModelId = computed<string | null>(() => traceData.value?.agent_execution?.primary_model_id || null)
+// A model that ran instead of the baseline (not the baseline after escalation).
+const routedModel = computed(() => runModels.value.find(m => m.routed) || null)
+const showRunModels = ref(false)
 
 const selectedItemSubTimings = computed(() => {
     const te = selectedItem.value?.tool_execution
@@ -1134,6 +1249,10 @@ interface StepTiming {
     execMs: number | null
     totalMs: number
     segments: TimingSegment[]
+    // The planner call's tokens; set on the decision's first block only.
+    inTokens: number | null
+    outTokens: number | null
+    cachedTokens: number | null
 }
 
 const parseTs = (v: any): number | null => {
@@ -1146,7 +1265,7 @@ const parseTs = (v: any): number | null => {
 
 const runStartTs = computed(() => parseTs(traceData.value?.agent_execution?.started_at))
 
-function buildStepTimings(blockList: any[], runStart: number | null): Map<string, StepTiming> {
+function buildStepTimings(blockList: CompletionBlockV2[], runStart: number | null): Map<string, StepTiming> {
     const out = new Map<string, StepTiming>()
     const seenDecisions = new Set<string>()
     let cursor = 0  // fallback placement when timestamps are missing
@@ -1155,11 +1274,13 @@ function buildStepTimings(blockList: any[], runStart: number | null): Map<string
         const pm = pd?.metrics_json
         const te = b.tool_execution
         // A decision that fans out into several tools yields several blocks;
-        // only the first one carries the planner time.
+        // only the first one carries the planner time and tokens.
+        const firstOfDecision = !!pd && !seenDecisions.has(pd.id)
         let plannerMs: number | null = null
-        if (pd && pm?.total_duration_ms != null && !seenDecisions.has(pd.id)) {
+        if (firstOfDecision && pm?.total_duration_ms != null) {
             plannerMs = pm.total_duration_ms
         }
+        const tu = firstOfDecision ? pm?.token_usage : null
         if (pd?.id) seenDecisions.add(pd.id)
         const toolMs: number | null = typeof te?.duration_ms === 'number' ? te.duration_ms : null
         if (plannerMs == null && toolMs == null) continue
@@ -1192,12 +1313,15 @@ function buildStepTimings(blockList: any[], runStart: number | null): Map<string
             toolMs, codegenMs, execMs,
             totalMs: (plannerMs || 0) + (toolMs || 0),
             segments,
+            inTokens: tu?.input_tokens ?? null,
+            outTokens: tu?.completion_tokens ?? null,
+            cachedTokens: tu?.cache_read_tokens ?? null,
         })
     }
     return out
 }
 
-const stepTimings = computed(() => buildStepTimings(blocks.value as any[], runStartTs.value))
+const stepTimings = computed(() => buildStepTimings(blocks.value as CompletionBlockV2[], runStartTs.value))
 
 // Chat pane shows every turn, not just the focused one; totals only.
 const chatStepTimings = computed(() => {

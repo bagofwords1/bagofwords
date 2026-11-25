@@ -352,6 +352,14 @@ class UserManager(BaseUserManager[User, str]):
             if invite_role:
                 await ensure_system_role_assignment(session, org_id, str(user.id), invite_role)
 
+            if not claimed and invite_role in ("member", "admin"):
+                # The existing row may be an app user's (created by an embedded
+                # artifact's sign-in). An invite is an admin's explicit grant,
+                # so it replaces the app_user role instead of sitting beside
+                # it with the membership still labelled an app user.
+                from app.core.permission_resolver import lift_app_user
+                await lift_app_user(session, org_id, str(user.id), invite_role)
+
             if not claimed:
                 # Hard-delete the retired invite — membership removal is a hard
                 # delete everywhere else, and a soft-deleted row would reappear in
@@ -1603,6 +1611,21 @@ async def current_user(
     api_key: Optional[str] = Depends(api_key_header),
     db: AsyncSession = Depends(get_async_db),
 ) -> User:
+    """The authenticated caller (JWT, OAuth token or API key), refused when
+    they are an app user reaching outside their apps (core/workspace_access)."""
+    user = await _authenticate(request, jwt_user, api_key, db)
+    from app.core.workspace_access import gate_user
+
+    await gate_user(request, db, user)
+    return user
+
+
+async def _authenticate(
+    request: Request,
+    jwt_user: Optional[User],
+    api_key: Optional[str],
+    db: AsyncSession,
+) -> User:
     """
     Get the current user from either JWT token or API key.
 
@@ -1682,6 +1705,12 @@ async def current_user_optional(
         return await current_user(request, jwt_user, api_key, db)
     except HTTPException:
         return None
+    except AppError as e:
+        # An app user outside their apps is nobody here, exactly as a signed-
+        # out visitor is: a public page stays public, the rest asks to sign in.
+        if e.error_code == ErrorCode.WORKSPACE_ACCESS_REQUIRED.value:
+            return None
+        raise
 
 
 async def get_current_organization(
@@ -1723,6 +1752,8 @@ async def get_current_organization(
             "This API key belongs to a different organization",
         )
     await assert_principal_belongs_to_org(db, user, org.id)
+    from app.core.workspace_access import gate_organization
+    await gate_organization(request, db, user, str(org.id))
     from app.core.request_org import set_request_organization_id
     set_request_organization_id(str(org.id))
     return org

@@ -1631,24 +1631,20 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             if included_files:
                 artifact_data["files"] = await self._build_file_datauris(db, included_files)
 
-            # Planner-authored code goes through a fast parse-only gate first:
-            # a syntax error should cost ~1-2s (babel-standalone transform in a
-            # bare page) and come back with a bracket-balance hint, not burn a
-            # full ~10s validation render to learn the same thing. Gate
-            # unavailable (no browser/libs) → None → full render decides.
-            parse_error: Optional[str] = None
+            from app.ai.tools.implementations._artifact_parse import ParseCheckUnavailable, parse_check_page_code
+            validation_unavailable = False
+            parse_error = None
             if planner_authored:
                 try:
-                    from app.ai.tools.implementations._artifact_parse import parse_check_page_code
                     parse_error = await parse_check_page_code(code)
-                except Exception as e:
-                    logger.warning(f"parse gate errored, deferring to render validation: {e}")
-                    parse_error = None
+                except ParseCheckUnavailable as exc:
+                    validation_unavailable = True
+                    parse_error = str(exc)
 
             _validate_result: Optional[Dict[str, Any]] = None
             if parse_error is not None:
                 render_clean = False
-                render_errors = [f"[parse] {parse_error}"]
+                render_errors = [parse_error if validation_unavailable else f"[parse] {parse_error}"]
             else:
                 async for _item in self._validate_and_repair_stream(
                     code, artifact_data, data.mode, runtime_ctx, deadline_monotonic=_repair_deadline,
@@ -1666,6 +1662,17 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 render_errors = list(_validate_result["errors"] or [])
                 repair_attempts = int(_validate_result["repair_attempts"] or 0)
                 params_wiring_errors = list(_validate_result.get("params_wiring_errors") or [])
+                # Generation and its repair loop may both supply new source.
+                # Check the exact candidate that would become the completed version.
+                if render_clean and not planner_authored:
+                    try:
+                        parse_error = await parse_check_page_code(code)
+                    except ParseCheckUnavailable as exc:
+                        validation_unavailable = True
+                        parse_error = str(exc)
+                    if parse_error:
+                        render_clean = False
+                        render_errors = [parse_error if validation_unavailable else f"[parse] {parse_error}"]
             try:
                 thumbnail_html = self._build_thumbnail_html(artifact_data, code, mode=data.mode)
             except Exception as e:
@@ -1697,7 +1704,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             content = {**content, 'sdk_version': 1,
                        'resource_requirements': replace_content.get('resource_requirements', {})}
         artifact.content = content
-        if data.mode == "page":
+        if data.mode == "page" and render_clean:
             # Precompile the final code in the background so the first view can
             # skip in-browser Babel (app.services.artifact_precompile).
             from app.services.artifact_precompile import schedule_compile
@@ -1884,6 +1891,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "visualization_ids": included_viz_ids,
                 "render_errors": render_errors,
             }
+            if validation_unavailable:
+                failure_observation["summary"] = first_error
+                failure_observation["error"].update(
+                    type="validation_unavailable",
+                    remediation="Restore the server JSX compiler and retry creation.",
+                )
             if warnings:
                 failure_observation["warnings"] = warnings
             _model = runtime_ctx.get("model")

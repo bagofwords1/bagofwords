@@ -20,6 +20,7 @@ EXPECTED_ORG_PERMS = {
     "manage_instructions",
     "manage_entities",
     "manage_evals",
+    "access_workspace",
     "view_code", "run_custom_code",
     "view_members", "manage_members", "manage_service_accounts",
     "manage_settings", "manage_llm",
@@ -29,7 +30,7 @@ EXPECTED_ORG_PERMS = {
 
 def test_all_permissions_is_exactly_expected_set():
     assert ALL_PERMISSIONS == EXPECTED_ORG_PERMS
-    assert len(ALL_PERMISSIONS) == 21
+    assert len(ALL_PERMISSIONS) == 22
 
 
 def test_full_admin_access_is_not_in_all_permissions():

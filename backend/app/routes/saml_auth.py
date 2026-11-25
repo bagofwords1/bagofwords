@@ -29,7 +29,7 @@ async def metadata(provider: str):
 
 
 @router.get("/{provider}/authorize")
-async def authorize(provider: str, db: AsyncSession = Depends(get_async_db)):
+async def authorize(provider: str, request: Request, db: AsyncSession = Depends(get_async_db)):
     cfg = saml.provider_config(provider)
     try:
         url, browser = await saml.start_login(cfg, db)
@@ -51,7 +51,27 @@ async def authorize(provider: str, db: AsyncSession = Depends(get_async_db)):
         samesite="none",
         path=f"/api/auth/saml/{provider}",
     )
+    # Started inside a host application's sign-in window (?embed_host=): the
+    # intent rides with THIS request, bound to its browser token, in a cookie
+    # that comes back on the cross-site POST as the request's own does.
+    from app.core import workspace_access
+
+    host = await workspace_access.host_of_request(request)
+    if request.query_params.get("embed_host") and host is None:
+        raise workspace_access.unbound_window()  # fail closed, as for OIDC
+    if host is not None:
+        response.set_cookie(
+            _intent_cookie(provider), workspace_access.issue_signup_intent(host, saml.digest(browser)),
+            max_age=300, secure=True, httponly=True, samesite="none", path=f"/api/auth/saml/{provider}",
+        )
+    else:
+        response.delete_cookie(_intent_cookie(provider), path=f"/api/auth/saml/{provider}", secure=True,
+                               httponly=True, samesite="none")
     return response
+
+
+def _intent_cookie(provider: str) -> str:
+    return f"{cookie_name(provider)}_embed"
 
 
 @router.post("/{provider}/acs")
@@ -72,7 +92,14 @@ async def acs(provider: str, request: Request, db: AsyncSession = Depends(get_as
         if any(len(v) != 1 for v in fields.values()):
             raise ValueError("Duplicate fields")
         post = {k: v[0] for k, v in fields.items()}
-        user = await saml.finish_login(cfg, post, request.cookies.get(cookie_name(provider)), db)
+        browser = request.cookies.get(cookie_name(provider))
+        from app.core import workspace_access
+
+        # The account this assertion creates is stamped as it is written.
+        intent = workspace_access.decode_signup_intent(
+            request.cookies.get(_intent_cookie(provider)), saml.digest(browser) if browser else None)
+        async with workspace_access.signup_intent_scope(intent, request):
+            user = await saml.finish_login(cfg, post, browser, db)
         response = await _login_redirect(user)
         await _audit_auth_event("auth.login", request, str(user.id), {"provider": provider, "protocol": "saml"})
     except Exception as exc:
@@ -84,6 +111,9 @@ async def acs(provider: str, request: Request, db: AsyncSession = Depends(get_as
         response = RedirectResponse("/users/sign-in?error_code=saml_login_failed", status_code=303)
     response.delete_cookie(
         cookie_name(provider), path=f"/api/auth/saml/{provider}", secure=True, httponly=True, samesite="none"
+    )
+    response.delete_cookie(
+        _intent_cookie(provider), path=f"/api/auth/saml/{provider}", secure=True, httponly=True, samesite="none"
     )
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"

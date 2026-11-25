@@ -102,6 +102,13 @@ class PiiRule(BaseModel):
     # "replace" swaps matches with ``replacement``; "block" refuses the whole
     # request if this rule matches (block always wins over replace).
     action: Optional[str] = None
+    # Optional conditions (custom rules; see app.ai.llm.pii.checks):
+    # exact words/phrases matched whole-word, case-insensitive;
+    terms: List[str] = []
+    # a checksum each match must pass: luhn | iban | il_id | aba;
+    checksum: Optional[str] = None
+    # words, one of which must appear near a match.
+    context: List[str] = []
 
     @validator('action', pre=True, always=True)
     def validate_action(cls, v):
@@ -159,6 +166,10 @@ class PiiProtectionConfig(BaseModel):
     exempt_provider_ids: List[str] = []
     policies: Dict[str, PiiPolicyConfig] = {}
     provider_policies: Dict[str, str] = {}
+    # Agent (data source) -> policy id or ":none"; unassigned agents use
+    # default_agent_policy. See docs/design/pii-agent-policies.md.
+    agent_policies: Dict[str, str] = {}
+    default_agent_policy: str = ":none"
     display_policy: str = "default"
 
     @model_validator(mode="before")
@@ -403,6 +414,7 @@ class OrganizationSettingsConfig(BaseModel):
     query_timeout_seconds: FeatureConfig = FeatureConfig(value=180, name="Query timeout (seconds)", description="Default per-query wall-clock timeout when the agent runs SQL via create_data / inspect_data. A connection's config can override this with its own 'query_timeout_seconds' value.", is_lab=False, editable=True)
     max_concurrent_queries_per_connection: FeatureConfig = FeatureConfig(value=12, name="Concurrent queries per connection", description="How many queries BOW may run against one connection at the same time, across all workers and replicas. A burst above this waits its turn rather than failing. Lower it for fragile on-prem sources (Oracle, SQL Server) that cannot take parallel scans. A connection's config can override this with its own 'max_concurrent_queries' value.", is_lab=False, editable=True)
     top_k_schema: FeatureConfig = FeatureConfig(value=10, name="Top K schema", description="The number of schema to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
+    top_k_schema_columns: FeatureConfig = FeatureConfig(value=60, name="Top K columns per table", description="How many columns of a wide table the agent sees in full in its context, ranked by column usage, instruction references and keys/timestamps. The rest are summarized by prefix and stay searchable with describe_tables. 0 = no limit.", is_lab=False, editable=True)
     top_k_metadata_resources: FeatureConfig = FeatureConfig(value=10, name="Top K metadata resources", description="The number of metadata resources to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
     agent_roster_top_k: FeatureConfig = FeatureConfig(value=10, name="Agent roster top K", description="When a report has many agents, how many appear as full roster lines in the AI context (ranked by the asker's recent usage; the rest are listed by name only in a more_agents tail). Clamped to 1-100.", is_lab=False, editable=True)
     # Off = no new "anyone with the link" shares (dashboards or conversations),

@@ -589,7 +589,8 @@
     "admin": "Administración",
     "backToApp": "Volver a la app",
     "notifications": "Notificaciones",
-    "automations": "Automatizaciones"
+    "automations": "Automatizaciones",
+    "apps": "Aplicaciones"
   },
   "notifications": {
     "title": "Notificaciones",
@@ -1257,6 +1258,9 @@
     "dropHint": "Suelta en un proyecto",
     "movedTo": "Movido a {name}",
     "removeFromProject": "Quitar del proyecto",
+    "removedFromProject": "Eliminado del proyecto",
+    "removeImpact": "Este informe vuelve a tu lista personal.",
+    "removeImpactShared": "Los miembros de este proyecto perderán acceso a este informe. Solo tú y las personas con quienes lo compartiste directamente lo conservarán.",
     "empty": "Nuevo proyecto",
     "moveNoProjects": "Crea un proyecto para organizar tus informes en carpetas.",
     "moveShareDisclosure": "Mover un informe a un proyecto compartido permite que sus miembros lo vean.",
@@ -1398,6 +1402,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "Uso de LLM en esta conversación",
     "turnTokensTooltip": "Tokens LLM del planificador en este turno",
+    "tokensInOut": "entrada {input} / salida {output}",
+    "tokensIn": "Entrada",
+    "tokensOut": "Salida",
+    "tokensCached": "En caché",
+    "stepTokens": "Tokens",
+    "stepTokensTooltip": "Llamada del planificador en este paso. La entrada incluye los tokens en caché. No se cuentan las llamadas LLM hechas dentro de la herramienta.",
+    "modelUnknown": "Modelo desconocido",
+    "modelUnknownTooltip": "No se registró el uso de LLM por llamada en esta ejecución",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modelos en este turno",
+    "modelCalls": "{count} llamada | {count} llamadas",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "El enrutamiento automático ejecutó estas llamadas con {model} en lugar de {baseline}",
+    "autoRoutedRunTooltip": "El enrutamiento automático estaba activo en esta ejecución",
+    "primaryModel": "Principal",
     "turnUsageTooltip": "Uso de LLM en este turno",
     "setup": "Preparación",
     "setupTooltip": "Tiempo desde el inicio hasta el primer paso (construcción de contexto, etc.)",
@@ -1488,7 +1507,30 @@
       "copied": "JSON de la traza copiado al portapapeles",
       "failed": "No se pudo exportar la traza"
     },
-    "hiddenTurns": "{count} turno posterior oculto: este o uno anterior usó un agente que no administras | {count} turnos posteriores ocultos: estos o uno anterior usaron un agente que no administras"
+    "hiddenTurns": "{count} turno posterior oculto: este o uno anterior usó un agente que no administras | {count} turnos posteriores ocultos: estos o uno anterior usaron un agente que no administras",
+    "contextColumns": {
+      "ofTotal": "{shown} de {total} columnas",
+      "allColumns": "{total} columnas",
+      "why": "Por qué estas columnas",
+      "reason": {
+        "usage_ranked": "Ordenadas por uso de columnas",
+        "structural_only": "Aún sin uso: primero claves, marcas de tiempo e IDs",
+        "all_columns": "Todas las columnas caben en el límite"
+      },
+      "signal": {
+        "mentioned": "{n} nombradas en la tarea",
+        "usage": "{n} por uso",
+        "instructions": "{n} referenciadas por instrucciones",
+        "structural": "{n} claves, marcas de tiempo o IDs",
+        "sample": "{n} de muestra entre grupos de columnas",
+        "schema_order": "{n} en orden del catálogo"
+      },
+      "shown": "Columnas en el contexto",
+      "folded": "Agrupadas (se pueden buscar con describe_tables)",
+      "otherColumns": "{count} columnas más",
+      "usedTimes": "usada {count}×",
+      "score": "puntuación {score}"
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -1572,10 +1614,10 @@
         "search": "Buscó",
         "files": "Leyó archivos",
         "inspect": "Inspeccionó datos",
-        "data": "Ejecutó {count} consultas",
+        "data": "Ejecutó {count} consulta | Ejecutó {count} consultas",
         "create": "Creó y actualizó resultados",
         "tools": "Usó herramientas",
-        "results": "Ejecutó {count} consultas"
+        "results": "Ejecutó {count} consulta | Ejecutó {count} consultas"
       },
       "workedFor": "Trabajó durante {duration}",
       "worked": "Trabajó",
@@ -1750,7 +1792,6 @@
       "edit": "Editar artefacto",
       "confirm": "Confirmar edición de artefacto",
       "dashboardEdited": "Panel editado",
-      "diff": "Diferencias",
       "rewrite": "Reescribir",
       "plan": "Plan: ",
       "more": "más",
@@ -2629,6 +2670,19 @@
       "connected": "Conectado",
       "askAgain": "Volver a preguntar",
       "readyHint": "Conectado. Vuelve a ejecutar tu pregunta para usarlo."
+    },
+    "describeTables": {
+      "searching": "Buscando {query}…",
+      "searched": "Buscado {names}",
+      "searchedMore": "Buscado {names} +{count}",
+      "columnsMatching": "columnas que coinciden con {terms}",
+      "column": "Columna",
+      "type": "Tipo",
+      "used": "Usos",
+      "showingOf": "Las {shown} columnas principales de {total}, las más usadas primero",
+      "matchingOf": "{matched} de {total} columnas coinciden con {terms}",
+      "noMatch": "Ninguna columna coincide con {terms}",
+      "more": "+{count} más"
     }
   },
   "entityCreate": {
@@ -2738,7 +2792,8 @@
       "manage_service_accounts": "Gestionar cuentas de servicio",
       "manage_connection": "Gestionar conexión",
       "create_data_sources": "Crear agentes",
-      "manage_data_sources": "Gestionar agentes"
+      "manage_data_sources": "Gestionar agentes",
+      "access_workspace": "Usar el espacio de trabajo"
     },
     "delete": "Eliminar",
     "duplicate": "Duplicar",
@@ -2758,7 +2813,8 @@
       "knowledge": "Conocimiento de agentes",
       "code": "Código",
       "admin": "Administración",
-      "other": "Otros"
+      "other": "Otros",
+      "workspace": "Espacio de trabajo"
     },
     "permissionHints": {
       "create_data_source": "Crear agentes en las conexiones que pueden usar",
@@ -2774,7 +2830,8 @@
       "manage_settings": "Cambiar la configuración de la organización",
       "manage_llm": "Configurar proveedores y modelos LLM",
       "view_audit_logs": "Ver quién hizo qué y cuándo",
-      "manage_identity_providers": "Configurar el inicio de sesión único"
+      "manage_identity_providers": "Configurar el inicio de sesión único",
+      "access_workspace": "Abrir el propio espacio de trabajo: inicio, informes, agentes. Sin él, un miembro solo tiene las aplicaciones compartidas con él."
     },
     "fullAdminHint": "Puede hacer todo en la organización",
     "fullAdminAccessTab": "El acceso de administrador total incluye todos los agentes, conexiones y modelos.",
@@ -2882,7 +2939,17 @@
     "noManagedGroupsHint": "No gestionas ningún grupo.",
     "toastManagerAdded": "El miembro ahora es gestor del grupo",
     "toastManagerRemoved": "Rol de gestor retirado",
-    "failedToUpdateManager": "No se pudo actualizar el gestor del grupo"
+    "failedToUpdateManager": "No se pudo actualizar el gestor del grupo",
+    "models": {
+      "title": "Modelos predeterminados",
+      "hint": "Con qué empiezan los miembros de este grupo. Solo aparecen los modelos que el grupo ya puede usar.",
+      "default": "Modelo predeterminado",
+      "small": "Modelo pequeño",
+      "orgDefault": "Predeterminado de la organización",
+      "setByAdmin": "{model} (definido por un administrador)",
+      "saved": "Modelos del grupo actualizados",
+      "failed": "No se pudieron actualizar los modelos del grupo"
+    }
   },
   "quotaPolicies": {
     "searchPlaceholder": "Buscar cuotas...",
@@ -2909,7 +2976,7 @@
     "noDirectQuota": "Predeterminada",
     "inherited": "Heredada",
     "noPoliciesFound": "No se encontraron políticas de cuota",
-    "noPoliciesHint": "Crea una cuota para limitar el uso mensual de IA y datos.",
+    "noPoliciesHint": "Crea una cuota para limitar el uso diario y mensual de IA y datos.",
     "editQuota": "Editar cuota",
     "createQuota": "Crear cuota",
     "nameLabel": "Nombre",
@@ -2950,7 +3017,20 @@
       "user": "{n} usuarios",
       "group": "{n} grupos",
       "role": "{n} roles"
-    }
+    },
+    "dayShort": "Día",
+    "monthShort": "Mes",
+    "limitPerUser": "Límite por usuario",
+    "perDay": "Por día",
+    "perMonth": "Por mes",
+    "resetsDaily": "Se reinicia a las 00:00 {tz}",
+    "resetsMonthly": "Se reinicia el día 1",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Consultas",
+    "dataLabel": "Datos escaneados (MB)",
+    "spendLabel": "Gasto en LLM (USD)",
+    "limitsHint": "Déjalo vacío para ilimitado. Define un límite diario, uno mensual o ambos: la solicitud se bloquea cuando se alcanza cualquiera. Los límites mensuales de consultas y datos se aplican por conexión; los diarios suman todas las conexiones.",
+    "dailyAboveMonthly": "El límite diario no puede superar el límite mensual."
   },
   "signupPolicy": {
     "title": "Registro basado en dominio",
@@ -3613,7 +3693,9 @@
       "defaultRoleShort": "Rol predeterminado",
       "importButton": "Importar",
       "colNote": "Nota",
-      "colLastLogin": "Último inicio de sesión"
+      "colLastLogin": "Último inicio de sesión",
+      "appUser": "Usuario de aplicaciones",
+      "joinedVia": "Se unió a través de {app}"
     },
     "organizationName": "Nombre de la organización",
     "organizationNameRequired": "El nombre de la organización no puede estar vacío.",
@@ -4232,6 +4314,10 @@
         "show_world": {
           "name": "Vista Mundo",
           "description": "Muestra en la página de Agentes un interruptor que abre Mundo: un mapa de los agentes, el conocimiento, las fuentes y el trabajo que conectan tu organización. Cada usuario ve solo lo que tiene permiso para ver."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K de columnas por tabla",
+          "description": "Cuántas columnas de una tabla ancha ve el agente completas en su contexto, ordenadas por uso de columnas, referencias en instrucciones y claves/marcas de tiempo. El resto se resume por prefijo y se puede buscar con describe_tables. 0 = sin límite."
         }
       },
       "permissionMode": {
@@ -4430,7 +4516,8 @@
         "configure": "Configurar",
         "summaryDecision": "{model} elige el modelo inicial (confianza mínima {pct}%)",
         "decisionUnavailable": "El modelo de decisión elegido para el enrutamiento está desactivado o eliminado, así que las solicitudes empiezan en el modelo pequeño. Elige otro en Configurar.",
-        "saved": "Enrutador automático actualizado"
+        "saved": "Enrutador automático actualizado",
+        "decisionRestricted": "Solo los miembros que pueden usar {model} reciben la decisión previa. Los demás empiezan con el modelo pequeño."
       },
       "decision": {
         "badge": "Decisión",
@@ -4471,7 +4558,24 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: sin ocultar",
-      "piiBadgeTooltip": "La política de PII que reciben los prompts de este proveedor. Cámbiala en Configuración → Protección de datos personales."
+      "piiBadgeTooltip": "La política de PII que reciben los prompts de este proveedor. Cámbiala en Configuración → Protección de datos personales.",
+      "providerManagers": {
+        "title": "Administradores del proveedor",
+        "hint": "Miembros que gestionan este proveedor sin ser administradores de LLM.",
+        "can": "Pueden cambiar sus credenciales y su conexión, activar o desactivar sus modelos y editar la configuración y las pautas de enrutamiento de esos modelos.",
+        "cannot": "No pueden añadir modelos ni cambiar precios, modelos predeterminados o el acceso a modelos, ni activar el enrutador automático. Un modelo que activan empieza restringido hasta que un administrador lo abra.",
+        "addPlaceholder": "Añadir un miembro…",
+        "add": "Añadir",
+        "remove": "Quitar administrador",
+        "loading": "Cargando…",
+        "none": "Aún no hay administradores. Solo los administradores de LLM gestionan este proveedor.",
+        "added": "Administrador añadido",
+        "removed": "Administrador quitado",
+        "failed": "No se pudieron actualizar los administradores del proveedor",
+        "banner": "Gestionas {providers}. Los modelos predeterminados, el acceso a modelos, los precios y el enrutador automático los define un administrador.",
+        "priceAdminOnly": "Solo un administrador puede cambiar los precios.",
+        "restricted": "Restringido: solo pueden usarlo las personas a las que un administrador dé acceso."
+      }
     },
     "licensePage": {
       "title": "Licencia",
@@ -4635,6 +4739,8 @@
       "masksValue": "Conserva los últimos 4 caracteres",
       "pseudonymizesValue": "Las personas siguen viendo el valor",
       "detectorTitle": "Nombres, lugares y organizaciones",
+      "validatedTitle": "Identificadores validados",
+      "validatedNote": "Se detectan por patrón y se confirman con un dígito de control (Luhn para tarjetas, mod-97 para IBAN, dígitos de control para documentos), por lo que capturan muchos menos números parecidos que los identificadores comunes de arriba. Se revisan en el mensaje del usuario y en los datos, nunca en instrucciones ni esquemas.",
       "detectorUnavailable": "Detectar nombres, lugares y organizaciones requiere un detector de datos personales, y esta instancia no tiene ninguno. Pide a tu administrador que instale el extra pii del backend o que configure un servicio Presidio.",
       "detectorErrorLabel": "Si el detector no está disponible",
       "detectorErrorDesc": "Qué ocurre con una solicitud cuando el detector no puede revisarla.",
@@ -4677,7 +4783,81 @@
         "PERSON": "Nombre de persona",
         "LOCATION": "Lugar",
         "ORGANIZATION": "Organización",
-        "NRP": "Nacionalidad, grupo religioso o político"
+        "NRP": "Nacionalidad, grupo religioso o político",
+        "CREDIT_CARD": "Número de tarjeta de crédito (verificado con Luhn)",
+        "IBAN_CODE": "IBAN (con dígito de control)",
+        "ABA_ROUTING_NUMBER": "Número de ruta bancaria de EE. UU. (ABA)",
+        "CRYPTO": "Dirección de monedero de criptomonedas (Bitcoin)",
+        "US_NPI": "Identificador Nacional de Proveedor de EE. UU. (NPI)",
+        "MEDICAL_LICENSE": "Número de registro DEA de EE. UU.",
+        "UK_NHS": "Número del NHS (Reino Unido)",
+        "ES_NIF": "NIF / DNI (España)",
+        "ES_NIE": "NIE (España)",
+        "IT_FISCAL_CODE": "Código fiscal (Italia)",
+        "DE_TAX_ID": "Número de identificación fiscal (Alemania)",
+        "PL_PESEL": "PESEL (Polonia)",
+        "FI_PERSONAL_IDENTITY_CODE": "Código de identidad personal (Finlandia)",
+        "SE_PERSONNUMMER": "Personnummer (Suecia)",
+        "TR_NATIONAL_ID": "Documento nacional de identidad (Turquía)",
+        "AU_TFN": "Número de archivo fiscal (Australia, TFN)",
+        "AU_ABN": "Número de empresa (Australia, ABN)",
+        "AU_MEDICARE": "Número de Medicare (Australia)",
+        "IN_AADHAAR": "Número Aadhaar (India)",
+        "KR_RRN": "Número de registro de residente (Corea del Sur)",
+        "ZA_ID_NUMBER": "Número de identidad (Sudáfrica)",
+        "IT_VAT_CODE": "NIF-IVA de Italia (partita IVA)",
+        "DE_VAT_ID": "NIF-IVA de Alemania (USt-IdNr.)",
+        "PHONE_NUMBER": "Número de teléfono (internacional)",
+        "US_SSN": "Número de Seguro Social de EE. UU.",
+        "US_ITIN": "Número de contribuyente de EE. UU. (ITIN)",
+        "US_PASSPORT": "Número de pasaporte de EE. UU.",
+        "US_DRIVER_LICENSE": "Número de licencia de conducir de EE. UU.",
+        "US_BANK_NUMBER": "Número de cuenta bancaria de EE. UU.",
+        "US_MBI": "Identificador de beneficiario de Medicare (MBI)",
+        "UK_NINO": "Número de National Insurance (Reino Unido)",
+        "UK_PASSPORT": "Número de pasaporte (Reino Unido)",
+        "UK_DRIVING_LICENCE": "Número de licencia de conducir (Reino Unido)",
+        "UK_POSTCODE": "Código postal (Reino Unido)",
+        "CA_SIN": "Número de Seguro Social de Canadá (SIN)",
+        "SG_NRIC_FIN": "NRIC / FIN (Singapur)",
+        "IN_PAN": "PAN (India)",
+        "IN_PASSPORT": "Número de pasaporte (India)",
+        "IN_VOTER": "Credencial de elector (India)",
+        "ES_PASSPORT": "Número de pasaporte (España)",
+        "IT_DRIVER_LICENSE": "Número de licencia de conducir (Italia)",
+        "IT_PASSPORT": "Número de pasaporte (Italia)",
+        "IT_IDENTITY_CARD": "Número de documento de identidad (Italia)",
+        "KR_PASSPORT": "Número de pasaporte (Corea del Sur)",
+        "PH_PASSPORT": "Número de pasaporte (Filipinas)"
+      },
+      "agentsTitle": "Políticas por agente",
+      "agentsDesc": "Elige la política que añade cada agente. La política de un agente se aplica a toda solicitud que incluya al agente, incluidos los datos de los demás agentes del mismo chat, incluso con un proveedor exento. Cuando se aplican varias políticas, gana la opción más estricta de cada regla.",
+      "defaultAgentPolicy": "Predeterminada para agentes",
+      "defaultAgentPolicyDesc": "Los agentes sin una política propia usan esta.",
+      "noAgents": "Aún no hay agentes.",
+      "agentPolicyFor": "Política de PII para {name}",
+      "noAgentPolicy": "Sin política de agente",
+      "inheritAgentPolicy": "Predeterminada de la organización: {policy}",
+      "usedByAgents": "{n} agente | {n} agentes",
+      "contextualTitle": "Necesitan una palabra cercana",
+      "contextualNote": "Sin dígito de control, así que la mayoría solo coincide cuando una palabra como \"pasaporte\" o \"cuenta\" está junto al valor. Funciona en frases y notas; en filas de tablas el nombre de la columna no suele estar junto al valor, así que habrá omisiones. Se revisan en el mensaje del usuario y en los datos, nunca en instrucciones ni esquemas.",
+      "termCount": "{n} término | {n} términos",
+      "terms": "Términos exactos",
+      "termsHelp": "Palabras o frases, una por línea: nombres en clave, nombres de clientes, hosts internos. Coinciden como palabras completas, sin distinguir mayúsculas. Úsalos con patrones o en su lugar.",
+      "termsPlaceholder": "Proyecto Halcón\nAcme Corp",
+      "checksum": "Dígito de control",
+      "checksumHelp": "Una coincidencia solo cuenta si pasa esta comprobación, que descarta la mayoría de números parecidos.",
+      "checksumNone": "Sin dígito de control",
+      "contextWords": "Palabras de contexto",
+      "contextWordsHelp": "Separadas por comas. Una coincidencia solo cuenta si una de estas palabras está a menos de 60 caracteres.",
+      "contextWordsPlaceholder": "pasaporte, nº de pasaporte",
+      "checksumSummary": "Control: {name}",
+      "contextSummary": "Cerca de: {words}",
+      "checksums": {
+        "luhn": "Luhn (tarjetas, IMEI, SIN de Canadá)",
+        "iban": "IBAN (mod 97)",
+        "il_id": "Documento de identidad israelí (Teudat Zehut)",
+        "aba": "Número de ruta bancaria de EE. UU. (ABA)"
       }
     },
     "piiTab": "Protección de datos",
@@ -4685,7 +4865,7 @@
       "members": "Invita a personas al espacio de trabajo y gestiona su rol, grupos y acceso.",
       "roles": "Define qué puede ver y hacer cada rol, y asígnalos a miembros y grupos.",
       "groups": "Organiza a los miembros en grupos para conceder roles, cuotas y acceso a datos en conjunto.",
-      "quotas": "Limita el uso mensual de IA y datos para miembros, grupos y roles.",
+      "quotas": "Limita el uso diario y mensual de IA y datos para miembros, grupos y roles.",
       "models": "Conecta proveedores de LLM y elige qué modelos puede usar tu espacio de trabajo.",
       "identityProvider": "Sincroniza usuarios, grupos y datos de perfil desde tu proveedor de identidad.",
       "smtp": "El servidor que envía los correos del sistema: invitaciones, informes compartidos y resultados de informes programados. Si está activado, reemplaza al servidor configurado para esta instancia."
@@ -5254,6 +5434,24 @@
           "title": "Crea un token de API",
           "body": "En tu cuenta de Atlassian ve a Security > API tokens > Create API token with scopes, elige Bitbucket y concede read:repository:bitbucket. Deja Usuario vacío. Para un token de acceso al repositorio, pon x-token-auth en Usuario."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Registra una aplicación en Microsoft Entra",
+          "body": "En el centro de administración de Microsoft Entra ve a App registrations > New registration. Elige \"Accounts in this organizational directory only\". En la página Overview de la aplicación, copia Directory (tenant) ID y Application (client) ID en los campos de abajo."
+        },
+        {
+          "title": "Agrega el URI de redirección",
+          "body": "En la aplicación ve a Authentication > Add a platform > Web y pega este URI de redirección."
+        },
+        {
+          "title": "Concede permisos de Microsoft Graph",
+          "body": "En API permissions > Add a permission > Microsoft Graph > Delegated permissions, agrega Mail.Read, User.Read, offline_access, openid y profile. Para que los agentes puedan mover, redactar o enviar correo, agrega también Mail.ReadWrite y Mail.Send. Después haz clic en \"Grant admin consent\" para que no se pida a los usuarios que aprueben la aplicación. Usa solo permisos Delegated, no Application: el conector solo lee el buzón del usuario que inició sesión."
+        },
+        {
+          "title": "Crea un secreto de cliente",
+          "body": "En Certificates & secrets > New client secret, crea un secreto y copia su Value (no el Secret ID) en Client Secret abajo. Después no podrás volver a ver el valor."
+        }
       ]
     },
     "setupGuideCopyFailed": "Error al copiar — selecciona el texto",
@@ -5314,6 +5512,14 @@
     },
     "athena": {
       "databaseDescription": "Un nombre de base de datos de Glue, o una lista separada por comas de nombres, patrones glob y exclusiones con !, para indexar varias, p. ej. *_db, !billing_db, analytics_history. Con varias, las tablas se llaman base_de_datos.tabla.",
+      "tableExcludeTitle": "Patrón de exclusión de tablas",
+      "tableExcludeDescription": "Expresión regular opcional; las tablas cuyo nombre coincida no se indexan, p. ej. ^day_\\d{'{'}2{'}'}. Al cambiarla, en la siguiente indexación se eliminan las tablas recién excluidas y su selección en el agente."
+    },
+    "postgresqlMulti": {
+      "databasesTitle": "Bases de datos",
+      "databasesDescription": "Nombres de bases de datos, patrones glob y exclusiones con !, separados por comas, p. ej. tenant_*, !tenant_test. La coincidencia distingue mayúsculas y minúsculas. Todas las bases de datos que coincidan se unifican en un único conjunto de tablas con una columna tenant_db.",
+      "discoveryDatabaseTitle": "Base de datos de descubrimiento",
+      "discoveryDatabaseDescription": "Base de datos que se usa para listar las bases de datos del servidor. Predeterminada: postgres.",
       "tableExcludeTitle": "Patrón de exclusión de tablas",
       "tableExcludeDescription": "Expresión regular opcional; las tablas cuyo nombre coincida no se indexan, p. ej. ^day_\\d{'{'}2{'}'}. Al cambiarla, en la siguiente indexación se eliminan las tablas recién excluidas y su selección en el agente."
     },
@@ -5582,7 +5788,14 @@
       "model_id_not_editable": "Solo se puede editar el ID de modelo de los modelos personalizados en proveedores Azure, AWS Bedrock o personalizados (compatibles con OpenAI)",
       "model_id_duplicate": "El modelo «{model_id}» ya existe en este proveedor",
       "model_is_group_default": "Este modelo es el predeterminado de los grupos: {groups}. Cambia primero su modelo predeterminado.",
-      "group_default_invalid": "El modelo debe estar habilitado y ser un modelo de chat de esta organización."
+      "group_default_invalid": "El modelo debe estar habilitado y ser un modelo de chat de esta organización.",
+      "group_default_not_available": "Este grupo no puede usar ese modelo. Pide a un administrador que primero le dé acceso al grupo.",
+      "group_default_priority_admin_only": "Solo un administrador puede cambiar la prioridad de un grupo.",
+      "provider_holds_default": "Este proveedor tiene el modelo predeterminado de la organización. Pide a un administrador que primero cambie el predeterminado.",
+      "provider_manager_admin_only": "Solo un administrador puede hacer eso en este proveedor.",
+      "provider_manager_not_member": "Solo un miembro de esta organización puede administrar un proveedor.",
+      "provider_key_required_for_new_destination": "Vuelve a introducir la clave de API al cambiar a dónde se conecta este proveedor.",
+      "provider_host_identity_admin_only": "Este proveedor inicia sesión con la identidad en la nube del propio servidor. Solo un administrador puede cambiar a dónde se conecta o activar ese inicio de sesión."
     },
     "data_source.in_use": "El agente \"{agent}\" todavía está en uso ({reference}), así que no se puede eliminar. No se eliminó nada.",
     "memory.disabled": "La memoria del usuario está desactivada en esta organización.",
@@ -5693,7 +5906,8 @@
     "organization.name_taken": "Ya existe una organización llamada «{name}».",
     "organization.signup_domains_instance_admin_required": "Solo un administrador de la instancia puede asignar dominios de registro a una organización.",
     "organization.signup_domain_claimed": "El dominio {domain} ya está asignado a otra organización.",
-    "organization.member_instance_admin": "Esta cuenta es de un administrador de la instancia. Solo un administrador de la instancia puede añadirla a una organización."
+    "organization.member_instance_admin": "Esta cuenta es de un administrador de la instancia. Solo un administrador de la instancia puede añadirla a una organización.",
+    "workspace.access_required": "Tu cuenta puede usar las aplicaciones compartidas contigo, pero no el espacio de trabajo."
   },
   "email": {
     "dashboardShare": {
@@ -6597,6 +6811,8 @@
       "colTools": "Herramientas",
       "colDuration": "Duración",
       "colCost": "Coste",
+      "colModel": "Modelo",
+      "pivotModel": "Ver ejecuciones que usaron este modelo",
       "colFeedback": "Feedback",
       "expandRow": "Mostrar llamadas a herramientas",
       "pivotReport": "Mostrar esta conversación",
@@ -7150,7 +7366,8 @@
       "windowNote": "El uso se reinicia al comienzo de cada mes.",
       "dailyNote": "por día desde el inicio del mes",
       "disabledTitle": "El seguimiento de uso no está habilitado",
-      "disabledNote": "El uso por usuario (tokens, consultas y datos analizados) se registra cuando la función de Límites de uso está habilitada en tu plan."
+      "disabledNote": "El uso por usuario (tokens, consultas y datos analizados) se registra cuando la función de Límites de uso está habilitada en tu plan.",
+      "today": "Hoy: {used} / {limit}"
     },
     "appearance": {
       "title": "Apariencia",
@@ -7231,7 +7448,22 @@
     "agents": "Agentes",
     "instructions": "Instrucciones",
     "emptyLabel": "Empieza a escribir para buscar",
-    "emptyQueryLabel": "No se encontraron resultados"
+    "emptyQueryLabel": "No se encontraron resultados",
+    "placeholderInReport": "Buscar en este informe, informes, agentes, instrucciones…",
+    "inThisReport": "En este informe",
+    "reportScopeHint": "Escribe report: para buscar solo en este informe",
+    "reportPrefix": "informe:",
+    "tabs": {
+      "all": "Todo",
+      "reports": "Informes",
+      "agents": "Agentes",
+      "instructions": "Instrucciones",
+      "dashboards": "Paneles"
+    },
+    "tabsLabel": "Categorías",
+    "tabsHint": "categorías",
+    "dashboards": "Paneles",
+    "untitledDashboard": "Panel sin título"
   },
   "promptParams": {
     "title": "Rellena los parámetros — {title}",
@@ -7755,7 +7987,10 @@
     "showAllColumns": "Mostrar todas",
     "hideAllColumns": "Ocultar todas",
     "includeColumn": "Incluir {name} en el contexto del agente",
-    "columnHidden": "oculta"
+    "columnHidden": "oculta",
+    "usedHeader": "Usos",
+    "usedTooltip": "Consultas ejecutadas que usaron esta columna (los intentos fallidos pesan menos en el ranking)",
+    "sortedByUsage": "Las más usadas primero"
   },
   "fork": {
     "preparing": "Preparando tu copia…",
@@ -7763,7 +7998,9 @@
     "nothingRan": "No se pudo crear tu copia: ninguna de sus consultas pudo ejecutarse con tus credenciales."
   },
   "quota": {
-    "resetsOn": "se reinicia el {date}"
+    "resetsOn": "se reinicia el {date}",
+    "todayLabel": "{metric} · hoy",
+    "resetsDailyAndMonthly": "Hoy se reinicia a las 00:00 {tz} · mes {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Aprender durante la noche",
@@ -8443,7 +8680,8 @@
     "signin": {
       "working": "Iniciando sesión…",
       "done": "Sesión iniciada. Puedes cerrar esta ventana.",
-      "invalid": "Este enlace de inicio de sesión está incompleto. Cierra esta ventana e inténtalo de nuevo."
+      "invalid": "Este enlace de inicio de sesión está incompleto. Cierra esta ventana e inténtalo de nuevo.",
+      "intentFailed": "No se pudo confirmar la aplicación en la que inicias sesión. No se envió nada. Inténtalo de nuevo."
     },
     "tab": {
       "title": "Insertar",
@@ -8497,7 +8735,7 @@
     "audience": "Audiencia",
     "audienceHelp": "El aud de los tokens de ID que tu proveedor emite para esta aplicación",
     "createUsers": "Crear personas en el primer inicio de sesión",
-    "createUsersHelp": "Alguien que el directorio conoce pero BOW todavía no se une como miembro. Si no, debe existir de antemano (invitado o aprovisionado).",
+    "createUsersHelp": "Alguien que el directorio conoce pero BOW todavía no obtiene una cuenta en su primer inicio de sesión, con el rol de abajo. Si no, debe existir de antemano (invitado o aprovisionado).",
     "createsUsers": "crea personas",
     "create": "Crear",
     "keyOnce": "Copia la clave privada ahora y guárdala en los secretos del backend de tu aplicación. Solo se muestra una vez; BOW guarda solo la clave pública.",
@@ -8518,7 +8756,14 @@
     "delete": "Eliminar",
     "deleteConfirm": "¿Eliminar {name}? Sus inserciones dejan de funcionar y se cierra la sesión de todos.",
     "backendExample": "Ejemplo de backend",
-    "backendExampleHelp": "Firma una aserción por cada inicio de sesión, para el usuario con sesión en tu aplicación:"
+    "backendExampleHelp": "Firma una aserción por cada inicio de sesión, para el usuario con sesión en tu aplicación:",
+    "newUserRole": "Las personas nuevas se unen como",
+    "newUserRoleHelp": "Para las cuentas creadas al iniciar sesión a través de esta aplicación. Quienes ya tienen una cuenta conservan su rol.",
+    "newUserRoleApp": "Usuario de aplicaciones",
+    "newUserRoleAppHelp": "Puede usar las aplicaciones compartidas con él, no el espacio de trabajo.",
+    "newUserRoleMember": "Miembro",
+    "newUserRoleMemberHelp": "También puede usar el espacio de trabajo: informes, agentes y paneles.",
+    "newPeopleAs": "las personas nuevas se unen como {role}"
   },
   "connectedApps": {
     "title": "Aplicaciones conectadas",
@@ -8575,6 +8820,10 @@
     "shareToggleLabel": "Poner a disposición de toda tu organización",
     "shareToggleHint": "Añade “{name}” a los conectores de todos. Cada persona inicia sesión con su propia cuenta: nadie ve los datos de los demás.",
     "useAsAgent": "Usar como agente",
+    "enableForChat": "Activar para el chat",
+    "disableForChat": "Desactivar para el chat",
+    "enabledHint": "Activado: la IA puede usarlo en el chat",
+    "disabledHint": "Desactivado: la IA no lo usará en el chat",
     "movedToAgents": "{name} ahora es un agente"
   },
   "tablePreview": {
@@ -8681,6 +8930,13 @@
       "none": "Sin límite",
       "ask": "Preguntar",
       "auto": "Automático"
+    },
+    "pii": {
+      "title": "Política de PII",
+      "hint": "Se aplica a toda solicitud que incluya este agente, además de la política del modelo. Gana la opción más estricta de cada regla.",
+      "disabled": "La protección de PII está desactivada en esta organización.",
+      "saved": "Política de PII guardada",
+      "saveError": "No se pudo guardar la política de PII"
     }
   },
   "productUpdates": {
@@ -9020,5 +9276,93 @@
       }
     },
     "builtinBadge": "Integrada"
+  },
+  "cachedColumns": {
+    "title": "Columnas",
+    "hint": "Las descripciones y la marca de reagregación provienen del catálogo de origen. Lo que cambie aquí se conserva en cada actualización.",
+    "column": "Columna",
+    "type": "Tipo",
+    "description": "Descripción",
+    "details": "Detalles",
+    "aggregation": "Reagregación",
+    "descriptionPlaceholder": "Sin descripción en el origen. Describa esta columna para el agente.",
+    "additive": "Aditiva",
+    "notAdditive": "No aditiva",
+    "unknown": "Desconocida",
+    "additiveHint": "Los valores se pueden sumar entre filas.",
+    "notAdditiveHint": "Sumar entre filas da un número incorrecto. Se indica al agente que no lo haga.",
+    "unknownHint": "No se pudo determinar a partir de la consulta. Elija una opción para que el agente lo sepa.",
+    "undecided": "No se pudo determinar la reagregación de: {columns}. Indíquela para que el agente sepa si se pueden sumar.",
+    "copiedFrom": "Copiada de {source}",
+    "measureFrom": "Medida {source}",
+    "computedAs": "Calculada: {expression}",
+    "edited": "Editada",
+    "editedHint": "Definida por un administrador. Una actualización no la cambiará.",
+    "reset": "Restablecer al origen",
+    "drift": "La definición cambió",
+    "driftHint": "La definición de origen de esta columna cambió desde que la tabla la describió por última vez.",
+    "driftPrevious": "Antes: {expression}",
+    "markReviewed": "Marcar como revisada",
+    "rlsTitle": "El origen usa seguridad a nivel de fila",
+    "rlsBody": "{tables} está protegida por seguridad a nivel de fila en el origen. Esta copia contiene todas las filas que la conexión puede leer y los roles del origen no se trasladan. Decida quién ve qué filas en la pestaña Seguridad a nivel de fila.",
+    "rlsOpen": "Abrir Seguridad a nivel de fila",
+    "rlsSaveFirst": "Disponible una vez guardada la tabla.",
+    "generatedDescription": "Generada a partir de las columnas y actualizada en cada actualización. Edítela para escribir la suya.",
+    "reasons": {
+      "sum": "suma",
+      "count": "recuento",
+      "numeric_column": "valor numérico",
+      "distinct_count": "recuento de distintos",
+      "average": "promedio",
+      "ratio": "ratio",
+      "min_max": "mínimo / máximo",
+      "time_intelligence": "inteligencia de tiempo",
+      "share_of_total": "parte de un total",
+      "statistic": "estadístico",
+      "offset": "constante sumada tras agregar",
+      "unreadable": "definición no legible",
+      "complex": "demasiado compleja para clasificar",
+      "not_numeric": "no es un número",
+      "grouping_key": "clave de agrupación",
+      "key": "identificador",
+      "set_by_admin": "definida por un administrador"
+    }
+  },
+  "connectionlessAgent": {
+    "optional": "(opcional)",
+    "createHint": "Déjalo vacío para crear el agente solo con instrucciones y archivos. Puedes vincular una conexión más tarde.",
+    "badge": "Sin conexiones",
+    "landingHint": "Sin conexiones de datos. Este agente responde a partir de sus instrucciones y archivos.",
+    "addConnection": "Añadir conexión",
+    "unlinkLastConfirm": "¿Desvincular la última conexión? El agente se conserva, con sus instrucciones y archivos, pero sin conexión de datos.",
+    "deleteKeepsAgents": "Los agentes se conservan. Un agente que solo usa esta conexión se quedará sin conexión de datos hasta que vincules otra.",
+    "impactLoadFailed": "No se pudo cargar a qué afecta esta eliminación.",
+    "deleteRemovesConnectors": "Se eliminan con ella (conectores que solo usan esta conexión): {names}"
+  },
+  "apps": {
+    "title": "Tus aplicaciones",
+    "subtitle": "Abre una aplicación para empezar.",
+    "openWorkspace": "Abrir el espacio de trabajo",
+    "search": "Buscar aplicaciones",
+    "untitled": "Aplicación sin título",
+    "inApplication": "En {name}",
+    "allApps": "Todas las aplicaciones",
+    "language": "Idioma",
+    "account": "Cuenta",
+    "signOut": "Cerrar sesión",
+    "loadFailed": "No se pudieron cargar tus aplicaciones.",
+    "retry": "Reintentar",
+    "noMatches": "Ninguna aplicación coincide con «{query}».",
+    "empty": {
+      "title": "Aún no hay aplicaciones",
+      "body": "Cuando alguien comparta una aplicación contigo, aparecerá aquí."
+    },
+    "requestAccess": {
+      "prompt": "¿Necesitas algo más que estas aplicaciones?",
+      "button": "Solicitar acceso completo",
+      "sent": "Solicitud enviada. Un administrador la revisará.",
+      "failed": "No se pudo enviar la solicitud. Inténtalo de nuevo."
+    },
+    "showMore": "Mostrar más"
   }
 }

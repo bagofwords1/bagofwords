@@ -1,0 +1,213 @@
+"""One Postgres server holding several tenant databases, for postgresql_multi tests.
+
+The tenants are chosen for the cases a naive unifier gets wrong:
+
+* `tenant_a` and `Tenant_A` differ only by case, which DuckDB catalog aliases
+  cannot tell apart
+* `public` is named like the schema every tenant uses
+* `tenant_old` predates `orders.note`, so the unified view must read NULL there
+* `tenant_locked` exists and holds the same tables, but the reader role has no
+  CONNECT privilege on it
+* `tenant_no_grants` can be connected to and holds the same tables, but the
+  reader role has no SELECT on any of them, so its catalog reads empty
+
+Row counts differ per tenant so a test that mixes two tenants up fails. User
+ids overlap between tenants, as separate id spaces do in production.
+"""
+
+from __future__ import annotations
+
+import os
+
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from decimal import Decimal
+
+import psycopg2
+import pytest
+
+READER_USER = "bow_reader"
+READER_PASSWORD = "reader-pw'\\x"
+
+TENANT_ROWS: dict[str, dict[str, list[tuple]]] = {
+    "tenant_a": {
+        "users": [(1, "ada"), (2, "bob")],
+        "orders": [(1, 1, Decimal("10.50"), "first"), (2, 2, Decimal("20.00"), None), (3, 1, Decimal("7.25"), "again")],
+    },
+    "Tenant_A": {
+        "users": [(1, "cy"), (2, "di"), (3, "ed"), (4, "flo")],
+        "orders": [
+            (1, 1, Decimal("100.00"), "x"),
+            (2, 2, Decimal("1.00"), "y"),
+            (3, 3, Decimal("2.50"), None),
+            (4, 4, Decimal("3.75"), "z"),
+        ],
+    },
+    "public": {
+        "users": [(5, "gus"), (6, "hal")],
+        "orders": [(1, 5, Decimal("42.00"), "p"), (2, 6, Decimal("8.00"), "q")],
+    },
+    "tenant_old": {
+        "users": [(1, "ivy"), (7, "jo")],
+        "orders": [
+            (1, 1, Decimal("5.00")),
+            (2, 7, Decimal("6.00")),
+            (3, 7, Decimal("7.00")),
+            (4, 1, Decimal("8.00")),
+            (5, 7, Decimal("9.00")),
+        ],
+    },
+    "tenant_locked": {
+        "users": [(9, "kim")],
+        "orders": [(1, 9, Decimal("99.00"), "secret")],
+    },
+}
+
+READABLE_TENANTS = ["tenant_a", "Tenant_A", "public", "tenant_old"]
+LOCKED_TENANT = "tenant_locked"
+GRANTLESS_TENANT = "tenant_no_grants"
+UNREADABLE_TENANTS = [LOCKED_TENANT, GRANTLESS_TENANT]
+
+
+# An existing, throwaway Postgres to use instead of a container, for machines
+# without Docker: "host:port:admin_user[:admin_password]". The suite creates and
+# drops its own tenant databases and role on it, so never point it at a server
+# that holds anything you want to keep.
+EXTERNAL_SERVER_ENV = "BOW_TEST_MULTI_PG"
+
+
+def _docker_available() -> bool:
+    try:
+        import docker
+
+        docker.from_env().ping()
+        return True
+    except Exception:
+        return False
+
+
+def _external_server() -> tuple[str, int, str, str] | None:
+    spec = os.environ.get(EXTERNAL_SERVER_ENV, "").strip()
+    if not spec:
+        return None
+    host, port, user, *rest = spec.split(":", 3)
+    return host, int(port), user, rest[0] if rest else ""
+
+
+requires_docker = pytest.mark.skipif(
+    not (_external_server() or _docker_available()),
+    reason=f"Docker daemon not reachable and {EXTERNAL_SERVER_ENV} not set",
+)
+
+
+def _quote_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+@dataclass
+class MultiTenantServer:
+    host: str
+    port: int
+    admin_user: str
+    admin_password: str
+    reader_user: str = READER_USER
+    reader_password: str = READER_PASSWORD
+    tenants: dict[str, dict[str, list[tuple]]] = field(default_factory=lambda: TENANT_ROWS)
+
+    def connect(self, database: str, *, admin: bool = True):
+        return psycopg2.connect(
+            host=self.host,
+            port=self.port,
+            dbname=database,
+            user=self.admin_user if admin else self.reader_user,
+            password=self.admin_password if admin else self.reader_password,
+        )
+
+    def query(self, database: str, sql: str) -> list[tuple]:
+        conn = self.connect(database)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                return cur.fetchall()
+        finally:
+            conn.close()
+
+    def create_database(self, name: str) -> None:
+        conn = self.connect("postgres")
+        conn.autocommit = True
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"CREATE DATABASE {_quote_ident(name)}")
+        finally:
+            conn.close()
+
+
+def _seed_tenant(
+    server: MultiTenantServer, name: str, rows: dict[str, list[tuple]], *, grant: bool = True
+) -> None:
+    has_note = all(len(row) == 4 for row in rows["orders"])
+    conn = server.connect(name)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("CREATE TABLE public.users (id int PRIMARY KEY, name text)")
+            cur.execute(
+                "CREATE TABLE public.orders (id int PRIMARY KEY, user_id int REFERENCES public.users(id),"
+                " total numeric" + (", note text" if has_note else "") + ")"
+            )
+            cur.executemany("INSERT INTO public.users VALUES (%s, %s)", rows["users"])
+            placeholders = ", ".join(["%s"] * len(rows["orders"][0]))
+            cur.executemany(f"INSERT INTO public.orders VALUES ({placeholders})", rows["orders"])
+            if grant:
+                cur.execute(f"GRANT USAGE ON SCHEMA public TO {READER_USER}")
+                cur.execute(f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {READER_USER}")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _prepare(server: MultiTenantServer, admin_db: str, *, reset: bool) -> None:
+    admin = server.connect(admin_db)
+    admin.autocommit = True
+    try:
+        with admin.cursor() as cur:
+            if reset:
+                # Every database the suite may have left behind, not only the
+                # tenant_* ones: some tests create others (mixed case, quotes).
+                cur.execute("SELECT datname FROM pg_database WHERE datname NOT IN ('postgres', 'template0', 'template1')")
+                for (name,) in cur.fetchall():
+                    cur.execute(f"DROP DATABASE IF EXISTS {_quote_ident(name)} WITH (FORCE)")
+                cur.execute(f"DROP ROLE IF EXISTS {READER_USER}")
+            escaped = READER_PASSWORD.replace("'", "''")
+            cur.execute(f"CREATE ROLE {READER_USER} LOGIN PASSWORD '{escaped}'")
+            for name in [*TENANT_ROWS, GRANTLESS_TENANT]:
+                cur.execute(f"CREATE DATABASE {_quote_ident(name)}")
+            cur.execute(f"REVOKE CONNECT ON DATABASE {_quote_ident(LOCKED_TENANT)} FROM PUBLIC")
+    finally:
+        admin.close()
+    for name, rows in TENANT_ROWS.items():
+        _seed_tenant(server, name, rows)
+    _seed_tenant(server, GRANTLESS_TENANT, TENANT_ROWS["tenant_a"], grant=False)
+
+
+@contextmanager
+def running_multi_tenant_server() -> Iterator[MultiTenantServer]:
+    external = _external_server()
+    if external:
+        host, port, user, password = external
+        server = MultiTenantServer(host=host, port=port, admin_user=user, admin_password=password)
+        _prepare(server, "postgres", reset=True)
+        yield server
+        return
+
+    from testcontainers.postgres import PostgresContainer
+
+    with PostgresContainer("postgres:15") as container:
+        server = MultiTenantServer(
+            host=container.get_container_host_ip(),
+            port=int(container.get_exposed_port(5432)),
+            admin_user=container.username,
+            admin_password=container.password,
+        )
+        _prepare(server, container.dbname, reset=False)
+        yield server

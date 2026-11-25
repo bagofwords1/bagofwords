@@ -286,14 +286,31 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
                 curator_only = True
         if curator_only:
             return []
+    # The user's chat on/off choices. These gate only the connectors that are
+    # AUTO-JOINED to a run (the whole point of a personal connector: it rides
+    # along with every run). A connector a user EXPLICITLY pinned or selected
+    # for this report/scheduled task is an explicit in-scope choice and is kept
+    # — a composer-wide default must not override an explicit selection.
+    disabled: set = set()
+    if user is not None:
+        from app.services.connector_preference_service import get_disabled_connector_ids
+        disabled = await get_disabled_connector_ids(
+            db, str(getattr(user, "id", "") or ""), str(organization.id)
+        )
+
+    def _autojoin_personal(ds) -> bool:
+        return _is_personal_connector(ds) and str(ds.id) not in disabled
+
     if agent_ids is not None:
         # A run with its own agents (a scheduled task's selection): exactly
         # those, re-checked against what the running user can use today. Like a
-        # pinned selection, the person's own connectors join it (see below).
+        # pinned selection, the person's own connectors join it (see below) —
+        # except ones switched off for chat. Connectors explicitly in agent_ids
+        # are kept regardless (an explicit selection wins over the default).
         wanted = {str(i) for i in agent_ids}
         reachable = await accessible_agents(db, organization, user)
         agents = [a for a in reachable if str(a.id) in wanted]
-        agents += [ds for ds in reachable if str(ds.id) not in wanted and _is_personal_connector(ds)]
+        agents += [ds for ds in reachable if str(ds.id) not in wanted and _autojoin_personal(ds)]
     elif getattr(report, "agent_folder_id", None):
         in_branch, queryable = await folder_branch_agents(db, organization, user, report)
         if not queryable and not attached:
@@ -319,13 +336,20 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         if not visible_pins:
             from fastapi import HTTPException
             raise HTTPException(409, "A selected agent is unavailable")
+        # Auto-joined personal connectors, minus the ones switched off for chat.
+        # A connector the user explicitly pinned is in ``visible_pins`` and is
+        # kept regardless of the toggle.
         personal = [
             ds for ds in reachable
-            if str(ds.id) not in chosen and _is_personal_connector(ds)
+            if str(ds.id) not in chosen and _autojoin_personal(ds)
         ]
         agents = visible_pins + personal
     else:
-        agents = await accessible_agents(db, organization, user)
+        # Auto: every accessible agent, minus personal connectors switched off.
+        agents = [
+            ds for ds in await accessible_agents(db, organization, user)
+            if not (_is_personal_connector(ds) and str(ds.id) in disabled)
+        ]
     if exclude_personal_connectors:
         agents = [ds for ds in agents if not _is_personal_connector(ds)]
     from app.services.connected_application_service import filter_agents
@@ -471,6 +495,10 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
         from app.services.folder_knowledge import record_knowledge_scope
         await record_knowledge_scope(db, report, organization, user)
     clients: Dict[str, Any] = {}
+    # Agents with no connection that this user may not use. Any other agent
+    # the user cannot reach is dropped by AgentV2 for having no client; a
+    # connectionless agent never has one, so it has to be dropped here.
+    denied_connectionless: set = set()
     for ds in agents:
         # Each connection on its own: one that cannot be set up for this user
         # (an unreachable server, a missing sign-in) gets a stand-in client
@@ -486,11 +514,15 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
         except HTTPException as e:
             if eval_targets or e.status_code != 403:
                 raise
+            if not (getattr(ds, "connections", None) or []):
+                denied_connectionless.add(str(ds.id))
             logger.warning("run agents: skipping %s — %s", getattr(ds, "name", "?"), e.detail)
         except Exception:
             if eval_targets:
                 raise
             logger.exception("run agents: client construction failed for %s", getattr(ds, "name", "?"))
+    if denied_connectionless:
+        agents = [a for a in agents if str(a.id) not in denied_connectionless]
     return agents, clients
 
 

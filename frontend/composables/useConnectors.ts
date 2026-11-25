@@ -71,6 +71,25 @@ export function useConnectors() {
     return true
   }
 
+  // The chat on/off toggle. Separate from sign-in: turning a connector off
+  // keeps the account linked but omits its context and tools from runs. The
+  // choice is remembered per user + workspace on the server and takes effect on
+  // the next message. Optimistic: flip locally, revert on failure.
+  async function setChatEnabled(ds: any, enabled: boolean): Promise<boolean> {
+    const prev = ds.chat_enabled
+    ds.chat_enabled = enabled
+    const { error } = await useMyFetch(`/data_sources/${ds.id}/chat-preference`, {
+      method: 'PUT',
+      body: { enabled },
+    })
+    if (error.value) {
+      ds.chat_enabled = prev
+      toast.add({ title: t('connectors.actionFailed'), description: (error.value as any)?.data?.detail || '', color: 'red' })
+      return false
+    }
+    return true
+  }
+
   async function remove(ds: any): Promise<boolean> {
     const { error } = await useMyFetch(`/data_sources/${ds.id}`, { method: 'DELETE' })
     if (error.value) {
@@ -82,5 +101,5 @@ export function useConnectors() {
     return true
   }
 
-  return { connectors, loading, load, signOut, remove, connectorStatus, connectorIsUsable }
+  return { connectors, loading, load, signOut, remove, setChatEnabled, connectorStatus, connectorIsUsable }
 }

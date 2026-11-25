@@ -438,6 +438,59 @@ class PostgreSQLConfig(BaseModel):
     )
 
 
+class PostgreSQLMultiConfig(BaseModel):
+    host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
+    port: int = Field(5432, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
+    databases: str = Field(
+        ...,
+        title="Databases",
+        description="Comma-separated database names, globs and !-exclusions, e.g. 'tenant_*, !tenant_test'. Matching is case-sensitive. Every matching database is unified into one set of tables with a tenant_db column.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.postgresqlMulti.databasesTitle",
+                           "ui:descriptionKey": "data.postgresqlMulti.databasesDescription"},
+    )
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas",
+        json_schema_extra={"ui:type": "string"},
+    )
+    sslmode: str = Field(
+        "prefer",
+        title="SSL Mode",
+        description="libpq sslmode: disable, allow, prefer, require, verify-ca, verify-full. Use 'require' for IAM-authenticated connections (e.g. AWS RDS), which reject unencrypted logins.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]},
+    )
+    discovery_database: str = Field(
+        "postgres",
+        title="Discovery Database",
+        description="Database used to list the server's databases. Default: postgres.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.postgresqlMulti.discoveryDatabaseTitle",
+                           "ui:descriptionKey": "data.postgresqlMulti.discoveryDatabaseDescription"},
+    )
+    table_exclude_pattern: Optional[str] = Field(
+        None,
+        title="Table Exclude Pattern",
+        description="Optional regular expression; tables whose name matches are not indexed, e.g. '^day_\\d{2}'. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.postgresqlMulti.tableExcludeTitle",
+                           "ui:descriptionKey": "data.postgresqlMulti.tableExcludeDescription"},
+    )
+
+    @field_validator("table_exclude_pattern")
+    @classmethod
+    def _check_table_exclude_pattern(cls, value):
+        return validate_table_exclude_pattern(value)
+
+    @model_validator(mode="after")
+    def _check_databases_spec(self):
+        entries = [e.strip() for e in self.databases.split(",")]
+        if any(not e or e == "!" for e in entries):
+            raise ValueError("databases must not contain empty entries")
+        includes, _, _ = parse_athena_database_spec(self.databases)
+        if not includes:
+            raise ValueError("databases needs at least one database name or pattern, not only !-exclusions")
+        return self
+
+
 # SQLite (local file database)
 class SQLiteCredentials(BaseModel):
     class Config:
@@ -1707,6 +1760,17 @@ def parse_athena_database_spec(spec) -> tuple[list[str], list[str], bool]:
     return includes, excludes, multi
 
 
+def validate_table_exclude_pattern(value):
+    from app.utils.safe_regex import compile_bounded, pattern_cost_problem
+    if value is not None and value.strip():
+        problem = pattern_cost_problem(value.strip())
+        if problem:
+            raise ValueError(f"table_exclude_pattern is too costly: {problem}")
+        if compile_bounded(value.strip()) is None:
+            raise ValueError("table_exclude_pattern is not a valid regular expression")
+    return value
+
+
 class AWSAthenaConfig(BaseModel):
     region: str = Field(..., title="Region", description="", json_schema_extra={"ui:type": "string"})
     database: str = Field(
@@ -1729,14 +1793,7 @@ class AWSAthenaConfig(BaseModel):
     @field_validator("table_exclude_pattern")
     @classmethod
     def _check_table_exclude_pattern(cls, value):
-        from app.utils.safe_regex import compile_bounded, pattern_cost_problem
-        if value is not None and value.strip():
-            problem = pattern_cost_problem(value.strip())
-            if problem:
-                raise ValueError(f"table_exclude_pattern is too costly: {problem}")
-            if compile_bounded(value.strip()) is None:
-                raise ValueError("table_exclude_pattern is not a valid regular expression")
-        return value
+        return validate_table_exclude_pattern(value)
 
     @model_validator(mode="after")
     def _check_database_spec(self):
@@ -3152,6 +3209,51 @@ class SharePointOnpremKerberosCredentials(BaseModel):
         if not self.kerberos:
             raise ValueError("Kerberos must be enabled for this authentication variant.")
         return self
+
+
+# SharePoint Server lists — read-only tables over the on-premises REST API.
+class SharePointOnpremListsConfig(BaseModel):
+    site_url: str = Field(
+        ..., title="Site URL",
+        description="SharePoint Server site URL, including /sites/name (e.g. https://sharepoint.example.com/sites/finance). Not the Central Administration URL.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    lists: Optional[str] = Field(
+        "*", title="Lists",
+        description=(
+            "Lists to expose as tables: '*' (default) for every list on the site, or a "
+            "comma-separated set of list names (e.g. 'Expenses, Vendors'). Document "
+            "libraries are never included — use SharePoint Server (on-prem) for those."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    include_hidden: bool = Field(
+        False, title="Include Hidden Lists",
+        description="Also expose lists SharePoint marks as hidden (site plumbing). Usually off.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_items: int = Field(
+        20000, ge=1, le=100000, title="Max items per query",
+        description=(
+            "How many list items one query may read. SharePoint Server cannot filter "
+            "unindexed columns on lists over 5,000 items, so filters run after reading; "
+            "on a larger list, a filtered query covers this many items and says so."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_http: bool = Field(
+        False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+    @field_validator("site_url")
+    @classmethod
+    def _site_url(cls, value: str) -> str:
+        value = (value or "").strip().rstrip("/")
+        if not value.lower().startswith(("https://", "http://")):
+            raise ValueError("Site URL must start with https://")
+        return value
 
 
 # Exchange Server (on-premises) mail — read-only, over Exchange Web Services.

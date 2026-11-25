@@ -166,11 +166,15 @@ def _cached_meta_for(ct):
     if getattr(ct, "kind", None) != KIND_BOW:
         return False, None, None, None
     ts = getattr(ct, "last_refreshed_at", None)
+    # No description from the admin: say what the columns themselves establish
+    # (grain, measures and whether each may be summed, source, schedule).
+    meta = getattr(ct, "metadata_json", None)
+    generated = meta.get("generated_description") if isinstance(meta, dict) else None
     return (
         True,
         ts.isoformat(timespec="minutes") if ts else None,
         _next_refresh_for(ct),
-        getattr(ct, "description", None),
+        (getattr(ct, "description", None) or "").strip() or generated or None,
     )
 
 
@@ -603,7 +607,8 @@ class SchemaContextBuilder:
                                 for k in ("role", "kind", "hidden", "is_partition",
                                           "relationship_key", "returns", "format_string",
                                           "data_category", "display_folder", "sort_by_column",
-                                          "summarize_by", "contents", "from_form")
+                                          "summarize_by", "contents", "from_form",
+                                          "additive", "additive_reason", "source")
                                 if k in canon_meta
                             } or None
                         columns.append({
@@ -930,6 +935,15 @@ class SchemaContextBuilder:
             if top_k is not None and top_k > 0:
                 tables = _cap_keeping_cached(tables, top_k)
 
+            # Column cap: stamp the budget on every table and rank
+            # the columns of the wide ones that will be rendered. Runs after
+            # every column filter above (excluded_columns, per-user overlay),
+            # so it only ever narrows what this user may already see.
+            await self._rank_wide_table_columns(
+                tables, with_stats=with_stats, top_k=top_k,
+                filtered=bool(table_names or name_patterns),
+            )
+
             # Query MCP tools for this data source's MCP/custom_api connections
             mcp_tools = [] if self.hide_mcp_tools else await self._build_mcp_tools(ds)
 
@@ -953,6 +967,14 @@ class SchemaContextBuilder:
                     mcp_tools=mcp_tools,
                     file_scopes=file_scopes,
                     browser_scope=self._browser_scope(ds),
+                    # ORM rows always carry `connections`; a caller passing a
+                    # shape without it is not claiming the agent has none.
+                    # Standing context only: a lookup filtered to tables or
+                    # connections is not asking about this agent.
+                    no_connections=(
+                        hasattr(ds, 'connections') and not (ds.connections or [])
+                        and not (table_names or name_patterns or connection_ids)
+                    ),
                     # Only flag connections as unavailable when at least one other
                     # connection is live — if EVERY connection is down the source
                     # renders nothing and is dropped as before (an all-dead agent
@@ -990,7 +1012,7 @@ class SchemaContextBuilder:
                         description="One row per " + ("run" if name == "bow.runs" else "tool call") + ". " + BowClient.description,
                     ))
                 ds_sections.append(TablesSchemaContext.DataSource(
-                    info=DataSourceSummarySchema(id=SOURCE_ID, name="BOW", type="bow", context=BowClient.description),
+                    info=DataSourceSummarySchema(id=SOURCE_ID, name="BOW", type="bow", context=BowClient.description_for(getattr(self.report, "id", None))),
                     tables=bow_tables,
                 ))
 
@@ -1006,6 +1028,84 @@ class SchemaContextBuilder:
                 logger.warning("agent list tables skipped: %s", exc)
 
         return TablesSchemaContext(data_sources=ds_sections)
+
+    def _column_budget(self) -> int:
+        from app.ai.context.column_ranking import DEFAULT_COLUMN_BUDGET
+        try:
+            if self.organization_settings is not None:
+                v = self.organization_settings.get_config("top_k_schema_columns")
+                v = v.value if hasattr(v, "value") else v
+                if isinstance(v, (int, float)):
+                    return int(v)
+        except Exception:
+            pass
+        return DEFAULT_COLUMN_BUDGET
+
+    def _top_k_hint(self) -> int:
+        try:
+            if self.organization_settings is not None:
+                v = self.organization_settings.get_config("top_k_schema")
+                v = v.value if hasattr(v, "value") else v
+                if isinstance(v, (int, float)) and v > 0:
+                    return int(v)
+        except Exception:
+            pass
+        return 10
+
+    async def _rank_wide_table_columns(self, tables, *, with_stats: bool, top_k: Optional[int], filtered: bool) -> None:
+        """Rank the columns of wide tables (more columns than the budget).
+
+        Bounded on purpose: usage is loaded only for the wide tables that the
+        planner render will show in full (the top-k by table score, plus cached
+        relations), or for every matched table on a filtered build
+        (describe_tables / create_data name patterns). One query for the column
+        stats and one for instruction column references, whatever the table
+        count — so the cost does not grow with ``column_stats`` rows elsewhere
+        in the org or with the size of the catalog. Tables outside that set
+        rank structurally, lazily, if a render ever reaches them.
+        """
+        from app.ai.context.column_ranking import rank_table_columns
+        from app.data_sources.routines import is_routine
+
+        budget = self._column_budget()
+        for t in tables:
+            t.column_budget = budget
+        if budget <= 0 or not with_stats:
+            return
+        wide = [t for t in tables if len(t.columns or []) > budget and not is_routine(t)]
+        if not wide:
+            return
+        if not filtered:
+            k = top_k if (top_k is not None and top_k > 0) else self._top_k_hint()
+            render_ids = {id(t) for t in tables[:k]} | {id(t) for t in tables if getattr(t, "is_cached", False)}
+            wide = [t for t in wide if id(t) in render_ids]
+        ids = [str(t.id) for t in wide if getattr(t, "id", None)]
+        if not ids:
+            return
+        stats: Dict[str, Dict[str, Any]] = {}
+        instr_cols: Dict[str, set] = {}
+        try:
+            from app.services.column_usage_service import ColumnUsageService
+            # Bounded per table: only the top rows by usage can rank into the
+            # budget (4x headroom covers recency reordering).
+            stats = await ColumnUsageService().load_stats(self.db, ids, per_table_limit=max(4 * budget, 200))
+            rows = await self.db.execute(
+                select(InstructionReference.object_id, InstructionReference.column_name).where(
+                    InstructionReference.object_type == 'datasource_table',
+                    InstructionReference.object_id.in_(ids),
+                    InstructionReference.column_name.isnot(None),
+                    InstructionReference.deleted_at.is_(None),
+                )
+            )
+            for oid, col in rows.all():
+                if col:
+                    instr_cols.setdefault(str(oid), set()).add(str(col).lower())
+        except Exception as exc:
+            logger.warning("column stats load failed; ranking structurally: %s", exc)
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        for t in wide:
+            rank_table_columns(t, stats.get(str(t.id)), instr_cols.get(str(t.id)), now)
 
     async def _append_list_tables(self, ds_sections, ds_filter, table_names, name_patterns) -> None:
         from app.schemas.bow_source_schema import SOURCE_ID

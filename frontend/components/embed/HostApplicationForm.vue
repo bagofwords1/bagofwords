@@ -72,6 +72,24 @@
         </label>
       </template>
 
+      <!-- The role of an account this application's sign-in creates: the SSO
+           popup can always create one (BOW's own sign-in policy decides), the
+           other modes only with "create users" on. -->
+      <UFormGroup v-if="form.identity_mode === 'sso' || form.create_users" :label="$t('hostApps.newUserRole')"
+                  :help="$t('hostApps.newUserRoleHelp')">
+        <div class="space-y-2">
+          <label v-for="option in newUserRoles" :key="option.value"
+                 class="flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5"
+                 :class="form.new_user_role === option.value ? 'border-blue-300 bg-blue-50/60 dark:border-blue-800 dark:bg-blue-950/30' : 'border-gray-200 dark:border-gray-800'">
+            <input v-model="form.new_user_role" type="radio" :value="option.value" class="mt-1" :data-testid="`host-app-new-user-role-${option.value}`" />
+            <span>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ option.label }}</span>
+              <span class="block text-xs leading-5 text-gray-500 dark:text-gray-400">{{ option.help }}</span>
+            </span>
+          </label>
+        </div>
+      </UFormGroup>
+
       <p v-if="error" class="text-sm text-red-600 dark:text-red-400" data-testid="host-app-error">{{ error }}</p>
       <div class="flex justify-end gap-2">
         <UButton size="sm" color="gray" variant="ghost" @click="emit('cancel')">{{ $t('common.cancel') }}</UButton>
@@ -101,6 +119,7 @@ const form = reactive({
   issuer: props.host?.issuer || '',
   audience: props.host?.audience || '',
   create_users: !!props.host?.create_users,
+  new_user_role: (props.host?.new_user_role || 'app_user') as 'app_user' | 'member',
 })
 const originsText = ref((props.host?.allowed_origins || []).join('\n'))
 const currentSource: string = props.host?.identity_source || ''
@@ -117,6 +136,10 @@ const modes = computed(() => [
   { value: 'assertion', label: t('hostApps.modeAssertion'), help: t('hostApps.modeAssertionHelp') },
   { value: 'idp_token', label: t('hostApps.modeIdp'), help: t('hostApps.modeIdpHelp') },
   { value: 'sso', label: t('hostApps.modeSso'), help: t('hostApps.modeSsoHelp') },
+])
+const newUserRoles = computed(() => [
+  { value: 'app_user', label: t('hostApps.newUserRoleApp'), help: t('hostApps.newUserRoleAppHelp') },
+  { value: 'member', label: t('hostApps.newUserRoleMember'), help: t('hostApps.newUserRoleMemberHelp') },
 ])
 const sourceOptions = computed(() => sources.value
   .filter(s => form.identity_mode !== 'idp_token' || s.supports_idp_token)
@@ -143,6 +166,7 @@ function body() {
     identity_mode: form.identity_mode,
     identity_source: source,
     create_users: form.identity_mode !== 'sso' && form.create_users,
+    new_user_role: form.new_user_role,
     issuer: form.identity_mode === 'assertion' ? form.issuer.trim() : null,
     audience: form.identity_mode === 'idp_token' ? form.audience.trim() : null,
   }

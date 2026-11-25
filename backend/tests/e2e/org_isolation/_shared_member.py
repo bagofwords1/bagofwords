@@ -55,15 +55,13 @@ def is_member(test_client, token, org_id):
 def shared_member(test_client, two_orgs, whoami):
     """``two_orgs`` plus one person who is a plain member of both A and B.
 
-    They registered through A's invite, then accepted B's.
+    They registered through A's invite, then B's admin added their existing
+    account (which joins directly).
     """
     o = two_orgs
     me = whoami(o["a_member_token"])
-    pending = invite(test_client, admin_token=o["b_token"], org_id=o["b_org"], email=me["email"])
-    accept_invite(
-        test_client, admin_token=o["b_token"], org_id=o["b_org"],
-        membership_id=pending["id"], user_token=o["a_member_token"],
-    )
+    added = invite(test_client, admin_token=o["b_token"], org_id=o["b_org"], email=me["email"])
+    assert added["user_id"] == me["id"]
     assert org_ids(whoami, o["a_member_token"]) == {o["a_org"], o["b_org"]}
     return {**o, "shared_token": o["a_member_token"], "shared_id": me["id"], "shared_email": me["email"]}
 

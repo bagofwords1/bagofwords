@@ -50,9 +50,11 @@ from app.schemas.data_sources.lakehouse import (
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
+    PostgreSQLMultiConfig,
     BrocadeConfig,
     BrocadeCredentials,
     SharePointOnpremConfig,
+    SharePointOnpremListsConfig,
     SharePointOnpremNtlmCredentials,
     DocumentumConfig,
     DocumentumUserPassCredentials,
@@ -404,6 +406,20 @@ class SetupStep(BaseModel):
     language: str = "bash"
 
 
+SETUP_GUIDE_REDIRECT_URI = "{oauth_redirect_uri}"
+
+
+def resolve_setup_guide(steps: list[SetupStep] | None) -> list[dict] | None:
+    if not steps:
+        return None
+    from app.core.base_url import connection_oauth_redirect_uri
+    redirect_uri = connection_oauth_redirect_uri()
+    return [
+        {**s.model_dump(), "code": s.code.replace(SETUP_GUIDE_REDIRECT_URI, redirect_uri) if s.code else s.code}
+        for s in steps
+    ]
+
+
 class DataSourceRegistryEntry(BaseModel):
     type: str
     title: str
@@ -688,6 +704,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=PostgreSQLCredentials, scopes=["system","user"])
         }),
         client_path=None
+    ),
+    "postgresql_multi": DataSourceRegistryEntry(
+        type="postgresql_multi",
+        title="PostgreSQL (multi-database)",
+        description="Query many single-tenant databases on one PostgreSQL server as unified tables with a tenant_db column.",
+        config_schema=PostgreSQLMultiConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=PostgreSQLCredentials, scopes=["system"])
+        }),
+        client_path="app.data_sources.clients.postgresql_multi_client.PostgresqlMultiClient",
     ),
     "sqlite": DataSourceRegistryEntry(
         type="sqlite",
@@ -2401,6 +2427,28 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="shared",
         requires_license="enterprise",
     ),
+    "sharepoint_onprem_lists": DataSourceRegistryEntry(
+        type="sharepoint_onprem_lists",
+        category="files",
+        title="SharePoint Server Lists (on-prem)",
+        description="Query SharePoint Server lists as tables using NTLM or Kerberos — every list on a site becomes a table with typed columns. No Microsoft Graph or Entra app required.",
+        config_schema=SharePointOnpremListsConfig,
+        # Same Windows sign-in as the on-prem files connector: a service
+        # account for the whole organization, or each user's own domain login
+        # so SharePoint's list permissions apply per person.
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=SharePointOnpremNtlmCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=SharePointOnpremKerberosCredentials, scopes=["system"]),
+        }),
+        client_path="app.data_sources.clients.sharepoint_onprem_lists_client.SharepointOnpremListsClient",
+        # Tables shape, like `sharepoint_lists`: lists carry typed columns and
+        # are queried with execute_query specs. The site's lists are one
+        # universe; per-user overlays are permission-filtered subsets.
+        data_shape="tables",
+        catalog_ownership="shared",
+        catalog_nouns=("list", "lists"),
+        requires_license="enterprise",
+    ),
     "sharepoint": DataSourceRegistryEntry(
         type="sharepoint",
         category="files",
@@ -2570,6 +2618,26 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         category="services",
         title="Outlook Mail",
         description="Read and search your Outlook / Microsoft 365 email — messages become available to the agent to search and read.",
+        setup_guide=[
+            SetupStep(
+                title="Register an app in Microsoft Entra",
+                body="In the Microsoft Entra admin center go to App registrations > New registration. Choose \"Accounts in this organizational directory only\". From the app's Overview, copy the Directory (tenant) ID and the Application (client) ID into the fields below.",
+            ),
+            SetupStep(
+                title="Add the redirect URI",
+                body="In the app go to Authentication > Add a platform > Web and paste this redirect URI.",
+                code=SETUP_GUIDE_REDIRECT_URI,
+                language="text",
+            ),
+            SetupStep(
+                title="Grant Microsoft Graph permissions",
+                body="In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app. Use Delegated permissions only, not Application permissions: the connector reads only the signed-in user's mailbox.",
+            ),
+            SetupStep(
+                title="Create a client secret",
+                body="In Certificates & secrets > New client secret, create a secret and copy its Value (not the Secret ID) into Client Secret below. You can't view the value again later.",
+            ),
+        ],
         config_schema=OutlookMailConfig,
         credentials_auth=AuthOptions(
             default="service_principal",
@@ -2680,7 +2748,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
-        dev_only=True,
     ),
     "gmail_mail": DataSourceRegistryEntry(
         type="gmail_mail",
@@ -3153,6 +3220,12 @@ _TOOLS_SENTRY = [
     "update_project", "create_dsn", "find_dsns", "analyze_issue_with_seer", "search_docs",
     "get_doc",
 ]
+_TOOLS_FATHOM = [
+    "get_identity", "list_teams", "list_meetings", "get_meeting_summary",
+    "get_meeting_transcript", "find_person", "find_relevant_meetings",
+    "get_relevant_meetings_result", "scan_meeting_summaries", "search_meetings",
+    "get_recording_by_call_id", "get_recording_by_url",
+]
 _TOOLS_GOOGLE_DRIVE = [
     "search_files", "list_recent_files", "read_file_content", "download_file_content",
     "get_file_metadata", "get_file_permissions", "create_file",
@@ -3217,6 +3290,9 @@ MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
               allowed_auth=["dcr"], sample_tools=_TOOLS_SENTRY, category="infra",
               description="Errors, issues and releases from Sentry."),
+    McpPreset(key="fathom", title="Fathom", server_url="https://api.fathom.ai/mcp",
+              allowed_auth=["dcr"], sample_tools=_TOOLS_FATHOM,
+              description="Meetings, summaries and transcripts from Fathom."),
     McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
               auth="oauth_app", allowed_auth=["oauth_app"],
               oauth_defaults=McpAuthDefaults(
@@ -3378,7 +3454,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "ui_form": e.ui_form,
             "personal_connector": e.personal_connector,
             "category": e.category,
-            "setup_guide": [s.model_dump() for s in e.setup_guide] if e.setup_guide else None,
+            "setup_guide": resolve_setup_guide(e.setup_guide),
         }
         for e in REGISTRY.values()
         if (

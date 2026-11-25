@@ -65,7 +65,7 @@ export default defineNuxtPlugin(async (nuxtApp) => {
   // first whoami resolves before `organization.value.id` is set, the org
   // lookup misses and an admin is left without `full_admin_access` — silently
   // hiding admin-gated sidebar items (Monitoring, Evals) until a full reload.
-  // The session refreshes on window focus (`enableRefreshOnWindowFocus`) and
+  // The session refreshes on window focus (`sessionRefresh.enableOnWindowFocus`) and
   // the active org can change, so re-resolve from the latest session whenever
   // either settles. Resolving is pure (no fetch), so watching `sessionData`
   // can't loop, and we only ever set `permissionsLoaded` true (never back to
@@ -82,6 +82,8 @@ export default defineNuxtPlugin(async (nuxtApp) => {
 // the full_admin_access wildcard for admins.
 function getPermissionsForRole(role: string): string[] {
   if (role === 'admin') return ['full_admin_access']
+  // An app user holds what their roles carry and no baseline: nothing.
+  if (role === 'app_user') return []
   return [
     'view_reports',
     'create_reports',
@@ -90,5 +92,6 @@ function getPermissionsForRole(role: string): string[] {
     'publish_reports',
     'manage_files',
     'view_members',
+    'access_workspace',
   ]
 }

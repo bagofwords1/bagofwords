@@ -120,6 +120,15 @@ class _NotFound(RuntimeError):
     """Priority answered 404 for the requested resource."""
 
 
+class PriorityRateLimited(RuntimeError):
+    """Priority answered 429. `retry_after` is the server's `Retry-After` in
+    seconds, when it sent one."""
+
+    def __init__(self, message: str, retry_after: Optional[float] = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 class _BudgetExceeded(Exception):
     """The query's time budget ran out before Priority answered."""
 
@@ -154,6 +163,39 @@ class _RateLimiter:
 
 class PriorityErpClient(DataSourceClient):
     """Query Priority ERP forms over the OData REST API."""
+
+    # Custom tables: one form read to the end in $top/$skip pages, checked
+    # against its $count where the server gives one
+    # (app/data_sources/fast/priority_erp_source.py).
+    @staticmethod
+    def EXTRACTION_SOURCE(client):
+        from app.data_sources.fast.priority_erp_source import PriorityErpSource
+
+        return PriorityErpSource(client)
+
+    @staticmethod
+    def render_window(query, column, kind, window):
+        """A custom table's refresh window, written into its $filter."""
+        from app.data_sources.fast.priority_erp_source import render_window
+
+        return render_window(query, column, kind, window)
+
+    @staticmethod
+    def filters_query_at_source(query) -> bool:
+        """A definition with its own $top / $skip is read whole and its
+        refresh window taken from the result; any other is filtered here."""
+        from app.data_sources.fast.priority_erp_source import is_bounded
+
+        return not is_bounded(query)
+
+    @staticmethod
+    def check_custom_table_definition(definition: str, tables=None) -> None:
+        """Raise ValueError for a definition a custom table cannot be built
+        from ($expand, a sub-form, a single record, SQL), before anything is
+        stored. `tables` is the connection's indexed catalog."""
+        from app.data_sources.fast.priority_erp_source import check_definition
+
+        check_definition(definition, tables)
 
     def __init__(
         self,
@@ -238,9 +280,14 @@ class PriorityErpClient(DataSourceClient):
         url = f"{self.service_root}/{path.lstrip('/')}" if path else self.service_root
         resp = session.get(url, params=params, timeout=timeout, headers={"Accept": accept})
         if resp.status_code == 429:
-            raise RuntimeError(
+            try:
+                retry_after = float((getattr(resp, "headers", None) or {}).get("Retry-After"))
+            except (TypeError, ValueError):
+                retry_after = None
+            raise PriorityRateLimited(
                 "Priority rate limit hit (HTTP 429). Priority Cloud allows 100 calls/minute "
-                "per user; lower Max Calls Per Minute or retry shortly."
+                "per user; lower Max Calls Per Minute or retry shortly.",
+                retry_after=retry_after if retry_after and retry_after > 0 else None,
             )
         if resp.status_code in (401, 403):
             raise RuntimeError(

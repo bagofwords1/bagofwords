@@ -46,7 +46,7 @@ def _strip_code_role(test_client, admin, member, create_role, assign_role):
     org_id = admin["org_id"]
     role = create_role(
         name=f"no-code-{uuid.uuid4().hex[:6]}",
-        permissions=["view_reports", "create_reports", "manage_files", "view_members"],
+        permissions=["access_workspace", "view_reports", "create_reports", "manage_files", "view_members"],
         user_token=admin["token"], org_id=org_id,
     )
     assert role.status_code == 200, role.text

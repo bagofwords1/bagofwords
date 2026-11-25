@@ -143,14 +143,9 @@ def test_seen_is_per_organization(corpus, test_client):
     resp = test_client.post(f"/api/organizations/{corpus.cast.org_id}/members", headers=as_(corpus, "admin"),
                             json={"organization_id": corpus.cast.org_id, "email": stranger.email, "role": "member"})
     assert resp.status_code == 200, resp.text
+    # Someone who already has an account joins directly.
+    assert resp.json()["user_id"], resp.text
     home, here = stranger.headers(corpus.cast.other_org_id), stranger.headers(corpus.cast.org_id)
-    # Someone who already belongs to another organization joins by accepting the invite.
-    link = test_client.get(f"/api/organizations/{corpus.cast.org_id}/members/{resp.json()['id']}/invite-link",
-                           headers=as_(corpus, "admin"))
-    assert link.status_code == 200, link.text
-    accepted = test_client.post("/api/invites/accept", json={"token": link.json()["token"]},
-                                headers={"Authorization": home["Authorization"]})
-    assert accepted.status_code == 200, accepted.text
 
     at_home = _seen(test_client, home)
     assert at_home["previous_seen_at"] is None

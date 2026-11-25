@@ -55,6 +55,7 @@ from app.models.completion_feedback import CompletionFeedback
 from app.models.data_source_membership import DataSourceMembership
 from app.models.instruction_reference import InstructionReference
 from app.models.table_stats import TableStats
+from app.models.column_stats import ColumnStats
 from app.models.table_usage_event import TableUsageEvent
 from app.models.table_feedback_event import TableFeedbackEvent
 from app.models.agent_execution import AgentExecution
@@ -83,6 +84,7 @@ from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
 from app.models.user_connection_tool_preference import UserConnectionToolPreference
+from app.models.user_connector_preference import UserConnectorPreference
 from app.models.tool_confirmation import ToolConfirmation
 from app.models.officejs_pending_result import OfficeJsPendingResult
 from app.models.login_exchange_code import LoginExchangeCode

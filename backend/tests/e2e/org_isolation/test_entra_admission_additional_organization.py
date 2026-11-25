@@ -113,8 +113,10 @@ def test_email_match_without_the_identity_link_is_still_refused(test_client, cre
         other_identity = entra[3](oid=str(uuid.uuid4()), preferred_username=info["email"], email=info["email"])
 
         assert exchange(test_client, app_b, other_identity).json()["error"] == "invalid_grant"
+        # Being added attached the account directly; the refused exchange
+        # leaves that single membership as it was.
         members = test_client.get(f"/api/organizations/{org_b}/members", headers=headers_b).json()
-        assert info["id"] not in {m.get("user_id") for m in members}
+        assert len([m for m in members if m.get("user_id") == info["id"]]) == 1
 
 
 @pytest.mark.e2e
@@ -134,8 +136,10 @@ def test_disabled_account_is_not_admitted_anywhere(test_client, create_user, log
         asyncio.run(disable())
 
         assert exchange(test_client, app_b, entra[3]()).json()["error"] == "invalid_grant"
+        # Being added attached the account directly; the refused exchange
+        # leaves that single membership as it was.
         members = test_client.get(f"/api/organizations/{org_b}/members", headers=headers_b).json()
-        assert info["id"] not in {m.get("user_id") for m in members}
+        assert len([m for m in members if m.get("user_id") == info["id"]]) == 1
 
 
 @pytest.mark.e2e

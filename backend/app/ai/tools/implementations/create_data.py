@@ -2053,6 +2053,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     len(ds_scope or []),
                     len(name_patterns or []),
                 )
+                # Columns the planner named (e.g. found with describe_tables
+                # `columns`) lead each wide table's column list for the coder.
+                from app.ai.context.column_ranking import promote_mentioned_columns
+                promote_mentioned_columns(ctx, data.interpreted_prompt, data.user_prompt)
                 schemas_excerpt = ctx.render_combined(top_k_per_ds=20, index_limit=0, include_index=False)
             except Exception as e:
                 # Fallback to keyword-based excerpt if resolution-based build fails

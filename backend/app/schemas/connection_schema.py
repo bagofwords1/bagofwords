@@ -172,6 +172,9 @@ class ConnectionDetailSchema(BaseModel):
     custom_queries_supported: bool = False
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
+    # Of those, the connectors deleting this connection deletes too (a
+    # connector whose only connection it is); every other one is kept.
+    connectors_deleted_with_it: List[str] = []
     has_credentials: bool = False  # Whether system credentials are set
     management_auth: str = "system"  # system | user, independent of query identity
     last_connection_status: Optional[str] = None

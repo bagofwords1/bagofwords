@@ -120,9 +120,17 @@ async function start(name: string) {
     persistRedirectForOAuth()
     const provider = allProviders.value.find((p) => p.name === name)
     const path = provider?.protocol === 'saml' ? `saml/${name}` : name
+    // Inside a host application's sign-in window, the authorization itself
+    // carries the host: the server binds it to this sign-in, so an account
+    // the provider's callback creates gets that application's role however
+    // long this page sat open (useEmbedSignupIntent.ts).
+    const embedHost = embedHostOfRedirect(route.query.redirect)
     const response = await $fetch(`/api/auth/${path}/authorize`, {
       method: 'GET',
-      query: props.loginHint ? { login_hint: props.loginHint } : undefined,
+      query: {
+        ...(props.loginHint ? { login_hint: props.loginHint } : {}),
+        ...(embedHost ? { embed_host: embedHost } : {}),
+      },
     })
     if ((response as any)?.authorization_url) {
       window.location.href = (response as any).authorization_url

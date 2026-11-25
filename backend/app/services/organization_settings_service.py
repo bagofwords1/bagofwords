@@ -284,6 +284,10 @@ class OrganizationSettingsService:
                                 db, organization, merged["provider_policies"],
                                 pii_policy.normalize(existing)["provider_policies"],
                             )
+                            merged["agent_policies"] = await self._resolve_pii_agent_policies(
+                                db, organization, merged.get("agent_policies") or {},
+                                pii_policy.normalize(existing)["agent_policies"],
+                            )
                             validated = PiiProtectionConfig(**merged)
                             self._require_pii_detector_for(merged, pii_policy.normalize(existing))
                         except HTTPException:
@@ -291,10 +295,10 @@ class OrganizationSettingsService:
                         except Exception as e:
                             raise HTTPException(status_code=400, detail=f"Invalid PII protection config: {e}")
                         for rule in validated.custom_rules:
-                            if not rule.patterns:
+                            if not rule.patterns and not rule.terms:
                                 raise HTTPException(
                                     status_code=400,
-                                    detail=f"Rule '{rule.name}' must have at least one pattern."
+                                    detail=f"Rule '{rule.name}' must have at least one pattern or term."
                                 )
                             for pat in rule.patterns:
                                 err = validate_pattern(pat)
@@ -603,6 +607,36 @@ class OrganizationSettingsService:
                     "PII detector. Install the backend's 'pii' extra or set pii.presidio_url."
                 ),
             )
+
+    async def _resolve_pii_agent_policies(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        requested: dict,
+        previously_stored: dict,
+    ) -> dict:
+        """Keep only assignments for this org's live agents (data sources),
+        with the same rules as provider assignments: a new unknown id is a
+        400, a stored one whose agent was deleted is dropped quietly."""
+        if not requested:
+            return {}
+        from app.models.data_source import DataSource
+
+        result = await db.execute(
+            select(DataSource.id).filter(
+                DataSource.organization_id == organization.id,
+                DataSource.id.in_(list(requested.keys())),
+                DataSource.deleted_at == None,  # noqa: E711
+            )
+        )
+        live = {str(i) for i in result.scalars().all()}
+        stored = set((previously_stored or {}).keys())
+        if any(aid not in live and aid not in stored for aid in requested):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid PII protection config: unknown agent in the policy assignments.",
+            )
+        return {aid: pol for aid, pol in requested.items() if aid in live}
 
     async def _resolve_pii_provider_policies(
         self,

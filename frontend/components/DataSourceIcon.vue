@@ -64,9 +64,10 @@ const normalizeType = (raw: string) => {
 
     // aliases
     if (t === 'sharepoint_onprem') t = 'sharepoint'
+    if (t === 'sharepoint_onprem_lists') t = 'sharepoint_lists'
     if (t === 'exchange_onprem') t = 'outlook_mail'
     if (t === 'jira_dc') t = 'jira'
-    if (t === 'postgres') t = 'postgresql'
+    if (t === 'postgres' || t === 'postgresql_multi') t = 'postgresql'
     if (t === 'sqlserver' || t === 'sql_server') t = 'mssql'
     if (t === 'awsathena') t = 'aws_athena'
     if (t === 'athena') t = 'aws_athena'
@@ -95,6 +96,7 @@ const CONNECTOR_ICON_FILE: Record<string, string> = {
     atlassian: 'jira.png',
     linear: 'linear.png',
     sentry: 'sentry.png',
+    fathom: 'fathom.png',
     github: 'github.svg',
     gitlab: 'gitlab.svg',
     bitbucket: 'bitbucket.svg',

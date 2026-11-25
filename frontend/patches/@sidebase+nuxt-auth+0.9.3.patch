@@ -1,0 +1,26 @@
+diff --git a/node_modules/@sidebase/nuxt-auth/dist/runtime/composables/local/useAuth.js b/node_modules/@sidebase/nuxt-auth/dist/runtime/composables/local/useAuth.js
+index cff13fc..4f62a40 100644
+--- a/node_modules/@sidebase/nuxt-auth/dist/runtime/composables/local/useAuth.js
++++ b/node_modules/@sidebase/nuxt-auth/dist/runtime/composables/local/useAuth.js
+@@ -100,11 +100,17 @@ async function getSession(getSessionOptions) {
+     const { dataResponsePointer: sessionDataResponsePointer } = config.session;
+     data.value = jsonPointerGet(result, sessionDataResponsePointer);
+   } catch (err) {
+-    if (!data.value && err instanceof Error) {
+-      console.error(`Session: unable to extract session, ${err.message}`);
++    // BOW patch (patches/@sidebase+nuxt-auth+0.9.3.patch): only a 401 means the
++    // session is gone. A 5xx, timeout or network error (backend restart,
++    // deploy, proxy blip) used to wipe a valid 7-day token and sign the user
++    // out; keep the token and the last session so the next check can recover.
++    const status = err?.statusCode ?? err?.status ?? err?.response?.status;
++    if (status === 401) {
++      data.value = null;
++      rawToken.value = null;
++    } else {
++      console.warn(`Session: check failed (${status ?? "network error"}), keeping the current session`);
+     }
+-    data.value = null;
+-    rawToken.value = null;
+   }
+   loading.value = false;
+   lastRefreshedAt.value = /* @__PURE__ */ new Date();

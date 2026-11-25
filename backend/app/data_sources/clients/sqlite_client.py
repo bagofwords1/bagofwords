@@ -3,7 +3,6 @@ from app.data_sources.clients.progress import discovery_progress
 
 import logging
 import os
-import re
 import sqlite3
 import urllib.parse
 from contextlib import contextmanager
@@ -186,12 +185,12 @@ class SqliteClient(DataSourceClient):
                 tables: List[Table] = []
                 for table_name in names:
                     reporter.item(table_name)
-                    # PRAGMA does not accept bound parameters for object names,
-                    # so validate the name shape before interpolating to guard
-                    # against any odd values from sqlite_master.
-                    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table_name):
-                        continue
-                    cursor.execute(f'PRAGMA table_info("{table_name}")')
+                    # The table-valued form takes the name as a bound
+                    # parameter, so any name sqlite_master holds (spaces,
+                    # hyphens, quotes, non-ASCII) is read as data, never SQL.
+                    cursor.execute(
+                        "SELECT name, type FROM pragma_table_info(?)", (table_name,)
+                    )
                     columns = [
                         TableColumn(name=row["name"], dtype=row["type"] or "unknown")
                         for row in cursor.fetchall()

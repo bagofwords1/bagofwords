@@ -319,6 +319,24 @@ _PARALLEL_SAFE_TOOLS = frozenset({"inspect_data", "create_data"})
 # every write_csv in a session renders the same stale widget preview.
 _INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_entity", "write_csv"})
 
+
+def resolve_created_step_id(tool_name: str, observation, current_step_id) -> Optional[str]:
+    """The Step a finished tool created, for its tool_executions row.
+
+    A tool that reports its step (``step_id`` in the observation) wins. The
+    invocation's current step is only a fallback for the tools that create
+    their step through progress events — the invocation-reset data tools.
+    Every other tool (create_artifact, edit_artifact, generate_image, ...)
+    created no step: stamping the invocation's last chart on it made chat
+    channels send that chart again as the tool's output, in place of a
+    dashboard link or a generated picture.
+    """
+    if isinstance(observation, dict) and observation.get("step_id"):
+        return observation["step_id"]
+    if tool_name in _INVOCATION_RESET_TOOLS and current_step_id:
+        return current_step_id
+    return None
+
 # How long a tool-supplied image (a rendered page, a screenshot, a picture
 # read with read_file) stays attached as a vision block on the legacy
 # (non-transcript) channel.
@@ -869,6 +887,12 @@ class AgentV2:
             # clients were supplied (some non-query callers pass none).
             if clients:
                 def _has_client(ds):
+                    # An agent with no connection never has a client and has
+                    # nothing to query; it stays for its description,
+                    # instructions and files. (One the user cannot access is
+                    # already left out by prepare_run_agents.)
+                    if not (getattr(ds, 'connections', None) or []):
+                        return True
                     name = getattr(ds, 'name', None)
                     if not name:
                         return False
@@ -1634,6 +1658,17 @@ class AgentV2:
             except Exception:
                 pass
 
+    def _extend_pii_agent_scope(self, data_sources) -> None:
+        """Add agents to this run's PII agent scope (in place: the list is
+        shared with the usage attribution every LLM call reads)."""
+        scope = getattr(self, "_pii_agent_scope", None)
+        if scope is None:
+            return
+        for ds in data_sources or []:
+            ds_id = ds if isinstance(ds, str) else str(getattr(ds, "id", "") or "")
+            if ds_id and ds_id not in scope:
+                scope.append(ds_id)
+
     async def _ensure_clients_for_attached(self) -> None:
         """Build query clients for agents attached AFTER run start (approved
         set_report_agents expansion) — without this create_data against the new
@@ -1655,9 +1690,13 @@ class AgentV2:
                     built = await construct_agent_clients(
                         svc, self.db, ds, user, where="mid-run",
                         run_agents=run_agents_context([*(self.data_sources or []), ds], self.report))
-                    if built:
-                        self.clients.update(built)
+                    # An agent with no connection builds no client and is
+                    # attached all the same (construct_agent_clients raised
+                    # if this user may not use it).
+                    if built or not (getattr(ds, "connections", None) or []):
+                        self.clients.update(built or {})
                         self.data_sources.append(ds)
+                        self._extend_pii_agent_scope([ds])
                         await self._record_exposure()
                         self._mlog(f"mid-run client built for {ds.name}")
                 except Exception:
@@ -4683,6 +4722,7 @@ class AgentV2:
             self.db, self.organization, self.organization_settings,
             candidates=candidates, small_model=self.model, prompt_text=prompt_text,
             usage_context=self.usage_limit_context,
+            user=getattr(self.head_completion, "user", None),
         )
         if outcome.model is None:
             logger.info("[routing] upfront decision kept small model (%s)", outcome.reason)
@@ -5930,16 +5970,41 @@ class AgentV2:
         # cost console can compute realized savings (see app.ai.model_router).
         _attr_routed = bool(self._routing_meta.get("routed"))
         _attr_baseline = self._routing_meta.get("baseline_model_id") if _attr_routed else None
-        _attribution_token = set_usage_attribution(
-            {
-                "organization_id": _attr_org,
-                "user_id": _attr_user,
-                "report_id": _attr_report,
-                "data_source_id": _attr_ds,
-                "routed": _attr_routed,
-                "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
-            }
+        # Per-agent PII policies (app.ai.llm.pii.policy, for_call): every agent
+        # whose data or context can reach this run's prompts. One list object,
+        # shared by every snapshot of this attribution, that only grows:
+        # agents attached mid-run are added (_extend_pii_agent_scope), never
+        # removed, so a policy can't fall away while its data is in context.
+        self._pii_agent_scope: list = []
+        self._extend_pii_agent_scope(
+            [*(self.data_sources or []), *(getattr(self, "_signin_candidates", None) or []),
+             *((getattr(self.report, "data_sources", None) or []) if self.report else [])]
         )
+        # Earlier turns reloaded into this run may carry rows from agents since
+        # detached: their policies keep applying. None = the history's
+        # provenance is incomplete, so the scope is left unknown (every agent
+        # policy applies). See app.ai.llm.pii.history_scope.
+        _pii_scope_known = True
+        if self.report:
+            from app.ai.llm.pii.history_scope import historical_agent_ids
+            _hist = await historical_agent_ids(
+                self.db, str(self.report_id), exclude_completion_id=self.system_completion_id
+            )
+            if _hist is None:
+                _pii_scope_known = False
+            else:
+                self._extend_pii_agent_scope(_hist)
+        _attribution = {
+            "organization_id": _attr_org,
+            "user_id": _attr_user,
+            "report_id": _attr_report,
+            "data_source_id": _attr_ds,
+            "routed": _attr_routed,
+            "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
+        }
+        if _pii_scope_known:
+            _attribution["data_source_ids"] = self._pii_agent_scope
+        _attribution_token = set_usage_attribution(_attribution)
         # Tag the warehouse queries this run sends (Snowflake QUERY_TAG, see
         # app/data_sources/query_tag.py) with the run's reply completion, so a
         # warehouse admin can find this exact turn. Org/user/report/run id come
@@ -8194,14 +8259,11 @@ class AgentV2:
                                 async with self._tool_db_lock:
                                     # Extract created objects from observation, with fallback to orchestrator state
                                     created_widget_id = None
-                                    created_step_id = None
                                     if observation and "widget_id" in observation:
                                         created_widget_id = observation["widget_id"]
-                                    if observation and "step_id" in observation:
-                                        created_step_id = observation["step_id"]
-                                    # Fallback to orchestrator's current_step_id for tools that trigger step creation via progress events
-                                    if not created_step_id and _inv.current_step_id:
-                                        created_step_id = _inv.current_step_id
+                                    created_step_id = resolve_created_step_id(
+                                        tool_name, observation, _inv.current_step_id,
+                                    )
 
                                     # No per-tool warm refresh here: its view only fed the token
                                     # meter and the post-tool snapshot, and a batch of N tools
@@ -10670,8 +10732,12 @@ class AgentV2:
                         # Update current step's data model with new column
                         column = payload.get("column", {})
                         if cur_step and column:
-                            current_data_model = getattr(cur_step, "data_model", {}) or {}
-                            current_data_model.setdefault("columns", [])
+                            # A NEW dict, as in series_configured below (only
+                            # create_widget emits column_added): Step.data_model
+                            # is a plain JSON column, so an in-place edit
+                            # assigned back is not seen as a change.
+                            current_data_model = dict(getattr(cur_step, "data_model", None) or {})
+                            current_data_model["columns"] = list(current_data_model.get("columns") or [])
                             # Add column if not already present
                             if not any(col.get("generated_column_name") == column.get("generated_column_name")
                                      for col in current_data_model["columns"]):
@@ -10704,7 +10770,15 @@ class AgentV2:
                         # Update current step's data model with series
                         series = payload.get("series", [])
                         if cur_step and series:
-                            current_data_model = getattr(cur_step, "data_model", {}) or {}
+                            # Build a NEW dict: Step.data_model is a plain JSON
+                            # column, so mutating the loaded dict in place and
+                            # assigning it back is not seen as a change. The
+                            # write was skipped, and in a single-writer run the
+                            # tool's final data_model was then compared against
+                            # the mutated dict and skipped too — the stored
+                            # chart had no series, and chat channels sent no
+                            # chart image.
+                            current_data_model = dict(getattr(cur_step, "data_model", None) or {})
                             current_data_model["series"] = series
                             await self.project_manager.update_step_with_data_model(
                                 fresh_db, cur_step, current_data_model, refresh=False
@@ -10842,31 +10916,58 @@ class AgentV2:
             logger.error(f"Error handling streaming event {stage} for {tool_name}: {e}")
             # Don't re-raise; this is streaming and shouldn't break the main flow
 
-    async def _record_step_table_usage(self, db, report_obj, step_obj, data_model, tables_by_source, user_id):
-        """Emit TableUsageEvents for a finished step (data model first, then
-        tables_by_source; the recorder dedupes). Best-effort, never raises."""
+    async def _record_failed_step_usage(self, tool_name, tool_input, tool_output, inv) -> None:
+        """A failed create_data still says which tables and columns the agent
+        reached for: record them as a failure (it weighs less than a success
+        in table and column stats). Only when a query actually ran against the
+        source; a code-generation error or a user stop used nothing. Same
+        session routing as the success path: inline on the single writer
+        (SQLite), else a background write drained before completion.finished."""
         try:
-            await self.project_manager.emit_table_usage(
-                db=db, report=report_obj, step=step_obj, data_model=data_model,
-                user_id=user_id, user_role=None,
+            if tool_name != "create_data" or not isinstance(tool_output, dict) or tool_output.get("success"):
+                return
+            queries = [str(q) for q in (tool_output.get("executed_queries") or []) if q]
+            step_id = getattr(inv, "current_step_id", None)
+            report_id = str(self.report_id) if self.report else None
+            if not queries or not step_id or not report_id:
+                return
+            user_id = str(getattr(self.head_completion, 'user_id', None)) if (
+                self.head_completion and getattr(self.head_completion, 'user_id', None)
+            ) else None
+            tbs = copy.deepcopy(tool_input.get("tables_by_source")) if isinstance(tool_input, dict) else None
+            record = self._record_step_table_usage_bg(
+                report_id, str(step_id), {}, tbs, user_id, executed_queries=queries, success=False,
+                session_cm=self._writes_session if self._use_single_write_session() else None,
+            )
+            if self._use_single_write_session():
+                await record
+            else:
+                self._schedule_bg_write("table_usage", record)
+        except Exception:
+            pass
+
+    async def _record_step_table_usage(self, db, report_obj, step_obj, data_model, tables_by_source, user_id,
+                                       executed_queries=None, success=None):
+        """Record a finished step's table and column usage (data model,
+        tables_by_source and the executed queries; the recorder dedupes per
+        step and table). ``success`` overrides the step status — the failure
+        path records before the step is marked. Best-effort, never raises."""
+        try:
+            await self.project_manager.emit_step_usage(
+                db, report_obj, step_obj, data_model=data_model, tables_by_source=tables_by_source,
+                executed_queries=executed_queries, success=success, user_id=user_id, user_role=None,
             )
         except Exception:
             pass
-        if tables_by_source:
-            try:
-                await self.project_manager.emit_table_usage_from_tables_by_source(
-                    db=db, report=report_obj, step=step_obj, tables_by_source=tables_by_source,
-                    user_id=user_id, user_role=None, source_type="sql",
-                )
-            except Exception:
-                pass
 
-    async def _record_step_table_usage_bg(self, report_id, step_id, data_model, tables_by_source, user_id):
-        """Background variant on a short-lived session of its own. The step's
+    async def _record_step_table_usage_bg(self, report_id, step_id, data_model, tables_by_source, user_id,
+                                          executed_queries=None, success=None, session_cm=None):
+        """Background variant on a short-lived session of its own (or the
+        given session context, e.g. the single writer). The step's
         status/data were committed before this was scheduled."""
         if not report_id or not step_id:
             return
-        async with self._session_maker() as db:
+        async with (session_cm or self._session_maker)() as db:
             report_obj = (await db.execute(
                 select(Report)
                 .options(lazyload("*"), selectinload(Report.data_sources).options(lazyload("*")))
@@ -10877,7 +10978,8 @@ class AgentV2:
             )).scalar_one_or_none()
             if report_obj is None or step_obj is None:
                 return
-            await self._record_step_table_usage(db, report_obj, step_obj, data_model, tables_by_source, user_id)
+            await self._record_step_table_usage(db, report_obj, step_obj, data_model, tables_by_source, user_id,
+                                                executed_queries=executed_queries, success=success)
 
     async def _handle_tool_output(self, tool_name: str, tool_input: dict, observation: dict, tool_output: dict = None, inv=None):
         """Handle tool outputs and manage final state updates.
@@ -10897,6 +10999,7 @@ class AgentV2:
         if inv is None:
             inv = _AgentStateProxy(self)
         if not observation or _observation_failed(observation):
+            await self._record_failed_step_usage(tool_name, tool_input, tool_output, inv)
             return  # Don't process failed tool executions
 
         # Only these tools have a state-finalization branch below. Read-only
@@ -11022,9 +11125,12 @@ class AgentV2:
                         if tool_name == "create_data" and isinstance(tool_input, dict):
                             _tbs = tool_input.get("tables_by_source") or None
                         _usage_data_model = getattr(step_obj, "data_model", {}) or {}
+                        # Executed queries: the column-usage signal.
+                        _usage_queries = [str(q) for q in (tool_output.get("executed_queries") or []) if q]
                         if self._use_single_write_session():
                             await self._record_step_table_usage(
                                 fresh_db, report_obj, step_obj, _usage_data_model, _tbs, head_user_id,
+                                executed_queries=_usage_queries, success=True,
                             )
                         else:
                             self._schedule_bg_write(
@@ -11032,6 +11138,7 @@ class AgentV2:
                                 self._record_step_table_usage_bg(
                                     report_id, str(step_obj.id), copy.deepcopy(_usage_data_model),
                                     copy.deepcopy(_tbs), head_user_id,
+                                    executed_queries=_usage_queries, success=True,
                                 ),
                             )
 

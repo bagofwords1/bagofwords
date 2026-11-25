@@ -100,12 +100,11 @@ def _agent_connection_id(test_client, ds, h):
 
 
 @pytest.mark.e2e
-def test_deleting_a_connection_deletes_its_only_agent_like_an_agent_delete(
+def test_deleting_a_connection_keeps_its_only_agent_and_everything_on_it(
     test_client, bootstrap_admin, sqlite_data_source,
 ):
-    """An agent that exists only through a connection goes with it through the
-    same delete as deleting the agent: detached from projects, its own
-    instructions removed — not a bare row delete that leaves references."""
+    """An agent that had only this connection is not deleted with it: it stays,
+    connectionless, still a project default, with its own instructions."""
     admin = bootstrap_admin("admin")
     h = _auth(admin["token"], admin["org_id"])
     agent = sqlite_data_source(name=f"c_{uuid.uuid4().hex[:6]}", user_token=admin["token"], org_id=admin["org_id"])
@@ -125,8 +124,10 @@ def test_deleting_a_connection_deletes_its_only_agent_like_an_agent_delete(
     conn_id = _agent_connection_id(test_client, agent, h)
     gone = test_client.delete(f"/api/connections/{conn_id}", headers=h)
     assert gone.status_code == 200, gone.text
-    assert agent["name"] in gone.json().get("deleted_agents", []) or gone.json().get("impacted_agents") == 1
+    assert agent["name"] in gone.json()["agents_without_connections"]
 
-    assert test_client.get(f"/api/data_sources/{agent['id']}", headers=h).status_code == 404
-    assert _project_agent_ids(pid) == {kept["id"]}
-    assert test_client.get(f"/api/instructions/{ins.json()['id']}", headers=h).status_code == 404
+    left = test_client.get(f"/api/data_sources/{agent['id']}", headers=h)
+    assert left.status_code == 200, left.text
+    assert left.json()["connections"] == []
+    assert _project_agent_ids(pid) == {agent["id"], kept["id"]}
+    assert test_client.get(f"/api/instructions/{ins.json()['id']}", headers=h).status_code == 200

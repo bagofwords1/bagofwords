@@ -524,7 +524,8 @@
     "automations": "Automações",
     "agent": "Agente",
     "agents": "Agentes",
-    "viewAllAgents": "Ver todos os agentes →"
+    "viewAllAgents": "Ver todos os agentes →",
+    "apps": "Aplicativos"
   },
   "notifications": {
     "title": "Notificações",
@@ -1178,6 +1179,9 @@
     "dropHint": "Solte em um projeto",
     "movedTo": "Movido para {name}",
     "removeFromProject": "Remover do projeto",
+    "removedFromProject": "Removido do projeto",
+    "removeImpact": "Este relatório volta para a sua lista pessoal.",
+    "removeImpactShared": "Os membros deste projeto perderão o acesso a este relatório. Apenas você e as pessoas com quem o compartilhou diretamente o manterão.",
     "empty": "Novo projeto",
     "moveNoProjects": "Crie um projeto para organizar seus relatórios em pastas.",
     "moveShareDisclosure": "Mover um relatório para um projeto compartilhado permite que seus membros o vejam.",
@@ -1319,6 +1323,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "Uso de LLM nesta conversa",
     "turnTokensTooltip": "Tokens LLM do planejador neste turno",
+    "tokensInOut": "entrada {input} / saída {output}",
+    "tokensIn": "Entrada",
+    "tokensOut": "Saída",
+    "tokensCached": "Em cache",
+    "stepTokens": "Tokens",
+    "stepTokensTooltip": "Chamada do planejador nesta etapa. A entrada inclui tokens em cache. Chamadas de LLM feitas dentro da ferramenta não são contadas.",
+    "modelUnknown": "Modelo desconhecido",
+    "modelUnknownTooltip": "Nenhum uso de LLM por chamada foi registrado nesta execução",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modelos neste turno",
+    "modelCalls": "{count} chamada | {count} chamadas",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "O roteamento automático executou estas chamadas com {model} em vez de {baseline}",
+    "autoRoutedRunTooltip": "O roteamento automático estava ativo nesta execução",
+    "primaryModel": "Principal",
     "turnUsageTooltip": "Uso de LLM neste turno",
     "setup": "Preparação",
     "setupTooltip": "Tempo do início até o primeiro passo (construção de contexto, etc.)",
@@ -1409,7 +1428,30 @@
       "copied": "JSON do rastreamento copiado para a área de transferência",
       "failed": "Não foi possível exportar o rastreamento"
     },
-    "hiddenTurns": "{count} turno posterior oculto: ele ou um anterior usou um agente que você não gerencia | {count} turnos posteriores ocultos: eles ou um anterior usaram um agente que você não gerencia"
+    "hiddenTurns": "{count} turno posterior oculto: ele ou um anterior usou um agente que você não gerencia | {count} turnos posteriores ocultos: eles ou um anterior usaram um agente que você não gerencia",
+    "contextColumns": {
+      "ofTotal": "{shown} de {total} colunas",
+      "allColumns": "{total} colunas",
+      "why": "Por que estas colunas",
+      "reason": {
+        "usage_ranked": "Ordenadas por uso das colunas",
+        "structural_only": "Ainda sem uso: chaves, carimbos de data/hora e IDs primeiro",
+        "all_columns": "Todas as colunas cabem no limite"
+      },
+      "signal": {
+        "mentioned": "{n} citadas na tarefa",
+        "usage": "{n} por uso",
+        "instructions": "{n} referenciadas por instruções",
+        "structural": "{n} chaves, carimbos de data/hora ou IDs",
+        "sample": "{n} amostradas entre grupos de colunas",
+        "schema_order": "{n} na ordem do catálogo"
+      },
+      "shown": "Colunas no contexto",
+      "folded": "Agrupadas (pesquisáveis com describe_tables)",
+      "otherColumns": "{count} outras colunas",
+      "usedTimes": "usada {count}×",
+      "score": "pontuação {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -1418,10 +1460,10 @@
         "search": "Pesquisou",
         "files": "Leu arquivos",
         "inspect": "Inspecionou dados",
-        "data": "Executou {count} consultas",
+        "data": "Executou {count} consulta | Executou {count} consultas",
         "create": "Criou e atualizou resultados",
         "tools": "Usou ferramentas",
-        "results": "Executou {count} consultas"
+        "results": "Executou {count} consulta | Executou {count} consultas"
       }
     },
     "tabChat": "Chat",
@@ -1606,7 +1648,6 @@
       "edit": "Editar artefato",
       "confirm": "Confirmar edição do artefato",
       "dashboardEdited": "Painel editado",
-      "diff": "Diff",
       "rewrite": "Reescrever",
       "plan": "Plano: ",
       "more": "mais",
@@ -2313,6 +2354,19 @@
       "connected": "Conectado",
       "askAgain": "Perguntar novamente",
       "readyHint": "Conectado. Execute sua pergunta novamente para usá-lo."
+    },
+    "describeTables": {
+      "searching": "Pesquisando {query}…",
+      "searched": "Pesquisado {names}",
+      "searchedMore": "Pesquisado {names} +{count}",
+      "columnsMatching": "colunas que correspondem a {terms}",
+      "column": "Coluna",
+      "type": "Tipo",
+      "used": "Usos",
+      "showingOf": "As {shown} principais de {total} colunas, mais usadas primeiro",
+      "matchingOf": "{matched} de {total} colunas correspondem a {terms}",
+      "noMatch": "Nenhuma coluna corresponde a {terms}",
+      "more": "+{count} a mais"
     }
   },
   "entityCreate": {
@@ -2418,7 +2472,8 @@
       "manage_data_sources": "Gerenciar agentes",
       "manage_service_accounts": "Gerenciar contas de serviço",
       "view_code": "Ver código gerado",
-      "run_custom_code": "Editar e executar código personalizado"
+      "run_custom_code": "Editar e executar código personalizado",
+      "access_workspace": "Usar o espaço de trabalho"
     },
     "delete": "Excluir",
     "duplicate": "Duplicar",
@@ -2438,7 +2493,8 @@
       "knowledge": "Conhecimento dos agentes",
       "code": "Código",
       "admin": "Administração",
-      "other": "Outros"
+      "other": "Outros",
+      "workspace": "Espaço de trabalho"
     },
     "permissionHints": {
       "create_data_source": "Criar agentes nas conexões que podem usar",
@@ -2454,7 +2510,8 @@
       "manage_settings": "Alterar as configurações da organização",
       "manage_llm": "Configurar provedores e modelos de LLM",
       "view_audit_logs": "Ver quem fez o quê e quando",
-      "manage_identity_providers": "Configurar login único (SSO)"
+      "manage_identity_providers": "Configurar login único (SSO)",
+      "access_workspace": "Abrir o próprio espaço de trabalho: início, relatórios, agentes. Sem isso, um membro só tem os aplicativos compartilhados com ele."
     },
     "fullAdminHint": "Pode fazer tudo na organização",
     "fullAdminAccessTab": "O acesso total de administrador inclui todos os agentes, conexões e modelos.",
@@ -2562,7 +2619,17 @@
     "noManagedGroupsHint": "Você não gerencia nenhum grupo.",
     "toastManagerAdded": "O membro agora é gestor do grupo",
     "toastManagerRemoved": "Função de gestor removida",
-    "failedToUpdateManager": "Falha ao atualizar o gestor do grupo"
+    "failedToUpdateManager": "Falha ao atualizar o gestor do grupo",
+    "models": {
+      "title": "Modelos padrão",
+      "hint": "Com que modelo os membros deste grupo começam. Só aparecem os modelos que o grupo já pode usar.",
+      "default": "Modelo padrão",
+      "small": "Modelo pequeno",
+      "orgDefault": "Padrão da organização",
+      "setByAdmin": "{model} (definido por um administrador)",
+      "saved": "Modelos do grupo atualizados",
+      "failed": "Não foi possível atualizar os modelos do grupo"
+    }
   },
   "signupPolicy": {
     "title": "Cadastro baseado em domínio",
@@ -3218,7 +3285,9 @@
       "defaultRoleHint": "Preenche a função ao adicionar ou convidar um membro.",
       "defaultRoleSaved": "Função padrão salva",
       "defaultRoleFailed": "Falha ao salvar a função padrão",
-      "defaultRoleShort": "Função padrão"
+      "defaultRoleShort": "Função padrão",
+      "appUser": "Usuário de aplicativos",
+      "joinedVia": "Entrou por meio de {app}"
     },
     "organizationName": "Nome da organização",
     "organizationNameRequired": "O nome da organização não pode ficar vazio.",
@@ -3753,6 +3822,10 @@
         "show_world": {
           "name": "Vista Mundo",
           "description": "Mostra na página Agentes um botão que abre o Mundo: um mapa dos agentes, do conhecimento, das fontes e do trabalho que ligam a sua organização. Cada utilizador vê apenas aquilo a que tem acesso."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K colunas por tabela",
+          "description": "Quantas colunas de uma tabela larga o agente vê por completo no contexto, ordenadas por uso das colunas, referências em instruções e chaves/carimbos de data/hora. O resto é resumido por prefixo e continua pesquisável com describe_tables. 0 = sem limite."
         }
       },
       "permissionMode": {
@@ -3936,7 +4009,27 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: sem ocultar",
-      "piiBadgeTooltip": "A política de dados pessoais aplicada aos prompts deste provedor. Altere em Configurações → Proteção de dados pessoais."
+      "piiBadgeTooltip": "A política de dados pessoais aplicada aos prompts deste provedor. Altere em Configurações → Proteção de dados pessoais.",
+      "providerManagers": {
+        "title": "Gestores do provedor",
+        "hint": "Membros que gerem este provedor sem serem administradores de LLM.",
+        "can": "Podem alterar as credenciais e as configurações de conexão, ativar ou desativar os modelos e editar as configurações e as orientações de roteamento desses modelos.",
+        "cannot": "Não podem adicionar modelos, alterar preços, modelos padrão ou acesso a modelos, nem ativar o roteador automático. Um modelo que ativam começa restrito até que um administrador o abra.",
+        "addPlaceholder": "Adicionar um membro…",
+        "add": "Adicionar",
+        "remove": "Remover gestor",
+        "loading": "Carregando…",
+        "none": "Ainda não há gestores. Apenas administradores de LLM gerem este provedor.",
+        "added": "Gestor adicionado",
+        "removed": "Gestor removido",
+        "failed": "Não foi possível atualizar os gestores do provedor",
+        "banner": "Você gere {providers}. Modelos padrão, acesso a modelos, preços e o roteador automático são definidos por um administrador.",
+        "priceAdminOnly": "Apenas um administrador pode alterar preços.",
+        "restricted": "Restrito: só quem recebe acesso de um administrador pode usá-lo."
+      },
+      "autoRouterModal": {
+        "decisionRestricted": "Apenas membros que podem usar {model} recebem a decisão prévia. Os demais começam no modelo pequeno."
+      }
     },
     "licensePage": {
       "title": "Licença",
@@ -4093,6 +4186,8 @@
       "masksValue": "Mantém os últimos 4 caracteres",
       "pseudonymizesValue": "As pessoas continuam vendo o valor",
       "detectorTitle": "Nomes, lugares e organizações",
+      "validatedTitle": "Identificadores validados",
+      "validatedNote": "Encontrados por padrão e confirmados por um dígito de controle (Luhn para cartões, mod-97 para IBANs, dígitos de controle para documentos), por isso capturam muito menos números parecidos que os identificadores comuns acima. Verificados na mensagem do usuário e nos dados, nunca em instruções ou esquemas.",
       "detectorUnavailable": "Detectar nomes, lugares e organizações exige um detector de dados pessoais, e esta instância não tem nenhum configurado. Peça ao administrador para instalar o extra pii do backend ou configurar um serviço Presidio.",
       "detectorErrorLabel": "Se o detector estiver indisponível",
       "detectorErrorDesc": "O que acontece com uma solicitação quando o detector não consegue verificá-la.",
@@ -4135,7 +4230,81 @@
         "PERSON": "Nome de pessoa",
         "LOCATION": "Lugar",
         "ORGANIZATION": "Organização",
-        "NRP": "Nacionalidade, grupo religioso ou político"
+        "NRP": "Nacionalidade, grupo religioso ou político",
+        "CREDIT_CARD": "Número de cartão de crédito (verificado com Luhn)",
+        "IBAN_CODE": "IBAN (com dígito de controle)",
+        "ABA_ROUTING_NUMBER": "Número de roteamento bancário dos EUA (ABA)",
+        "CRYPTO": "Endereço de carteira de cripto (Bitcoin)",
+        "US_NPI": "Identificador Nacional de Prestador dos EUA (NPI)",
+        "MEDICAL_LICENSE": "Número de registro DEA dos EUA",
+        "UK_NHS": "Número do NHS (Reino Unido)",
+        "ES_NIF": "NIF / DNI (Espanha)",
+        "ES_NIE": "NIE (Espanha)",
+        "IT_FISCAL_CODE": "Código fiscal (Itália)",
+        "DE_TAX_ID": "Número de identificação fiscal (Alemanha)",
+        "PL_PESEL": "PESEL (Polônia)",
+        "FI_PERSONAL_IDENTITY_CODE": "Código de identidade pessoal (Finlândia)",
+        "SE_PERSONNUMMER": "Personnummer (Suécia)",
+        "TR_NATIONAL_ID": "Número de identidade nacional (Turquia)",
+        "AU_TFN": "Número de arquivo fiscal (Austrália, TFN)",
+        "AU_ABN": "Número de empresa (Austrália, ABN)",
+        "AU_MEDICARE": "Número do Medicare (Austrália)",
+        "IN_AADHAAR": "Número Aadhaar (Índia)",
+        "KR_RRN": "Número de registro de residente (Coreia do Sul)",
+        "ZA_ID_NUMBER": "Número de identidade (África do Sul)",
+        "IT_VAT_CODE": "Número de IVA (Itália)",
+        "DE_VAT_ID": "Número de IVA (Alemanha)",
+        "PHONE_NUMBER": "Número de telefone (internacional)",
+        "US_SSN": "Número de Seguro Social dos EUA",
+        "US_ITIN": "Número de contribuinte dos EUA (ITIN)",
+        "US_PASSPORT": "Número de passaporte dos EUA",
+        "US_DRIVER_LICENSE": "Número da carteira de motorista dos EUA",
+        "US_BANK_NUMBER": "Número de conta bancária dos EUA",
+        "US_MBI": "ID de beneficiário do Medicare (MBI)",
+        "UK_NINO": "Número de National Insurance (Reino Unido)",
+        "UK_PASSPORT": "Número de passaporte (Reino Unido)",
+        "UK_DRIVING_LICENCE": "Número da carteira de motorista (Reino Unido)",
+        "UK_POSTCODE": "Código postal (Reino Unido)",
+        "CA_SIN": "Número de Seguro Social (Canadá)",
+        "SG_NRIC_FIN": "NRIC / FIN (Singapura)",
+        "IN_PAN": "PAN (Índia)",
+        "IN_PASSPORT": "Número de passaporte (Índia)",
+        "IN_VOTER": "Título de eleitor (Índia)",
+        "ES_PASSPORT": "Número de passaporte (Espanha)",
+        "IT_DRIVER_LICENSE": "Número da carteira de motorista (Itália)",
+        "IT_PASSPORT": "Número de passaporte (Itália)",
+        "IT_IDENTITY_CARD": "Número da carteira de identidade (Itália)",
+        "KR_PASSPORT": "Número de passaporte (Coreia do Sul)",
+        "PH_PASSPORT": "Número de passaporte (Filipinas)"
+      },
+      "agentsTitle": "Políticas por agente",
+      "agentsDesc": "Escolha a política que cada agente adiciona. A política de um agente se aplica a toda solicitação que inclui o agente, inclusive os dados dos outros agentes no mesmo chat, mesmo com um provedor isento. Quando várias políticas se aplicam, vence a opção mais rigorosa de cada regra.",
+      "defaultAgentPolicy": "Padrão para agentes",
+      "defaultAgentPolicyDesc": "Agentes sem escolha própria usam esta política.",
+      "noAgents": "Ainda não há agentes.",
+      "agentPolicyFor": "Política de PII para {name}",
+      "noAgentPolicy": "Sem política de agente",
+      "inheritAgentPolicy": "Padrão da organização: {policy}",
+      "usedByAgents": "{n} agente | {n} agentes",
+      "contextualTitle": "Precisam de uma palavra próxima",
+      "contextualNote": "Sem dígito de controle: a maioria só é encontrada quando uma palavra como \"passaporte\" ou \"conta\" está ao lado do valor. Funciona em frases e anotações; em linhas de tabela o nome da coluna geralmente não está ao lado do valor, então alguns passarão. Verificados na mensagem do usuário e nos dados, nunca em instruções ou esquemas.",
+      "termCount": "{n} termo | {n} termos",
+      "terms": "Termos exatos",
+      "termsHelp": "Palavras ou frases, uma por linha: codinomes, nomes de clientes, hosts internos. Reconhecidos como palavras inteiras, sem diferenciar maiúsculas. Use com padrões ou no lugar deles.",
+      "termsPlaceholder": "Projeto Falcão\nAcme Corp",
+      "checksum": "Dígito de controle",
+      "checksumHelp": "Uma correspondência só conta se passar nesta verificação, o que descarta a maioria dos números parecidos.",
+      "checksumNone": "Sem dígito de controle",
+      "contextWords": "Palavras de contexto",
+      "contextWordsHelp": "Separadas por vírgulas. Uma correspondência só conta se uma dessas palavras estiver a até 60 caracteres dela.",
+      "contextWordsPlaceholder": "passaporte, nº do passaporte",
+      "checksumSummary": "Controle: {name}",
+      "contextSummary": "Perto de: {words}",
+      "checksums": {
+        "luhn": "Luhn (cartões, IMEI, SIN canadense)",
+        "iban": "IBAN (mod 97)",
+        "il_id": "Identidade israelense (Teudat Zehut)",
+        "aba": "Número de roteamento bancário dos EUA (ABA)"
       }
     },
     "piiTab": "Dados pessoais",
@@ -4605,6 +4774,24 @@
           "title": "Exporte o certificado do SMS Provider",
           "body": "Por padrão, o site usa um certificado autoassinado. Execute isto no PowerShell do SMS Provider e cole a saída em SMS Provider certificate (PEM). Pule esta etapa se o certificado vier de uma AC em que este servidor já confia."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Registre um aplicativo no Microsoft Entra",
+          "body": "No centro de administração do Microsoft Entra, vá para App registrations > New registration. Escolha \"Accounts in this organizational directory only\". Na página Overview do aplicativo, copie Directory (tenant) ID e Application (client) ID para os campos abaixo."
+        },
+        {
+          "title": "Adicione o URI de redirecionamento",
+          "body": "No aplicativo, vá para Authentication > Add a platform > Web e cole este URI de redirecionamento."
+        },
+        {
+          "title": "Conceda permissões do Microsoft Graph",
+          "body": "Em API permissions > Add a permission > Microsoft Graph > Delegated permissions, adicione Mail.Read, User.Read, offline_access, openid e profile. Para permitir que os agentes movam, redijam ou enviem e-mails, adicione também Mail.ReadWrite e Mail.Send. Depois clique em \"Grant admin consent\" para que os usuários não precisem aprovar o aplicativo. Use apenas permissões Delegated, não Application: o conector lê somente a caixa de correio do usuário conectado."
+        },
+        {
+          "title": "Crie um segredo do cliente",
+          "body": "Em Certificates & secrets > New client secret, crie um segredo e copie o seu Value (não o Secret ID) para Client Secret abaixo. Não será possível ver o valor novamente depois."
+        }
       ]
     },
     "setupGuideCopyFailed": "Falha ao copiar — selecione o texto",
@@ -4667,6 +4854,14 @@
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
+    "postgresqlMulti": {
+      "databasesTitle": "Bancos de dados",
+      "databasesDescription": "Nomes de bancos de dados, padrões glob e exclusões com !, separados por vírgulas, por exemplo tenant_*, !tenant_test. A correspondência diferencia maiúsculas de minúsculas. Todos os bancos de dados correspondentes são unificados em um único conjunto de tabelas com uma coluna tenant_db.",
+      "discoveryDatabaseTitle": "Banco de dados de descoberta",
+      "discoveryDatabaseDescription": "Banco de dados usado para listar os bancos de dados do servidor. Padrão: postgres.",
+      "tableExcludeTitle": "Padrão de exclusão de tabelas",
+      "tableExcludeDescription": "Expressão regular opcional; tabelas cujo nome corresponda não são indexadas, por exemplo ^day_\\d{'{'}2{'}'}. Alterá-la remove, na próxima indexação, as tabelas recém-excluídas e a seleção delas no agente."
     },
     "qlikCloud": {
       "appFilterDescription": "Nomes ou IDs de apps separados por vírgulas nos espaços selecionados (opcional). Vazio inclui todos os apps correspondentes. Use IDs para nomes com vírgulas."
@@ -4928,7 +5123,14 @@
       "model_id_not_editable": "Somente modelos personalizados em provedores Azure, AWS Bedrock ou personalizados (compatíveis com OpenAI) podem ter o ID do modelo editado",
       "model_id_duplicate": "O modelo \"{model_id}\" já existe neste provedor",
       "model_is_group_default": "Este modelo é o padrão dos grupos: {groups}. Altere primeiro o padrão deles.",
-      "group_default_invalid": "O modelo tem de estar ativado e ser um modelo de chat desta organização."
+      "group_default_invalid": "O modelo tem de estar ativado e ser um modelo de chat desta organização.",
+      "group_default_not_available": "Este grupo não pode usar esse modelo. Peça antes a um administrador para dar acesso ao grupo.",
+      "group_default_priority_admin_only": "Apenas um administrador pode alterar a prioridade de um grupo.",
+      "provider_holds_default": "Este provedor tem o modelo padrão da organização. Peça antes a um administrador para alterar o padrão.",
+      "provider_manager_admin_only": "Apenas um administrador pode fazer isso neste provedor.",
+      "provider_manager_not_member": "Apenas um membro desta organização pode gerir um provedor.",
+      "provider_key_required_for_new_destination": "Insira a chave de API novamente ao mudar para onde este provedor se conecta.",
+      "provider_host_identity_admin_only": "Este provedor entra com a identidade de nuvem do próprio servidor. Apenas um administrador pode mudar para onde ele se conecta ou ativar esse tipo de acesso."
     },
     "data_source.in_use": "O agente \"{agent}\" ainda está em uso ({reference}), então não pode ser excluído. Nada foi excluído.",
     "memory.disabled": "A memória do usuário está desativada nesta organização.",
@@ -5021,7 +5223,8 @@
     "organization.name_taken": "Já existe uma organização chamada “{name}”.",
     "organization.signup_domains_instance_admin_required": "Só um administrador da instância pode atribuir domínios de registo a uma organização.",
     "organization.signup_domain_claimed": "O domínio {domain} já está atribuído a outra organização.",
-    "organization.member_instance_admin": "Esta conta é de um administrador da instância. Apenas um administrador da instância pode adicioná-la a uma organização."
+    "organization.member_instance_admin": "Esta conta é de um administrador da instância. Apenas um administrador da instância pode adicioná-la a uma organização.",
+    "workspace.access_required": "Sua conta pode usar os aplicativos compartilhados com você, mas não o espaço de trabalho."
   },
   "email": {
     "dashboardShare": {
@@ -5860,6 +6063,8 @@
       "colTools": "Ferramentas",
       "colDuration": "Duração",
       "colCost": "Custo",
+      "colModel": "Modelo",
+      "pivotModel": "Mostrar execuções que usaram este modelo",
       "colFeedback": "Feedback",
       "expandRow": "Mostrar chamadas de ferramentas",
       "pivotReport": "Mostrar esta conversa",
@@ -6393,7 +6598,8 @@
       "windowNote": "O uso é reiniciado no início de cada mês.",
       "dailyNote": "por dia desde o início do mês",
       "disabledTitle": "O monitoramento de uso não está ativado",
-      "disabledNote": "O uso por usuário (tokens, consultas e dados analisados) é monitorado quando o recurso Limites de uso está ativado no seu plano."
+      "disabledNote": "O uso por usuário (tokens, consultas e dados analisados) é monitorado quando o recurso Limites de uso está ativado no seu plano.",
+      "today": "Hoje: {used} / {limit}"
     },
     "appearance": {
       "title": "Aparência",
@@ -6474,7 +6680,22 @@
     "reports": "Relatórios recentes",
     "suggestInstruction": "Sugerir instrução",
     "suggestInstructionWithQuery": "Sugerir a instrução “{query}”",
-    "suggestionHint": "enviada para revisão"
+    "suggestionHint": "enviada para revisão",
+    "placeholderInReport": "Buscar neste relatório, relatórios, agentes, instruções…",
+    "inThisReport": "Neste relatório",
+    "reportScopeHint": "Digite report: para buscar só neste relatório",
+    "reportPrefix": "relatório:",
+    "tabs": {
+      "all": "Tudo",
+      "reports": "Relatórios",
+      "agents": "Agentes",
+      "instructions": "Instruções",
+      "dashboards": "Painéis"
+    },
+    "tabsLabel": "Categorias",
+    "tabsHint": "categorias",
+    "dashboards": "Painéis",
+    "untitledDashboard": "Painel sem título"
   },
   "promptParams": {
     "title": "Preencha os parâmetros — {title}",
@@ -6838,7 +7059,7 @@
     "newQuota": "Nova cota",
     "noDirectQuota": "Padrão",
     "noPoliciesFound": "Nenhuma política de cota encontrada",
-    "noPoliciesHint": "Crie uma cota para limitar o uso mensal de IA e de dados.",
+    "noPoliciesHint": "Crie uma cota para limitar o uso diário e mensal de IA e de dados.",
     "none": "Nenhuma",
     "principalTypes": {
       "group": "Grupo",
@@ -6860,7 +7081,20 @@
     "tokensShort": "Tokens",
     "unlimited": "Ilimitada",
     "update": "Atualizar",
-    "users": "Usuários"
+    "users": "Usuários",
+    "dayShort": "Dia",
+    "monthShort": "Mês",
+    "limitPerUser": "Limite por usuário",
+    "perDay": "Por dia",
+    "perMonth": "Por mês",
+    "resetsDaily": "Reinicia às 00:00 {tz}",
+    "resetsMonthly": "Reinicia no dia 1",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Consultas",
+    "dataLabel": "Dados escaneados (MB)",
+    "spendLabel": "Gasto com LLM (USD)",
+    "limitsHint": "Deixe vazio para ilimitado. Defina um limite diário, mensal ou ambos — a solicitação é bloqueada quando qualquer um é atingido. Os limites mensais de consultas e dados valem por conexão; os diários somam todas as conexões.",
+    "dailyAboveMonthly": "O limite diário não pode ser maior que o limite mensal."
   },
   "serviceAccounts": {
     "active": "Ativa",
@@ -7074,7 +7308,10 @@
     "exitFullscreen": "Sair do ecrã inteiro",
     "searchColumns": "Pesquisar colunas…",
     "noColumns": "Nenhuma coluna correspondente",
-    "centrality": "Centralidade"
+    "centrality": "Centralidade",
+    "usedHeader": "Usos",
+    "usedTooltip": "Consultas executadas que usaram esta coluna (tentativas com falha pesam menos no ranking)",
+    "sortedByUsage": "Mais usadas primeiro"
   },
   "fork": {
     "preparing": "Preparando sua cópia…",
@@ -7082,7 +7319,9 @@
     "nothingRan": "Não foi possível criar sua cópia: nenhuma das consultas pôde ser executada com suas credenciais."
   },
   "quota": {
-    "resetsOn": "reinicia em {date}"
+    "resetsOn": "reinicia em {date}",
+    "todayLabel": "{metric} · hoje",
+    "resetsDailyAndMonthly": "Hoje reinicia às 00:00 {tz} · mês {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Aprender durante a noite",
@@ -7583,6 +7822,9 @@
       "denied": "Você não tem acesso a isto. Peça ao proprietário que compartilhe com você.",
       "notAllowed": "Isto não está habilitado para este aplicativo. Um editor pode permitir isso nas configurações de incorporação no BOW.",
       "failed": "Não foi possível carregar. Tente novamente em instantes."
+    },
+    "signin": {
+      "intentFailed": "Não foi possível confirmar o aplicativo em que você está entrando. Nada foi enviado. Tente novamente."
     }
   },
   "connectedApps": {
@@ -7640,6 +7882,10 @@
     "shareToggleLabel": "Disponibilizar para todos na sua organização",
     "shareToggleHint": "Adiciona “{name}” aos conectores de todos. Cada pessoa entra com a própria conta — ninguém vê os dados dos outros.",
     "useAsAgent": "Usar como agente",
+    "enableForChat": "Ativar para o chat",
+    "disableForChat": "Desativar para o chat",
+    "enabledHint": "Ativado — a IA pode usá-lo no chat",
+    "disabledHint": "Desativado — a IA não o usará no chat",
     "movedToAgents": "{name} agora é um agente"
   },
   "tablePreview": {
@@ -7746,6 +7992,13 @@
       "none": "Sem limite",
       "ask": "Perguntar",
       "auto": "Automático"
+    },
+    "pii": {
+      "title": "Política de PII",
+      "hint": "Aplica-se a toda solicitação que inclui este agente, além da política do modelo. Vence a opção mais rigorosa de cada regra.",
+      "disabled": "A proteção de PII está desativada nesta organização.",
+      "saved": "Política de PII salva",
+      "saveError": "Não foi possível salvar a política de PII"
     }
   },
   "productUpdates": {
@@ -8083,5 +8336,91 @@
       }
     },
     "builtinBadge": "Integrada"
+  },
+  "cachedColumns": {
+    "title": "Colunas",
+    "hint": "As descrições e o indicador de reagregação vêm do catálogo de origem. O que alterar aqui é mantido em cada atualização.",
+    "column": "Coluna",
+    "type": "Tipo",
+    "description": "Descrição",
+    "details": "Detalhes",
+    "aggregation": "Reagregação",
+    "descriptionPlaceholder": "Sem descrição na origem. Descreva esta coluna para o agente.",
+    "additive": "Aditiva",
+    "notAdditive": "Não aditiva",
+    "unknown": "Desconhecida",
+    "additiveHint": "Os valores podem ser somados entre linhas.",
+    "notAdditiveHint": "Somar entre linhas dá um número errado. O agente é instruído a não o fazer.",
+    "unknownHint": "Não foi possível determinar a partir da consulta. Escolha uma opção para que o agente saiba.",
+    "undecided": "Não foi possível determinar a reagregação de: {columns}. Defina-a para que o agente saiba se podem ser somadas.",
+    "copiedFrom": "Copiada de {source}",
+    "measureFrom": "Medida {source}",
+    "computedAs": "Calculada: {expression}",
+    "edited": "Editada",
+    "editedHint": "Definida por um administrador. Uma atualização não a altera.",
+    "reset": "Repor o valor da origem",
+    "drift": "Definição alterada",
+    "driftHint": "A definição de origem desta coluna mudou desde a última vez que a tabela a descreveu.",
+    "driftPrevious": "Anteriormente: {expression}",
+    "markReviewed": "Marcar como revista",
+    "rlsTitle": "A origem usa segurança ao nível da linha",
+    "rlsBody": "{tables} está protegida por segurança ao nível da linha na origem. Esta cópia contém todas as linhas que a ligação consegue ler, e as funções da origem não são transportadas. Decida quem vê que linhas no separador Segurança ao nível da linha.",
+    "rlsOpen": "Abrir Segurança ao nível da linha",
+    "rlsSaveFirst": "Disponível depois de a tabela ser guardada.",
+    "generatedDescription": "Gerada a partir das colunas e mantida atualizada em cada atualização. Edite-a para escrever a sua.",
+    "reasons": {
+      "sum": "soma",
+      "count": "contagem",
+      "numeric_column": "valor numérico",
+      "distinct_count": "contagem de distintos",
+      "average": "média",
+      "ratio": "rácio",
+      "min_max": "mínimo / máximo",
+      "time_intelligence": "inteligência de tempo",
+      "share_of_total": "parte de um total",
+      "statistic": "estatística",
+      "offset": "constante somada após a agregação",
+      "unreadable": "definição ilegível",
+      "complex": "demasiado complexa para classificar",
+      "not_numeric": "não é um número",
+      "grouping_key": "chave de agrupamento",
+      "key": "identificador",
+      "set_by_admin": "definida por um administrador"
+    }
+  },
+  "apps": {
+    "title": "Seus aplicativos",
+    "subtitle": "Abra um aplicativo para começar.",
+    "openWorkspace": "Abrir o espaço de trabalho",
+    "search": "Buscar aplicativos",
+    "untitled": "Aplicativo sem título",
+    "inApplication": "Em {name}",
+    "allApps": "Todos os aplicativos",
+    "language": "Idioma",
+    "account": "Conta",
+    "signOut": "Sair",
+    "loadFailed": "Não foi possível carregar seus aplicativos.",
+    "retry": "Tentar novamente",
+    "noMatches": "Nenhum aplicativo corresponde a “{query}”.",
+    "empty": {
+      "title": "Ainda não há aplicativos",
+      "body": "Quando alguém compartilhar um aplicativo com você, ele aparecerá aqui."
+    },
+    "requestAccess": {
+      "prompt": "Precisa de mais do que estes aplicativos?",
+      "button": "Solicitar acesso completo",
+      "sent": "Solicitação enviada. Um administrador irá analisá-la.",
+      "failed": "Não foi possível enviar a solicitação. Tente novamente."
+    },
+    "showMore": "Mostrar mais"
+  },
+  "hostApps": {
+    "newUserRole": "Novas pessoas entram como",
+    "newUserRoleHelp": "Para contas criadas ao entrar por este aplicativo. Quem já tem uma conta mantém sua função.",
+    "newUserRoleApp": "Usuário de aplicativos",
+    "newUserRoleAppHelp": "Pode usar os aplicativos compartilhados com ele, não o espaço de trabalho.",
+    "newUserRoleMember": "Membro",
+    "newUserRoleMemberHelp": "Também pode usar o espaço de trabalho: relatórios, agentes e painéis.",
+    "newPeopleAs": "novas pessoas entram como {role}"
   }
 }

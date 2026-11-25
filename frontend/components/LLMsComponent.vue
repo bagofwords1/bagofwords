@@ -3,7 +3,7 @@
         <!-- Primary actions live in the page header (settings shell); before
              any provider exists, the empty state below offers the first one. -->
         <Teleport to="#settings-page-actions" defer>
-            <template v-if="models.length > 0 && useCan('manage_llm_settings')">
+            <template v-if="models.length > 0 && isLlmAdmin">
                 <UButton
                     color="gray"
                     icon="i-heroicons-cube"
@@ -23,6 +23,16 @@
             </template>
         </Teleport>
 
+        <!-- A provider manager sees only the providers they manage. -->
+        <div
+            v-if="!isLlmAdmin && managedProviderNames.length"
+            class="mb-4 flex items-start gap-2 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 px-3 py-2 text-sm text-blue-800 dark:text-blue-200"
+            data-testid="provider-manager-banner"
+        >
+            <UIcon name="i-heroicons-information-circle" class="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span>{{ $t('settings.llms.providerManagers.banner', { providers: managedProviderNames.join(', ') }) }}</span>
+        </div>
+
         <!-- Provider chips: click filters the model list to that provider. -->
         <div v-if="models.length > 0" class="flex items-center flex-wrap gap-2 mb-4">
             <!-- Chip click filters the model list to that provider; click again to clear. -->
@@ -33,7 +43,7 @@
                 data-testid="provider-chip"
                 class="inline-flex items-center gap-1.5 ps-2.5 py-1 border rounded-full transition-colors"
                 :class="[
-                    useCan('manage_llm_settings') ? 'pe-1' : 'pe-2.5',
+                    canManageProvider(provider.id) ? 'pe-1' : 'pe-2.5',
                     providerFilterId === provider.id
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
                         : 'border-line hover:bg-ink/[0.03]'
@@ -54,7 +64,7 @@
                         {{ piiBadge(provider.id)!.label }}
                     </span>
                 </UTooltip>
-                <UTooltip v-if="useCan('manage_llm_settings')" :text="$t('settings.llms.providerSettingsTooltip')">
+                <UTooltip v-if="canManageProvider(provider.id)" :text="$t('settings.llms.providerSettingsTooltip')">
                     <span
                         role="button"
                         data-testid="provider-chip-gear"
@@ -102,12 +112,12 @@
                     </UPopover>
                     <UToggle
                         :model-value="autoRouterOn"
-                        :disabled="!useCan('manage_llm_settings') || !modelRoutingLicensed"
+                        :disabled="!isLlmAdmin || !modelRoutingLicensed"
                         data-testid="auto-router-switch"
                         @update:model-value="onAutoRouterToggle"
                     />
                     <button
-                        v-if="autoRouterOn && useCan('manage_llm_settings') && modelRoutingLicensed"
+                        v-if="autoRouterOn && isLlmAdmin && modelRoutingLicensed"
                         type="button"
                         class="text-xs text-blue-600 hover:underline"
                         data-testid="auto-router-configure"
@@ -140,7 +150,7 @@
                     </UPopover>
                     <UToggle
                         v-model="fallbackOn"
-                        :disabled="!useCan('manage_llm_settings') || !llmFallbackLicensed"
+                        :disabled="!isLlmAdmin || !llmFallbackLicensed"
                         data-testid="llm-fallback-toggle"
                         @update:model-value="saveFallbackToggle"
                     />
@@ -203,7 +213,7 @@
                         <th>{{ $t('settings.llms.colCost') }}</th>
                         <th>{{ $t('settings.llms.colStatus') }}</th>
                         <th v-if="canManageAccess">{{ $t('settings.llms.colAccess') }}</th>
-                        <th class="bow-sticky-end text-end" v-if="useCan('manage_llm_settings')"><span class="sr-only">{{ $t('settings.llms.colActions') }}</span></th>
+                        <th class="bow-sticky-end text-end" v-if="canManageAnyProvider"><span class="sr-only">{{ $t('settings.llms.colActions') }}</span></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -213,7 +223,7 @@
                         v-for="model in filteredModels"
                         :key="model.id"
                         class="group"
-                        :class="useCan('manage_llm_settings') ? 'cursor-pointer' : ''"
+                        :class="canManageProvider(model.provider.id) ? 'cursor-pointer' : ''"
                         data-testid="model-row"
                         @click="openModelCard(model)"
                     >
@@ -228,6 +238,11 @@
                                         <UBadge v-if="model.is_default" size="xs" color="blue" variant="subtle">{{ $t('settings.llms.badgeDefault') }}</UBadge>
                                         <UTooltip v-if="model.is_small_default" :text="$t('settings.llms.smallDefaultTooltip')">
                                             <UBadge size="xs" color="green" variant="subtle">{{ $t('settings.llms.badgeSmallDefault') }}</UBadge>
+                                        </UTooltip>
+                                        <!-- Without the Access column (provider managers), still say which
+                                             models are restricted: e.g. one they just turned on. -->
+                                        <UTooltip v-if="!canManageAccess && model.is_restricted" :text="$t('settings.llms.providerManagers.restricted')">
+                                            <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" data-testid="llm-restricted-marker" />
                                         </UTooltip>
                                         <UTooltip v-if="model.model_kind === 'decision'" :text="$t('settings.llms.decision.badgeTooltip')">
                                             <UBadge size="xs" color="purple" variant="subtle" data-testid="llm-decision-badge">{{ $t('settings.llms.decision.badge') }}</UBadge>
@@ -276,7 +291,7 @@
                                     </div>
                                     <UTooltip v-else :text="$t('settings.llms.routingHintTooltip')">
                                         <button
-                                            v-if="useCan('manage_llm_settings')"
+                                            v-if="canManageProvider(model.provider.id)"
                                             type="button"
                                             class="group inline-flex items-start gap-1 text-xs text-start"
                                             :class="modelHint(model) ? 'text-ink-2 hover:text-blue-600' : 'text-ink-muted hover:text-blue-600 italic'"
@@ -295,7 +310,7 @@
                             <span v-if="model.is_default" class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('settings.llms.fallbackPrimary') }}</span>
                             <span v-else-if="!model.is_enabled || model.model_kind === 'decision'" class="text-xs text-gray-300 dark:text-gray-600">—</span>
                             <select
-                                v-else-if="useCan('manage_llm_settings')"
+                                v-else-if="isLlmAdmin"
                                 class="bow-native-control"
                                 :value="fallbackPriority(model) ?? ''"
                                 @change="setFallbackPriority(model, ($event.target as HTMLSelectElement).value)"
@@ -315,7 +330,7 @@
                             <UToggle
                                 v-model="model.is_enabled"
                                 @change="toggleModel(model.id, $event)"
-                                :disabled="!useCan('manage_llm_settings') || model.is_default || model.is_small_default"
+                                :disabled="!canManageProvider(model.provider.id) || model.is_default || model.is_small_default"
                             />
                         </td>
                         <td class="whitespace-nowrap" v-if="canManageAccess" @click.stop>
@@ -333,10 +348,11 @@
                         <td
                             class="bow-sticky-end whitespace-nowrap text-end"
                             :class="openMenuModelId === model.id ? 'z-30' : 'z-10'"
-                            v-if="useCan('manage_llm_settings')"
+                            v-if="canManageAnyProvider"
                             @click.stop
                         >
                             <UDropdown
+                                v-if="canManageProvider(model.provider.id)"
                                 :items="dropdownItemsByModel[model.id]"
                                 :popper="{ strategy: 'fixed' }"
                                 :ui="{ item: { size: 'text-xs', padding: 'px-2 py-1.5' }, width: 'w-44' }"
@@ -373,7 +389,7 @@
                 :title="$t('settings.llms.emptyTitle')"
                 :description="$t('settings.llms.emptyHint')"
             >
-                <UButton v-if="useCan('manage_llm_settings')" color="blue" icon="i-heroicons-plus" @click="openAddProvider">
+                <UButton v-if="isLlmAdmin" color="blue" icon="i-heroicons-plus" @click="openAddProvider">
                     {{ $t('settings.llms.addProvider') }}
                 </UButton>
             </SettingsEmpty>
@@ -382,6 +398,7 @@
         <!-- Provider Modal (add provider = existing flow; gear = provider settings) -->
         <LLMProviderModalComponent
             v-model="providerModalOpen"
+            :org-admin="isLlmAdmin"
             :edit-provider-id="editProviderId"
             :start-with-new="startWithNewProvider"
             @update:modelValue="handleProviderModalClose"
@@ -411,6 +428,7 @@
         <LLMModelCardModal
             v-model="cardModalOpen"
             :model="cardModel"
+            :org-admin="isLlmAdmin"
             @updated="getModels"
             @deleted="getModels"
         />
@@ -720,7 +738,20 @@ const addModelModalOpen = ref(false);
 watch(() => addModelModalOpen.value, (isOpen) => { if (!isOpen) addModelKind.value = 'chat'; });
 
 const { hasFeature } = useEnterprise();
-const canManageAccess = computed(() => hasFeature('llm_access_control') && useCan('manage_llm_settings'));
+// Who can do what on this page. An org LLM admin (`manage_llm`) manages
+// everything. A provider manager (an admin named them on one provider) sees
+// only their providers' models (the backend scopes /llm/models?manage=true and
+// every write) and manages those: credentials, turning models on or off, model
+// settings and routing hints — not defaults, access, pricing, fallback or the
+// Auto router. (This page used to gate on `manage_llm_settings`, a permission
+// the backend never had, so only full admins saw any control.)
+const isLlmAdmin = computed(() => useCan('manage_llm'));
+const canManageProvider = (providerId: string) =>
+    isLlmAdmin.value || useCan('manage', { type: 'llm_provider', id: providerId });
+const canManageAnyProvider = computed(() => isLlmAdmin.value || providers.value.some((p) => canManageProvider(p.id)));
+const managedProviderNames = computed(() =>
+    isLlmAdmin.value ? [] : providers.value.filter((p) => canManageProvider(p.id)).map((p) => p.name));
+const canManageAccess = computed(() => hasFeature('llm_access_control') && isLlmAdmin.value);
 // Auto model router is an Enterprise feature — the toggle stays visible but
 // locked (and the backend rejects enabling it) without the license.
 const modelRoutingLicensed = computed(() => hasFeature('model_routing'));
@@ -764,7 +795,7 @@ const cardModalOpen = ref(false);
 const cardModel = computed<Model | null>(() => models.value.find((m) => m.id === cardModelId.value) || null);
 
 const openModelCard = (model: Model) => {
-    if (!useCan('manage_llm_settings')) return;
+    if (!canManageProvider(model.provider.id)) return;
     cardModelId.value = model.id;
     cardModalOpen.value = true;
 };
@@ -791,9 +822,12 @@ const filteredModels = computed<Model[]>(() => {
 
 const getModels = async () => {
   // kind=all: the admin table lists decision models too (pickers never do).
+  // manage=true: the models this caller manages, restricted ones included —
+  // every model for an LLM admin, their providers' models for a provider
+  // manager (the plain list would hide restricted models they can't chat with).
   const response = await useMyFetch<Model[]>('/llm/models', {
       method: 'GET',
-      query: { kind: 'all' },
+      query: { kind: 'all', manage: true },
   });
 
   models.value = (response.data.value as unknown as Model[]) || [];
@@ -830,7 +864,8 @@ onMounted(async () => {
     await getModels();
     await getProviders();
     await loadAutoRouter();
-    await loadFallback();
+    // The fallback chain is org-wide and admin-only to read.
+    if (isLlmAdmin.value) await loadFallback();
     await loadPii();
 });
 
@@ -938,6 +973,13 @@ const confirmDeleteModel = async () => {
 };
 
 const buildDropdownItems = (model: Model) => {
+    if (!isLlmAdmin.value) {
+        // A provider manager: their model's settings and its provider only.
+        return [[
+            { label: t('settings.llms.modelSettings'), icon: 'i-heroicons-adjustments-horizontal', click: () => openModelCard(model) },
+            { label: t('settings.llms.manageProvider'), click: () => openManageProvider(model.provider.id) },
+        ]];
+    }
     const items: any[][] = [[
         {
             label: t('settings.llms.modelSettings'),

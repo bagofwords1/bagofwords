@@ -30,6 +30,10 @@ class UsagePolicyCreate(BaseModel):
     monthly_query_limit: Optional[int] = Field(default=None, ge=0)
     monthly_data_bytes_limit: Optional[int] = Field(default=None, ge=0)
     monthly_spend_limit_usd: Optional[float] = Field(default=None, ge=0)
+    daily_token_limit: Optional[int] = Field(default=None, ge=0)
+    daily_query_limit: Optional[int] = Field(default=None, ge=0)
+    daily_data_bytes_limit: Optional[int] = Field(default=None, ge=0)
+    daily_spend_limit_usd: Optional[float] = Field(default=None, ge=0)
     enabled: bool = True
     assignments: List[UsagePolicyAssignmentInput] = []
     connection_overrides: List[UsagePolicyConnectionOverrideInput] = []
@@ -50,6 +54,10 @@ class UsagePolicyUpdate(BaseModel):
     monthly_query_limit: Optional[int] = Field(default=None, ge=0)
     monthly_data_bytes_limit: Optional[int] = Field(default=None, ge=0)
     monthly_spend_limit_usd: Optional[float] = Field(default=None, ge=0)
+    daily_token_limit: Optional[int] = Field(default=None, ge=0)
+    daily_query_limit: Optional[int] = Field(default=None, ge=0)
+    daily_data_bytes_limit: Optional[int] = Field(default=None, ge=0)
+    daily_spend_limit_usd: Optional[float] = Field(default=None, ge=0)
     enabled: Optional[bool] = None
     assignments: Optional[List[UsagePolicyAssignmentInput]] = None
     connection_overrides: Optional[List[UsagePolicyConnectionOverrideInput]] = None
@@ -103,6 +111,10 @@ class UsagePolicySchema(BaseModel):
     monthly_query_limit: Optional[int] = None
     monthly_data_bytes_limit: Optional[int] = None
     monthly_spend_limit_usd: Optional[float] = None
+    daily_token_limit: Optional[int] = None
+    daily_query_limit: Optional[int] = None
+    daily_data_bytes_limit: Optional[int] = None
+    daily_spend_limit_usd: Optional[float] = None
     enabled: bool
     assignments: List[UsagePolicyAssignmentSchema] = []
     connection_overrides: List[UsagePolicyConnectionOverrideSchema] = []
@@ -119,6 +131,12 @@ class EffectiveUsagePolicySchema(BaseModel):
     monthly_query_limit: Optional[int] = None
     monthly_data_bytes_limit: Optional[int] = None
     monthly_spend_limit_usd: Optional[float] = None
+    daily_token_limit: Optional[int] = None
+    daily_query_limit: Optional[int] = None
+    daily_data_bytes_limit: Optional[int] = None
+    daily_spend_limit_usd: Optional[float] = None
+    # IANA name of the timezone the daily window is measured in.
+    timezone: str = "UTC"
     policy_ids: List[str] = []
     resolution_source: str = "default"
 
@@ -136,6 +154,18 @@ class UsageQuotaSpendMetricSchema(BaseModel):
     limit: Optional[float] = None
     remaining: Optional[float] = None
     percent: Optional[float] = None
+
+
+class UsageQuotaDailySchema(BaseModel):
+    """Today's usage against the daily caps. The day runs midnight to midnight
+    in the organization's timezone; window_start/window_end are UTC instants."""
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    timezone: str = "UTC"
+    tokens: UsageQuotaMetricSchema = Field(default_factory=UsageQuotaMetricSchema)
+    queries: UsageQuotaMetricSchema = Field(default_factory=UsageQuotaMetricSchema)
+    data_bytes: UsageQuotaMetricSchema = Field(default_factory=UsageQuotaMetricSchema)
+    spend: UsageQuotaSpendMetricSchema = Field(default_factory=UsageQuotaSpendMetricSchema)
 
 
 class UsageQuotaConnectionSchema(BaseModel):
@@ -158,6 +188,7 @@ class UsageQuotaSummarySchema(BaseModel):
     data_bytes: UsageQuotaMetricSchema = Field(default_factory=UsageQuotaMetricSchema)
     spend: UsageQuotaSpendMetricSchema = Field(default_factory=UsageQuotaSpendMetricSchema)
     connections: List[UsageQuotaConnectionSchema] = []
+    daily: UsageQuotaDailySchema = Field(default_factory=UsageQuotaDailySchema)
 
 
 class UsageDailyPointSchema(BaseModel):

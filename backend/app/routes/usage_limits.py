@@ -35,6 +35,9 @@ def _quota_http_error(exc: UsageLimitExceeded) -> HTTPException:
             "limit": exc.limit,
             "used": exc.used,
             "requested": exc.requested,
+            "window": exc.window,
+            "resets_at": exc.resets_at.isoformat() if exc.resets_at else None,
+            "timezone": exc.timezone,
         },
     )
 

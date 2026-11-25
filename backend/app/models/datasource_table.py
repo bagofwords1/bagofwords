@@ -3,6 +3,8 @@ from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey as PromptForeignKey, apply_column_exclusions
 from sqlalchemy import Boolean
+# Registered before the mapper resolves DataSourceTable.column_stats.
+from app.models.column_stats import ColumnStats  # noqa: F401
 
 
 class DataSourceTable(BaseSchema):
@@ -58,6 +60,14 @@ class DataSourceTable(BaseSchema):
         back_populates="datasource_table",
         cascade="all, delete-orphan",
         passive_deletes=False,
+    )
+    # passive_deletes: the FK is ON DELETE CASCADE, and a 5,000-column table
+    # can carry thousands of rows the ORM need not load to delete.
+    column_stat_rows = relationship(
+        "ColumnStats",
+        back_populates="datasource_table",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     usage_events = relationship(
         "TableUsageEvent",

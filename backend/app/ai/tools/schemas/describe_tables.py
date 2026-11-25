@@ -1,5 +1,5 @@
 from typing import List, Optional, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class DescribeTablesInput(BaseModel):
@@ -11,7 +11,19 @@ class DescribeTablesInput(BaseModel):
     - limit: soft cap for how many tables to include in the rendered excerpt per data source
     """
 
-    query: Union[str, List[str]] = Field(..., description="Table, procedure or function names, or patterns")
+    query: Optional[Union[str, List[str]]] = Field(
+        default=None,
+        description="Table, procedure or function names, or patterns. Omit it (and pass `columns`) to search columns across every table in scope.",
+    )
+    columns: Optional[Union[str, List[str]]] = Field(
+        default=None,
+        description=(
+            "Column names or patterns to search for (matched against column name and description, case-insensitive; "
+            "plain text matches as a substring, `*` as a wildcard, or a regex). With `query`: only the matching columns "
+            "of those tables are returned. Without `query`: every table in scope that has a matching column is returned, "
+            "with just those columns. Use it to find columns a wide table's schema summary folded away."
+        ),
+    )
     data_source_ids: Optional[List[str]] = Field(
         default=None, description="Optional list of data source IDs (UUIDs) to scope search"
     )
@@ -19,6 +31,15 @@ class DescribeTablesInput(BaseModel):
         default=None, description="Optional list of connection IDs (UUIDs) to scope search. Use when the same table name exists across multiple connections to avoid duplicates."
     )
     limit: int = Field(10, ge=1, le=100, description="Max tables to sample per data source in excerpt")
+
+    @model_validator(mode="after")
+    def _query_or_columns(self):
+        def _empty(v):
+            return v is None or (isinstance(v, str) and not v.strip()) or (isinstance(v, list) and not any(
+                isinstance(x, str) and x.strip() for x in v))
+        if _empty(self.query) and _empty(self.columns):
+            raise ValueError("pass `query` (table names/patterns), `columns` (column names/patterns), or both")
+        return self
 
 
 class DescribeTablesOutput(BaseModel):
@@ -32,6 +53,7 @@ class DescribeTablesOutput(BaseModel):
 
     # Echoed input for UI hydration (can be a list or string)
     search_query: Optional[Union[str, List[str]]] = Field(default=None, description="Original query echoed for UI display")
+    search_columns: Optional[Union[str, List[str]]] = Field(default=None, description="Original column search echoed for UI display")
 
     # Lightweight preview for UI: top tables across data sources
     class TableColumnPreview(BaseModel):
@@ -39,6 +61,7 @@ class DescribeTablesOutput(BaseModel):
         dtype: Optional[str] = None
         description: Optional[str] = None
         metadata: Optional[dict] = None  # Column-level metadata (formula, role, __typename, etc.)
+        usage_count: Optional[int] = None  # executed queries that used the column (ColumnStats)
 
     class TableUsagePreview(BaseModel):
         usage_count: Optional[int] = None
@@ -61,6 +84,10 @@ class DescribeTablesOutput(BaseModel):
         metadata: Optional[dict] = None  # Table-level metadata (tableau info, schema, etc.)
         columns: List["DescribeTablesOutput.TableColumnPreview"] = Field(default_factory=list)
         usage: Optional["DescribeTablesOutput.TableUsagePreview"] = None
+        # `columns` is a bounded list: the matching columns of a column search,
+        # or the top columns of a wide table. columns_total is the table's size.
+        columns_total: Optional[int] = None
+        columns_matched: Optional[int] = None
 
     top_tables: List[TablePreview] = Field(default_factory=list, description="Flattened sample of top tables with basic columns and usage")
 

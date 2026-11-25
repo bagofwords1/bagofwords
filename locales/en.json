@@ -530,7 +530,22 @@
     "instructions": "Instructions",
     "emptyLabel": "Start typing to search",
     "emptyQueryLabel": "No results found",
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "placeholderInReport": "Search this report, reports, agents, instructions…",
+    "inThisReport": "In this report",
+    "reportScopeHint": "Type report: to search only this report",
+    "reportPrefix": "report:",
+    "tabs": {
+      "all": "All",
+      "reports": "Reports",
+      "agents": "Agents",
+      "instructions": "Instructions",
+      "dashboards": "Dashboards"
+    },
+    "tabsLabel": "Categories",
+    "tabsHint": "categories",
+    "dashboards": "Dashboards",
+    "untitledDashboard": "Untitled dashboard"
   },
   "smoke": {
     "hello": "Hello",
@@ -606,7 +621,8 @@
     "admin": "Admin",
     "backToApp": "Back to app",
     "notifications": "Notifications",
-    "automations": "Automations"
+    "automations": "Automations",
+    "apps": "Apps"
   },
   "notifications": {
     "title": "Notifications",
@@ -1283,6 +1299,9 @@
     "dropHint": "Drop on a project",
     "movedTo": "Moved to {name}",
     "removeFromProject": "Remove from project",
+    "removedFromProject": "Removed from project",
+    "removeImpact": "This report moves back to your personal list.",
+    "removeImpactShared": "Members of this project will lose access to this report. Only you and anyone you've shared it with directly will keep it.",
     "empty": "New project",
     "moveNoProjects": "Create a project to organize your reports into folders.",
     "moveShareDisclosure": "Moving a report into a shared project lets its members view the report.",
@@ -1424,6 +1443,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM usage for this conversation",
     "turnTokensTooltip": "Planner LLM tokens for this turn",
+    "tokensInOut": "in {input} / out {output}",
+    "tokensIn": "In",
+    "tokensOut": "Out",
+    "tokensCached": "Cached",
+    "stepTokens": "Tokens",
+    "stepTokensTooltip": "This step's planner call. Input includes cached tokens. LLM calls made inside the tool are not counted.",
+    "modelUnknown": "Unknown model",
+    "modelUnknownTooltip": "No per-call LLM usage was recorded for this run",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Models in this turn",
+    "modelCalls": "{count} call | {count} calls",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Auto routing ran these calls on {model} instead of {baseline}",
+    "autoRoutedRunTooltip": "Auto routing was on for this run",
+    "primaryModel": "Primary",
     "turnUsageTooltip": "LLM usage for this turn",
     "setup": "Setup",
     "setupTooltip": "Time from run start until the first step began (context building, etc.)",
@@ -1514,7 +1548,30 @@
       "copied": "Trace JSON copied to clipboard",
       "failed": "Couldn't export the trace"
     },
-    "hiddenTurns": "{count} later turn hidden: it or an earlier turn reached an agent you don't manage | {count} later turns hidden: they or an earlier turn reached an agent you don't manage"
+    "hiddenTurns": "{count} later turn hidden: it or an earlier turn reached an agent you don't manage | {count} later turns hidden: they or an earlier turn reached an agent you don't manage",
+    "contextColumns": {
+      "ofTotal": "{shown} of {total} columns",
+      "allColumns": "{total} columns",
+      "why": "Why these columns",
+      "reason": {
+        "usage_ranked": "Ranked by column usage",
+        "structural_only": "No usage yet: keys, timestamps and IDs first",
+        "all_columns": "All columns fit the budget"
+      },
+      "signal": {
+        "mentioned": "{n} named in the task",
+        "usage": "{n} by usage",
+        "instructions": "{n} referenced by instructions",
+        "structural": "{n} keys, timestamps or IDs",
+        "sample": "{n} sampled across column groups",
+        "schema_order": "{n} in catalog order"
+      },
+      "shown": "Columns in context",
+      "folded": "Folded (searchable with describe_tables)",
+      "otherColumns": "{count} other columns",
+      "usedTimes": "used {count}×",
+      "score": "score {score}"
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -1598,10 +1655,10 @@
         "search": "Searched",
         "files": "Read files",
         "inspect": "Inspected data",
-        "data": "Ran {count} queries",
+        "data": "Ran {count} query | Ran {count} queries",
         "create": "Created and updated results",
         "tools": "Used tools",
-        "results": "Ran {count} queries"
+        "results": "Ran {count} query | Ran {count} queries"
       },
       "workedFor": "Worked for {duration}",
       "worked": "Worked",
@@ -1828,7 +1885,6 @@
       "edit": "Edit Artifact",
       "confirm": "Confirm artifact edit",
       "dashboardEdited": "Dashboard edited",
-      "diff": "Diff",
       "rewrite": "Rewrite",
       "plan": "Plan: ",
       "more": "more",
@@ -2655,6 +2711,19 @@
       "connected": "Connected",
       "askAgain": "Ask again",
       "readyHint": "Connected. Run your question again to use it."
+    },
+    "describeTables": {
+      "searching": "Searching {query}…",
+      "searched": "Searched {names}",
+      "searchedMore": "Searched {names} +{count}",
+      "columnsMatching": "columns matching {terms}",
+      "column": "Column",
+      "type": "Type",
+      "used": "Used",
+      "showingOf": "Top {shown} of {total} columns, most used first",
+      "matchingOf": "{matched} of {total} columns match {terms}",
+      "noMatch": "No column matches {terms}",
+      "more": "+{count} more"
     }
   },
   "entityCreate": {
@@ -2764,7 +2833,8 @@
       "manage": "Manage settings",
       "manage_connection": "Manage connection",
       "create_data_sources": "Create agents",
-      "manage_data_sources": "Manage agents"
+      "manage_data_sources": "Manage agents",
+      "access_workspace": "Use the workspace"
     },
     "delete": "Delete",
     "duplicate": "Duplicate",
@@ -2784,7 +2854,8 @@
       "knowledge": "Agent knowledge",
       "code": "Code",
       "admin": "Administration",
-      "other": "Other"
+      "other": "Other",
+      "workspace": "Workspace"
     },
     "permissionHints": {
       "create_data_source": "Create new agents on connections they can use",
@@ -2800,7 +2871,8 @@
       "manage_settings": "Change organization settings",
       "manage_llm": "Configure LLM providers and models",
       "view_audit_logs": "See who did what, and when",
-      "manage_identity_providers": "Configure single sign-on"
+      "manage_identity_providers": "Configure single sign-on",
+      "access_workspace": "Open the workspace itself: home, reports, agents. Without it, a member only has the apps shared with them."
     },
     "fullAdminHint": "Can do everything in the organization",
     "fullAdminAccessTab": "Full admin access includes every agent, connection and model.",
@@ -2944,7 +3016,17 @@
     "noManagedGroupsHint": "You don't manage any groups.",
     "toastManagerAdded": "Member is now a group manager",
     "toastManagerRemoved": "Manager role removed",
-    "failedToUpdateManager": "Failed to update group manager"
+    "failedToUpdateManager": "Failed to update group manager",
+    "models": {
+      "title": "Default models",
+      "hint": "What this group's members start on. Only models the group can already use are listed.",
+      "default": "Default model",
+      "small": "Small model",
+      "orgDefault": "Organization default",
+      "setByAdmin": "{model} (set by an admin)",
+      "saved": "Group models updated",
+      "failed": "Could not update the group's models"
+    }
   },
   "quotaPolicies": {
     "searchPlaceholder": "Search quotas...",
@@ -2971,7 +3053,7 @@
     "noDirectQuota": "Default",
     "inherited": "Inherited",
     "noPoliciesFound": "No quota policies found",
-    "noPoliciesHint": "Create a quota to limit monthly AI and data usage.",
+    "noPoliciesHint": "Create a quota to limit daily and monthly AI and data usage.",
     "editQuota": "Edit Quota",
     "createQuota": "Create Quota",
     "nameLabel": "Name",
@@ -3012,7 +3094,20 @@
       "user": "{n} users",
       "group": "{n} groups",
       "role": "{n} roles"
-    }
+    },
+    "dayShort": "Day",
+    "monthShort": "Month",
+    "limitPerUser": "Limit per user",
+    "perDay": "Per day",
+    "perMonth": "Per month",
+    "resetsDaily": "Resets 00:00 {tz}",
+    "resetsMonthly": "Resets on the 1st",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Queries",
+    "dataLabel": "Data scanned (MB)",
+    "spendLabel": "LLM spend (USD)",
+    "limitsHint": "Leave empty for unlimited. Set a daily limit, a monthly limit, or both — a request is blocked when either is reached. Monthly query and data limits apply per connection; daily ones count all connections together.",
+    "dailyAboveMonthly": "Daily limit can't be higher than the monthly limit."
   },
   "signupPolicy": {
     "title": "Domain-based signup",
@@ -3676,7 +3771,9 @@
       "defaultRoleShort": "Default role",
       "importButton": "Import",
       "colNote": "Note",
-      "colLastLogin": "Last login"
+      "colLastLogin": "Last login",
+      "appUser": "App user",
+      "joinedVia": "Joined via {app}"
     },
     "organizationName": "Organization name",
     "organizationNameRequired": "Organization name can't be empty.",
@@ -4318,6 +4415,10 @@
         "show_world": {
           "name": "World view",
           "description": "Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K columns per table",
+          "description": "How many columns of a wide table the agent sees in full in its context, ranked by column usage, instruction references and keys/timestamps. The rest are summarized by prefix and stay searchable with describe_tables. 0 = no limit."
         }
       },
       "permissionMode": {
@@ -4516,7 +4617,8 @@
         "configure": "Configure",
         "summaryDecision": "{model} picks the starting model (min confidence {pct}%)",
         "decisionUnavailable": "The decision model chosen for routing is disabled or removed, so requests start on the small model. Choose another one in Configure.",
-        "saved": "Auto router updated"
+        "saved": "Auto router updated",
+        "decisionRestricted": "Only members who may use {model} get the upfront decision. Everyone else starts on the small model."
       },
       "decision": {
         "badge": "Decision",
@@ -4557,7 +4659,24 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: unredacted",
-      "piiBadgeTooltip": "The PII policy this provider's prompts get. Change it in Settings → PII Protection."
+      "piiBadgeTooltip": "The PII policy this provider's prompts get. Change it in Settings → PII Protection.",
+      "providerManagers": {
+        "title": "Provider managers",
+        "hint": "Members who run this provider without being LLM admins.",
+        "can": "They can change its credentials and connection settings, turn its models on or off, and edit those models' settings and routing hints.",
+        "cannot": "They can't add models, change prices, defaults or model access, or turn on the Auto router. A model they turn on starts restricted until an admin opens it.",
+        "addPlaceholder": "Add a member…",
+        "add": "Add",
+        "remove": "Remove manager",
+        "loading": "Loading…",
+        "none": "No managers yet. Only LLM admins manage this provider.",
+        "added": "Manager added",
+        "removed": "Manager removed",
+        "failed": "Could not update the provider's managers",
+        "banner": "You manage {providers}. Defaults, model access, prices and the Auto router are set by an admin.",
+        "priceAdminOnly": "Only an admin can change prices.",
+        "restricted": "Restricted: only people an admin gives access can use it."
+      }
     },
     "licensePage": {
       "title": "License",
@@ -4698,6 +4817,8 @@
       "masksValue": "Keeps the last 4 characters",
       "pseudonymizesValue": "People still see the value",
       "detectorTitle": "Names, places and organizations",
+      "validatedTitle": "Validated identifiers",
+      "validatedNote": "Matched by pattern and confirmed by a checksum (Luhn for cards, mod-97 for IBANs, check digits for ID numbers), so they catch far fewer look-alike numbers than the common identifiers above. Checked in the user's prompt and the data, never in instructions or schemas.",
       "detectorUnavailable": "Detecting names, places and organizations needs a PII detector, and none is set up on this instance. Ask your administrator to install the backend's pii extra or to configure a Presidio service.",
       "detectorErrorLabel": "If the detector is unavailable",
       "detectorErrorDesc": "What happens to a request when the detector can't check it.",
@@ -4740,14 +4861,88 @@
         "PERSON": "Person name",
         "LOCATION": "Location",
         "ORGANIZATION": "Organization",
-        "NRP": "Nationality, religious or political group"
+        "NRP": "Nationality, religious or political group",
+        "CREDIT_CARD": "Credit card number (Luhn-checked)",
+        "IBAN_CODE": "IBAN (checksum-validated)",
+        "ABA_ROUTING_NUMBER": "US bank routing number (ABA)",
+        "CRYPTO": "Crypto wallet address (Bitcoin)",
+        "US_NPI": "US National Provider Identifier (NPI)",
+        "MEDICAL_LICENSE": "US DEA registration number",
+        "UK_NHS": "UK NHS number",
+        "ES_NIF": "Spain NIF / DNI",
+        "ES_NIE": "Spain NIE (foreigner ID)",
+        "IT_FISCAL_CODE": "Italy fiscal code",
+        "DE_TAX_ID": "Germany tax ID (Steuer-ID)",
+        "PL_PESEL": "Poland PESEL",
+        "FI_PERSONAL_IDENTITY_CODE": "Finland personal identity code",
+        "SE_PERSONNUMMER": "Sweden personnummer",
+        "TR_NATIONAL_ID": "Turkey national ID (TC Kimlik)",
+        "AU_TFN": "Australia tax file number (TFN)",
+        "AU_ABN": "Australia business number (ABN)",
+        "AU_MEDICARE": "Australia Medicare number",
+        "IN_AADHAAR": "India Aadhaar number",
+        "KR_RRN": "South Korea resident registration number",
+        "ZA_ID_NUMBER": "South Africa ID number",
+        "IT_VAT_CODE": "Italy VAT number (partita IVA)",
+        "DE_VAT_ID": "Germany VAT ID (USt-IdNr.)",
+        "PHONE_NUMBER": "Phone number (international)",
+        "US_SSN": "US Social Security number",
+        "US_ITIN": "US taxpayer ID (ITIN)",
+        "US_PASSPORT": "US passport number",
+        "US_DRIVER_LICENSE": "US driver's license number",
+        "US_BANK_NUMBER": "US bank account number",
+        "US_MBI": "US Medicare Beneficiary ID (MBI)",
+        "UK_NINO": "UK National Insurance number",
+        "UK_PASSPORT": "UK passport number",
+        "UK_DRIVING_LICENCE": "UK driving licence number",
+        "UK_POSTCODE": "UK postcode",
+        "CA_SIN": "Canada Social Insurance Number",
+        "SG_NRIC_FIN": "Singapore NRIC / FIN",
+        "IN_PAN": "India PAN",
+        "IN_PASSPORT": "India passport number",
+        "IN_VOTER": "India voter ID",
+        "ES_PASSPORT": "Spain passport number",
+        "IT_DRIVER_LICENSE": "Italy driver's license number",
+        "IT_PASSPORT": "Italy passport number",
+        "IT_IDENTITY_CARD": "Italy identity card number",
+        "KR_PASSPORT": "South Korea passport number",
+        "PH_PASSPORT": "Philippines passport number"
+      },
+      "agentsTitle": "Agent policies",
+      "agentsDesc": "Choose the policy each agent adds. An agent's policy applies to every request that includes the agent, including the other agents' data in the same chat, and even on an Exempt provider. When several policies apply, the strictest option for each rule wins.",
+      "defaultAgentPolicy": "Default for agents",
+      "defaultAgentPolicyDesc": "Agents without their own choice use this policy.",
+      "noAgents": "No agents yet.",
+      "agentPolicyFor": "PII policy for {name}",
+      "noAgentPolicy": "No agent policy",
+      "inheritAgentPolicy": "Org default: {policy}",
+      "usedByAgents": "{n} agent | {n} agents",
+      "contextualTitle": "Need a nearby word",
+      "contextualNote": "No checksum, so most of these only match when a word such as \"passport\" or \"account\" is next to the value. That works in sentences and notes; in table rows the column name is usually not next to the value, so expect misses there. Checked in the user's prompt and the data, never in instructions or schemas.",
+      "termCount": "{n} term | {n} terms",
+      "terms": "Exact terms",
+      "termsHelp": "Words or phrases, one per line: code names, customer names, internal hostnames. Matched as whole words, ignoring case. Use with or instead of patterns.",
+      "termsPlaceholder": "Project Falcon\nAcme Corp",
+      "checksum": "Checksum",
+      "checksumHelp": "A match only counts when it passes this check, which drops most look-alike numbers.",
+      "checksumNone": "No checksum",
+      "contextWords": "Context words",
+      "contextWordsHelp": "Comma-separated. A match only counts when one of these words is within 60 characters of it.",
+      "contextWordsPlaceholder": "passport, passport no",
+      "checksumSummary": "Checksum: {name}",
+      "contextSummary": "Near: {words}",
+      "checksums": {
+        "luhn": "Luhn (card numbers, IMEI, Canada SIN)",
+        "iban": "IBAN (mod 97)",
+        "il_id": "Israeli ID (Teudat Zehut)",
+        "aba": "US bank routing number (ABA)"
       }
     },
     "adminPages": {
       "members": "Invite people to the workspace and manage their role, groups and access.",
       "roles": "Define what each role can see and do, then assign roles to members and groups.",
       "groups": "Organize members into groups to grant roles, quotas and data access together.",
-      "quotas": "Cap monthly AI and data usage for members, groups and roles.",
+      "quotas": "Cap daily and monthly AI and data usage for members, groups and roles.",
       "models": "Connect LLM providers and choose which models your workspace can use.",
       "identityProvider": "Sync users, groups and profile details from your identity provider.",
       "smtp": "The server that sends system emails — invites, report shares and scheduled-report results. When enabled, it overrides the server configured for this instance."
@@ -5316,6 +5511,24 @@
           "title": "Create an API token",
           "body": "In your Atlassian account go to Security > API tokens > Create API token with scopes, pick Bitbucket and grant read:repository:bitbucket. Leave Username empty. For a repository access token, set Username to x-token-auth."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Register an app in Microsoft Entra",
+          "body": "In the Microsoft Entra admin center go to App registrations > New registration. Choose \"Accounts in this organizational directory only\". From the app's Overview, copy the Directory (tenant) ID and the Application (client) ID into the fields below."
+        },
+        {
+          "title": "Add the redirect URI",
+          "body": "In the app go to Authentication > Add a platform > Web and paste this redirect URI."
+        },
+        {
+          "title": "Grant Microsoft Graph permissions",
+          "body": "In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app. Use Delegated permissions only, not Application permissions: the connector reads only the signed-in user's mailbox."
+        },
+        {
+          "title": "Create a client secret",
+          "body": "In Certificates & secrets > New client secret, create a secret and copy its Value (not the Secret ID) into Client Secret below. You can't view the value again later."
+        }
       ]
     },
     "setupGuideCopyFailed": "Copy failed — select the text",
@@ -5376,6 +5589,14 @@
     },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
+    "postgresqlMulti": {
+      "databasesTitle": "Databases",
+      "databasesDescription": "Comma-separated database names, globs and !-exclusions, e.g. tenant_*, !tenant_test. Matching is case-sensitive. Every matching database is unified into one set of tables with a tenant_db column.",
+      "discoveryDatabaseTitle": "Discovery Database",
+      "discoveryDatabaseDescription": "Database used to list the server's databases. Default: postgres.",
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
@@ -5642,7 +5863,14 @@
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider",
       "model_is_group_default": "This model is the default for group(s): {groups}. Change their default first.",
-      "group_default_invalid": "The model must be enabled and be a chat model in this organization."
+      "group_default_invalid": "The model must be enabled and be a chat model in this organization.",
+      "group_default_not_available": "This group can't use that model. Ask an admin to give the group access first.",
+      "group_default_priority_admin_only": "Only an admin can change a group's priority.",
+      "provider_holds_default": "This provider holds the organization's default model. Ask an admin to change the default first.",
+      "provider_manager_admin_only": "Only an admin can do that on this provider.",
+      "provider_manager_not_member": "Only a member of this organization can manage a provider.",
+      "provider_key_required_for_new_destination": "Enter the API key again when changing where this provider connects.",
+      "provider_host_identity_admin_only": "This provider signs in with the server's own cloud identity. Only an admin can change where it connects or switch it to that sign-in."
     },
     "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
     "memory.disabled": "User memory is turned off for this organization.",
@@ -5753,7 +5981,8 @@
     "organization.name_taken": "An organization named “{name}” already exists.",
     "organization.signup_domains_instance_admin_required": "Only an instance administrator can assign sign-up domains to an organization.",
     "organization.signup_domain_claimed": "The domain {domain} is already assigned to another organization.",
-    "organization.member_instance_admin": "This account is an instance administrator. Only an instance administrator can add it to an organization."
+    "organization.member_instance_admin": "This account is an instance administrator. Only an instance administrator can add it to an organization.",
+    "workspace.access_required": "Your account can use the apps shared with you, but not the workspace."
   },
   "email": {
     "dashboardShare": {
@@ -6688,6 +6917,8 @@
       "colTools": "Tools",
       "colDuration": "Duration",
       "colCost": "Cost",
+      "colModel": "Model",
+      "pivotModel": "Show runs that used this model",
       "colFeedback": "Feedback",
       "expandRow": "Show tool calls",
       "pivotReport": "Show this conversation",
@@ -7226,7 +7457,8 @@
       "windowNote": "Usage resets at the start of each month.",
       "dailyNote": "daily since the start of the month",
       "disabledTitle": "Usage tracking isn't enabled",
-      "disabledNote": "Per-user usage (tokens, queries, and data scanned) is tracked when the Usage Limits feature is enabled on your plan."
+      "disabledNote": "Per-user usage (tokens, queries, and data scanned) is tracked when the Usage Limits feature is enabled on your plan.",
+      "today": "Today: {used} / {limit}"
     },
     "appearance": {
       "title": "Appearance",
@@ -7784,7 +8016,10 @@
     "showAllColumns": "Show all",
     "hideAllColumns": "Hide all",
     "includeColumn": "Include {name} in agent context",
-    "columnHidden": "hidden"
+    "columnHidden": "hidden",
+    "usedHeader": "Used",
+    "usedTooltip": "Executed queries that used this column (failed attempts count less in ranking)",
+    "sortedByUsage": "Most used first"
   },
   "fork": {
     "preparing": "Preparing your copy…",
@@ -7792,7 +8027,9 @@
     "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
   },
   "quota": {
-    "resetsOn": "resets {date}"
+    "resetsOn": "resets {date}",
+    "todayLabel": "{metric} · today",
+    "resetsDailyAndMonthly": "Today resets 00:00 {tz} · month {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Learn overnight",
@@ -8472,7 +8709,8 @@
     "signin": {
       "working": "Signing you in…",
       "done": "Signed in. You can close this window.",
-      "invalid": "This sign-in link is incomplete. Close this window and try again."
+      "invalid": "This sign-in link is incomplete. Close this window and try again.",
+      "intentFailed": "Couldn't confirm the app you're signing in to. Nothing was sent. Try again."
     },
     "tab": {
       "title": "Embed",
@@ -8526,7 +8764,7 @@
     "audience": "Audience",
     "audienceHelp": "The aud of the ID tokens your provider issues to this application",
     "createUsers": "Create people on first sign-in",
-    "createUsersHelp": "Someone the directory knows but BOW doesn't yet joins as a member. Otherwise they must exist already (invited or provisioned).",
+    "createUsersHelp": "Someone the directory knows but BOW doesn't yet gets an account on first sign-in, with the role below. Otherwise they must exist already (invited or provisioned).",
     "createsUsers": "creates people",
     "create": "Create",
     "keyOnce": "Copy the private key now and store it in your application's backend secrets. It is shown only once; BOW keeps the public key only.",
@@ -8547,7 +8785,14 @@
     "delete": "Delete",
     "deleteConfirm": "Delete {name}? Its embeds stop working and everyone is signed out.",
     "backendExample": "Backend example",
-    "backendExampleHelp": "Sign one assertion per sign-in, for the user your application has signed in:"
+    "backendExampleHelp": "Sign one assertion per sign-in, for the user your application has signed in:",
+    "newUserRole": "New people join as",
+    "newUserRoleHelp": "For accounts created by signing in through this application. People who already have an account keep their role.",
+    "newUserRoleApp": "App user",
+    "newUserRoleAppHelp": "Can use the apps shared with them, not the workspace.",
+    "newUserRoleMember": "Member",
+    "newUserRoleMemberHelp": "Can also use the workspace: reports, agents and dashboards.",
+    "newPeopleAs": "new people join as {role}"
   },
   "connectedApps": {
     "title": "Connected applications",
@@ -8604,6 +8849,10 @@
     "shareToggleLabel": "Make available to everyone in your org",
     "shareToggleHint": "Adds “{name}” to everyone's connectors. Each person signs in with their own account — nobody sees anyone else's data.",
     "useAsAgent": "Use as agent",
+    "enableForChat": "Turn on for chat",
+    "disableForChat": "Turn off for chat",
+    "enabledHint": "On — the AI can use this in chat",
+    "disabledHint": "Off — the AI won't use this in chat",
     "movedToAgents": "{name} is now an agent"
   },
   "tablePreview": {
@@ -8710,6 +8959,13 @@
       "none": "No cap",
       "ask": "Ask",
       "auto": "Auto"
+    },
+    "pii": {
+      "title": "PII policy",
+      "hint": "Applies to every request that includes this agent, on top of the model's own policy. The strictest option for each rule wins.",
+      "disabled": "PII protection is off for this organization.",
+      "saved": "PII policy saved",
+      "saveError": "Couldn't save the PII policy"
     }
   },
   "productUpdates": {
@@ -9049,5 +9305,93 @@
       }
     },
     "builtinBadge": "Built-in"
+  },
+  "cachedColumns": {
+    "title": "Columns",
+    "hint": "Descriptions and the re-aggregation flag come from the source catalog. Anything you change here is kept on every refresh.",
+    "column": "Column",
+    "type": "Type",
+    "description": "Description",
+    "details": "Details",
+    "aggregation": "Re-aggregation",
+    "descriptionPlaceholder": "No description at the source. Describe this column for the agent.",
+    "additive": "Additive",
+    "notAdditive": "Not additive",
+    "unknown": "Unknown",
+    "additiveHint": "Values can be summed across rows.",
+    "notAdditiveHint": "Summing across rows gives a wrong number. The agent is told not to.",
+    "unknownHint": "Could not be determined from the query. Choose one so the agent knows.",
+    "undecided": "Re-aggregation could not be determined for: {columns}. Set it so the agent knows whether these may be summed.",
+    "copiedFrom": "Copied from {source}",
+    "measureFrom": "Measure {source}",
+    "computedAs": "Computed: {expression}",
+    "edited": "Edited",
+    "editedHint": "Set by an admin. A refresh will not change it.",
+    "reset": "Reset to source",
+    "drift": "Definition changed",
+    "driftHint": "The source definition of this column changed since the table last described it.",
+    "driftPrevious": "Previously: {expression}",
+    "markReviewed": "Mark reviewed",
+    "rlsTitle": "The source uses row-level security",
+    "rlsBody": "{tables} is protected by row-level security at the source. This copy holds every row the connection can read, and source roles are not carried over. Decide who sees which rows on the Row-level security tab.",
+    "rlsOpen": "Open Row-level security",
+    "rlsSaveFirst": "Available once the table is saved.",
+    "generatedDescription": "Generated from the columns and kept up to date on each refresh. Edit it to write your own.",
+    "reasons": {
+      "sum": "sum",
+      "count": "count",
+      "numeric_column": "numeric value",
+      "distinct_count": "distinct count",
+      "average": "average",
+      "ratio": "ratio",
+      "min_max": "minimum / maximum",
+      "time_intelligence": "time intelligence",
+      "share_of_total": "share of a total",
+      "statistic": "statistic",
+      "offset": "constant added after aggregation",
+      "unreadable": "definition not readable",
+      "complex": "too complex to classify",
+      "not_numeric": "not a number",
+      "grouping_key": "grouping key",
+      "key": "identifier",
+      "set_by_admin": "set by an admin"
+    }
+  },
+  "connectionlessAgent": {
+    "optional": "(optional)",
+    "createHint": "Leave empty to build the agent from instructions and files only. You can link a connection later.",
+    "badge": "No connections",
+    "landingHint": "No data connections. This agent answers from its instructions and files.",
+    "addConnection": "Add connection",
+    "unlinkLastConfirm": "Unlink the last connection? The agent is kept, with its instructions and files, but no data connection.",
+    "deleteKeepsAgents": "Agents are kept. An agent that uses only this connection will have no data connection until you link another.",
+    "impactLoadFailed": "Couldn't load what this delete affects.",
+    "deleteRemovesConnectors": "Deleted with it (connectors that use only this connection): {names}"
+  },
+  "apps": {
+    "title": "Your apps",
+    "subtitle": "Open an app to get started.",
+    "openWorkspace": "Open workspace",
+    "search": "Search apps",
+    "untitled": "Untitled app",
+    "inApplication": "In {name}",
+    "allApps": "All apps",
+    "language": "Language",
+    "account": "Account",
+    "signOut": "Sign out",
+    "loadFailed": "Couldn't load your apps.",
+    "retry": "Try again",
+    "noMatches": "No apps match “{query}”.",
+    "empty": {
+      "title": "No apps yet",
+      "body": "When someone shares an app with you, it will show up here."
+    },
+    "requestAccess": {
+      "prompt": "Need more than these apps?",
+      "button": "Request full access",
+      "sent": "Request sent. An admin will review it.",
+      "failed": "Couldn't send the request. Try again."
+    },
+    "showMore": "Show more"
   }
 }
