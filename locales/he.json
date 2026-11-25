@@ -5452,6 +5452,24 @@
           "title": "יצירת סוד לקוח",
           "body": "ב-Certificates & secrets > New client secret, צרו סוד והעתיקו את ה-Value שלו (לא את ה-Secret ID) לשדה Client Secret שלמטה. לא תוכלו לראות את הערך שוב בהמשך."
         }
+      ],
+      "hubspot": [
+        {
+          "title": "יצירת MCP connector ב-HubSpot",
+          "body": "בחשבון HubSpot עברו אל Development > MCP Connectors ולחצו על Create MCP connector. תנו לו שם."
+        },
+        {
+          "title": "הוספת כתובת ההפניה",
+          "body": "הדביקו את הכתובת הזו בשדה Redirect URL של המחבר, ואז לחצו על Create."
+        },
+        {
+          "title": "העתקת מזהה הלקוח והסוד",
+          "body": "בדף הפרטים של המחבר, העתיקו את Client ID ואת Client secret לשדות שלמטה."
+        },
+        {
+          "title": "כל משתמש מתחבר בעצמו",
+          "body": "אין צורך להגדיר הרשאות במחבר. כל משתמש בוחר את חשבון HubSpot שלו ומאשר גישה בזמן ההתחברות. הסוכן רואה רק את מה שהמשתמש הזה רואה ב-HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "ההעתקה נכשלה — סמנו את הטקסט",

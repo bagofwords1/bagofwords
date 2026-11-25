@@ -632,6 +632,8 @@ function selectCatalogEntry(entry: any) {
     oauth_defaults: entry.oauth_defaults || null,
     description: entry.description || '',
     sample_tools: entry.sample_tools || null,
+    key: entry.key,
+    setup_guide: entry.setup_guide || null,
   }
   formDirty.value = false
   step.value = 'form'

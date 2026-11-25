@@ -4792,6 +4792,24 @@
           "title": "Skapa en klienthemlighet",
           "body": "Under Certificates & secrets > New client secret skapar du en hemlighet och kopierar dess Value (inte Secret ID) till Client Secret nedan. Värdet kan inte visas igen senare."
         }
+      ],
+      "hubspot": [
+        {
+          "title": "Skapa en MCP connector i HubSpot",
+          "body": "Gå till Development > MCP Connectors i ditt HubSpot-konto och klicka på Create MCP connector. Ge den ett namn."
+        },
+        {
+          "title": "Lägg till omdirigerings-URL:en",
+          "body": "Klistra in den här URL:en i kopplingens fält Redirect URL och klicka sedan på Create."
+        },
+        {
+          "title": "Kopiera klient-ID och hemlighet",
+          "body": "Kopiera Client ID och Client secret från kopplingens detaljsida till fälten nedan."
+        },
+        {
+          "title": "Varje användare loggar in själv",
+          "body": "Du anger inga behörigheter på kopplingen. Varje användare väljer sitt HubSpot-konto och ger åtkomst när hen loggar in. Agenten ser bara det som den användaren kan se i HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "Kopiering misslyckades — markera texten",

@@ -194,6 +194,23 @@ def test_hubspot_is_a_services_tile_and_serializes():
     assert hs["oauth_defaults"]["authorize_url"].startswith("https://mcp.hubspot.com/")
 
 
+def test_hubspot_catalog_guide_shows_the_oauth_redirect_uri():
+    from app.core.base_url import connection_oauth_redirect_uri
+    guide = next(p for p in mcp_presets() if p["key"] == "hubspot")["setup_guide"]
+    assert guide and all(step["title"] and step["body"] for step in guide)
+    assert [step["code"] for step in guide if step["code"]] == [connection_oauth_redirect_uri()]
+
+
+def test_presets_with_a_guide_do_not_share_a_registry_type_name():
+    from app.schemas.data_source_registry import REGISTRY
+    guided = {p["key"] for p in mcp_presets() if p["setup_guide"]}
+    assert guided and not guided & set(REGISTRY)
+
+
+def test_presets_without_a_guide_serialize_it_as_none():
+    assert next(p for p in mcp_presets() if p["key"] == "notion")["setup_guide"] is None
+
+
 def test_scope_normalization_comma_or_space():
     # The form accepts comma- or space-separated scopes; the authorize request
     # must be space-delimited (RFC 6749).

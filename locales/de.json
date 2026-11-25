@@ -4792,6 +4792,24 @@
           "title": "Geheimen Clientschlüssel erstellen",
           "body": "Erstellen Sie unter Certificates & secrets > New client secret einen geheimen Schlüssel und kopieren Sie dessen Value (nicht die Secret ID) unten in Client Secret. Der Wert kann später nicht mehr angezeigt werden."
         }
+      ],
+      "hubspot": [
+        {
+          "title": "MCP connector in HubSpot erstellen",
+          "body": "Gehen Sie in Ihrem HubSpot-Konto zu Development > MCP Connectors und klicken Sie auf Create MCP connector. Geben Sie ihm einen Namen."
+        },
+        {
+          "title": "Weiterleitungs-URL hinzufügen",
+          "body": "Fügen Sie diese URL in das Feld Redirect URL des Connectors ein und klicken Sie auf Create."
+        },
+        {
+          "title": "Client-ID und Secret kopieren",
+          "body": "Kopieren Sie auf der Detailseite des Connectors die Client ID und das Client secret in die Felder unten."
+        },
+        {
+          "title": "Jeder Benutzer meldet sich selbst an",
+          "body": "Sie legen am Connector keine Scopes fest. Jeder Benutzer wählt bei der Anmeldung sein HubSpot-Konto und erteilt den Zugriff. Der Agent sieht nur, was dieser Benutzer in HubSpot sehen kann."
+        }
       ]
     },
     "setupGuideCopyFailed": "Kopieren fehlgeschlagen — Text markieren",

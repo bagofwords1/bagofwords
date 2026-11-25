@@ -4792,6 +4792,24 @@
           "title": "أنشئ سر العميل",
           "body": "في Certificates & secrets > New client secret، أنشئ سرًا وانسخ قيمته Value (وليس Secret ID) إلى حقل Client Secret أدناه. لن تتمكن من رؤية القيمة مرة أخرى لاحقًا."
         }
+      ],
+      "hubspot": [
+        {
+          "title": "أنشئ MCP connector في HubSpot",
+          "body": "في حساب HubSpot انتقل إلى Development > MCP Connectors وانقر على Create MCP connector. امنحه اسمًا."
+        },
+        {
+          "title": "أضف عنوان URL لإعادة التوجيه",
+          "body": "الصق عنوان URL هذا في حقل Redirect URL الخاص بالموصل، ثم انقر على Create."
+        },
+        {
+          "title": "انسخ معرّف العميل والسر",
+          "body": "في صفحة تفاصيل الموصل، انسخ Client ID وClient secret إلى الحقول أدناه."
+        },
+        {
+          "title": "يسجّل كل مستخدم الدخول بنفسه",
+          "body": "لا تحدد نطاقات على الموصل. يختار كل مستخدم حساب HubSpot الخاص به ويمنح الوصول عند تسجيل الدخول. لا يرى الوكيل إلا ما يستطيع هذا المستخدم رؤيته في HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "فشل النسخ — حدد النص",
