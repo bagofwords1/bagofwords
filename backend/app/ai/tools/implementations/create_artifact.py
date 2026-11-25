@@ -734,9 +734,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         max_repairs caps the LLM repair rounds (None = MAX_RENDER_REPAIR_ATTEMPTS;
         0 = pure validation, no repair LLM — the planner-authored path).
-        strict=True additionally fails the result when contract errors
-        (viz refs / params wiring) remain — they are merged into `errors`
-        instead of riding along as annotations.
+        Contract errors (viz refs, params wiring, page checks) left after the
+        repairs fail the result in both modes; they are merged into `errors`.
+        strict=True also fails on file-reference errors when render
+        validation is unavailable.
 
         Async generator: yields ToolProgressEvent items for the UI, then a
         final dict result:
@@ -786,10 +787,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # The viz-reference contract rides along too: a reference to a viz that
         # isn't in the payload (or a payload viz the code never renders) is a
         # silent-wrong-data defect no screenshot can catch.
-        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors, chart_prop_errors, file_reference_errors
+        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors, chart_prop_errors, file_reference_errors, raw_chart_errors, focal_point_errors, viewer_name_errors
+        _hc = (runtime_ctx or {}).get("head_completion")
+        _layout_key = str(getattr(_hc, "id", "") or "") or None
         wiring = self.params_wiring_errors(code, artifact_data) if mode == "page" else []
         if mode == "page":
-            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data) + chart_prop_errors(code, artifact_data) + file_reference_errors(code, artifact_data)
+            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data) + chart_prop_errors(code, artifact_data) + file_reference_errors(code, artifact_data) + raw_chart_errors(code, artifact_data) + viewer_name_errors(code, artifact_data) + focal_point_errors(code, artifact_data, once_key=_layout_key)
 
         original_code = code
         original_screenshot = screenshot
@@ -824,12 +827,15 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             fatal = self.fatal_render_errors(errors)
             wiring = self.params_wiring_errors(candidate, artifact_data) if mode == "page" else []
             if mode == "page":
-                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data) + file_reference_errors(candidate, artifact_data)
+                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data) + file_reference_errors(candidate, artifact_data) + raw_chart_errors(candidate, artifact_data) + viewer_name_errors(candidate, artifact_data) + focal_point_errors(candidate, artifact_data, once_key=_layout_key)
 
-        if strict and not fatal and wiring:
-            # Strict (planner-authored) mode: contract errors are as fatal as
-            # render errors — return them as the failure so nothing persists
-            # and the planner gets the exact list to fix.
+        if not fatal and wiring:
+            # Contract errors left after the repairs are as fatal as render
+            # errors, whoever wrote the code: return them as the failure so the
+            # planner gets the exact list to fix. The tool-generated path used
+            # to save such a page with only a note, so every page check (a
+            # viewer's name in the title, a dead control, raw charts) could
+            # be skipped by not sending code.
             yield {
                 "code": original_code,
                 "clean": False,
@@ -839,9 +845,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "params_wiring_errors": wiring,
             }
         elif not fatal:
-            # Render fatality decides candidate vs original; unconverged wiring
-            # only ANNOTATES — a rendering dashboard with a dead control still
-            # beats no dashboard, but the caller must be able to say so.
+            # Renders and passes every page check.
             yield {
                 "code": candidate,
                 "clean": True,

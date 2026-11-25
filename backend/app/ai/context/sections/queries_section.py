@@ -1,3 +1,4 @@
+import json
 from typing import ClassVar, List, Optional, Dict, Any
 from pydantic import BaseModel
 from app.ai.context.sections.base import ContextSection, xml_tag, xml_escape
@@ -20,6 +21,9 @@ class QueryObservation(BaseModel):
     data_model: Optional[Dict[str, Any]] = None
     stats: Dict[str, Any] = {}
     data_preview: Optional[str] = None
+    # data_preview.column_sums block ({"note", "sum"}); set only when previews
+    # are visible and the sum rule allows it.
+    column_sums: Optional[Dict[str, Any]] = None
     visualizations: List[QueryVisualizationSummary] = []
     # Declared ParamSpec dicts. Rendered so the planner can see that a query
     # takes VALUES — and which names — without spending a read_query call.
@@ -47,6 +51,8 @@ class QueriesSection(ContextSection):
                 inner.append(xml_tag("stats", xml_escape(str(it.stats))))
             if it.data_preview:
                 inner.append(xml_tag("data_preview", xml_escape(it.data_preview)))
+            if it.column_sums:
+                inner.append(xml_tag("column_sums", xml_escape(json.dumps(it.column_sums, ensure_ascii=False))))
             if it.parameters:
                 param_parts: List[str] = []
                 for p in it.parameters:

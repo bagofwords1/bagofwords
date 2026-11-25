@@ -11,7 +11,7 @@
 
 <script setup lang="ts">
 import { autoAxisLabels, resolveAxisLabels } from '~/utils/chartAxisLabels'
-import { valueFormatter, latestWindowZoom } from '~/utils/chartValueFormat'
+import { valueFormatter, latestWindowZoom, topSeriesSelection } from '~/utils/chartValueFormat'
 import { toRefs, ref, watch, computed, inject } from 'vue'
 import { CHAT_VIZ_TEXT_PX, applyChatChartText } from '~/utils/chatVizText'
 const colorMode = useColorMode()
@@ -480,11 +480,14 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
   // Only include legend config when it should be shown. With many series a
   // single horizontal row overflows the chart, so dock a scrollable vertical
   // legend on the right and reserve grid space for it.
+  // Over 8 series the legend always shows, with only the 8 largest selected:
+  // without it a dozen unnamed lines can't be told apart.
   const manySeries = series.length > 8
-  const legendConfig = legendShouldShow
+  const legendConfig = (legendShouldShow || manySeries)
     ? (manySeries
       ? {
         show: true,
+        selected: topSeriesSelection(series as any) || undefined,
         type: 'scroll',
         orient: 'vertical',
         right: 8,
@@ -513,7 +516,7 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
 
   // Reserve room on the right for the vertical legend so it doesn't overlap
   // the plot.
-  const gridOverride = (legendShouldShow && manySeries)
+  const gridOverride = manySeries
     ? { containLabel: true, left: 24, right: 150, bottom: 24, top: 18 }
     : undefined
 

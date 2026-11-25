@@ -116,3 +116,108 @@ def test_bad_values_fail_instead_of_serving_the_wrong_slice(test_client, admin):
     out = payload["output"]
     assert not out["success"]
     assert not (out.get("data") or {}).get("rows"), "must not fall back to the default snapshot for other values"
+
+
+# Three rows whatever the values: a plain column sum the observation can pin.
+SUMS_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    return pd.DataFrame({"year": [2024, 2025, 2026], "total": [120, 340, 560]})
+"""
+
+
+@pytest.mark.e2e
+def test_observation_carries_sums_for_a_run(test_client, admin):
+    import pandas as pd
+
+    from app.ai.persisted_summary import build_tool_context_summary, tool_context_for_replay
+    from tests.unit.test_data_preview_sums import _assert_k_clean, _dicts_with_key
+
+    _assert_k_clean(pd.DataFrame({"total": [120, 340, 560]}), ["total"])
+    resp = test_client.post(
+        "/api/entities",
+        json={
+            "type": "model", "title": f"Totals by year {uuid.uuid4().hex[:4]}",
+            "slug": f"totals-{uuid.uuid4().hex[:8]}", "code": SUMS_CODE,
+            "data": {"rows": [{"year": 2024, "total": 120}], "columns": [{"field": "year"}, {"field": "total"}]},
+            "applied_params": {"year": None},
+            "status": "published", "parameters": [YEAR_SPEC], "data_source_ids": [],
+        },
+        headers=_hdr(admin["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    payload = asyncio.run(_run_tool(
+        admin["org_id"], admin["user_id"],
+        {"name_or_id": resp.json()["id"], "should_create": True, "params": {"year": 2025}},
+    ))
+    out, obs = payload["output"], payload["observation"]
+    assert out["success"], out["errors"]
+
+    # 1020 / 560 = 1.82: no total-row signature. year is a calendar column.
+    assert obs["data_preview"]["column_sums"] == {
+        "note": "sum = sum of all 3 rows", "sum": {"total": 1020},
+    }
+    # The output (UI, SSE, result_json) keeps the plain preview.
+    assert out["data_preview"]["rows"] == obs["data_preview"]["rows"]
+    assert _dicts_with_key(out, "column_sums") == []
+    # describe_entity persists its observation as its context projection, so
+    # prior-turn replay shows the same block.
+    replayed = tool_context_for_replay(
+        build_tool_context_summary("describe_entity", out, observation=obs)
+    )
+    assert replayed["data_preview"]["column_sums"] == obs["data_preview"]["column_sums"]
+
+
+@pytest.mark.e2e
+def test_sums_log_line_names_the_tool_call_as_the_runner_builds_the_context(
+    test_client, admin, monkeypatch, caplog,
+):
+    """The orchestrator snapshots ``current_step_id`` into runtime_ctx before the
+    tool runs; for describe_entity / create_data that is a fresh invocation
+    (no step yet), and the step is created later, on the tool's
+    ``data_model_type_determined`` progress event, on the invocation state only.
+    So the log line must carry the tool call id, which the runner does set."""
+    import logging
+
+    from app.ai.agent_v2 import ToolInvocationState
+    from app.ai.tools.implementations.describe_entity import DescribeEntityTool
+
+    resp = test_client.post(
+        "/api/entities",
+        json={
+            "type": "model", "title": f"Totals by year {uuid.uuid4().hex[:4]}",
+            "slug": f"totals-{uuid.uuid4().hex[:8]}", "code": SUMS_CODE,
+            "data": {"rows": [{"year": 2024, "total": 120}], "columns": [{"field": "year"}, {"field": "total"}]},
+            "applied_params": {"year": None},
+            "status": "published", "parameters": [YEAR_SPEC], "data_source_ids": [],
+        },
+        headers=_hdr(admin["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    monkeypatch.setattr(logging.getLogger("app.ai.data_preview"), "disabled", False)
+    caplog.set_level(logging.INFO, logger="app.ai.data_preview")
+    tool_call_id = str(uuid.uuid4())
+    # describe_entity is a reset tool: the runner seeds a fresh invocation.
+    invocation = ToolInvocationState(widget=None)
+
+    async def _run():
+        async with async_session_maker() as db:
+            org = await db.get(Organization, admin["org_id"])
+            user = await db.get(User, admin["user_id"])
+            runtime_ctx = {
+                "db": db, "organization": org, "user": user,
+                "settings": await org.get_settings(db),
+                "current_step_id": invocation.current_step_id,
+                "tool_call_id": tool_call_id,
+            }
+            events = [e async for e in DescribeEntityTool().run_stream(
+                {"name_or_id": resp.json()["id"], "should_create": True, "params": {"year": 2025}},
+                runtime_ctx,
+            )]
+            return events[-1].payload
+
+    payload = asyncio.run(_run())
+    assert payload["output"]["success"], payload["output"]["errors"]
+    assert [r.getMessage() for r in caplog.records if r.name == "app.ai.data_preview"] == [
+        f"column sums added: call={tool_call_id} rows=3 columns=1",
+    ]

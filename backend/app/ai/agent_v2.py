@@ -61,6 +61,206 @@ def repeated_call_nudge(tool_name: str) -> str:
     )
 
 
+# A build ask: a build verb with a page or document noun in the user's message
+# (English, Hebrew, Spanish). A how-to question about building is not one.
+_BASE_VERBS = r"build|create|make|design|generate|set up|put together|prepare|write|draft"
+_HEBREW_VERBS = r"בנה|תבנה|תבני|צור|תיצור|הכן|תכין|כתוב|תכתוב"
+_SPANISH_VERBS = r"crea|haz|construye|diseña|prepara|escribe|redacta"
+_BUILD_VERB_SRC = (
+    r"(\b(" + _BASE_VERBS + r")\b|\bturn\b.*\binto\b"
+    r"|" + _HEBREW_VERBS + r"|\b(" + _SPANISH_VERBS + r")\b)"
+)
+_PAGE_NOUN = _re_mod.compile(
+    r"(?i)(\b(dashboards?|scorecards?|pages?|apps?|artifacts?|portals?|screens?|forms?|trackers?|explorers?|calculators?|tableros?|panel|página|pantalla|aplicación)\b"
+    r"|דשבורד|לוח מחוונים|לוח בקרה|דף|עמוד|אפליקציה|פורטל|מסך)"
+)
+_DOC_NOUN = _re_mod.compile(
+    r"(?i)(\b(reports?|documents?|docs?|summary|summaries|reviews?|memos?|briefs?|write-?ups?|informes?|reportes?|resumen|documento)\b"
+    r"|דוח|דו\"ח|מסמך|סיכום|תקציר)"
+)
+_HOW_TO = _re_mod.compile(r"(?i)^\s*(how (do|can|should) i|how to|can you (explain|tell)|what is|why|איך|מה זה|למה|cómo|qué es|por qué)\b")
+
+# Negation scope. A negation word, then at most a few filler words ("don't
+# even bother to", "no me") or a short aside between commas ("do not, under
+# any circumstances, build"), then the next word: that word is what is negated.
+# A negated build verb takes its clause with it ("don't make a page, write a
+# report" leaves the report); a noun after "without"/"no need for"/"instead of"
+# is negated alone ("a report without a dashboard"), and "or" carries that on
+# to the next noun ("without a dashboard or a report"). A negation aimed at
+# anything else ("build a dashboard, don't include refunds") leaves the ask
+# standing, and so does a bare "no" before the verb ("no, build the dashboard").
+_NEGATION = (
+    r"(?:\b(?:don'?t|do not|does not|doesn'?t|never|not|needn'?t|shouldn'?t|should not|without|nunca|sin"
+    r"|no need (?:to|for)|no hace falta|no es necesario)\b"
+    r"|(?<![\u0590-\u05FF])(?:אל|לא|בלי|ללא|אין צורך)(?![\u0590-\u05FF]))"
+)
+# The aside follows only a negation that cannot stand alone as "no": "לא, כמו
+# שאמרתי, תבנה דשבורד" and "if not, as discussed, build a dashboard" are asks.
+_NEGATION_ASIDE = (
+    r"(?:(?:(?<=\bdon't)|(?<=\bdont)|(?<=\bdo not)|(?<=\bnever)|(?<=\bshouldn't)|(?<=\bshouldnt)|(?<=\bshould not)|(?<=אל))"
+    r"\s*,[^,.;:!?\n]{1,40},)?"
+)
+_NEGATION_FILLER = (
+    r"(?:(?:just|only|simply|even|ever|need|needs|have|bother|please|you|to|want|wanna|going|gonna|i|we|actually|really|"
+    r"me|nos|le|lo|que|crear|hacer|צריך|צריכה|צריכים|רוצה|ל)\s+){0,3}"
+)
+_INSTEAD_OF = r"(?:\b(?:instead of|rather than|en lugar de|en vez de)\b|(?<![\u0590-\u05FF])במקום(?![\u0590-\u05FF]))"
+# Forms a build verb takes only under a negation or "instead of": the Spanish
+# negative imperative and infinitive ("no hagas", "sin crear"), the English
+# gerund ("without building") and the Hebrew infinitive ("לא ליצור").
+_GERUNDS = r"building|creating|making|designing|generating|setting up|putting together|preparing|writing|drafting"
+_SPANISH_INFINITIVES = r"crear|hacer|construir|diseñar|preparar|escribir|redactar|generar"
+_HEBREW_INFINITIVES = r"לבנות|ליצור|להכין|לעשות|לכתוב"
+_SPANISH_NEGATED_VERB = (
+    r"\b(?:crees|hagas|construyas|diseñes|prepares|escribas|redactes|generes|" + _SPANISH_INFINITIVES + r")\b"
+)
+_DEPENDENT_VERB = (
+    r"(?:\b(?:" + _GERUNDS + r")\b|" + _SPANISH_NEGATED_VERB + r"|תעשה|תעשי|" + _HEBREW_INFINITIVES + r")"
+)
+_NEGATED_VERB = _re_mod.compile(
+    r"(?i)(?:" + _NEGATION + _NEGATION_ASIDE + r"\s+" + _NEGATION_FILLER + r"(?:" + _BUILD_VERB_SRC + r"|" + _DEPENDENT_VERB + r")"
+    # Spanish "no" negates the verb form that only follows it; English "no" does not ("no, build it").
+    r"|\bno\s+(?:(?:me|nos|te|le|lo|la|que|quiero|necesito)\s+){0,2}" + _SPANISH_NEGATED_VERB
+    + r"|" + _INSTEAD_OF + r"\s+" + _DEPENDENT_VERB + r")"
+)
+_ARTICLE = r"(?:(?:a|an|the|any|el|la|los|las|un|una|ningún|ninguna)\s+)?"
+# A noun is negated by "without", "no", "no need for", "don't need", "instead
+# of"… right before it, or by one of those before an earlier noun it is joined
+# to with "or" ("no dashboard or report").
+_NEGATED_NOUN_TAIL = _re_mod.compile(
+    r"(?i)(?:\b(?:without|no|not|neither|nor|sin|ni)\b|\bno need for\b|\b(?:don'?t|do not) (?:need|want)\b"
+    r"|\b(?:instead of|rather than|en lugar de|en vez de)\b"
+    r"|\bno hace falta\b|\bno (?:necesito|quiero)\b"
+    r"|(?<![\u0590-\u05FF])(?:בלי|ללא|אין צורך|לא צריך|לא רוצה|במקום)(?![\u0590-\u05FF]))"
+    r"\s*" + _ARTICLE + r"(?:[\w-]+\s+)?"
+    r"(?:[\w\"-]+\s+(?:or|o|או)\s+" + _ARTICLE + r"(?:[\w-]+\s+)?){0,2}"
+    r"[בהל]?$"
+)
+_CLAUSE_END = _re_mod.compile(r"[.,;:!?\n]|\b(?:but|instead|pero|sino)\b|אבל|במקום")
+# A negated gerund or infinitive ("instead of writing a long answer build a
+# dashboard", "לא רוצה לכתוב שאילתות אז תבנה דשבורד") also ends at the next
+# imperative build verb, or at Hebrew "אז": that verb opens the ask itself.
+_GERUND_OR_INFINITIVE = tuple("|".join((_GERUNDS, _SPANISH_INFINITIVES, _HEBREW_INFINITIVES)).split("|"))
+_DEPENDENT_END = _re_mod.compile(
+    _CLAUSE_END.pattern + r"|(?i:\b(?:" + _BASE_VERBS + r"|" + _SPANISH_VERBS + r")\b)"
+    r"|(?<![\u0590-\u05FF])(?:" + _HEBREW_VERBS + r"|אז)(?![\u0590-\u05FF])"
+)
+# An explicit ask for the answer in chat or in text, unless it is itself
+# negated ("don't just answer in chat", "not a text-only answer"). These
+# phrases name the place, so they decide wherever they stand.
+_CHAT_ONLY = _re_mod.compile(
+    r"(?i)(\b(?:(?:answer|reply|respond)\s+(?:it\s+)?(?:only\s+)?in (?:the )?chat"
+    r"|(?:in\s+)?(?:plain\s+)?text[- ]only|chat[- ]only"
+    r"|(?:responde|contesta)\s+(?:solo\s+)?en el chat|solo en el chat|solo (?:en )?texto)\b"
+    r"|(?:ת)?ענה\s+(?:רק\s+)?בצ'?אט|רק\s+בצ'?אט|בצ'?אט\s+בלבד|בטקסט\s+בלבד)"
+)
+# "just answer", "only tell me", "reply here" name no place. They decide only
+# when no build ask comes before them: "just answer, I'll build the dashboard
+# myself" is a chat ask, "build it and just tell me when it is ready" is not.
+# One scan finds both: these phrases up to the first build verb that stands.
+_SOFT_CHAT_ONLY_OR_VERB = _re_mod.compile(
+    r"(?i)\b(?:(?P<soft>(?<!-)(?:(?:just|only|simply)\s+(?:answer|reply|respond|tell me)\b"
+    r"|(?:answer|reply|respond)\s+(?:it\s+)?here\b"
+    r"|solo\s+(?:responde|contesta|dime)\b|responde\s+(?:solo\s+)?aquí\b))"
+    r"|(?:" + _BASE_VERBS + r"|" + _SPANISH_VERBS + r")\b|turn\b.*\binto\b)"
+    r"|(?P<soft_he>רק\s+(?:(?:ת)?ענה|תשובה))|" + _HEBREW_VERBS
+)
+_NEGATED_TAIL = _re_mod.compile(
+    r"(?i)(?:" + _NEGATION + r"|\bno\b)\s+" + _NEGATION_FILLER + r"(?:(?:a|an|the|un|una)\s+)?$"
+)
+
+
+def _negated_spans(text: str) -> list:
+    """(start, end) of each negated build verb through the end of its clause,
+    in order, with overlapping spans joined."""
+    spans = []
+    stops = {}  # per stop pattern, the last stop found: it also ends every later span that starts before it
+    for m in _NEGATED_VERB.finditer(text):
+        end = _DEPENDENT_END if m.group(0).lower().endswith(_GERUND_OR_INFINITIVE) else _CLAUSE_END
+        if stops.get(end, -1) < m.end():
+            stop = end.search(text, m.end())
+            stops[end] = stop.start() if stop else len(text)
+        if spans and m.start() < spans[-1][1]:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], stops[end]))
+        else:
+            spans.append((m.start(), stops[end]))
+    return spans
+
+
+def _negated(text: str, at: int) -> bool:
+    return bool(_NEGATED_TAIL.search(text[max(0, at - 40):at]))
+
+
+def _next_verb(scan, soft_at: list):
+    """Start of the next build verb in ``scan``; the soft chat-only phrases
+    passed on the way are added to ``soft_at``."""
+    for m in scan:
+        if m.lastgroup is None:
+            return m.start()
+        soft_at.append(m.start())
+    return None
+
+
+def _span_at(spans: list, i: int, at: int) -> int:
+    """Index of the first span, from ``i`` on, that ends after ``at``. ``at``
+    lies in a negated span when that one starts at or before it."""
+    while i < len(spans) and spans[i][1] <= at:
+        i += 1
+    return i
+
+
+def _live_noun(pattern, text: str, spans: list) -> bool:
+    """True when a noun lies outside every negated span and is not itself
+    negated ("without a dashboard")."""
+    i = 0
+    for m in pattern.finditer(text):
+        at = m.start()
+        i = _span_at(spans, i, at)
+        if (i == len(spans) or spans[i][0] > at) and not _NEGATED_NOUN_TAIL.search(text[max(0, at - 60):at]):
+            return True
+    return False
+
+
+def build_ask_kinds(message: str) -> set:
+    """{"page"} / {"doc"} / both when the user's message asks to build one; empty otherwise.
+
+    A how-to question, an explicit chat-only ask ("answer in chat", "text
+    only", "רק בצ'אט", "solo en el chat"), a "just answer" / "רק תענה" / "solo
+    responde" with no build verb before it, and a build that is itself negated
+    ("don't create a dashboard", "אל תבנה דשבורד", "no hagas un tablero",
+    "sin dashboard") are not.
+    """
+    text = str(message or "")
+    if not text.strip() or _HOW_TO.search(text):
+        return set()
+    scan, soft_at = _SOFT_CHAT_ONLY_OR_VERB.finditer(text), []
+    verb = _next_verb(scan, soft_at)
+    if verb is None or any(not _negated(text, m.start()) for m in _CHAT_ONLY.finditer(text)):
+        return set()
+    spans = _negated_spans(text)
+    i = 0
+    while verb is not None:  # on to the first build verb outside every negated span
+        i = _span_at(spans, i, verb)
+        if i == len(spans) or spans[i][0] > verb:
+            break
+        verb = _next_verb(scan, soft_at)
+    if verb is None or any(not _negated(text, at) for at in soft_at):
+        return set()
+    return {kind for kind, noun in (("page", _PAGE_NOUN), ("doc", _DOC_NOUN)) if _live_noun(noun, text, spans)}
+
+
+def forced_build_note(kinds: set) -> str:
+    """The observation for the one forced call a turn gets when it tried to end without the build."""
+    what = "a page" if kinds == {"page"} else "a document" if kinds == {"doc"} else "a page or a document"
+    return (
+        f"The user asked for {what}, and this turn was about to end without building it. "
+        "Build it now from the data you already have: call create_artifact for a page or create_doc for a "
+        "document, and state any limits or doubts about the data on it. If something truly blocks the build "
+        "(the data can't answer the ask), call clarify and ask the user how to proceed. A text-only answer is "
+        "not available for this step."
+    )
+
+
 def repeated_call_final_answer(tool_name: str, times: int) -> str:
     """Message injected when the repeated-identical-call breaker fires.
 
@@ -775,6 +975,10 @@ class AgentV2:
         # a hidden completion whose prompt carries the sub_agents row id; the
         # parent launches children through the `delegate` tool.
         self._is_sub_agent = (self.mode == "subagent")
+        self._forced_builds = 0          # once per turn: see forced_build_note()
+        self._forced_tools_next = None   # tools the next planner call must choose from
+        self._forced_strays = 0          # forced calls that named a tool not offered
+        self._turn_tools = set()         # tool names that ran this turn
         # Instructions and skills are scoped by run mode (applicable_modes);
         # a child sees the chat-mode set, never an empty "subagent" set.
         self._instruction_mode = "chat" if self._is_sub_agent else self.mode
@@ -4372,6 +4576,51 @@ class AgentV2:
             "  </steering_updates>"
         )
 
+    def _settle_forced(self, decision) -> None:
+        """After a planner call: keep, retry or drop the forced build step.
+
+        A valid decision or a failed request ends it (a provider may reject a
+        forced request outright, and retrying would fail the turn). A call
+        that named a tool it was not offered gets one forced retry, then the
+        turn goes on unforced.
+        """
+        if not self._forced_tools_next:
+            return
+        code = getattr(getattr(decision, "error", None), "code", None)
+        if code != "tool_not_offered":
+            self._forced_tools_next = None
+            return
+        self._forced_strays += 1
+        if self._forced_strays >= 2:
+            self._forced_tools_next = None
+
+    def _build_ask_kinds_for_turn(self) -> set:
+        """{"page"}/{"doc"} when a person asked in this turn for a page or document; empty otherwise."""
+        try:
+            from app.ai.tools.implementations._memory_common import is_machine_turn
+            if is_machine_turn(self.head_completion):
+                return set()
+            # A steer mid-turn overrides the original ask: the latest one decides
+            # ("never mind the dashboard, answer in chat" is not a build ask).
+            steers = [t for t in (getattr(self, "_steering_texts", None) or []) if str(t or "").strip()]
+            if steers:
+                return build_ask_kinds(steers[-1])
+            prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
+            message = prompt.get("content", "") if isinstance(prompt, dict) else ""
+            return build_ask_kinds(message)
+        except Exception:
+            return set()
+
+    def _forced_tools_for(self, kinds: set) -> list:
+        """The build tools for the asked kind(s) that this turn offers, plus clarify (the honest exit)."""
+        names = {getattr(t, "name", None) for t in (self.planner.tool_catalog or [])}
+        # A page ask may be a change to the current page, so edit_artifact rides along.
+        want = (["create_artifact", "edit_artifact"] if "page" in kinds else []) + (["create_doc"] if "doc" in kinds else [])
+        build = [n for n in want if n in names]
+        if not build:
+            return []
+        return build + (["clarify"] if "clarify" in names else [])
+
     def _effective_user_message(self) -> str:
         """The head prompt plus any steering updates injected mid-run."""
         base = ""
@@ -6724,6 +6973,7 @@ class AgentV2:
                             context_window_tokens=getattr(self.model, "context_window_tokens", None),
                             external_platform=self.platform,
                             tool_catalog=self.planner.tool_catalog,
+                            forced_tools=self._forced_tools_next,
                             mode=self.mode,
                             platform_context=self.platform_context,
                             images=all_images if all_images else None,
@@ -7111,6 +7361,7 @@ class AgentV2:
                     
                         elif evt.type == "planner.decision.final":
                             decision = evt.data  # Already validated PlannerDecision from planner_v2
+                            self._settle_forced(decision)
                             self._record_planner_token_metadata_from_decision(decision, view=view)
                             # Track whether analysis is complete
                             analysis_done = bool(getattr(decision, "analysis_complete", False))
@@ -7201,6 +7452,53 @@ class AgentV2:
                                         len(_checklist.pending_items),
                                     )
                         
+                            # Forced build: the user asked for a page or a document,
+                            # nothing was built, and the turn is ending in text. A
+                            # reminder did not change this (measured); instead the next
+                            # planner call may only build or clarify, once per turn.
+                            _build_kinds = set()
+                            if (
+                                analysis_done
+                                and not _gate_actions
+                                and not self._is_sub_agent
+                                and self._forced_builds < 1
+                                and total_artifact_calls == 0
+                                and not (self._turn_tools & {"create_artifact", "edit_artifact", "create_doc", "edit_doc", "clarify"})
+                            ):
+                                _build_kinds = self._build_ask_kinds_for_turn()
+                            _forced = self._forced_tools_for(_build_kinds) if _build_kinds else []
+                            if _forced:
+                                self._forced_builds += 1
+                                self._forced_tools_next = _forced
+                                analysis_done = False
+                                decision.analysis_complete = False
+                                self._last_assistant_text = ""
+                                observation = {
+                                    "summary": forced_build_note(_build_kinds),
+                                    "error": {"code": "build_not_done", "message": "a build was asked for and none was done"},
+                                }
+                                try:
+                                    if decision_seq is None:
+                                        decision_seq = await self.project_manager.next_seq(
+                                            self.db, self.current_execution
+                                        )
+                                    await self.project_manager.save_plan_decision_from_model(
+                                        self.db,
+                                        agent_execution=self.current_execution,
+                                        seq=decision_seq,
+                                        loop_index=loop_index,
+                                        planner_decision_model=decision,
+                                        phase="forced_build",
+                                    )
+                                except Exception as _forced_persist_exc:
+                                    logger.warning(
+                                        "[agent] forced build persistence failed (loop=%s): %r",
+                                        loop_index,
+                                        _forced_persist_exc,
+                                    )
+                                await _cancel_skeleton_block("build_not_done")
+                                break
+
                             # Retry flow: invalid planner output OR underlying LLM error
                             if getattr(decision, "error", None):
                                 err_code = getattr(decision.error, "code", "validation_error")
@@ -8626,6 +8924,8 @@ class AgentV2:
                                     continue
                                 _obs = _o.get("observation")
                                 _tn = _o.get("tool_name")
+                                if _tn:
+                                    self._turn_tools.add(_tn)
                                 _ti_args = _o.get("tool_input")
                                 if _tn == "finish_subtask" and isinstance(_obs, dict) and _obs.get("analysis_complete"):
                                     self._sub_agent_finished = True
