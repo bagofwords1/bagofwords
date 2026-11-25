@@ -48,11 +48,15 @@
             </SettingsRow>
 
             <SettingsRow :label="$t('signupPolicy.autoInviteRole')" :description="$t('signupPolicy.roleHint')" stacked>
+                <!-- '' = no override: signups get the org default member role
+                     (Members page). Any other value overrides it. -->
                 <USelectMenu
                     v-if="roles.length"
-                    v-model="form.auto_invite_role"
-                    :options="roles.map((r) => r.name)"
-                    class="w-64"
+                    v-model="autoInviteChoice"
+                    :options="roleOptions"
+                    option-attribute="label"
+                    value-attribute="value"
+                    class="w-80"
                 />
                 <UInput v-else v-model="form.auto_invite_role" class="w-64" />
             </SettingsRow>
@@ -83,13 +87,26 @@ const props = defineProps<{
 const toast = useToast()
 
 type Policy = { enabled: boolean; allowed_domains: string[]; auto_invite_role: string }
-const form = reactive<Policy>({ enabled: false, allowed_domains: [], auto_invite_role: 'member' })
-const original = ref<Policy>({ enabled: false, allowed_domains: [], auto_invite_role: 'member' })
+const form = reactive<Policy>({ enabled: false, allowed_domains: [], auto_invite_role: '' })
+const original = ref<Policy>({ enabled: false, allowed_domains: [], auto_invite_role: '' })
 
 const domainInput = ref('')
 const saving = ref(false)
 const { getErrorMessage } = useErrorMessage()
 const roles = ref<{ id: string; name: string }[]>([])
+// The org-wide default member role (Members page); shown on the "no override" option.
+const orgDefaultRole = ref('member')
+// USelectMenu can't select an empty-string value (it renders blank), so the
+// "no override" option uses a sentinel that maps to '' in the saved policy.
+const ORG_DEFAULT = '__org_default__'
+const autoInviteChoice = computed({
+    get: () => form.auto_invite_role || ORG_DEFAULT,
+    set: (v: string) => { form.auto_invite_role = v === ORG_DEFAULT ? '' : v },
+})
+const roleOptions = computed(() => [
+    { value: ORG_DEFAULT, label: t('signupPolicy.useOrgDefault', { role: orgDefaultRole.value }) },
+    ...roles.value.map((r) => ({ value: r.name, label: r.name })),
+])
 
 const { settings: appSettings, fetchSettings } = useAppSettings()
 const globalUninvitedDisabled = computed(
@@ -108,6 +125,16 @@ async function loadPolicy() {
         }
     } catch (e) {
         console.error('Failed to load signup policy', e)
+    }
+}
+
+async function loadOrgDefaultRole() {
+    try {
+        const { data } = await useMyFetch('/organization/default-member-role')
+        const role = (data.value as any)?.role
+        if (role) orgDefaultRole.value = role
+    } catch {
+        // Keep 'member' as the label fallback.
     }
 }
 
@@ -172,5 +199,6 @@ onMounted(() => {
     fetchSettings()
     loadPolicy()
     loadRoles()
+    loadOrgDefaultRole()
 })
 </script>

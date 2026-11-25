@@ -31,7 +31,11 @@ logger = logging.getLogger(__name__)
 
 
 # Config keys the generic PUT /organization/settings may not write.
-PROTECTED_CONFIG_KEYS = frozenset({"signup_policy", "entra_profile_sync", "google_profile_sync", "smtp"})
+# default_member_role decides what every future member gets (it may be admin),
+# so it stays behind its full_admin_access endpoint.
+PROTECTED_CONFIG_KEYS = frozenset({
+    "signup_policy", "default_member_role", "entra_profile_sync", "google_profile_sync", "smtp",
+})
 
 
 class OrganizationSettingsService:
@@ -171,7 +175,7 @@ class OrganizationSettingsService:
         update_data = settings_data.dict(exclude_unset=True)
 
         # Keys owned by dedicated endpoints with stricter gates / validation
-        # (signup policy needs full_admin_access, profile sync needs
+        # (signup policy and the default member role need full_admin_access, profile sync needs
         # manage_identity_providers, SMTP encrypts its password). The generic
         # writer only needs manage_settings, so it must never write them.
         protected = sorted(set((update_data.get('config') or {})) & PROTECTED_CONFIG_KEYS)
@@ -831,7 +835,8 @@ class OrganizationSettingsService:
         return SignupPolicySchema(
             enabled=bool(raw.get("enabled", False)),
             allowed_domains=list(raw.get("allowed_domains", []) or []),
-            auto_invite_role=str(raw.get("auto_invite_role") or "member"),
+            # Empty = no override: domain signups get the org's default member role.
+            auto_invite_role=str(raw.get("auto_invite_role") or "").strip(),
         )
 
     @staticmethod
@@ -903,7 +908,6 @@ class OrganizationSettingsService:
             )
 
         from app.models.role import Role
-        from sqlalchemy import or_, and_
 
         normalized_domains: list[str] = []
         seen: set[str] = set()
@@ -922,19 +926,16 @@ class OrganizationSettingsService:
             seen.add(d)
             normalized_domains.append(d)
 
-        role_name = (policy.auto_invite_role or "").strip() or "member"
-        role_res = await db.execute(
-            select(Role).where(
-                Role.name == role_name,
-                Role.deleted_at.is_(None),
-                or_(
-                    and_(Role.is_system == True, Role.organization_id.is_(None)),
-                    Role.organization_id == organization.id,
-                ),
-            )
-        )
-        if not role_res.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail=f"Role '{role_name}' not found")
+        # Empty = no override: domain signups follow the org's default member
+        # role (Members page), so the two settings can't silently disagree.
+        role_name = (policy.auto_invite_role or "").strip()
+        if role_name:
+            # The same resolver provisioning uses, so a save is accepted exactly
+            # when the role can be granted (a customized built-in matches both
+            # the global row and the org's override; a plain query 500s on that).
+            from app.core.permission_resolver import resolve_assignable_role
+            if await resolve_assignable_role(db, str(organization.id), role_name) is None:
+                raise HTTPException(status_code=400, detail=f"Role '{role_name}' not found")
 
         if policy.enabled and not normalized_domains:
             raise HTTPException(
@@ -1015,20 +1016,11 @@ class OrganizationSettingsService:
         enterprise ``domain_signup`` feature.
         """
         from app.models.role import Role
-        from sqlalchemy import or_, and_
 
         role_name = (role or "").strip() or "member"
-        role_res = await db.execute(
-            select(Role).where(
-                Role.name == role_name,
-                Role.deleted_at.is_(None),
-                or_(
-                    and_(Role.is_system == True, Role.organization_id.is_(None)),
-                    Role.organization_id == organization.id,
-                ),
-            )
-        )
-        if not role_res.scalar_one_or_none():
+        # Same resolver as provisioning (see update_signup_policy).
+        from app.core.permission_resolver import resolve_assignable_role
+        if await resolve_assignable_role(db, str(organization.id), role_name) is None:
             raise HTTPException(status_code=400, detail=f"Role '{role_name}' not found")
 
         settings = await self.get_settings(db, organization, current_user)
@@ -1872,14 +1864,36 @@ class OrganizationSettingsService:
         return settings
 
 
+def _embedded_signup_role(organization_id) -> Optional[str]:
+    """The host application's role when this sign-in runs inside its embedded
+    sign-in window for this org (see app.core.workspace_access). A host gives
+    the people it creates its own role (app_user or member); the org default
+    must not widen that, so it wins over both resolvers below."""
+    from app.core.workspace_access import current_signup_intent
+    intent = current_signup_intent()
+    if intent is not None and intent.organization_id == str(organization_id):
+        return intent.role
+    return None
+
+
 async def resolve_default_member_role(db: AsyncSession, organization_id: str) -> str:
-    """Return the org-wide default member role, falling back to "member".
+    """Return the org-wide default role for a new member, falling back to "member".
+
+    The single source of truth for the role a person gets when they join an
+    organization without an admin choosing one: the Add-member modal and API,
+    the CSV import, SSO/SAML/LDAP first sign-in, SCIM and directory group
+    sync, OIDC org mapping's ``member`` rule, and (unless overridden) domain
+    signup. The stored name may be a system role or one of the org's custom
+    roles. A name that no longer resolves (the custom role was deleted) falls
+    back to "member" rather than provisioning someone with no role at all.
 
     Lightweight read keyed by org id (mirrors auth._org_signup_policy): no
     permission check and no settings-sync side effects, so it is safe to call
-    on the invite/add-member path. Consumed by organization_service.add_member
-    when the caller does not pick a role explicitly.
+    from sign-in and provisioning paths.
     """
+    embedded = _embedded_signup_role(organization_id)
+    if embedded is not None:
+        return embedded
     res = await db.execute(
         select(OrganizationSettings).where(
             OrganizationSettings.organization_id == organization_id
@@ -1887,4 +1901,30 @@ async def resolve_default_member_role(db: AsyncSession, organization_id: str) ->
     )
     settings = res.scalar_one_or_none()
     raw = (settings.config or {}).get("default_member_role") if settings else None
-    return str(raw).strip() if raw and str(raw).strip() else "member"
+    name = str(raw).strip() if raw and str(raw).strip() else "member"
+    if name == "member":
+        return name
+    from app.core.permission_resolver import resolve_assignable_role
+    if await resolve_assignable_role(db, str(organization_id), name) is None:
+        return "member"
+    return name
+
+
+async def resolve_signup_role(
+    db: AsyncSession, organization_id: str, policy: Optional[dict] = None,
+) -> str:
+    """Role for someone admitted by the org's domain-signup policy.
+
+    ``signup_policy.auto_invite_role`` is an optional override: empty (the
+    default) means "use the organization's default member role". A stored
+    override that no longer resolves falls back to the default too.
+    """
+    embedded = _embedded_signup_role(organization_id)
+    if embedded is not None:
+        return embedded
+    override = str((policy or {}).get("auto_invite_role") or "").strip()
+    if override:
+        from app.core.permission_resolver import resolve_assignable_role
+        if await resolve_assignable_role(db, str(organization_id), override) is not None:
+            return override
+    return await resolve_default_member_role(db, organization_id)
