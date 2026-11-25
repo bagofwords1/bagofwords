@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.637 (November 25, 2026)
+- Added Slack as a data source, read live with each user's own access and limited per agent to chosen channels (#PRNUM)
+- Added more PII identifiers: 45 Presidio types, 7 built-in rules for secrets and network IDs, and custom rules with exact terms, checksums and context words (#1919) — off until a policy turns them on
+
 ## Version 0.0.636 (November 24, 2026)
 - Added PII policies per agent; an agent's policy merges with the provider's and the strictest rule wins (#1911) — set in Settings → PII or the agent's settings
 - Added a SharePoint Server lists connector for on-prem SharePoint 2013+ over NTLM or Kerberos (#1910)
