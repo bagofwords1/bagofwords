@@ -8,7 +8,7 @@
       <template v-else-if="status === 'stopped'">{{ t('tools.editArtifact.editing') }}</template>
       <template v-else-if="status === 'error'">{{ t('tools.editArtifact.failed') }}</template>
       <template v-else>{{ t('tools.editArtifact.edit') }}</template>
-      <template v-if="status === 'success' && diffApplied !== null"> · {{ diffApplied ? t('tools.editArtifact.diff') : t('tools.editArtifact.rewrite') }}</template></template>
+      <template v-if="status === 'success' && diffApplied === false"> · {{ t('tools.editArtifact.rewrite') }}</template></template>
     </ToolCallHeader>
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
       <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span><span
