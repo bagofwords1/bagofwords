@@ -64,7 +64,8 @@ const frameCode = "'use strict';\n" + transpile([
   ...DECLARED.map(declaration),
   ...present.map(fn),
   ...watchers,
-  `return { ${[...DECLARED, ...present].join(', ')} };`,
+  // lastLoadSent reads the live module variable (the others are copies taken here).
+  `return { ${[...DECLARED, ...present].join(', ')}, lastLoadSent: () => loadSent };`,
 ].join('\n'))
 
 const flush = async () => { for (let i = 0; i < 5; i++) await nextTick() }
@@ -258,6 +259,17 @@ test('a filter run and new files after a refresh still reach the frame, once eac
   f.state.filesData.value = [{ id: 'file-1', url: 'https://files.test/1' }]
   await flush()
   assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'new files are sent once')
+})
+
+test('rows a filter run replaced are not kept by the last load\'s send marker', async () => {
+  const f = await opened()
+  await refreshInPlace(f)
+  f.clear()
+  f.responses[RUN_Q1] = { status: 'success', data: { rows: [{ region: 'EMEA', amount: 9 }], columns: [] } }
+  await f.own.runParamQueries({ region: 'EMEA' })
+  await flush()
+  assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'the filter run sends once')
+  assert.equal(f.own.lastLoadSent(), null, 'the refreshed list is no longer referenced once newer rows replace it')
 })
 
 // A response the test releases (or fails) when it chooses.

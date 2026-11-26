@@ -3776,13 +3776,17 @@ function frameIframeOptions(seed: any, artifactCode: string) {
 // Re-send data when it changes (not for a list written with send: false alone).
 // Not when the frame turns ready: its ARTIFACT_READY handler sends (or not) itself.
 watch([visualizationsData, filesData], ([, files], [, prevFiles]) => {
+  // The marker only dedupes the run that follows a load's own send; read it
+  // once and drop it, so it never keeps rows that newer data replaced.
+  const sentByLoad = loadSent;
+  loadSent = null;
   const due = visualizationsSendDue || files !== prevFiles;
   visualizationsSendDue = false;
   if (!due) return;
   // Held, never dropped: the load's end sends it (fetchData's finally), or a
   // change of selection before that (releaseHeld).
   if (selectedLoadInFlight()) { sendHeld = true; return; }
-  if (loadSent && loadSent.visualizations === visualizationsData.value && loadSent.files === toRaw(filesData.value)) return;
+  if (sentByLoad && sentByLoad.visualizations === visualizationsData.value && sentByLoad.files === toRaw(filesData.value)) return;
   if (iframeReady.value && (visualizationsData.value.length > 0 || filesData.value.length > 0)) {
     sendDataToIframe();
   }
