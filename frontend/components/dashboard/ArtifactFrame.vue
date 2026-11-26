@@ -1585,6 +1585,10 @@ const visualizationsData = shallowRef<any[]>([]);
 // send: false (a filter run's query as it lands) keeps the data watcher from
 // sending this list to the frame; the run sends once, at its end.
 let visualizationsSendDue = false;
+// A data load (fetchData) sends once, at its end: while one runs the watcher
+// holds its sends, and after it what that send carried is not sent again.
+let dataLoadsInFlight = 0;
+let loadSent: { visualizations: any[]; files: any[] } | null = null;
 function replaceVisualizationsData(next: any[], { send = true }: { send?: boolean } = {}) {
   if (send) visualizationsSendDue = true;
   visualizationsData.value = next;
@@ -3031,6 +3035,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
     dataReady.value = false;
   }
 
+  dataLoadsInFlight++;
   try {
     // Fetch report info
     let reportDataSources: any[] = [];
@@ -3303,9 +3308,13 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
   } catch (e) {
     console.error('[ArtifactFrame] Failed to fetch data:', e);
   } finally {
+    dataLoadsInFlight--;
     if (artifactId === selectedArtifactId.value) {
       isLoading.value = false;
-      if (iframeReady.value) sendDataToIframe();
+      // The load's one send, to every ready frame (a frame reloading for a
+      // new srcdoc is not ready: its ARTIFACT_READY sends what it lacks).
+      sendDataToIframe();
+      loadSent = { visualizations: visualizationsData.value, files: toRaw(filesData.value) };
     }
   }
 }
@@ -3603,6 +3612,9 @@ ${SC}
 `;
 });
 
+// The last frame document built and what it was built from.
+let builtSrcdoc: { inputs: Record<string, any>; html: string } | null = null;
+
 // Build the full iframe srcdoc with embedded data
 // Guard: only compute once ALL data is ready to prevent iframe loading with empty data
 const iframeSrcdoc = computed(() => {
@@ -3646,8 +3658,33 @@ const iframeSrcdoc = computed(() => {
   // Wait for the host-fetched libraries (failed ones fall back to <script src>).
   const inlineLibs = artifactLibSources(inlineableArtifactLibs(opts));
   if (inlineLibs === null) return undefined;
-  return buildArtifactIframeHtml({ ...opts, inlineLibs });
+  // Every build carries a new runtime nonce, so rebuilding from the same inputs
+  // would still reload the frame (an in-place refresh writes reportData anew).
+  const inputs = { ...opts, inlineLibs };
+  if (!builtSrcdoc || !sameFrameInputs(builtSrcdoc.inputs, inputs)) {
+    builtSrcdoc = { inputs, html: buildArtifactIframeHtml(inputs) };
+  }
+  return builtSrcdoc.html;
 });
+
+// Same frame options: each value the same, or a plain object (the seed, the
+// precompiled code, the inline libraries) whose own values are the same.
+function sameFrameInputs(a: Record<string, any>, b: Record<string, any>) {
+  const plain = (v: any) => !!v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
+  const same = (x: any, y: any) => Object.is(x, y) || (plain(x) && plain(y)
+    && Object.keys(x).length === Object.keys(y).length
+    && Object.keys(x).every((k) => Object.prototype.hasOwnProperty.call(y, k) && Object.is(x[k], y[k])));
+  return Object.keys(a).length === Object.keys(b).length
+    && Object.keys(a).every((k) => Object.prototype.hasOwnProperty.call(b, k) && same(a[k], b[k]));
+}
+
+// A new srcdoc is a new document in each frame showing it: until that document
+// reports ARTIFACT_READY nothing is posted to it (its READY sends what it
+// lacks). Sync, so a send right after the change cannot reach it.
+watch(iframeSrcdoc, () => {
+  iframeReady.value = false;
+  fullscreenReady.value = false;
+}, { flush: 'sync' });
 
 function frameIframeOptions(seed: any, artifactCode: string) {
   return {
@@ -3673,7 +3710,8 @@ function frameIframeOptions(seed: any, artifactCode: string) {
 watch([visualizationsData, filesData], ([, files], [, prevFiles]) => {
   const due = visualizationsSendDue || files !== prevFiles;
   visualizationsSendDue = false;
-  if (!due) return;
+  if (!due || dataLoadsInFlight) return;
+  if (loadSent && loadSent.visualizations === visualizationsData.value && loadSent.files === toRaw(filesData.value)) return;
   if (iframeReady.value && (visualizationsData.value.length > 0 || filesData.value.length > 0)) {
     sendDataToIframe();
   }
