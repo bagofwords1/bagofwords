@@ -299,7 +299,10 @@ class StubHost:
         listener.bind(("127.0.0.1", 0))
         rest_port = listener.getsockname()[1]
         config = uvicorn.Config(
-            _rest_app(self), log_level="error", access_log=False, lifespan="off",
+            # log_config=None: this server runs inside the application's process (the
+            # fake driver), and uvicorn's default would reconfigure the application's
+            # own uvicorn loggers.
+            _rest_app(self), log_config=None, access_log=False, lifespan="off",
             ssl_certfile=str(tls_dir / "cert.pem"), ssl_keyfile=str(tls_dir / "key.pem"),
         )
         server = uvicorn.Server(config)
