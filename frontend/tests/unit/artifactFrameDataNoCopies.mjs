@@ -69,7 +69,7 @@ assert.ok(dataWatcher, 'the frame re-sends its data when it changes (watcher)')
 
 const FUNCTIONS = ['fetchData', 'runParamQueries', 'sendDataToIframe', 'paramSubsetForQuery', 'queriesWithIdentityParams', 'replaceVisualizationsData',
   'handleIframeMessage', 'frameContext', 'frameHasSeedData']
-const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'dataLoadsInFlight', 'loadSent', 'srcdocSeed', 'seededFrom'].filter(declaration)
+const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'dataLoadsInFlight', 'loadSent', 'sendHeld', 'srcdocSeed', 'seededFrom'].filter(declaration)
 const present = FUNCTIONS.filter(fn)
 const frameCode = "'use strict';\n" + transpile([
   ...DECLARED.map(declaration),

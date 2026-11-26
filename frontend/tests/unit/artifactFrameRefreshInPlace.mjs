@@ -47,13 +47,15 @@ const watchers = [
   // Whatever the frame does when its srcdoc changes (absent before this change).
   ...statement(/^watch\(\(?\)? ?=?>? ?iframeSrcdoc/),
   ...statement(/^watch\(iframeSrcdoc\b/),
+  // The theme toggle: posted to the live frame, not a srcdoc input.
+  ...statement(/^watch\(\(\) => colorMode\.value/),
 ]
 assert.ok(watchers.length >= 1, 'the frame re-sends its data when it changes (watcher)')
 
 const FUNCTIONS = ['fetchData', 'runParamQueries', 'sendDataToIframe', 'paramSubsetForQuery', 'queriesWithIdentityParams', 'replaceVisualizationsData',
-  'handleIframeMessage', 'frameContext', 'frameHasSeedData', 'frameIframeOptions', 'sameFrameInputs']
+  'handleIframeMessage', 'frameContext', 'frameHasSeedData', 'frameIframeOptions', 'sameFrameInputs', 'frameDocument']
 const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'srcdocSeed', 'seededFrom', 'builtSrcdoc', 'dataLoadsInFlight', 'loadSent',
-  'iframeSrcdoc'].filter(declaration)
+  'sendHeld', 'artifactColorMode', 'iframeSrcdoc'].filter(declaration)
 const present = FUNCTIONS.filter(fn)
 const frameCode = "'use strict';\n" + transpile([
   ...DECLARED.map(declaration),
@@ -118,7 +120,9 @@ function frame() {
     loadTableLayouts: () => ({}), tableLayoutKey: () => 'dash-1',
     // The srcdoc computed's other inputs.
     isDocMode: ref(false), showViewerGate: ref(false), slidesPreviewsMissing: ref(false), hasArtifact: ref(true),
-    sampleArtifactCode: ref('Sample'), t: (k) => k, artifactColorMode: 'light',
+    sampleArtifactCode: ref('Sample'), t: (k) => k,
+    // The app's theme; the frame's snapshot of it (artifactColorMode) is ArtifactFrame.vue's own.
+    colorMode: ref('light'), postToRuntimeFrames: () => {},
   }
   const own = new Function(...Object.keys(state), frameCode)(...Object.values(state))
   // The page's template: each mounted frame shows the srcdoc; a new string reloads it.
@@ -234,4 +238,96 @@ test('a filter run and new files after a refresh still reach the frame, once eac
   f.state.filesData.value = [{ id: 'file-1', url: 'https://files.test/1' }]
   await flush()
   assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'new files are sent once')
+})
+
+// A response the test releases (or fails) when it chooses.
+const deferred = () => {
+  let resolve, reject
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej })
+  promise.catch(() => {})
+  return { promise, resolve, reject }
+}
+const QUERIES_ART2 = '/api/queries?report_id=rep-1&artifact_id=art-2'
+const FILTERED = [{ region: 'EMEA', amount: 9 }]
+
+// A load for the artifact shown before (art-1) still waits on the network when
+// the viewer switches to art-2, whose own load finishes first; a filter run
+// then lands while only the stale load is in flight, and the stale load ends last.
+async function staleLoadThenFilter(settleStale) {
+  const f = await opened()
+  const slow = deferred()
+  f.responses[QUERIES] = slow.promise
+  const stale = f.own.fetchData('art-1', { inPlace: true })
+  await flush()
+  f.state.selectedArtifactId.value = 'art-2'
+  f.state.selectedArtifact.value = { ...f.state.selectedArtifact.value, id: 'art-2' }
+  f.responses[QUERIES_ART2] = queriesResponse()
+  await f.own.fetchData('art-2')
+  await flush()
+  await f.ready()
+  f.clear()
+  f.responses[RUN_Q1] = { status: 'success', data: { rows: FILTERED, columns: [] } }
+  await f.own.runParamQueries({ region: 'EMEA' })
+  await flush()
+  settleStale(slow)
+  await stale
+  await flush()
+  return f
+}
+
+test('a filter run while only a stale load is in flight reaches the frame once that load ends', async () => {
+  const f = await staleLoadThenFilter((slow) => slow.resolve(queriesResponse(REFRESHED)))
+  assert.equal(f.own.dataLoadsInFlight, 0)
+  assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'the held send is delivered, once')
+  assert.deepEqual(f.frames.main.received[0].payload.visualizations[0].rows, FILTERED, 'with the filter run\'s rows')
+})
+
+test('a stale load that throws releases the counter and delivers the held send', async () => {
+  const f = await staleLoadThenFilter((slow) => slow.reject(new Error('network down')))
+  assert.equal(f.own.dataLoadsInFlight, 0, 'the counter is released')
+  assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'the held send is delivered, once')
+  assert.deepEqual(f.frames.main.received[0].payload.visualizations[0].rows, FILTERED)
+  f.clear()
+  f.state.filesData.value = [{ id: 'file-1', url: 'https://files.test/1' }]
+  await flush()
+  assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'later changes are sent at once again')
+})
+
+test('a theme toggle then an in-place refresh keeps the frame\'s document; a rebuild reads the current theme', async () => {
+  const f = await opened()
+  const html = f.own.iframeSrcdoc.value
+  const loads = f.frames.main.loads
+  assert.equal(/<html[^>]*class="dark"/.test(html), false)
+  f.state.colorMode.value = 'dark'
+  await flush()
+  await refreshInPlace(f)
+  assert.ok(f.own.iframeSrcdoc.value === html, 'the same srcdoc string after the toggle')
+  assert.equal(f.frames.main.loads, loads, 'no reload of the frame')
+  assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'one push for one refresh')
+  f.state.reportData.value = { ...f.state.reportData.value, show_widget_info: true }
+  const rebuilt = f.own.iframeSrcdoc.value
+  assert.ok(rebuilt !== html, 'another input changed: a new document')
+  assert.ok(/<html[^>]*class="dark"/.test(rebuilt), 'built with the current theme')
+})
+
+test('a frame document that goes away and comes back is a new document: the frame reloads and gets its data on READY', async () => {
+  const f = await opened()
+  const html = f.own.iframeSrcdoc.value
+  f.state.showViewerGate.value = true
+  assert.equal(f.own.iframeSrcdoc.value, undefined, 'the gate hides the frame document')
+  f.state.showViewerGate.value = false
+  const next = f.own.iframeSrcdoc.value
+  assert.ok(typeof next === 'string' && next !== html, 'a new string: the frame really reloads')
+  assert.equal(f.state.iframeReady.value, false, 'not ready until its READY')
+  await f.ready()
+  assert.equal(f.state.iframeReady.value, true)
+  assert.deepEqual(f.types(), ['ARTIFACT_DATA_CURRENT'], 'READY-driven data: the seed is current')
+})
+
+test('an in-place refresh never hides the frame document on the way', async () => {
+  const f = await opened()
+  const seen = []
+  watch(f.own.iframeSrcdoc, (html) => seen.push(html), { flush: 'sync' })
+  await refreshInPlace(f)
+  assert.equal(seen.includes(undefined), false)
 })

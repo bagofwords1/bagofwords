@@ -1587,7 +1587,13 @@ const visualizationsData = shallowRef<any[]>([]);
 let visualizationsSendDue = false;
 // A data load (fetchData) sends once, at its end: while one runs the watcher
 // holds its sends, and after it what that send carried is not sent again.
+// The hold covers the whole load, network waits included, so a filter run (or
+// files change) landing during a load reaches the frame with the load's one
+// send, not before it: a refresh stays one push. sendHeld marks a held send;
+// when the last load ends without sending (a stale one: another artifact is
+// selected now, or it threw), that end sends it.
 let dataLoadsInFlight = 0;
+let sendHeld = false;
 let loadSent: { visualizations: any[]; files: any[] } | null = null;
 function replaceVisualizationsData(next: any[], { send = true }: { send?: boolean } = {}) {
   if (send) visualizationsSendDue = true;
@@ -3313,8 +3319,12 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       isLoading.value = false;
       // The load's one send, to every ready frame (a frame reloading for a
       // new srcdoc is not ready: its ARTIFACT_READY sends what it lacks).
+      sendHeld = false;
       sendDataToIframe();
       loadSent = { visualizations: visualizationsData.value, files: toRaw(filesData.value) };
+    } else if (!dataLoadsInFlight && sendHeld) {
+      sendHeld = false;
+      sendDataToIframe();
     }
   }
 }
@@ -3615,9 +3625,20 @@ ${SC}
 // The last frame document built and what it was built from.
 let builtSrcdoc: { inputs: Record<string, any>; html: string } | null = null;
 
+// The frame's document. One that goes away (doc mode, a full load, the viewer
+// gate, libraries pending) is not kept: the next one is built anew — a new
+// string, so the frame really reloads and reports ARTIFACT_READY — and the old
+// multi-MB string is let go. An in-place refresh never hides the document
+// (it leaves dataReady, the code and the libraries as they are).
+const iframeSrcdoc = computed(() => {
+  const html = frameDocument();
+  if (html === undefined) builtSrcdoc = null;
+  return html;
+});
+
 // Build the full iframe srcdoc with embedded data
 // Guard: only compute once ALL data is ready to prevent iframe loading with empty data
-const iframeSrcdoc = computed(() => {
+function frameDocument(): string | undefined {
   // Docs render in DocViewer, never in the sandbox iframe
   if (isDocMode.value) return undefined;
 
@@ -3661,11 +3682,15 @@ const iframeSrcdoc = computed(() => {
   // Every build carries a new runtime nonce, so rebuilding from the same inputs
   // would still reload the frame (an in-place refresh writes reportData anew).
   const inputs = { ...opts, inlineLibs };
-  if (!builtSrcdoc || !sameFrameInputs(builtSrcdoc.inputs, inputs)) {
-    builtSrcdoc = { inputs, html: buildArtifactIframeHtml(inputs) };
+  // The theme is not part of what decides a rebuild: a toggle reaches the live
+  // frame by postMessage (artifactColorMode), and a rebuild for any other
+  // reason reads the current theme.
+  const builtFrom = { ...inputs, colorMode: undefined };
+  if (!builtSrcdoc || !sameFrameInputs(builtSrcdoc.inputs, builtFrom)) {
+    builtSrcdoc = { inputs: builtFrom, html: buildArtifactIframeHtml(inputs) };
   }
   return builtSrcdoc.html;
-});
+}
 
 // Same frame options: each value the same, or a plain object (the seed, the
 // precompiled code, the inline libraries) whose own values are the same.
@@ -3710,7 +3735,9 @@ function frameIframeOptions(seed: any, artifactCode: string) {
 watch([visualizationsData, filesData], ([, files], [, prevFiles]) => {
   const due = visualizationsSendDue || files !== prevFiles;
   visualizationsSendDue = false;
-  if (!due || dataLoadsInFlight) return;
+  if (!due) return;
+  // Held, never dropped: the load's end sends it (fetchData's finally).
+  if (dataLoadsInFlight) { sendHeld = true; return; }
   if (loadSent && loadSent.visualizations === visualizationsData.value && loadSent.files === toRaw(filesData.value)) return;
   if (iframeReady.value && (visualizationsData.value.length > 0 || filesData.value.length > 0)) {
     sendDataToIframe();
