@@ -17,7 +17,7 @@ from app.models.base import Base
 # These model modules are imported only by the code path that uses them, so
 # which mappers exist would otherwise depend on what ran earlier in the process.
 for _module in ("email_delivery_claim", "file_index", "login_exchange_code",
-                "report_context_state", "report_view"):
+                "pending_blob_delete", "report_context_state", "report_view"):
     importlib.import_module(f"app.models.{_module}")
 
 
