@@ -313,9 +313,10 @@
         <!-- Floating chat (owner setting; the bubble itself resolves per-viewer
              availability — sign-in prompt for anonymous, member check inside) -->
         <ArtifactChatBubble
-            v-if="reportLoaded && report?.artifact_chat_enabled && api.chatBase && !embedded && !ownConversations"
+            v-if="reportLoaded && report?.artifact_chat_enabled && (api.chatBase || chatPreview) && !embedded && !ownConversations"
             :report-id="id"
-            :base="api.chatBase"
+            :base="api.chatBase ?? ''"
+            :preview="chatPreview"
             :raised="report.general?.bow_credit !== false && !inHostApplication"
             :lift="cornerLift"
             :host-context="props.hostContext ?? null"
@@ -548,6 +549,10 @@ const cornerLift = computed(() => (intercomClearance.value ? intercomClearance.v
 // An app that holds its own conversations (bow.conversations, or the
 // useConversation building block) is the chat: the bubble would be a second one.
 const ownConversations = computed(() => /\bbow\.conversations\b|\buseConversation\s*\(/.test(artifact.value?.content?.code || ''));
+// On the draft the chat has no backend (no release to chat about): the bubble
+// renders in a preview-only state so an editor can see how "Allow chat" will
+// look before publishing. The live bubble is the published /d and shared /r.
+const chatPreview = computed(() => props.source === 'draft');
 const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
 const unavailable = ref(false);
 // Top bar state

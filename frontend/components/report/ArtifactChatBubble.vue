@@ -21,8 +21,30 @@
                 </button>
             </div>
 
+            <!-- Preview (draft editor): how the bubble will look to readers.
+                 No backend yet — a static empty state and a disabled composer. -->
+            <template v-if="preview">
+                <div class="flex-1 overflow-y-auto px-3 py-3" data-testid="chat-preview">
+                    <div class="text-center mt-10 px-4">
+                        <Icon name="heroicons:sparkles" class="w-6 h-6 text-gray-300 mx-auto mb-2" />
+                        <p class="text-xs text-ink-muted">Ask about this dashboard — I can also run live queries to dig deeper.</p>
+                    </div>
+                </div>
+                <div class="border-t border-gray-100 dark:border-gray-800 p-2 flex-shrink-0">
+                    <div class="flex items-end gap-1.5">
+                        <textarea rows="1" disabled placeholder="Ask a question..."
+                            class="flex-1 resize-none text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 opacity-70 cursor-not-allowed" />
+                        <button disabled
+                            class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center opacity-40 cursor-not-allowed">
+                            <Icon name="heroicons:paper-airplane" class="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+                    <p class="text-2xs text-ink-muted mt-1 ps-1">Preview — chat becomes active after you publish this dashboard.</p>
+                </div>
+            </template>
+
             <!-- Sign-in required -->
-            <div v-if="status && !status.available && status.reason === 'auth_required'"
+            <div v-else-if="status && !status.available && status.reason === 'auth_required'"
                 class="flex-1 flex flex-col items-center justify-center px-6 text-center" data-testid="chat-signin-prompt">
                 <Icon name="heroicons:lock-closed" class="w-8 h-8 text-gray-300 mb-3" />
                 <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">Sign in to ask questions about this dashboard.</p>
@@ -143,7 +165,10 @@ import Spinner from '~/components/Spinner.vue'
 // hostContext: the host application's current context (embed.updateContext),
 // sent with each message so "this customer" resolves. The server caps it and
 // labels it advisory and unverified; it grants no access.
-const props = defineProps<{ reportId: string; base?: string; raised?: boolean; lift?: number; hostContext?: Record<string, any> | null }>()
+// preview: a draft editor seeing how the bubble will look. No release exists to
+// chat about yet, so the panel renders a static preview (no status/history load,
+// composer disabled) and the live chat starts once the dashboard is published.
+const props = defineProps<{ reportId: string; base?: string; preview?: boolean; raised?: boolean; lift?: number; hostContext?: Record<string, any> | null }>()
 const chatBase = computed(() => props.base || `/r/${props.reportId}`)
 
 const bottomPx = computed(() => (props.raised ? 64 : 16) + (props.lift || 0))
@@ -160,6 +185,8 @@ let initialized = false
 
 const toggle = async () => {
     open.value = !open.value
+    // Preview (draft): nothing to load and no live composer to focus.
+    if (props.preview) return
     if (open.value && !initialized) {
         initialized = true
         await Promise.all([loadStatus(), loadHistory()])
