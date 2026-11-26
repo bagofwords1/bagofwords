@@ -2305,13 +2305,19 @@ function handleEscKey(e: KeyboardEvent) {
 function handlePromptPrefill(event: Event) {
     const detail = (event as CustomEvent).detail
     if (detail?.text) {
+        // An action elsewhere (Fix Error, Polish, Generate dashboard, a Clarify
+        // answer) borrows the box to send its own prompt; whatever the user
+        // was typing comes back once that prompt is on its way.
+        const draft = text.value
         text.value = detail.text
         // Auto-submit if requested (after a brief delay to ensure text is set)
         if (detail.autoSubmit) {
-            setTimeout(() => {
-                if (canSubmit.value) {
-                    submit()
-                }
+            setTimeout(async () => {
+                if (!canSubmit.value) return
+                await submit()
+                // submit() empties the box once the prompt is sent or queued;
+                // a box that still holds it means it did not go out.
+                if (draft.trim() && !text.value) text.value = draft
             }, 50)
         }
     }

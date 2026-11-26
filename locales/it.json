@@ -5571,9 +5571,12 @@
   },
   "toolbar": {
     "polishDashboard": "Rifinisci dashboard",
-    "polishRequestLabel": "Rifinisci"
+    "polishRequestLabel": "Rifinisci",
+    "fixErrorRequestLabel": "Correggi errore di visualizzazione"
   },
   "artifactFrame": {
+    "renderFailedTitle": "Impossibile visualizzare la dashboard",
+    "fixError": "Correggi errore",
     "dataAddQuery": "Aggiungi query",
     "dataNoQueriesToAdd": "Nessuna query da aggiungere",
     "dataAddFailed": "Impossibile aggiungere la query alla dashboard",

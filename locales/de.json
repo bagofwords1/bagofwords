@@ -5571,9 +5571,12 @@
   },
   "toolbar": {
     "polishDashboard": "Dashboard verfeinern",
-    "polishRequestLabel": "Verfeinern"
+    "polishRequestLabel": "Verfeinern",
+    "fixErrorRequestLabel": "Anzeigefehler beheben"
   },
   "artifactFrame": {
+    "renderFailedTitle": "Dashboard konnte nicht angezeigt werden",
+    "fixError": "Fehler beheben",
     "dataAddQuery": "Abfrage hinzufügen",
     "dataNoQueriesToAdd": "Keine Abfragen zum Hinzufügen",
     "dataAddFailed": "Abfrage konnte dem Dashboard nicht hinzugefügt werden",
