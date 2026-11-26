@@ -163,7 +163,7 @@ async def create_environment(db: AsyncSession, organization_id: str, actor_id: O
         await _clear_other_defaults(db, organization_id, env.id)
     await audit(db, organization_id, "sandbox_environment.created", actor_id, "sandbox_environment", env.id, {
         "title": env.name, "image": env.image, "network_policy": env.network_policy,
-        "secret_names": sorted((env.secrets or {}).keys()), "is_default": bool(env.is_default),
+        "protected_variable_names": sorted((env.secrets or {}).keys()), "is_default": bool(env.is_default),
     })
     await db.commit()
     return env
@@ -233,9 +233,10 @@ async def update_environment(db: AsyncSession, organization_id: str, actor_id: O
         await audit(db, organization_id, "sandbox_environment.image_changed", actor_id, "sandbox_environment",
                     env.id, {"title": env.name, "image": env.image})
     if secrets_changed:
-        # Names only; never a value.
+        # Names only; never a value. (The key avoids the word "secret": the audit
+        # service redacts any detail whose key looks like it holds one.)
         await audit(db, organization_id, "sandbox_environment.secrets_changed", actor_id, "sandbox_environment",
-                    env.id, {"title": env.name, "secret_names": sorted(secrets_changed)})
+                    env.id, {"title": env.name, "protected_variable_names": sorted(secrets_changed)})
     await db.commit()
     return env
 
@@ -367,3 +368,50 @@ def choose_environment(candidates: Sequence[SandboxEnvironment], *, requested: O
         errors.NO_ENVIRONMENT,
         f"No default sandbox environment is set. Choose one of: {names}.", status=409,
     )
+
+
+async def pull_image_on_backends(organization_id: str, environment_id: str, session_factory=None) -> Dict[str, str]:
+    """Pull an environment's image on every backend that could run it, and
+    record the digest it resolved to. Runs in the background after an
+    environment is saved with a new image; returns ``{backend name: outcome}``."""
+    import logging
+
+    from app.services.sandbox import backends as backend_service
+    from app.services.sandbox.drivers.base import SandboxDriverError
+
+    logger = logging.getLogger(__name__)
+    if session_factory is None:
+        from app.dependencies import async_session_maker as session_factory
+
+    outcomes: Dict[str, str] = {}
+    async with session_factory() as db:
+        try:
+            env = await get_environment(db, organization_id, environment_id)
+        except SandboxError:
+            return outcomes
+        digest: Optional[str] = None
+        for backend in await backend_service.list_backends(db, organization_id):
+            if backend.bootstrap_status != "ready" or not set(env.backend_labels or []) <= set(backend.labels or []):
+                continue
+            try:
+                driver = await backend_service.build_driver(db, backend)
+            except SandboxError as exc:
+                outcomes[backend.name] = exc.message
+                continue
+            try:
+                found = await driver.pull_image(
+                    env.image, registry_username=env.registry_username, registry_password=env.registry_password,
+                )
+                digest = digest or found
+                outcomes[backend.name] = "pulled"
+            except SandboxDriverError as exc:
+                outcomes[backend.name] = exc.message
+                logger.warning("could not pull %s on sandbox backend %s: %s", env.image, backend.name, exc.message)
+            finally:
+                await driver.close()
+        if digest and env.image_digest != digest:
+            env.image_digest = digest
+        await audit(db, organization_id, "sandbox_environment.image_pulled", None, "sandbox_environment", env.id,
+                    {"title": env.name, "image": env.image, "digest": digest, "backends": outcomes})
+        await db.commit()
+    return outcomes

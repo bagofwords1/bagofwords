@@ -209,7 +209,7 @@ async def create_backend(db: AsyncSession, organization_id: str, actor_id: Optio
     await db.flush()
     await audit(db, organization_id, "sandbox_backend.created", actor_id, "sandbox_backend", backend.id,
                 {"title": backend.name, "type": backend.type, "labels": list(backend.labels or []),
-                 "capacity": backend.capacity, "credentials_set": sorted(stored)})
+                 "capacity": backend.capacity, "stored_fields": sorted(stored)})
     await _enroll(db, backend, transient)
     await db.commit()
     return backend

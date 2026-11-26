@@ -19,6 +19,11 @@ pytestmark = pytest.mark.e2e
 # One representative per HTTP method the router serves; grown as routes land.
 _ROUTES = [
     ("get", "/api/sandbox/status"),
+    ("get", "/api/sandbox/environments"),
+    ("post", "/api/sandbox/environments"),
+    ("put", "/api/sandbox/environments/any-id"),
+    ("delete", "/api/sandbox/environments/any-id"),
+    ("put", "/api/sandbox/environments/any-id/access"),
 ]
 
 
