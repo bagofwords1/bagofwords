@@ -51,7 +51,7 @@ What they pin down (see each file's docstring for the contract):
 | A host application gives the people it creates its role (default, `app_user`, `member`); an invitation keeps its role; an existing account keeps its role | `test_app_users.py` |
 | SSO popup: account it creates → host's role; plain BOW sign-up → member; existing member / admin untouched; an intent for another application does not count | `test_app_users.py` |
 | App 1 then app 2 in another host application: still an app user, both listed | `test_app_users.py` |
-| Launcher lists exactly published ∩ readable ∩ enabled-host; thumbnail withheld where the snapshot is; access request reaches member managers once and closes on grant | `test_app_users.py` |
+| Launcher lists exactly published ∩ readable (apps, dashboards, docs), each with its kind and filterable by it; thumbnail withheld where the snapshot is; access request reaches member managers once and closes on grant | `test_app_users.py` |
 | whoami says `app_user` with no baseline; invite as app user; per-organization gate; MCP; API keys | `test_app_user_session.py` |
 | An OIDC `member` mapping rule does not lift an app user; an `admin` rule does | `test_oidc_org_mapping.py` |
 | The allowlist itself (20 open, 23 closed paths) | `tests/unit/test_workspace_access.py` |
@@ -73,7 +73,7 @@ BOW_SSO_HOST_APP=<Acme Portal public id> BOW_ARTIFACT=<Sales Assistant id> \
   uv run python ../tools/agent/embed/erp_host.py --port 4173
 # make member@example.com an app user (PUT …/members/{id} {"role":"app_user"}), then:
 cd ../tools/agent/app_users
-for s in 01_launcher 02_popup_signup 03_admin 04_promote 05_visuals 06_host_application 07_chat; do
+for s in 01_launcher 02_popup_signup 03_admin 04_promote 05_visuals 06_host_application 07_chat 10_back_arrow; do
   node $s.cjs /tmp/app-users/shots
 done
 ```
@@ -96,6 +96,23 @@ Lower layers checked alongside: the members API returns
 `role: "app_user"`, `roles: ["app_user"]`,
 `created_via_host_application: "Acme Portal"` for the person created in the
 popup; the admin's inbox holds one `workspace_access_request`.
+
+### 2026-11-26 — "Shared with you": dashboards and docs, and the back arrow
+
+The launcher stopped listing only apps: `seed_apps.py` now adds a doc shared
+with the member and one shared with nobody, so `member@example.com` must see
+two apps, two dashboards (Quarterly Review: no host application; Support Desk:
+only a disabled one) and one doc. Run on a fresh SQLite sandbox, app user and
+workspace member, system Chrome (`PW_CHANNEL=chrome`):
+
+| Script | What it proves | Checks |
+|---|---|---|
+| `01_launcher` | The five items, each card's kind (`data-kind`), the kind filter in the URL (`?kind=doc` lists only the doc, `?kind=app` only the apps); back from a doc points at `/apps?kind=doc`, still after a reload, and lands on the Docs filter; on a direct link an app user still goes to `/apps` | 23 |
+| `10_back_arrow` | A workspace member: a dashboards-list card links with `?back=dashboards`; back points at the searched list (`/dashboards?q=Quarterly`), says "Back to dashboards" and returns there; a direct link goes home ("Back to home", not "Back to app"); `?back=https://evil.example` is ignored; from the launcher, back to it ("Back to Shared with you"); the Hebrew launcher is RTL with "משותף איתך" and its back label | 14 |
+
+The one failing check in each (`no console errors`) is `GET /api/users/whoami`
+answering 401 on the sign-in page before signing in: the same run on `main`
+logs it too.
 
 ## What the loop caught
 

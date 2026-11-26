@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Seed the app-user sandbox through the real API (no LLM): host applications,
-published artifacts ("apps") allowed in them, and who each is shared with.
+published artifacts -- apps allowed in them, dashboards and docs that are not
+-- and who each is shared with.
 
 Run after seed_org.py (admin + member exist):
 
@@ -14,11 +15,14 @@ Creates, idempotently by name:
 * apps  "Sales Assistant"   organization-wide, in Acme Portal + Back Office
         "Customer Health"   shared with member@example.com, in Acme Portal
         "Inventory Lookup"  shared with nobody (admin only), in Acme Portal
-        "Quarterly Review"  organization-wide, in NO host application
-        "Support Desk"      organization-wide, only in the disabled host.
+        "Quarterly Review"  organization-wide, in NO host application: a dashboard
+        "Support Desk"      organization-wide, only in the disabled host: a dashboard
+* docs  "Onboarding Notes"  shared with member@example.com, in no host: a doc
+        "Board Memo"        shared with nobody (admin only).
 
-So the launcher of member@example.com must list exactly Sales Assistant and
-Customer Health. Prints a JSON summary (ids, no tokens).
+So the launcher ("Shared with you") of member@example.com must list exactly
+Customer Health and Sales Assistant (apps), Quarterly Review and Support Desk
+(dashboards) and Onboarding Notes (doc). Prints a JSON summary (ids, no tokens).
 """
 import json
 import os
@@ -90,6 +94,12 @@ APPS = [
     {"title": "Support Desk", "description": "Only in a disabled host application",
      "code": page("Support Desk", "Tickets", "bg-rose-500", bars("bg-rose-500")),
      "visibility": "internal", "hosts": ["Retired Intranet"]},
+    {"title": "Onboarding Notes", "description": "A doc shared with the member",
+     "mode": "doc", "markdown": "# Onboarding Notes\n\nWelcome aboard. Start with the **Sales Assistant** app.",
+     "visibility": "shared", "share_member": True, "hosts": []},
+    {"title": "Board Memo", "description": "A doc shared with nobody",
+     "mode": "doc", "markdown": "# Board Memo\n\nNot for general circulation.",
+     "visibility": "shared", "hosts": []},
 ]
 
 HOSTS = [
@@ -139,9 +149,11 @@ for spec in APPS:
     artifact_id = existing.get(spec["title"])
     if not artifact_id:
         report = call("POST", "/api/reports", {"title": spec["title"]})
+        mode = spec.get("mode", "page")
+        content = ({"markdown": spec["markdown"]} if mode == "doc"
+                   else {"code": spec["code"], "runtime_version": 11})
         artifact = call("POST", "/api/artifacts", {
-            "report_id": report["id"], "title": spec["title"], "mode": "page",
-            "content": {"code": spec["code"], "runtime_version": 11},
+            "report_id": report["id"], "title": spec["title"], "mode": mode, "content": content,
         })
         artifact_id = artifact["artifact_id"]
         call("POST", f"/api/artifacts/{artifact_id}/publish", {})
@@ -157,7 +169,7 @@ for spec in APPS:
     call("PUT", f"/api/artifacts/{artifact_id}/sharing", sharing)
     call("PUT", f"/api/artifacts/{artifact_id}/embedding",
          {"host_application_ids": [hosts[name]["id"] for name in spec["hosts"]]})
-    out.append({"title": spec["title"], "id": artifact_id, "visibility": spec["visibility"], "hosts": spec["hosts"]})
+    out.append({"title": spec["title"], "id": artifact_id, "mode": spec.get("mode", "page"), "visibility": spec["visibility"], "hosts": spec["hosts"]})
 
 print(json.dumps({
     "organization_id": org,
