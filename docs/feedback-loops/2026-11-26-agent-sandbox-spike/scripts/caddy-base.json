@@ -1,0 +1,15 @@
+{
+ "admin": {"listen": "unix//run/caddy-admin/admin.sock"},
+ "apps": {
+  "http": {"servers": {"sbx": {
+    "listen": [":8443"],
+    "routes": [{"@id": "fallback", "handle": [{"handler": "static_response", "status_code": 404}]}],
+    "tls_connection_policies": [{"default_sni": "SANDBOX_HOST"}],
+    "automatic_https": {"disable_redirects": true}
+  }}},
+  "tls": {
+   "certificates": {"automate": ["SANDBOX_HOST"]},
+   "automation": {"policies": [{"subjects": ["SANDBOX_HOST"], "issuers": [{"module": "internal"}]}]}
+  }
+ }
+}
