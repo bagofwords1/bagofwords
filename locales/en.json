@@ -3699,6 +3699,7 @@
       }
     },
     "aiSettings": "AI Settings",
+    "sandboxTab": "Sandbox",
     "llm": "LLM",
     "members": {
       "searchPlaceholder": "Search members...",
@@ -3845,6 +3846,11 @@
       "serviceAccounts": "Service Accounts",
       "quotas": "Quotas",
       "signup": "Signup"
+    },
+    "sandboxTabs": {
+      "backends": "Backends",
+      "environments": "Environments",
+      "settings": "Settings"
     },
     "audit": {
       "title": "Audit Logs",
@@ -4957,7 +4963,10 @@
       "quotas": "Cap daily and monthly AI and data usage for members, groups and roles.",
       "models": "Connect LLM providers and choose which models your workspace can use.",
       "identityProvider": "Sync users, groups and profile details from your identity provider.",
-      "smtp": "The server that sends system emails — invites, report shares and scheduled-report results. When enabled, it overrides the server configured for this instance."
+      "smtp": "The server that sends system emails — invites, report shares and scheduled-report results. When enabled, it overrides the server configured for this instance.",
+      "sandboxBackends": "The places agent sandboxes run. Add a backend, test the connection, bootstrap it, then enable it.",
+      "sandboxEnvironments": "Templates a sandbox starts from: image, resources, network policy and who may use it.",
+      "sandboxSettings": "Turn agent sandboxes on for this organization and set their limits and lifetimes."
     },
     "generalSections": {
       "workspace": "Workspace",
@@ -5052,6 +5061,256 @@
       "publicNote": "Anyone can see these addresses: browsers receive them with every page.",
       "confirmRemoveTitle": "Remove this site?",
       "confirmRemoveBody": "{site} will no longer be able to show BOW. Pages there that show BOW stop working right away."
+    }
+  },
+  "sandbox": {
+    "stepStatus": {
+      "pending": "Waiting",
+      "running": "In progress",
+      "ok": "Done",
+      "warning": "Warning",
+      "failed": "Failed",
+      "skipped": "Skipped"
+    },
+    "capabilities": {
+      "strong_isolation": "Strong isolation",
+      "stop_resume": "Stop and resume",
+      "domain_allowlist": "Domain allowlists",
+      "live_stats": "Live stats"
+    },
+    "network": {
+      "none": "No network",
+      "registries": "Package registries only",
+      "allowlist": "Allowed domains only",
+      "full": "Full internet",
+      "noneHint": "Code in the sandbox cannot reach the network at all.",
+      "registriesHint": "Only the package registries listed in the Sandbox settings can be reached, so runs can install packages.",
+      "allowlistHint": "Only the domains listed on this environment can be reached.",
+      "fullHint": "Code in the sandbox can reach any address on the internet."
+    },
+    "backends": {
+      "add": "Add backend",
+      "loadFailed": "Could not load the backends.",
+      "emptyTitle": "No backends yet",
+      "emptyHint": "A backend is where sandboxes run, for example a Linux server reached over SSH. Add one to get started.",
+      "testConnection": "Test connection",
+      "testShort": "Test",
+      "bootstrapAction": "Bootstrap",
+      "repair": "Repair",
+      "enable": "Enable backend",
+      "disable": "Disable backend",
+      "enableNeedsBootstrap": "Bootstrap this backend before enabling it.",
+      "neverChecked": "Not checked yet",
+      "checkedAgo": "Checked {when}",
+      "col": {
+        "name": "Backend",
+        "status": "Status",
+        "supports": "Supports",
+        "bootstrap": "Bootstrap",
+        "sandboxes": "Sandboxes",
+        "enabled": "Enabled",
+        "actions": "Actions"
+      },
+      "status": {
+        "unknown": "Unknown",
+        "healthy": "Healthy",
+        "unreachable": "Unreachable"
+      },
+      "bootstrapStatus": {
+        "none": "Not bootstrapped",
+        "running": "Bootstrapping…",
+        "ready": "Ready",
+        "failed": "Failed"
+      },
+      "isolation": {
+        "strong": "Strong isolation",
+        "standard": "Standard isolation",
+        "strongHint": "Sandboxes on this backend run in a strong isolation runtime.",
+        "standardHint": "This backend has no strong isolation runtime. Environments that require strong isolation cannot run here."
+      },
+      "form": {
+        "addTitle": "Add backend",
+        "editTitle": "Edit {name}",
+        "chooseType": "Choose where sandboxes will run.",
+        "noTypes": "This server offers no backend types.",
+        "name": "Name",
+        "namePlaceholder": "For example: sandbox-01",
+        "labels": "Labels",
+        "labelsHint": "Separate with commas. Environments can ask for backends by label.",
+        "capacity": "Capacity",
+        "capacityHint": "Sandboxes running at once.",
+        "stored": "Stored",
+        "storedPlaceholder": "Leave empty to keep the stored value",
+        "transient": "Used once, never stored",
+        "create": "Add backend",
+        "createdTitle": "{name} was added",
+        "createdHint": "One more step before you test the connection.",
+        "publicKeyInstruction": "Add this public key to the authorized_keys file of the SSH user ({user}) on the server, so BoW can connect.",
+        "publicKeyNext": "Then run Test connection, confirm the server's fingerprint, and bootstrap the backend.",
+        "done": "Done"
+      },
+      "test": {
+        "title": "Test connection: {name}",
+        "hint": "Checks the backend without changing anything on it.",
+        "running": "Testing the connection…",
+        "again": "Test again",
+        "failed": "The test could not be run.",
+        "healthy": "The backend is reachable and ready.",
+        "reachableNotPrepared": "The backend is reachable but not bootstrapped yet.",
+        "reachableUnhealthy": "The backend is reachable but something needs attention.",
+        "unreachable": "The backend could not be reached.",
+        "hostKeyTitle": "Confirm the server's identity",
+        "hostKeyHint": "This is the fingerprint of the SSH host key the server presented. Compare it with the server's own before you trust it. Nothing is sent to the server until you do.",
+        "trust": "This is my server, trust it",
+        "trustFailed": "Could not confirm the fingerprint."
+      },
+      "bootstrap": {
+        "title": "Bootstrap {name}",
+        "repairTitle": "Repair {name}",
+        "hint": "Prepares the backend to run sandboxes. Safe to run again.",
+        "notRun": "This backend has not been bootstrapped yet.",
+        "start": "Start bootstrap",
+        "retry": "Try again",
+        "runRepair": "Run repair",
+        "running": "Bootstrapping… this can take a few minutes.",
+        "ready": "The backend is ready.",
+        "readyHint": "Enable it to let sandboxes start here.",
+        "failed": "Bootstrap failed.",
+        "failedAt": "Failed at: {step}",
+        "startFailed": "Could not start the bootstrap.",
+        "pollFailed": "Could not read the progress. Still trying…",
+        "takeOverTitle": "This backend belongs to another BoW instance",
+        "takeOverHint": "Taking it over removes every sandbox the other instance has on it and claims the backend for this one. The other instance will no longer be able to use it.",
+        "takeOver": "Take over",
+        "takeOverConfirm": "Remove its sandboxes and take over"
+      },
+      "delete": {
+        "title": "Delete {name}?",
+        "hint": "BoW forgets this backend and its stored credentials. This cannot be undone.",
+        "cleanup": "Also clean up the server",
+        "cleanupHint": "Removes everything BoW installed on it. The backend must be reachable.",
+        "inUseHint": "You can delete its sandboxes together with the backend. Anything in them is lost.",
+        "withSandboxes": "Delete its sandboxes too",
+        "confirm": "Delete backend"
+      },
+      "toast": {
+        "created": "Backend added",
+        "saved": "Backend saved",
+        "saveFailed": "Could not save the backend.",
+        "enabled": "Backend enabled",
+        "disabled": "Backend disabled",
+        "deleted": "Backend deleted",
+        "deleteFailed": "Could not delete the backend."
+      }
+    },
+    "environments": {
+      "add": "New environment",
+      "loadFailed": "Could not load the environments.",
+      "emptyTitle": "No environments yet",
+      "emptyHint": "An environment is the template a sandbox starts from.",
+      "defaultBadge": "Default",
+      "resources": "{cpus} CPU · {memory} RAM · {disk} disk",
+      "timeout": "Runs up to {duration}",
+      "accessNone": "No one yet",
+      "accessOne": "1 grant",
+      "accessMany": "{n} grants",
+      "col": {
+        "name": "Environment",
+        "image": "Image",
+        "network": "Network",
+        "resources": "Resources",
+        "access": "Who may use it",
+        "enabled": "Enabled",
+        "actions": "Actions"
+      },
+      "form": {
+        "addTitle": "New environment",
+        "editTitle": "Edit {name}",
+        "hint": "What a sandbox started from this environment gets.",
+        "name": "Name",
+        "description": "Description",
+        "descriptionPlaceholder": "What this environment is for. The agent reads this when choosing one.",
+        "image": "Image",
+        "resources": "Resources",
+        "cpus": "CPUs",
+        "memory": "Memory (MB)",
+        "disk": "Disk (MB)",
+        "runTimeout": "Timeout (seconds)",
+        "resourcesHint": "Limits for each sandbox. A single run is stopped when it passes the run timeout (at most 3600 seconds).",
+        "network": "Network policy",
+        "strongIsolation": "Require strong isolation",
+        "strongIsolationHint": "Run only on backends with a strong isolation runtime.",
+        "isDefault": "Default environment",
+        "isDefaultHint": "Used when a report has not chosen an environment. Only one environment is the default.",
+        "enabled": "Enabled",
+        "enabledHint": "A disabled environment cannot start new sandboxes.",
+        "access": "Who may use it",
+        "accessHint": "Only the roles, groups and people you pick here can run code in this environment.",
+        "accessNone": "No one has been granted this environment yet.",
+        "roles": "Roles",
+        "groups": "Groups",
+        "users": "People",
+        "rolesPlaceholder": "Pick roles",
+        "groupsPlaceholder": "Pick groups",
+        "usersPlaceholder": "Pick people",
+        "rolesEmpty": "No roles",
+        "groupsEmpty": "No groups yet",
+        "usersEmpty": "No members",
+        "selectedCount": "{n} selected",
+        "unknownPrincipal": "No longer exists",
+        "create": "Create environment"
+      },
+      "delete": {
+        "title": "Delete {name}?",
+        "hint": "Reports that use this environment will no longer be able to start a sandbox from it. This cannot be undone.",
+        "confirm": "Delete environment"
+      },
+      "toast": {
+        "created": "Environment created",
+        "saved": "Environment saved",
+        "saveFailed": "Could not save the environment.",
+        "deleted": "Environment deleted",
+        "deleteFailed": "Could not delete the environment.",
+        "warning": "Saved, with a warning"
+      }
+    },
+    "settings": {
+      "loadFailed": "Could not load the sandbox settings.",
+      "saved": "Sandbox settings saved",
+      "saveFailed": "Could not save the sandbox settings.",
+      "enableSection": "Agent sandboxes",
+      "enableSectionHint": "Let agents run code in isolated sandboxes on your backends.",
+      "enable": "Enable agent sandboxes",
+      "enableHint": "People still need the permission to use sandboxes and an environment they may use.",
+      "missingTitle": "Not ready yet. Still missing:",
+      "missingBackend": "A backend that is bootstrapped and enabled",
+      "missingEnvironment": "An enabled environment",
+      "readyOn": "Agent sandboxes are on.",
+      "readyOff": "Everything is in place. Turn the switch on and save.",
+      "readyDetail": "Backends ready: {backends} · Environments: {environments} · Running sandboxes: {running}",
+      "turnOffRunning": "Sandboxes are still running ({n}). They keep working until they expire. Delete them before the deployment flag is turned off.",
+      "defaultsSection": "Defaults and limits",
+      "defaultsSectionHint": "What a report gets when nothing more specific is chosen.",
+      "defaultEnvironment": "Default environment",
+      "defaultEnvironmentHint": "The environment used when a report has not chosen one.",
+      "defaultEnvironmentNone": "None",
+      "environmentDisabled": "{name} (disabled)",
+      "maxRunningPerUser": "Running sandboxes per person",
+      "maxRunningPerUserHint": "How many sandboxes one person can have running at the same time.",
+      "lifecycleSection": "Lifetime",
+      "lifecycleSectionHint": "When sandboxes are stopped and deleted on their own.",
+      "idleTimeout": "Idle timeout",
+      "idleTimeoutHint": "A sandbox with no runs for this long is stopped.",
+      "stoppedRetention": "Keep stopped sandboxes",
+      "stoppedRetentionHint": "A stopped sandbox is deleted after this long.",
+      "maxLifetime": "Maximum lifetime",
+      "maxLifetimeHint": "Any sandbox is deleted this long after it was created.",
+      "minutes": "minutes",
+      "days": "days",
+      "registriesSection": "Package registries",
+      "registriesSectionHint": "What the \"Package registries only\" network policy allows.",
+      "registryDomains": "Registry domains",
+      "registryDomainsHint": "One domain per line, without a scheme, port or path."
     }
   },
   "data": {
@@ -6017,7 +6276,14 @@
     "organization.signup_domains_instance_admin_required": "Only an instance administrator can assign sign-up domains to an organization.",
     "organization.signup_domain_claimed": "The domain {domain} is already assigned to another organization.",
     "organization.member_instance_admin": "This account is an instance administrator. Only an instance administrator can add it to an organization.",
-    "workspace.access_required": "Your account can use the apps shared with you, but not the workspace."
+    "workspace.access_required": "Your account can use the apps shared with you, but not the workspace.",
+    "sandbox.name_taken": "That name is already in use. Choose another one.",
+    "sandbox.backend_not_ready": "Bootstrap this backend before enabling it.",
+    "sandbox.backend_in_use": "This backend still has sandboxes. Delete them first.",
+    "sandbox.bootstrap_running": "This backend is being bootstrapped already.",
+    "sandbox.backend_not_found": "This backend no longer exists.",
+    "sandbox.environment_not_found": "This environment no longer exists.",
+    "agent_sandboxes.disabled": "Agent sandboxes are turned off on this server. To turn them on, set BOW_AGENT_SANDBOXES_ENABLED=true and restart the server."
   },
   "email": {
     "dashboardShare": {
