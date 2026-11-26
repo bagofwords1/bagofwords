@@ -4856,6 +4856,35 @@ class AgentV2:
                 if t.name not in denied_tools
             ]
 
+    async def _apply_agent_sandbox_filter(self) -> None:
+        """Agent sandbox tools: offered only when this user can actually use
+        one (permission, an environment they may use, a backend that can run
+        it). When they are offered, the tool descriptions say what the
+        report's sandbox can reach, so the agent does not attempt downloads
+        that cannot work. A no-op unless the tools survived the earlier gates
+        (deployment flag, organization switch, use_agent_sandbox)."""
+        from app.services.sandbox.feature import SANDBOX_TOOL_NAMES
+
+        catalog = self.planner.tool_catalog or []
+        if not any(t.name in SANDBOX_TOOL_NAMES for t in catalog):
+            return
+        note = None
+        try:
+            from app.services.sandbox.catalog import sandbox_run_note
+
+            user = getattr(self.head_completion, 'user', None)
+            note = await sandbox_run_note(
+                self.db, self.organization, self.report, user, self.data_sources,
+            )
+        except Exception:
+            logger.exception("agent sandbox availability check failed; hiding the tools")
+        if note is None:
+            self.planner.tool_catalog = [t for t in catalog if t.name not in SANDBOX_TOOL_NAMES]
+            return
+        for tool in catalog:
+            if tool.name in ("run_in_sandbox", "create_sandbox"):
+                tool.description = (tool.description or "").rstrip() + note
+
     def _user_picked_model(self) -> bool:
         """True when the user explicitly chose the model for this run.
 
@@ -6696,6 +6725,7 @@ class AgentV2:
             # Early scoring will be launched as a background task using an isolated session
             await self._apply_tool_permission_filter()
             await self._apply_email_availability_filter()
+            await self._apply_agent_sandbox_filter()
             # Add native MCP tools AFTER the permission/availability filters so
             # they are never stripped by a filter that doesn't know about them,
             # and before routing/fallback so the catalog is final by loop start.
