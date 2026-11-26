@@ -35,10 +35,24 @@ function dataScript(html) {
 }
 
 // Runs the data script as the frame does; returns the frame's window.
-function runSeed(data, { clone = structuredClone, json = JSON } = {}) {
-  const win = {}
-  new Function('window', 'structuredClone', 'JSON', dataScript(buildArtifactIframeHtml({ code: APP, data })))(win, clone, json)
+function runSeed(data, { clone = structuredClone, json = JSON, cons = quietConsole().cons, win = {} } = {}) {
+  new Function('window', 'structuredClone', 'JSON', 'console', dataScript(buildArtifactIframeHtml({ code: APP, data, showWidgetInfo: true })))(win, clone, json, cons)
   return win
+}
+
+// A console that records what the seed reports.
+function quietConsole() {
+  const warns = []
+  const errors = []
+  return { warns, errors, cons: { warn: (...a) => { warns.push(a) }, error: (...a) => { errors.push(a) } } }
+}
+
+// What the rest of the data script sets after ARTIFACT_DATA.
+function assertLaterGlobalsSet(win) {
+  assert.equal(typeof win.__BOW_RUNTIME_NONCE__, 'string')
+  assert.equal(win.__BOW_RUNTIME_NONCE__.length, 32)
+  assert.equal(win.__BOW_FIXTURE_MODE__, false)
+  assert.equal(win.__BOW_INFO, true)
 }
 
 const count = (text, needle) => text.split(needle).length - 1
@@ -68,7 +82,8 @@ test('rows a query\'s charts share are written once in the seed', () => {
   const statement = script.slice(script.indexOf('window.ARTIFACT_DATA = '), script.indexOf('window.__BOW_RUNTIME_NONCE__'))
   const perChart = `window.ARTIFACT_DATA = ${JSON.stringify(data)};`.length
   const repeats = 2 * JSON.stringify(rowsA).length + JSON.stringify(rowsB).length
-  assert.ok(statement.length < perChart - repeats + 400, `data statement ${statement.length} bytes, per-chart JSON ${perChart}, repeats ${repeats}`)
+  // The slack is the re-attach code (its copy fallbacks and console warnings).
+  assert.ok(statement.length < perChart - repeats + 1000,`data statement ${statement.length} bytes, per-chart JSON ${perChart}, repeats ${repeats}`)
 })
 
 test('the frame gets the same data, in the same key order, as the JSON seed gave', () => {
@@ -166,20 +181,87 @@ test('a seed with nothing repeated is the JSON seed, byte for byte', () => {
 })
 
 test('without structuredClone, or when it throws, each chart still gets its own copy', () => {
-  for (const clone of [undefined, () => { throw new Error('DataCloneError') }]) {
+  // null, not undefined: undefined would pick runSeed's default (the real one).
+  for (const clone of [null, () => { throw new Error('DataCloneError') }]) {
     const { data } = dashboard()
-    const vis = runSeed(data, { clone }).ARTIFACT_DATA.visualizations
+    const { warns, errors, cons } = quietConsole()
+    const vis = runSeed(data, { clone, cons }).ARTIFACT_DATA.visualizations
     assert.equal(JSON.stringify(vis), JSON.stringify(data.visualizations))
     assert.notEqual(vis[0].rows, vis[2].rows)
     assert.notEqual(vis[0].rows[0], vis[2].rows[0])
+    // Three charts were copied as JSON; the frame says so once.
+    assert.equal(warns.length, 1, 'one warning per frame, not per chart')
+    assert.match(String(warns[0][0]), /JSON copy/)
+    assert.equal(errors.length, 0)
   }
+})
+
+test('a copied seed is silent', () => {
+  const { data } = dashboard()
+  const { warns, errors, cons } = quietConsole()
+  runSeed(data, { cons })
+  assert.equal(warns.length, 0)
+  assert.equal(errors.length, 0)
 })
 
 test('when no copy can be made the chart shares the first chart\'s rows rather than having none', () => {
   const { data } = dashboard()
   const failingJson = { parse: JSON.parse, stringify: () => { throw new Error('out of memory') } }
-  const win = runSeed(data, { clone: () => { throw new Error('DataCloneError') }, json: failingJson })
+  const { warns, errors, cons } = quietConsole()
+  const win = runSeed(data, { clone: () => { throw new Error('DataCloneError') }, json: failingJson, cons })
   const vis = win.ARTIFACT_DATA.visualizations
   assert.equal(JSON.stringify(win.ARTIFACT_DATA), JSON.stringify(data))
   assert.equal(vis[2].rows, vis[0].rows, 'last resort: the source array itself')
+  assert.equal(warns.length, 1, 'three charts share rows; the frame says so once')
+  assert.match(String(warns[0][0]), /share/)
+  assert.equal(errors.length, 0)
+  assertLaterGlobalsSet(win)
+})
+
+test('a console that throws cannot stop the seed', () => {
+  const { data } = dashboard()
+  const failingJson = { parse: JSON.parse, stringify: () => { throw new Error('out of memory') } }
+  const boom = () => { throw new Error('console unavailable') }
+  const win = runSeed(data, { clone: () => { throw new Error('DataCloneError') }, json: failingJson, cons: { warn: boom, error: boom } })
+  assert.equal(JSON.stringify(win.ARTIFACT_DATA), JSON.stringify(data))
+  assertLaterGlobalsSet(win)
+})
+
+test('a re-attach that throws is reported; the rest of the data script still runs', () => {
+  // The frame's visualizations cannot be read at all.
+  const { data } = dashboard()
+  const { warns, errors, cons } = quietConsole()
+  let stored
+  const win = {}
+  Object.defineProperty(win, 'ARTIFACT_DATA', {
+    set(d) { stored = d },
+    get() { return { ...stored, get visualizations() { throw new Error('unreadable') } } },
+  })
+  runSeed(data, { cons, win })
+  assert.equal(errors.length, 1, 'the failure is logged')
+  assert.equal(warns.length, 0)
+  assertLaterGlobalsSet(win)
+})
+
+test('when re-attach fails part way, the charts left share the source rows rather than having none', () => {
+  // The third chart of query A refuses its rows; the charts after it still get theirs.
+  const { data } = dashboard()
+  const { errors, cons } = quietConsole()
+  let stored
+  const win = {}
+  Object.defineProperty(win, 'ARTIFACT_DATA', {
+    set(d) {
+      stored = d
+      Object.defineProperty(d.visualizations[3], 'rows', { get: () => null, set: () => { throw new Error('read-only') } })
+    },
+    get() { return stored },
+  })
+  runSeed(data, { cons, win })
+  const [a1, b1, a2, a3, b2] = stored.visualizations
+  assert.notEqual(a2.rows, a1.rows, 'the chart before the failure has its own copy')
+  assert.equal(JSON.stringify(a2.rows), JSON.stringify(a1.rows))
+  assert.equal(a3.rows, null, 'the refusing chart is left as it is')
+  assert.equal(b2.rows, b1.rows, 'the chart after the failure shares the source rows')
+  assert.equal(errors.length, 1)
+  assertLaterGlobalsSet(win)
 })

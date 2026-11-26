@@ -621,14 +621,18 @@ function readySignalScript(): string {
  * separate array per chart. Should no copy be possible (both throw), the chart
  * shares the first chart's array: the frame always has its data, only a chart
  * that sorts its rows in place could then reorder its sibling's too.
+ * A frame that used a JSON copy, or had to share, says so once in the console.
+ * The re-attach never stops the script it runs in (the runtime nonce and the
+ * other globals follow it): a throw is logged, and every chart not reached
+ * yet shares its source rows, so no chart is left with null rows.
  * With nothing repeated the statement is exactly the plain JSON one.
  */
-function artifactDataAssignment(data: any): string {
-  const vis = data && Array.isArray(data.visualizations) ? data.visualizations : null;
+function artifactDataAssignment(data: ArtifactIframeData): string {
+  const vis: unknown[] = data && Array.isArray(data.visualizations) ? data.visualizations : [];
   const firstHolder = new Map<any[], number>();
   const links: number[] = []; // pairs: chart index, index of the chart holding the rows
   let written = vis;
-  vis?.forEach((viz: any, i: number) => {
+  vis.forEach((viz: any, i: number) => {
     const rows = viz && typeof viz === 'object' ? viz.rows : undefined;
     if (!Array.isArray(rows)) return;
     const src = firstHolder.get(rows);
@@ -640,7 +644,15 @@ function artifactDataAssignment(data: any): string {
   const json = links.length ? JSON.stringify({ ...data, visualizations: written }) : JSON.stringify(data);
   const reattach = links.length
     // No "<" in this code: the escaping below covers the whole statement.
-    ? `(function(v,l){for(var i=0;l.length>i;i+=2){var s=v[l[i+1]].rows,c;try{c=structuredClone(s)}catch(e){try{c=JSON.parse(JSON.stringify(s))}catch(e2){c=s}}v[l[i]].rows=c}})(window.ARTIFACT_DATA.visualizations,${JSON.stringify(links)});`
+    // w: one-time warnings (j: JSON copy used, f: rows shared), guarded so a
+    // broken console cannot throw.
+    ? `(function(l){var v,i=0,j=0,f=0;function w(m,e){try{console.warn(m,e)}catch(_){}}`
+      + `try{v=window.ARTIFACT_DATA.visualizations;for(;l.length>i;i+=2){var s=v[l[i+1]].rows,c;`
+      + `try{c=structuredClone(s)}catch(e){try{c=JSON.parse(JSON.stringify(s));if(!j){j=1;w('[dashboard] Chart rows could not be copied with structuredClone; used a JSON copy instead.',e)}}`
+      + `catch(e2){c=s;if(!f){f=1;w('[dashboard] Chart rows could not be copied; charts of one query share one rows array.',e2)}}}`
+      + `v[l[i]].rows=c}}`
+      + `catch(e){try{console.error('[dashboard] Could not give every chart its rows; the charts left share the rows of their query.',e)}catch(_){}`
+      + `for(;l.length>i;i+=2){try{v[l[i]].rows=v[l[i+1]].rows}catch(_){}}}})(${JSON.stringify(links)});`
     : '';
   return `window.ARTIFACT_DATA = ${json};${reattach}`.replace(/</g, '\\u003c');
 }
