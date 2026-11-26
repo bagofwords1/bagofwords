@@ -17,11 +17,17 @@ Rules it enforces, in one place:
 from __future__ import annotations
 
 import asyncio
+import logging
 import shlex
 from dataclasses import dataclass
 from typing import Optional, Sequence, Union
 
 from app.services.sandbox.drivers.base import SandboxDriverError
+
+# asyncssh logs every connection, channel and full command line at INFO. That
+# is dozens of lines per sandbox run, and command lines do not belong in the
+# application log. Warnings and errors still come through.
+logging.getLogger("asyncssh").setLevel(logging.WARNING)
 
 MODE_ROOT = "root"
 MODE_SUDO = "sudo"
