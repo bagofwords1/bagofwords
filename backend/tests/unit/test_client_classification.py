@@ -600,7 +600,8 @@ def test_every_exemption_names_its_category_and_a_file_line_of_the_clients_own_c
 
 
 # What the cited lines of the DuckDB exemptions (and of the chat and mail
-# search, XMLA, BusinessObjects and Atlassian Data Center connectors) hold,
+# search, XMLA, BusinessObjects, Atlassian Data Center and SharePoint Server
+# lists connectors) hold,
 # in the order cited.
 _CITED_CALLS = {
     "SlackMessagesClient": ("def execute_query(", 'self._client().get(f"{SLACK_API}/{method}"'),
@@ -616,6 +617,7 @@ _CITED_CALLS = {
     "BusinessObjectsClient": ("result_objects = _split_objects(select or query)",),
     "ConfluenceDcClient": ("def execute_query(",),
     "JiraDcClient": ('self._get("search"', "def execute_query("),
+    "SharepointOnpremListsClient": ("response = self._sessions.get().get(", "def execute_query("),
 }
 
 

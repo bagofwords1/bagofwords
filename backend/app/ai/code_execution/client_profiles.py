@@ -205,7 +205,9 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("monday_client", "MondayClient", f"{_JSON}, monday_client.py:680"),
     _refused("netapp_ontap_client", "NetAppOntapClient", f"{_JSON}, netapp_ontap_client.py:374"),
     _refused("servicenow_client", "ServiceNowClient", f"{_JSON}, servicenow_client.py:614"),
-    _refused("graph_list_client", "SharepointListsClient", f"{_JSON}, graph_list_client.py:362"),
+    _refused("graph_list_client", "SharepointListsClient", f"{_JSON}, graph_list_client.py:350"),
+    _refused("sharepoint_onprem_lists_client", "SharepointOnpremListsClient",
+             f"{_JSON}, sharepoint_onprem_lists_client.py:755"),
     _refused("spectrum_client", "SpectrumClient", f"{_JSON}, spectrum_client.py:658"),
     _refused("vcenter_client", "VCenterClient", f"{_JSON}, vcenter_client.py:805"),
     _refused("zabbix_client", "ZabbixClient", f"{_JSON}, zabbix_client.py:341"),
@@ -213,7 +215,7 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("sap_bw_xmla_client", "SapBwXmlaClient", f"{_MDX}, inherited from xmla_base.py:467"),
     _refused("infor_olap_client", "InforOlapClient", f"{_MDX}, inherited from xmla_base.py:467"),
     _refused("analysis_services_client", "AnalysisServicesClient", f"{_MDX}, analysis_services_client.py:696"),
-    _refused("powerbi_client", "PowerBIClient", f"{_MDX}, powerbi_client.py:2114"),
+    _refused("powerbi_client", "PowerBIClient", f"{_MDX}, powerbi_client.py:2153"),
     _refused("infor_epm_client", "InforEpmClient", f"{_MDX}, infor_epm_client.py:466"),
     _refused("prometheus_client", "PrometheusClient", "PromQL with no declared renderer, prometheus_client.py:431"),
     _refused("aws_cloudwatch_client", "AwsCloudWatchClient",
@@ -303,7 +305,7 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     _exempt("analysis_services_client", "AnalysisServicesClient",
             f"{_DISPATCH}: read verbs only, configured catalog only, analysis_services_client.py:716"),
     _exempt("powerbi_client", "PowerBIClient",
-            f"{_DISPATCH}: DAX only to the executeQueries read API, its ids GUIDs before any URL, powerbi_client.py:2199"),
+            f"{_DISPATCH}: DAX only to the executeQueries read API, its ids GUIDs before any URL, powerbi_client.py:2238"),
     # Read-only rules at the dispatch point (P5d).
     _exempt("infor_epm_client", "InforEpmClient",
             f"{_DISPATCH}: the XMLA read rules plus LF or CR LF line ends, on the configured OLAP database, "
@@ -355,7 +357,12 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             f"{_SPEC}: one fixed GraphQL query, spec values as variables, monday_client.py:840"),
     _exempt("netapp_ontap_client", "NetAppOntapClient", f"{_SPEC}: GETs only, netapp_ontap_client.py:665"),
     _exempt("servicenow_client", "ServiceNowClient", f"{_SPEC}: GETs only, servicenow_client.py:279"),
-    _exempt("graph_list_client", "SharepointListsClient", f"{_SPEC}: GETs only, graph_list_client.py:463"),
+    _exempt("graph_list_client", "SharepointListsClient", f"{_SPEC}: GETs only, graph_list_client.py:427"),
+    # SharePoint Server lists: the spec's filter and sort are evaluated in the
+    # client over rows it read; the server gets no filter text.
+    _exempt("sharepoint_onprem_lists_client", "SharepointOnpremListsClient",
+            f"{_SPEC}: every request one GET under the site's /_api/ (sharepoint_onprem_lists_client.py:316), "
+            "sharepoint_onprem_lists_client.py:755"),
     _exempt("spectrum_client", "SpectrumClient", f"{_SPEC}: table to a _q_ read handler, spectrum_client.py:666"),
     _exempt("vcenter_client", "VCenterClient", f"{_SPEC}: table to a _q_ read handler, vcenter_client.py:813"),
     _exempt("qlik_sense_client", "QlikSenseClient",

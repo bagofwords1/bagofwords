@@ -18,7 +18,8 @@ exact-text tests cover psycopg2 and pymysql on real servers
 (tests/integrations/test_exact_text_send_live.py). Vertica has its own
 file (test_vertica_client.py), Postgres goes through the session checks in
 the live tests, and the clients listed in `NOT_SQL_TEXT` do not send SQL
-text.
+text. Athena with tables unified across databases sends its own rewrite of
+the checked text (the last Athena test below).
 """
 
 from __future__ import annotations
@@ -169,6 +170,7 @@ def _athena(monkeypatch):
         setattr(client, key, None)
     client.result_reuse_enable = False
     client._multi = False  # one database: the multi-database table checks do not apply
+    client._unified = False  # tables are not unified across databases: the text is sent as written
 
     def read_sql_query(sql, **kwargs):
         sent.append(sql)
@@ -418,6 +420,28 @@ def test_iceberg_runs_exactly_the_checked_text(monkeypatch):
     assert lock == ["SET temp_directory", "SET allowed_paths", "SET python_enable_replacements",
                     "SET allow_unredacted_secrets", "SET enable_external_access", "SET lock_configuration"]
     assert all(s.startswith("SELECT ") and "current_" in s for s in sent[-3:-1])
+
+
+def test_athena_with_unified_tables_sends_one_select_built_from_the_checked_text(monkeypatch):
+    """With tables unified across databases, Athena does not receive the
+    checked text: the client reads it with the parser the guard read it with
+    and sends that one SELECT written out again, each unified table replaced
+    by a subquery over its tenant tables. The string literal arrives
+    unchanged; the comment after the replaced table is not sent."""
+    client, sent = _athena(monkeypatch)
+    client._unified, client.data_source = True, "AwsDataCatalog"
+    client._includes, client._excludes = ["tenant_*"], []
+    client._unread_dbs, client._diagnosis_glue_tables = [], {}
+    client.attach_table_metadata([
+        {"name": "orders", "metadata_json": {"tenants": ["tenant_a"], "column_types": {"id": "bigint"}}},
+    ])
+    checked = ensure_read_only(client, QUERY)
+    client.execute_query(checked)
+    assert checked == QUERY
+    assert sent == [
+        "SELECT 'a--b :x %s %% 12:30' AS a FROM "
+        '(SELECT \'tenant_a\' AS "tenant_db" FROM "awsdatacatalog"."tenant_a"."orders") AS "orders"'
+    ]
 
 
 def test_the_multi_database_postgres_client_runs_exactly_the_checked_text():

@@ -45,7 +45,7 @@ B = {
     "AzureCostClient", "CheckPointClient", "CiscoApicClient", "CrowdStrikeClient", "DellOmeClient",
     "F5BigIpClient", "HpeOneViewClient", "IntuneClient", "JaegerClient", "KubernetesClient", "MondayClient",
     "NetAppOntapClient", "ServiceNowClient", "SharepointListsClient", "SpectrumClient", "VCenterClient",
-    "JiraDcClient",
+    "JiraDcClient", "SharepointOnpremListsClient",
     "ZabbixClient", "MongodbClient",
     # MDX / DAX.
     "SapBwXmlaClient", "InforOlapClient", "AnalysisServicesClient", "PowerBIClient", "InforEpmClient",
@@ -104,7 +104,7 @@ def test_the_enumeration_covers_the_registry_and_the_accelerated_client(classes)
 
     names = [c.__name__ for c in classes]
     assert FastQueryClient in classes
-    assert len(names) == len(set(names)) == 111
+    assert len(names) == len(set(names)) == 112
     # Registry entries without a client_path resolve through the naming fallback.
     for key in ("postgresql", "oracledb", "bigquery", "netsuite", "mysql", "mariadb",
                 "clickhouse", "pinot", "druid", "aws_cost", "vertica", "aws_redshift", "sybase"):

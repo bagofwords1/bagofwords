@@ -651,7 +651,7 @@ def _entity_author(test_client, admin, member, create_role, assign_role, *, run_
         params={"principal_type": "user", "principal_id": member["user_id"]},
     ).json():
         test_client.delete(f"/api/organizations/{org_id}/role-assignments/{a['id']}", headers=hdr)
-    permissions = ["view_reports", "create_reports", "manage_entities"]
+    permissions = ["access_workspace", "view_reports", "create_reports", "manage_entities"]
     if run_custom_code:
         permissions.append("run_custom_code")
     role = create_role(
