@@ -1082,8 +1082,9 @@ async def startup_event():
     # runs (a warning is logged if sandboxes were left behind).
     if is_scheduler_leader:
         try:
-            from app.services.sandbox.jobs import register_sandbox_jobs
+            from app.services.sandbox.jobs import register_sandbox_jobs, warn_if_sandboxes_exist_while_disabled
             register_sandbox_jobs(scheduler)
+            await warn_if_sandboxes_exist_while_disabled()
         except Exception as e:
             logger.error(f"Failed to register agent sandbox jobs: {e}")
 
