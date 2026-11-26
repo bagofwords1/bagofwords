@@ -82,8 +82,8 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _script(app: str) -> str:
-    return '<script type="text/babel">\n' + app + MOUNT + "</script>"
+def _script(app: str, mount: str = MOUNT) -> str:
+    return '<script type="text/babel">\n' + app + mount + "</script>"
 
 
 def _make_report(create_report, create_user, login_user, whoami):
@@ -154,12 +154,12 @@ async def _tool_end(tool_cls, report_id: str, tool_input: dict, model=None) -> d
     return ends[-1].payload
 
 
-def _create(report_id, viz_ids, app=None, model=None):
+def _create(report_id, viz_ids, app=None, model=None, mount=MOUNT):
     """create_artifact with the planner's code, or (app=None) the tool writes it."""
     from app.ai.tools.implementations.create_artifact import CreateArtifactTool
     tool_input = {"prompt": "albums by artist", "title": "Albums", "mode": "page", "visualization_ids": viz_ids}
     if app is not None:
-        tool_input["code"] = _script(app)
+        tool_input["code"] = _script(app, mount)
     return _run(_tool_end(CreateArtifactTool, report_id, tool_input, model))
 
 
@@ -308,7 +308,39 @@ def test_a_chart_the_planners_code_gets_wrong_is_saved_with_a_warning(
     assert chart in obs["summary"] and "edit_artifact" in obs["summary"], obs["summary"]
     if viz_ids:
         # Named by its viz, so the planner knows which chart to fix.
-        assert "Albums" in obs["chart_errors"][0] and "Albums" in obs["summary"], obs["chart_errors"]
+        assert "RankChart (Albums)" in obs["chart_errors"][0], obs["chart_errors"]
+        assert "RankChart (Albums)" in obs["summary"], obs["summary"]
+
+
+# One broken chart, mounted more than once: React StrictMode runs its effects
+# twice, and a component defined inside App remounts when App re-renders.
+STRICT_MOUNT = (
+    "ReactDOM.createRoot(document.getElementById('root'))"
+    ".render(<React.StrictMode><App /></React.StrictMode>);\n"
+)
+REMOUNTED = (
+    "function App() {\n"
+    "  const [ready, setReady] = React.useState(false);\n"
+    "  React.useEffect(() => { setReady(true); }, []);\n"
+    "  function Revenue() { return <TrendChart x=\"month\" y=\"revenue\" />; }\n"
+    "  return (<div><h1>Revenue {ready ? 'now' : 'soon'}</h1><Revenue /></div>);\n"
+    "}\n"
+)
+
+
+@pytest.mark.parametrize("page", ["strict_mode", "remounted_inner_component"])
+def test_one_broken_chart_is_one_chart_error_however_often_it_mounts(
+    page, create_report, create_user, login_user, whoami, test_client
+):
+    report = _make_report(create_report, create_user, login_user, whoami)
+    if page == "strict_mode":
+        payload = _create(report["id"], [], NO_VIZ_NO_ROWS, mount=STRICT_MOUNT)
+    else:
+        payload = _create(report["id"], [], REMOUNTED)
+
+    assert payload["output"].get("success") is not False, payload["observation"]
+    assert len(payload["observation"]["chart_errors"]) == 1, payload["observation"]["chart_errors"]
+    assert len(_chart_errors(payload)) == 1, _render_errors(payload)
 
 
 def test_a_throw_after_many_broken_charts_still_fails_create(
@@ -386,6 +418,7 @@ def test_a_chart_warning_survives_a_render_without_screenshot(
 
     summary = payload["observation"]["summary"]
     assert "TrendChart" in summary and "edit_artifact" in summary, summary
+    assert ".." not in summary, summary
 
 
 # -- edit: only the chart errors an edit adds count ---------------------------
@@ -492,9 +525,15 @@ def test_an_edit_that_breaks_another_chart_is_rejected_for_that_chart(
     edited = _edit(report["id"], artifact_id, 'label="artist" ', "")
 
     assert edited["output"].get("success") is False, edited["observation"].get("summary")
-    # Rejected for the chart it broke; the old one rides along in render_errors.
-    message = edited["observation"]["error"]["message"]
-    assert "RankChart" in message and "TrendChart" not in message, message
+    # Rejected for the chart it broke; the old one rides along, marked as known.
+    error = edited["observation"]["error"]
+    assert "RankChart" in error["message"] and "TrendChart" not in error["message"], error["message"]
+    known = error["known_chart_errors"]
+    assert len(known) == 1 and "TrendChart" in known[0], error
+    gating = [e for e in _chart_errors(edited)]
+    for e in known:
+        gating.remove(e)
+    assert len(gating) == 1 and "RankChart" in gating[0], gating
 
 
 def test_an_edit_that_breaks_a_chart_is_rejected_with_its_message(

@@ -116,13 +116,19 @@ class CreateArtifactTool(Tool):
             return None, []
 
         # Each channel has its own cap, so many chart warnings can never
-        # crowd a thrown error out (one chart warning per broken chart).
+        # crowd a thrown error out. Charts come before console errors: repair
+        # prompts read the first few. One chart error per warning box on
+        # screen (read from the DOM after the render); the console warnings,
+        # which a remount or StrictMode repeats, only stand in when the page
+        # couldn't be read.
         thrown: list[str] = []
         console_errors: list[str] = []
         chart_warnings: list[str] = []
+        chart_boxes: list = [None]
 
         def _collected() -> list[str]:
-            return thrown + console_errors + chart_warnings
+            charts = chart_warnings if chart_boxes[0] is None else chart_boxes[0]
+            return thrown + charts + console_errors
 
         try:
             import tempfile, os
@@ -149,10 +155,10 @@ class CreateArtifactTool(Tool):
                 # pageerror catches thrown/uncaught exceptions (incl. Babel
                 # transform errors), console 'error' catches failures that
                 # libraries report without throwing (React render errors).
-                # A chart that can't draw from its props only warns, once per
-                # chart; its message is kept as-is, so it is fatal and drives
-                # repair. Two charts broken the same way are two entries.
-                from app.ai.tools.implementations._artifact_refs import is_chart_error
+                # A chart that can't draw from its props only warns (kept as
+                # the fallback for the warning boxes read below); its message
+                # is kept as-is, so it is fatal and drives repair.
+                from app.ai.tools.implementations._artifact_refs import CHART_ERROR_PREFIX, is_chart_error
 
                 def _on_pageerror(err):
                     if len(thrown) < 10:
@@ -197,6 +203,14 @@ class CreateArtifactTool(Tool):
                         pass  # Take screenshot anyway — partial render is still useful
 
                     await asyncio.sleep(0.3)
+                    try:
+                        boxes = await page.evaluate(
+                            "() => Array.from(document.querySelectorAll('[data-bow-chart-warning]'),"
+                            " e => e.getAttribute('data-bow-chart-warning'))"
+                        )
+                        chart_boxes[0] = [CHART_ERROR_PREFIX + str(b) for b in boxes if b][:20]
+                    except Exception as e:
+                        logger.warning(f"Reading the chart warning boxes failed; using console warnings: {e}")
                     screenshot_bytes = await page.screenshot(type="png", full_page=False)
                     await browser.close()
                     return base64.b64encode(screenshot_bytes).decode("utf-8"), _collected()
@@ -2154,7 +2168,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 # charts warned still names them.
                 summary_msg += ". " + self.chart_errors_warning(chart_errors)
             if not screenshot_base64:
-                summary_msg += "." + self.RENDER_UNCHECKED_NOTE
+                # The chart warning already ends its sentence.
+                summary_msg += ("" if chart_errors else ".") + self.RENDER_UNCHECKED_NOTE
             elif chart_errors:
                 pass  # the warning above replaces "Render validation passed"
             elif repair_attempts:

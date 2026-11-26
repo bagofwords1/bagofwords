@@ -3137,17 +3137,19 @@ function _dtDetectDir(cols, rows) {
       try { built = kind === 'rank' ? _buildRank(props, theme, lang, rtl) : _buildTrend(props, theme, lang); }
       catch (e) { built = { error: (kind === 'rank' ? 'RankChart' : 'TrendChart') + ' could not draw: ' + (e && e.message ? e.message : String(e)) }; }
       builtRef.current = built;
-      // One console warning per chart while its props can't draw, named by
-      // its viz so the page check tells two broken charts apart (an effect:
-      // re-renders don't repeat it). The box below shows the message alone.
-      var warning = built.error ? '[bow-chart] ' + _chWarnName(built.error, props.viz) : null;
+      // A chart whose props can't draw names itself by its viz. The render
+      // check counts the warning boxes on screen by data-bow-chart-warning
+      // (a remount or StrictMode can repeat the console warning, never the
+      // box); the console warning is for the live preview and as fallback.
+      // The box itself shows the message alone.
+      var named = built.error ? _chWarnName(built.error, props.viz) : null;
       React.useEffect(function() {
-        if (warning && typeof console !== 'undefined') console.warn(warning);
-      }, [warning]);
+        if (named && typeof console !== 'undefined') console.warn('[bow-chart] ' + named);
+      }, [named]);
       var height = built.height || props.height || 300;
       var body;
       if (built.error) {
-        body = h('div', { key: 'err', role: 'alert', dir: 'auto', className: 'rounded-chip border border-warning/40 bg-warning/10 text-sm text-ink-2 p-3' }, built.error);
+        body = h('div', { key: 'err', role: 'alert', dir: 'auto', 'data-bow-chart-warning': named, className: 'rounded-chip border border-warning/40 bg-warning/10 text-sm text-ink-2 p-3' }, built.error);
       } else if (built.empty) {
         body = h('div', { key: 'empty', className: 'flex items-center justify-center text-sm text-ink-3', style: { height: Math.min(height, 160) } }, built.noData);
       } else {

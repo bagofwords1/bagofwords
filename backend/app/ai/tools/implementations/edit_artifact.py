@@ -422,7 +422,10 @@ class EditArtifactTool(Tool):
                         artifact, "render_failed",
                         f"The edited code fails to render: {fatal[0]}"
                         + (self._create_tool.CHART_BASELINE_MISSING_NOTE if _maybe_old else ""),
-                        {"render_errors": render_errors, "remediation": (
+                        {"render_errors": render_errors,
+                         # In render_errors too, but not why the edit failed.
+                         **({"known_chart_errors": known_charts} if known_charts else {}),
+                         "remediation": (
                             (f"{_fix_hint} " if _fix_hint else "")
                             + "Fix the ops to resolve the render error and retry.")},
                     )
