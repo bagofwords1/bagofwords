@@ -272,6 +272,23 @@ test('rows a filter run replaced are not kept by the last load\'s send marker', 
   assert.equal(f.own.lastLoadSent(), null, 'the refreshed list is no longer referenced once newer rows replace it')
 })
 
+test('a send marker the load left behind is dropped by the next change, which still sends once', async () => {
+  const f = await opened()
+  // A filter in the URL: the refresh re-runs it inside the load, so its last
+  // write is flushed before the load's send and no watcher run follows it.
+  f.responses[RUN_Q1] = { status: 'success', data: { rows: [{ region: 'EMEA', amount: 9 }], columns: [] } }
+  await f.own.runParamQueries({ region: 'EMEA' })
+  await flush()
+  await refreshInPlace(f)
+  assert.notEqual(f.own.lastLoadSent(), null, 'the marker outlives the load here')
+  f.clear()
+  f.responses[RUN_Q1] = { status: 'success', data: { rows: [{ region: 'EMEA', amount: 11 }], columns: [] } }
+  await f.own.runParamQueries({ region: 'EMEA' })
+  await flush()
+  assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'the next filter run sends once')
+  assert.equal(f.own.lastLoadSent(), null, 'and the replaced rows are no longer referenced')
+})
+
 // A response the test releases (or fails) when it chooses.
 const deferred = () => {
   let resolve, reject
