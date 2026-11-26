@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 
+from app.ai.tools.implementations._artifact_refs import is_chart_error
 from app.ai.tools.implementations._browser_common import build_snapshot, mask_secrets_style, save_bytes, session_manager
 from app.services.artifact_preview_service import ArtifactPreviewService, PreviewUnavailableError
 
@@ -50,9 +51,11 @@ async def navigate_artifact(data, ctx):
         # in every frame and throws inside the sandboxed app frame: not the app's.
         s.page.on("pageerror", lambda e: None if "Failed to read the 'serviceWorker' property" in str(e) else
                   preview.record("error", source="browser", message=str(e)[:1500], stack=getattr(e, "stack", "")[:2500]))
+        # A chart that can't draw from its props only warns: an error too.
         s.page.on("console", lambda msg: preview.record(
             "warning" if msg.text.startswith(("Warning:", "[vite] failed to connect to websocket")) else "error",
-            source="console", message=msg.text[:1500]) if msg.type == "error" else None)
+            source="console", message=msg.text[:1500])
+            if msg.type == "error" or is_chart_error(msg.type, msg.text) else None)
         s.page.on("popup", lambda p: p.close())
         await s.page.goto(preview.url, wait_until="domcontentloaded", timeout=30000)
         handle = await s.page.wait_for_selector("iframe[data-artifact-frame]", state="attached", timeout=30000)

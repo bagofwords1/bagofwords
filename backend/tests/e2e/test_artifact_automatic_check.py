@@ -81,6 +81,7 @@ class FakeChromium:
         self.on_press = None
         self.on_context_close = None
         self.goto_console_error = None
+        self.goto_console_warning = None
         self.reply_text = None
         self.reply_with_answer = False
         self.real_async_playwright = None
@@ -203,6 +204,9 @@ class FakePage:
     def console_error(self, text):
         self.fire("console", type("Console", (), {"type": "error", "text": text})())
 
+    def console_warning(self, text):
+        self.fire("console", type("Console", (), {"type": "warning", "text": text})())
+
     async def expose_binding(self, _name, callback):
         self.binding = callback
 
@@ -226,6 +230,8 @@ class FakePage:
                 return None
             if self.world.goto_console_error:
                 self.console_error(self.world.goto_console_error)
+            if self.world.goto_console_warning:
+                self.console_warning(self.world.goto_console_warning)
             if behavior != "blank_root":
                 artifact_id = urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
                 await self.binding({"frame": self.main_frame},
@@ -1020,6 +1026,26 @@ def test_a_page_that_freezes_after_rendering_is_an_app_problem_not_an_outage(
     assert run.unavailable_reason is None
     assert chromium.contexts and all(context.closed for context in chromium.contexts)
     assert _no_open_preview(ctx["agent_execution_id"])
+
+
+def test_a_chart_that_cannot_draw_on_load_is_a_console_problem(chromium, stub_render, owner):
+    # TrendChart/RankChart warn with their own message when their props can't
+    # draw a chart (the viewer sees a warning box).
+    chromium.goto_console_warning = "[bow-chart] RankChart needs label and value. Available fields: region, sales."
+    _events, payload, _ctx = asyncio.run(_create(owner))
+
+    check = _check(payload)
+    assert check["status"] == "problems_found"
+    assert check["errors"][0]["source"] == "console"
+    assert "RankChart needs label and value" in check["errors"][0]["message"]
+
+
+def test_an_unrelated_console_warning_passes_the_load(chromium, stub_render, owner):
+    chromium.goto_console_warning = "Chart option `smooth` is deprecated"
+    _events, payload, _ctx = asyncio.run(_create(owner))
+
+    check = _check(payload)
+    assert (check["status"], check["errors"]) == ("passed", [])
 
 
 @pytest.fixture

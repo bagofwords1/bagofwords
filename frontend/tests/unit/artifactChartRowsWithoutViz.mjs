@@ -29,6 +29,7 @@ function App() {
       <div id="he"><RankChart rows={HE} label="נציג" value="sum" lang="he" /></div>
       <div id="nothing"><TrendChart x="month" y="revenue" /></div>
       <div id="withviz"><RankChart viz={vizById("${VIZ}")} label="rep" value="revenue" additive /></div>
+      <div id="vizbroken"><RankChart viz={vizById("${VIZ}")} value="revenue" /></div>
     </div>
   );
 }
@@ -49,7 +50,7 @@ try{
   const f=document.createElement('iframe');f.style.width='390px';f.style.height='1380px';f.style.border='0';f.srcdoc=html;document.body.appendChild(f);
  },{code:app,VIZ,rows});
  const frame=page.frames().find(f=>f.parentFrame());
- await frame.waitForFunction(()=>window.__bowCharts&&document.querySelectorAll('[data-bow-chart]').length===6,null,{timeout:30000});
+ await frame.waitForFunction(()=>window.__bowCharts&&document.querySelectorAll('[data-bow-chart]').length===7,null,{timeout:30000});
  await frame.waitForTimeout(600);
 
  // Builders: rows alone are enough; neither viz nor rows is still an error.
@@ -79,7 +80,9 @@ try{
    canvas:el.querySelectorAll('canvas').length, alert:(el.querySelector('[role=alert]')||{}).textContent||null,
    info:el.querySelectorAll('button[aria-label="Details"]').length};};
   return {trend:at('trend'),rank:at('rank'),nullviz:at('nullviz'),he:at('he'),nothing:at('nothing'),withviz:at('withviz'),
-   heDir:document.querySelector('#he [data-bow-chart]').getAttribute('dir')};
+   heDir:document.querySelector('#he [data-bow-chart]').getAttribute('dir'),
+   // The page check reads each warning box's named message from the DOM.
+   warnings:Array.from(document.querySelectorAll('[data-bow-chart-warning]')).map(e=>[e.closest('[id]').id,e.getAttribute('data-bow-chart-warning'),e.textContent,e.getAttribute('data-bow-chart-viz')])};
  });
  assert.deepEqual(dom.trend,{canvas:1,alert:null,info:0},'TrendChart with rows and no viz: a chart, no ⓘ');
  assert.deepEqual(dom.rank,{canvas:1,alert:null,info:0},'RankChart with rows and no viz: a chart, no ⓘ');
@@ -88,5 +91,10 @@ try{
  assert.equal(dom.heDir,'rtl','the Hebrew ranking is mirrored');
  assert.equal(dom.nothing.canvas,0); assert.match(dom.nothing.alert||'',/TrendChart needs viz/,'neither viz nor rows: the error is kept');
  assert.deepEqual(dom.withviz,{canvas:1,alert:null,info:1},'a chart with a viz keeps its ⓘ');
+ assert.deepEqual(dom.warnings.map(w=>w[0]),['nothing','vizbroken'],'only the boxes carry a page-check warning; drawn charts carry none');
+ assert.match(dom.warnings[0][1],/^TrendChart needs viz=\{vizById\("…"\)\} or rows/,'a chart with no viz: its message');
+ assert.match(dom.warnings[1][1],/^RankChart \(Revenue\) needs label and value/,'a chart with a viz is named by its title');
+ assert.match(dom.warnings[1][2],/^RankChart needs label and value/,'the box viewers see keeps the plain message');
+ assert.deepEqual(dom.warnings.map(w=>w[3]),[null,VIZ],'the viz id rides along: titles repeat across vizzes');
  console.log('PASS: TrendChart/RankChart draw from rows without a viz; the error stays only without both');
 }finally{await browser.close()}
