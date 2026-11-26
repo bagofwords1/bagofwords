@@ -1,8 +1,10 @@
-"""The app launcher (/apps): the published artifacts a member can open that
-are *apps* — associated with at least one enabled host application.
+"""The app launcher (/apps, "Shared with you"): every published artifact a
+member can open — apps (associated with at least one enabled host
+application), dashboards and docs — filterable by kind.
 
-It is the home page of an app user (a member without ``access_workspace``)
-and an "Apps" page for everyone else. It answers exactly as the artifact's own
+It is the home page of an app user (a member without ``access_workspace``),
+whose only way back to what was shared with them it is; anyone else may open
+it too and gets the same list by the same rule. It answers exactly as the artifact's own
 page would: the candidates come from the dashboards list's ``ReaderScope`` and
 every row is re-admitted with ``dashboard_access.admit_reader``, so a card is
 never shown for an artifact ``/d/{ref}`` would refuse.
@@ -15,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import List, Optional, Tuple
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import and_, exists, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import AppError
@@ -30,6 +32,12 @@ PAGE_SIZE = 60
 MAX_PAGE_SIZE = 200
 _BATCH = 100
 ACCESS_REQUEST_TYPE = "workspace_access_request"
+
+# What a card is. An artifact some enabled host application may show is an
+# app whatever its mode; otherwise its mode decides.
+KIND_APP, KIND_DASHBOARD, KIND_DOC = "app", "dashboard", "doc"
+KINDS = (KIND_APP, KIND_DASHBOARD, KIND_DOC)
+DASHBOARD_MODES = ("page", "slides")
 
 
 def _request_key(user_id: str) -> str:
@@ -46,6 +54,29 @@ def is_app():
         HostApplication.enabled.is_(True),
         HostApplication.deleted_at.is_(None),
     ))
+
+
+def of_kind(kind: str):
+    """``kind`` as a SQL condition, the same rule as ``kind_of``."""
+    if kind == KIND_APP:
+        return is_app()
+    if kind == KIND_DASHBOARD:
+        return and_(not_(is_app()), Artifact.mode.in_(DASHBOARD_MODES))
+    if kind == KIND_DOC:
+        return and_(not_(is_app()), Artifact.mode == "doc")
+    raise ValueError(f"unknown kind {kind!r}")
+
+
+def kind_of(artifact, applications: List[str]) -> Optional[str]:
+    """The card's kind: ``applications`` are the enabled host applications
+    that may show it (``_application_names``, the same rule as ``is_app``)."""
+    if applications:
+        return KIND_APP
+    if artifact.mode in DASHBOARD_MODES:
+        return KIND_DASHBOARD
+    if artifact.mode == "doc":
+        return KIND_DOC
+    return None
 
 
 async def organization_has_apps(db: AsyncSession, organization_id: str) -> bool:
@@ -71,14 +102,16 @@ async def _thumbnail_withheld(db, artifact, release, user) -> bool:
 
 
 async def list_apps(db: AsyncSession, user, organization, *, search: Optional[str] = None,
-                    after: int = 0, limit: int = PAGE_SIZE) -> Tuple[List[dict], Optional[int]]:
-    """One page of the reader's apps, by title: ``(cards, next)``.
+                    kind: Optional[str] = None, after: int = 0,
+                    limit: int = PAGE_SIZE) -> Tuple[List[dict], Optional[int]]:
+    """One page of what the reader can open, by title: ``(cards, next)``.
 
-    Candidates are filtered in SQL (published, an app, mine or shared, and
+    Candidates are filtered in SQL (published, mine or shared, the kind and
     the search) and then admitted one by one, so the page is filled from as
-    many candidates as it takes: an app the reader may open is never hidden
-    behind a cap on rows they may not. ``next`` is the candidate offset to
-    pass as ``after`` for the following page, or None at the end.
+    many candidates as it takes: an artifact the reader may open is never
+    hidden behind a cap on rows they may not. ``next`` is the candidate
+    offset to pass as ``after`` (with the same ``kind`` and ``search``) for
+    the following page, or None at the end.
     """
     from app.services.dashboard_access import admit_reader, is_live
     from app.services.dashboard_list import (
@@ -91,9 +124,11 @@ async def list_apps(db: AsyncSession, user, organization, *, search: Optional[st
     where = [
         Artifact.organization_id == str(organization.id), Artifact.deleted_at.is_(None),
         Artifact.owner_id.isnot(None), Artifact.published_release_id.isnot(None),
-        not_an_older_legacy_version(), not_only_failed(), is_app(),
+        not_an_older_legacy_version(), not_only_failed(),
         or_(Artifact.owner_id == str(user.id), scope.shared_with),
     ]
+    if kind:
+        where.append(of_kind(kind))
     if search and search.strip():
         like = _like(search.strip())
         where.append(or_(Artifact.title.ilike(like, escape="\\"), Artifact.description.ilike(like, escape="\\")))
@@ -127,14 +162,16 @@ async def list_apps(db: AsyncSession, user, organization, *, search: Optional[st
                         thumbnail = _thumbnail_url(release.thumbnail_path, artifact_id=str(artifact.id))
                 except Exception:
                     logger.debug("app thumbnail check failed for %s", artifact.id, exc_info=True)
+            applications = names.get(str(artifact.id), [])
             apps.append({
                 "id": str(artifact.id),
                 "ref": artifact.slug or str(artifact.id),
                 "title": (artifact.title or "").strip() or None,
                 "description": (artifact.description or "").strip() or None,
                 "mode": artifact.mode,
+                "kind": kind_of(artifact, applications),
                 "thumbnail_url": thumbnail,
-                "applications": names.get(str(artifact.id), []),
+                "applications": applications,
             })
             if len(apps) >= limit:
                 # More only if a candidate is left after this one.
