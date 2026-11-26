@@ -20,6 +20,7 @@ from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, Dat
 from app.schemas.table_prompt_schema import TablePromptsResponse
 from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
 from app.schemas.data_source_schema import DataSourceMembershipSchema, DataSourceInheritedAccess
+from app.schemas.data_source_schema import ConnectorChatPreferenceUpdate, ConnectorChatPreference
 from app.schemas.agent_clone_schema import AgentCloneIn, AgentCloneOut
 from app.errors.redact import redact_error
 from app.schemas.datasource_table_schema import (
@@ -88,6 +89,42 @@ async def get_active_data_sources(
     result = await data_source_service.get_active_data_sources(db, organization, current_user, include_unconnected=include_unconnected, show_all=show_all)
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
+
+@router.put("/data_sources/{data_source_id}/chat-preference", response_model=ConnectorChatPreference)
+@requires_resource_permission('data_source', 'view')
+async def set_connector_chat_preference(
+    data_source_id: str,
+    body: ConnectorChatPreferenceUpdate,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Remember the user's on/off choice for a personal connector in the chat
+    composer. Off = the connector contributes no context or tool definitions on
+    the next run (see agent_focus_common.resolve_run_agents). Per user and
+    workspace. Only PERSONAL connectors are accepted — the same predicate the
+    run-time filter uses — so a shared/org-wide connector (which the filter
+    never drops) cannot store a preference that would contradict its behavior."""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
+    from app.services.connector_preference_service import set_connector_enabled
+    from app.ai.tools.implementations.agent_focus_common import _is_personal_connector
+
+    ds = (await db.execute(
+        _select(DataSource)
+        .options(_selectinload(DataSource.connections))
+        .where(DataSource.id == str(data_source_id))
+    )).scalars().first()
+    if ds is None or str(ds.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Data source not found")
+    if not _is_personal_connector(ds):
+        raise HTTPException(status_code=400, detail="The chat toggle applies to personal connectors only")
+    await set_connector_enabled(
+        db, str(current_user.id), str(organization.id), str(ds.id), body.enabled
+    )
+    await db.commit()
+    return ConnectorChatPreference(data_source_id=str(ds.id), enabled=body.enabled)
+
 
 @router.get("/data_sources/connected_channels", response_model=list[dict])
 async def get_connected_channels(
@@ -207,6 +244,35 @@ async def test_new_data_source_connection(
     organization: Organization = Depends(get_current_organization)
 ):
     return await data_source_service.test_new_data_source_connection(db=db, data=data_source, organization=organization, current_user=current_user)
+
+@router.get("/data_sources/{data_source_id}/pii_policy", response_model=dict)
+@requires_resource_permission('data_source', 'manage')
+async def get_data_source_pii_policy(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization)
+):
+    """The agent's PII policy (agent admins). See docs/design/pii-agent-policies.md."""
+    from app.services import pii_agent_policy_service
+    return await pii_agent_policy_service.get_agent_pii_policy(db, organization, current_user, data_source_id)
+
+
+@router.put("/data_sources/{data_source_id}/pii_policy", response_model=dict)
+@requires_resource_permission('data_source', 'manage')
+async def set_data_source_pii_policy(
+    data_source_id: str,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Set the agent's PII policy: a policy id, ":inherit", or ":none" (org admins only)."""
+    from app.services import pii_agent_policy_service
+    return await pii_agent_policy_service.set_agent_pii_policy(
+        db, organization, current_user, data_source_id, (payload or {}).get("policy")
+    )
+
 
 @router.put("/data_sources/{data_source_id}", response_model=DataSourceSchema)
 @requires_resource_permission('data_source', 'manage')

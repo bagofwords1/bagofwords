@@ -12,7 +12,7 @@ from app.ee.encryption import envelope_marker_sql
 from app.models.step import Step
 from app.models.visualization import Visualization
 from app.ai.context.sections.queries_section import QueriesSection, QueryObservation, QueryVisualizationSummary
-from app.ai.data_preview import MAX_CELL_CHARS, clamp_scalar, clamp_stats, gate_stats_for_privacy
+from app.ai.data_preview import MAX_CELL_CHARS, clamp_scalar, clamp_stats, gate_stats_for_privacy, guarded_column_sums
 from app.ai.context.summary_write_through import persist_step_context_projections
 
 from app.settings.logging_config import get_logger
@@ -440,6 +440,15 @@ class QueryContextBuilder:
                     obs.row_count = len(preview_rows)
                 if include_data_preview:
                     obs.data_preview = _preview_table(obs.column_names, preview_rows)
+                    # Stored info covers every row; the 5 preview rows are
+                    # usually a prefix, so the total-row checks run as incomplete.
+                    obs.column_sums = guarded_column_sums(
+                        info if isinstance(info, dict) else None,
+                        default_step.get("columns"),
+                        obs.row_count,
+                        preview_rows,
+                        step_id=obs.default_step_id,
+                    )
             except Exception:
                 pass
 

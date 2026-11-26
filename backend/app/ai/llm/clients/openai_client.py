@@ -528,6 +528,7 @@ class OpenAi(LLMClient):
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
+        require_tool: bool = False,
     ) -> AsyncIterator[LLMStreamEvent]:
         oai_messages: list[dict] = []
         if system:
@@ -546,7 +547,7 @@ class OpenAi(LLMClient):
             request_kwargs["temperature"] = self.temperature
         if tools:
             request_kwargs["tools"] = self._translate_tools(tools)
-            request_kwargs["tool_choice"] = "auto"
+            request_kwargs["tool_choice"] = "required" if require_tool else "auto"
             # Restrict the response to one tool_call at a time. This is the
             # signature default only — planner_v3 passes
             # disable_parallel_tools=not parallel_tools_enabled, which is False

@@ -524,7 +524,8 @@
     "automations": "الأتمتة",
     "agent": "وكيل",
     "agents": "الوكلاء",
-    "viewAllAgents": "عرض كل الوكلاء ←"
+    "viewAllAgents": "عرض كل الوكلاء ←",
+    "apps": "التطبيقات"
   },
   "notifications": {
     "title": "الإشعارات",
@@ -1178,6 +1179,9 @@
     "dropHint": "أفلِت على مشروع",
     "movedTo": "تم النقل إلى {name}",
     "removeFromProject": "إزالة من المشروع",
+    "removedFromProject": "تمت الإزالة من المشروع",
+    "removeImpact": "سيعود هذا التقرير إلى قائمتك الشخصية.",
+    "removeImpactShared": "سيفقد أعضاء هذا المشروع إمكانية الوصول إلى هذا التقرير. ستحتفظ به أنت فقط ومن شاركته معهم مباشرة.",
     "empty": "مشروع جديد",
     "moveNoProjects": "أنشئ مشروعًا لتنظيم تقاريرك في مجلدات.",
     "moveShareDisclosure": "نقل تقرير إلى مشروع مشترك يتيح لأعضائه الاطلاع عليه.",
@@ -1456,10 +1460,10 @@
         "search": "البحث",
         "files": "قراءة الملفات",
         "inspect": "فحص البيانات",
-        "data": "تنفيذ {count} استعلامات",
+        "data": "تنفيذ استعلام واحد | تنفيذ {count} استعلامات",
         "create": "إنشاء النتائج وتحديثها",
         "tools": "استخدام الأدوات",
-        "results": "تنفيذ {count} استعلامات"
+        "results": "تنفيذ استعلام واحد | تنفيذ {count} استعلامات"
       }
     },
     "tabChat": "محادثة",
@@ -1644,7 +1648,6 @@
       "edit": "تعديل العنصر",
       "confirm": "تأكيد تعديل العنصر",
       "dashboardEdited": "تم تعديل لوحة التحكم",
-      "diff": "الفرق",
       "rewrite": "إعادة الكتابة",
       "plan": "الخطة: ",
       "more": "المزيد",
@@ -2470,7 +2473,8 @@
       "manage_data_sources": "إدارة الوكلاء",
       "manage_service_accounts": "إدارة حسابات الخدمة",
       "view_code": "عرض الشيفرة المُنشأة",
-      "run_custom_code": "تحرير الشيفرة المخصّصة وتشغيلها"
+      "run_custom_code": "تحرير الشيفرة المخصّصة وتشغيلها",
+      "access_workspace": "استخدام مساحة العمل"
     },
     "delete": "حذف",
     "duplicate": "تكرار",
@@ -2490,7 +2494,8 @@
       "knowledge": "معرفة الوكلاء",
       "code": "الشيفرة",
       "admin": "الإدارة",
-      "other": "أخرى"
+      "other": "أخرى",
+      "workspace": "مساحة العمل"
     },
     "permissionHints": {
       "create_data_source": "إنشاء وكلاء على الاتصالات المتاحة لهم",
@@ -2506,7 +2511,8 @@
       "manage_settings": "تغيير إعدادات المؤسسة",
       "manage_llm": "إعداد مزوّدي ونماذج LLM",
       "view_audit_logs": "معرفة من فعل ماذا ومتى",
-      "manage_identity_providers": "إعداد تسجيل الدخول الموحّد"
+      "manage_identity_providers": "إعداد تسجيل الدخول الموحّد",
+      "access_workspace": "فتح مساحة العمل نفسها: الصفحة الرئيسية والتقارير والوكلاء. بدونها، لا يملك العضو سوى التطبيقات المشتركة معه."
     },
     "fullAdminHint": "يمكنه فعل كل شيء في المؤسسة",
     "fullAdminAccessTab": "يشمل الوصول الإداري الكامل جميع الوكلاء والاتصالات والنماذج.",
@@ -2641,7 +2647,8 @@
     "add": "إضافة",
     "domainsHint": "تطابق تام فقط. لا تُستخدم رموز البدل. اقرنها بالتحقق من البريد الإلكتروني لتجنب الانتحال.",
     "autoInviteRole": "دور الدعوة التلقائية",
-    "roleHint": "الدور المُمنوح عند التسجيل. يمكنك تغييره للأعضاء الحاليين لاحقًا.",
+    "roleHint": "اتركه على الافتراضي للمؤسسة لاستخدام الدور المحدد في صفحة الأعضاء، أو اختر دورًا مختلفًا للمسجلين حسب النطاق.",
+    "useOrgDefault": "الافتراضي للمؤسسة ({role})",
     "removeHint": "إزالة نطاق تؤثر فقط على عمليات التسجيل الجديدة — يحتفظ الأعضاء الحاليون بصلاحياتهم.",
     "save": "حفظ",
     "removeDomainAria": "إزالة النطاق",
@@ -3277,10 +3284,12 @@
       "attributesSaved": "تم حفظ السمات",
       "attributesSaveFailed": "تعذّر حفظ السمات",
       "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير.",
-      "defaultRoleHint": "يملأ الدور مسبقًا عند إضافة عضو أو دعوته.",
+      "defaultRoleHint": "الدور الذي يحصل عليه كل عضو جديد: عند إضافته هنا أو استيراده أو انضمامه عبر SSO أو SCIM أو LDAP أو التسجيل حسب النطاق. ينطبق على الأعضاء الجدد فقط.",
       "defaultRoleSaved": "تم حفظ الدور الافتراضي",
       "defaultRoleFailed": "تعذر حفظ الدور الافتراضي",
-      "defaultRoleShort": "الدور الافتراضي"
+      "defaultRoleShort": "الدور الافتراضي",
+      "appUser": "مستخدم تطبيقات",
+      "joinedVia": "انضم عبر {app}"
     },
     "organizationName": "اسم المؤسسة",
     "organizationNameRequired": "لا يمكن أن يكون اسم المؤسسة فارغًا.",
@@ -4179,6 +4188,8 @@
       "masksValue": "يُبقي آخر 4 أحرف",
       "pseudonymizesValue": "يظل الأشخاص يرون القيمة",
       "detectorTitle": "الأسماء والأماكن والمؤسسات",
+      "validatedTitle": "المعرّفات المُتحقَّق منها",
+      "validatedNote": "تُكتشف بنمط ويُتحقق منها برقم تحقق (Luhn للبطاقات، mod-97 لأرقام IBAN، أرقام التحقق لأرقام الهوية)، لذا تلتقط أرقامًا مشابهة أقل بكثير من المعرّفات الشائعة أعلاه. تُفحص في رسالة المستخدم وفي البيانات، وليس في التعليمات أو المخططات.",
       "detectorUnavailable": "اكتشاف الأسماء والأماكن والمؤسسات يتطلب كاشفًا للبيانات الشخصية، ولا يوجد كاشف مُعدّ على هذا النظام. اطلب من المسؤول تثبيت إضافة pii في الخادم أو إعداد خدمة Presidio.",
       "detectorErrorLabel": "إذا كان الكاشف غير متاح",
       "detectorErrorDesc": "ما يحدث للطلب عندما يتعذر على الكاشف فحصه.",
@@ -4221,7 +4232,81 @@
         "PERSON": "اسم شخص",
         "LOCATION": "مكان",
         "ORGANIZATION": "مؤسسة",
-        "NRP": "الجنسية أو الجماعة الدينية أو السياسية"
+        "NRP": "الجنسية أو الجماعة الدينية أو السياسية",
+        "CREDIT_CARD": "رقم بطاقة الائتمان (فحص Luhn)",
+        "IBAN_CODE": "رقم IBAN (مع رقم التحقق)",
+        "ABA_ROUTING_NUMBER": "رقم التوجيه المصرفي الأمريكي (ABA)",
+        "CRYPTO": "عنوان محفظة عملات مشفرة (Bitcoin)",
+        "US_NPI": "المعرّف الوطني لمقدّمي الخدمات الصحية في الولايات المتحدة (NPI)",
+        "MEDICAL_LICENSE": "رقم تسجيل DEA الأمريكي",
+        "UK_NHS": "رقم NHS (المملكة المتحدة)",
+        "ES_NIF": "NIF / DNI (إسبانيا)",
+        "ES_NIE": "NIE (إسبانيا)",
+        "IT_FISCAL_CODE": "الرمز الضريبي (إيطاليا)",
+        "DE_TAX_ID": "الرقم الضريبي (ألمانيا)",
+        "PL_PESEL": "PESEL (بولندا)",
+        "FI_PERSONAL_IDENTITY_CODE": "رمز الهوية الشخصية (فنلندا)",
+        "SE_PERSONNUMMER": "Personnummer (السويد)",
+        "TR_NATIONAL_ID": "رقم الهوية الوطنية (تركيا)",
+        "AU_TFN": "رقم الملف الضريبي (أستراليا، TFN)",
+        "AU_ABN": "رقم الأعمال (أستراليا، ABN)",
+        "AU_MEDICARE": "رقم Medicare (أستراليا)",
+        "IN_AADHAAR": "رقم Aadhaar (الهند)",
+        "KR_RRN": "رقم تسجيل المقيم (كوريا الجنوبية)",
+        "ZA_ID_NUMBER": "رقم الهوية (جنوب أفريقيا)",
+        "IT_VAT_CODE": "رقم ضريبة القيمة المضافة (إيطاليا)",
+        "DE_VAT_ID": "رقم ضريبة القيمة المضافة (ألمانيا)",
+        "PHONE_NUMBER": "رقم الهاتف (دولي)",
+        "US_SSN": "رقم الضمان الاجتماعي الأمريكي",
+        "US_ITIN": "رقم دافع الضرائب الأمريكي (ITIN)",
+        "US_PASSPORT": "رقم جواز السفر الأمريكي",
+        "US_DRIVER_LICENSE": "رقم رخصة القيادة الأمريكية",
+        "US_BANK_NUMBER": "رقم الحساب المصرفي الأمريكي",
+        "US_MBI": "معرّف مستفيد Medicare (MBI)",
+        "UK_NINO": "رقم التأمين الوطني (المملكة المتحدة)",
+        "UK_PASSPORT": "رقم جواز السفر البريطاني",
+        "UK_DRIVING_LICENCE": "رقم رخصة القيادة البريطانية",
+        "UK_POSTCODE": "الرمز البريدي (المملكة المتحدة)",
+        "CA_SIN": "رقم التأمين الاجتماعي (كندا)",
+        "SG_NRIC_FIN": "NRIC / FIN (سنغافورة)",
+        "IN_PAN": "PAN (الهند)",
+        "IN_PASSPORT": "رقم جواز السفر (الهند)",
+        "IN_VOTER": "بطاقة الناخب (الهند)",
+        "ES_PASSPORT": "رقم جواز السفر (إسبانيا)",
+        "IT_DRIVER_LICENSE": "رقم رخصة القيادة (إيطاليا)",
+        "IT_PASSPORT": "رقم جواز السفر (إيطاليا)",
+        "IT_IDENTITY_CARD": "رقم بطاقة الهوية (إيطاليا)",
+        "KR_PASSPORT": "رقم جواز السفر (كوريا الجنوبية)",
+        "PH_PASSPORT": "رقم جواز السفر (الفلبين)"
+      },
+      "agentsTitle": "سياسات الوكلاء",
+      "agentsDesc": "اختر السياسة التي يضيفها كل وكيل. تنطبق سياسة الوكيل على كل طلب يتضمن الوكيل، بما في ذلك بيانات الوكلاء الآخرين في المحادثة نفسها، حتى مع مزوّد معفى. عند انطباق عدة سياسات، يُطبَّق الخيار الأكثر صرامة لكل قاعدة.",
+      "defaultAgentPolicy": "الافتراضي للوكلاء",
+      "defaultAgentPolicyDesc": "يستخدم الوكلاء الذين ليس لهم اختيار خاص هذه السياسة.",
+      "noAgents": "لا يوجد وكلاء بعد.",
+      "agentPolicyFor": "سياسة PII لـ {name}",
+      "noAgentPolicy": "بدون سياسة وكيل",
+      "inheritAgentPolicy": "الافتراضي للمؤسسة: {policy}",
+      "usedByAgents": "{n} وكيل | {n} وكلاء",
+      "contextualTitle": "تحتاج إلى كلمة قريبة",
+      "contextualNote": "لا يوجد رقم تحقق، لذا لا يُكتشف معظمها إلا عندما تكون كلمة مثل \"جواز سفر\" أو \"حساب\" بجوار القيمة. يعمل ذلك في الجمل والملاحظات؛ أما في صفوف الجداول فاسم العمود عادةً ليس بجوار القيمة، لذا توقّع بعض الإغفال. تُفحص في رسالة المستخدم وفي البيانات، وليس في التعليمات أو المخططات.",
+      "termCount": "{n} مصطلح | {n} مصطلحات",
+      "terms": "مصطلحات مطابقة",
+      "termsHelp": "كلمات أو عبارات، واحدة في كل سطر: أسماء رمزية، أسماء عملاء، أسماء خوادم داخلية. تُطابق ككلمات كاملة دون تمييز حالة الأحرف. استخدمها مع الأنماط أو بدلًا منها.",
+      "termsPlaceholder": "مشروع الصقر\nAcme Corp",
+      "checksum": "رقم التحقق",
+      "checksumHelp": "لا تُحتسب المطابقة إلا إذا اجتازت هذا الفحص، مما يستبعد معظم الأرقام المشابهة.",
+      "checksumNone": "بدون رقم تحقق",
+      "contextWords": "كلمات السياق",
+      "contextWordsHelp": "مفصولة بفواصل. لا تُحتسب المطابقة إلا إذا وُجدت إحدى هذه الكلمات على بُعد 60 حرفًا منها.",
+      "contextWordsPlaceholder": "جواز سفر, رقم الجواز",
+      "checksumSummary": "التحقق: {name}",
+      "contextSummary": "بالقرب من: {words}",
+      "checksums": {
+        "luhn": "Luhn (البطاقات، IMEI، SIN الكندي)",
+        "iban": "IBAN (باقي القسمة على 97)",
+        "il_id": "رقم الهوية الإسرائيلية",
+        "aba": "رقم التوجيه المصرفي الأمريكي (ABA)"
       }
     },
     "piiTab": "البيانات الشخصية",
@@ -4691,6 +4776,42 @@
           "title": "صدّر شهادة SMS Provider",
           "body": "يستخدم الموقع افتراضيًا شهادة موقّعة ذاتيًا. شغّل هذا الأمر في PowerShell على SMS Provider والصق الناتج في SMS Provider certificate (PEM). تخطَّ هذه الخطوة إذا كانت الشهادة صادرة عن مرجع شهادات يثق به هذا الخادم بالفعل."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "سجّل تطبيقًا في Microsoft Entra",
+          "body": "في مركز إدارة Microsoft Entra انتقل إلى App registrations > New registration. اختر \"Accounts in this organizational directory only\". من صفحة Overview للتطبيق، انسخ Directory (tenant) ID و Application (client) ID إلى الحقول أدناه."
+        },
+        {
+          "title": "أضف عنوان URI لإعادة التوجيه",
+          "body": "في التطبيق انتقل إلى Authentication > Add a platform > Web والصق عنوان URI لإعادة التوجيه هذا."
+        },
+        {
+          "title": "امنح أذونات Microsoft Graph",
+          "body": "في API permissions > Add a permission > Microsoft Graph > Delegated permissions، أضف Mail.Read و User.Read و offline_access و openid و profile. للسماح للوكلاء بنقل البريد أو صياغته أو إرساله، أضف أيضًا Mail.ReadWrite و Mail.Send. ثم انقر على \"Grant admin consent\" حتى لا يُطلب من المستخدمين الموافقة على التطبيق. استخدم أذونات Delegated فقط وليس أذونات Application: يقرأ الموصل صندوق بريد المستخدم الذي سجّل الدخول فقط."
+        },
+        {
+          "title": "أنشئ سر العميل",
+          "body": "في Certificates & secrets > New client secret، أنشئ سرًا وانسخ قيمته Value (وليس Secret ID) إلى حقل Client Secret أدناه. لن تتمكن من رؤية القيمة مرة أخرى لاحقًا."
+        }
+      ],
+      "hubspot": [
+        {
+          "title": "أنشئ MCP connector في HubSpot",
+          "body": "في حساب HubSpot انتقل إلى Development > MCP Connectors وانقر على Create MCP connector. امنحه اسمًا."
+        },
+        {
+          "title": "أضف عنوان URL لإعادة التوجيه",
+          "body": "الصق عنوان URL هذا في حقل Redirect URL الخاص بالموصل، ثم انقر على Create."
+        },
+        {
+          "title": "انسخ معرّف العميل والسر",
+          "body": "في صفحة تفاصيل الموصل، انسخ Client ID وClient secret إلى الحقول أدناه."
+        },
+        {
+          "title": "يسجّل كل مستخدم الدخول بنفسه",
+          "body": "لا تحدد نطاقات على الموصل. يختار كل مستخدم حساب HubSpot الخاص به ويمنح الوصول عند تسجيل الدخول. لا يرى الوكيل إلا ما يستطيع هذا المستخدم رؤيته في HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "فشل النسخ — حدد النص",
@@ -4752,7 +4873,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "توحيد الجداول عبر قواعد البيانات",
+      "unifyTablesDescription": "ادمج الجداول المتطابقة الاسم من قواعد البيانات المطابقة في جدول واحد مع عمود tenant_db. لا يمكن تغيير ذلك بعد إنشاء الاتصال."
     },
     "postgresqlMulti": {
       "databasesTitle": "قواعد البيانات",
@@ -4944,7 +5067,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "لا يمكن أن يكون \"السماح بالكل\" هو الافتراضي إلا أثناء تشغيله.",
     "tool_permission_mode.judge_model_unavailable": "اختر نموذج قرار مفعّلًا لحَكَم الوضع التلقائي.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "لا يمكن تغيير اتصال Athena بين قاعدة بيانات واحدة وعدة قواعد بيانات وجداول موحّدة. أنشئ اتصالًا جديدًا بدلًا من ذلك.",
     "catalog_discovery_incomplete": "فشل تحديث الكتالوج لأن الاكتشاف لم يكتمل. تم الاحتفاظ بالكتالوج السابق واختيارات الجداول.",
     "saml_unavailable": "إعدادات تسجيل الدخول الموحد غير متاحة. تواصل مع المسؤول.",
     "saml_login_failed": "فشل تسجيل الدخول الموحد. أعد المحاولة أو تواصل مع المسؤول.",
@@ -5124,7 +5247,8 @@
     "organization.name_taken": "توجد مؤسسة باسم «{name}» بالفعل.",
     "organization.signup_domains_instance_admin_required": "لا يمكن تعيين نطاقات التسجيل لمؤسسة إلا لمسؤول المثيل.",
     "organization.signup_domain_claimed": "النطاق {domain} معيّن بالفعل لمؤسسة أخرى.",
-    "organization.member_instance_admin": "هذا الحساب لمسؤول النظام. لا يمكن إضافته إلى مؤسسة إلا من قِبل مسؤول النظام."
+    "organization.member_instance_admin": "هذا الحساب لمسؤول النظام. لا يمكن إضافته إلى مؤسسة إلا من قِبل مسؤول النظام.",
+    "workspace.access_required": "يمكن لحسابك استخدام التطبيقات المشتركة معك، لكن ليس مساحة العمل."
   },
   "email": {
     "dashboardShare": {
@@ -6498,7 +6622,8 @@
       "windowNote": "تتم إعادة تعيين الاستخدام في بداية كل شهر.",
       "dailyNote": "يوميًا منذ بداية الشهر",
       "disabledTitle": "تتبّع الاستخدام غير مُفعّل",
-      "disabledNote": "يتم تتبّع الاستخدام لكل مستخدم (الرموز والاستعلامات والبيانات المفحوصة) عند تفعيل ميزة حدود الاستخدام في خطتك."
+      "disabledNote": "يتم تتبّع الاستخدام لكل مستخدم (الرموز والاستعلامات والبيانات المفحوصة) عند تفعيل ميزة حدود الاستخدام في خطتك.",
+      "today": "اليوم: {used} / {limit}"
     },
     "appearance": {
       "title": "المظهر",
@@ -6958,7 +7083,7 @@
     "newQuota": "حصة جديدة",
     "noDirectQuota": "افتراضية",
     "noPoliciesFound": "لم يتم العثور على سياسات حصص",
-    "noPoliciesHint": "أنشئ حصة لتحديد الاستخدام الشهري للذكاء الاصطناعي والبيانات.",
+    "noPoliciesHint": "أنشئ حصة لتحديد الاستخدام اليومي والشهري للذكاء الاصطناعي والبيانات.",
     "none": "لا شيء",
     "principalTypes": {
       "group": "مجموعة",
@@ -6980,7 +7105,20 @@
     "tokensShort": "التوكنات",
     "unlimited": "بلا حدود",
     "update": "تحديث",
-    "users": "المستخدمون"
+    "users": "المستخدمون",
+    "dayShort": "يوم",
+    "monthShort": "شهر",
+    "limitPerUser": "الحد لكل مستخدم",
+    "perDay": "يوميًا",
+    "perMonth": "شهريًا",
+    "resetsDaily": "يُعاد التعيين 00:00 {tz}",
+    "resetsMonthly": "يُعاد التعيين في اليوم الأول",
+    "tokensLabel": "الرموز",
+    "queriesLabel": "الاستعلامات",
+    "dataLabel": "البيانات الممسوحة (MB)",
+    "spendLabel": "إنفاق LLM (USD)",
+    "limitsHint": "اتركه فارغًا لعدم التقييد. عيّن حدًا يوميًا أو شهريًا أو كليهما — يُحظر الطلب عند بلوغ أيٍّ منهما. تُطبَّق الحدود الشهرية للاستعلامات والبيانات لكل اتصال؛ أما الحدود اليومية فتحتسب جميع الاتصالات معًا.",
+    "dailyAboveMonthly": "لا يمكن أن يتجاوز الحد اليومي الحد الشهري."
   },
   "serviceAccounts": {
     "active": "نشط",
@@ -7205,7 +7343,9 @@
     "nothingRan": "تعذّر إنشاء نسختك: لم يمكن تشغيل أي من استعلاماتها ببيانات اعتمادك."
   },
   "quota": {
-    "resetsOn": "تتم إعادة التعيين في {date}"
+    "resetsOn": "تتم إعادة التعيين في {date}",
+    "todayLabel": "{metric} · اليوم",
+    "resetsDailyAndMonthly": "اليوم يُعاد التعيين 00:00 {tz} · الشهر {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "التعلّم خلال الليل",
@@ -7706,6 +7846,9 @@
       "denied": "ليس لديك حق الوصول إلى هذا المحتوى. اطلب من مالكه مشاركته معك.",
       "notAllowed": "هذا المحتوى غير مفعّل لهذا التطبيق. يمكن للمحرر السماح به من إعدادات التضمين الخاصة به في BOW.",
       "failed": "تعذّر تحميل هذا المحتوى. حاول مرة أخرى بعد قليل."
+    },
+    "signin": {
+      "intentFailed": "تعذّر تأكيد التطبيق الذي تسجّل الدخول إليه. لم يُرسل شيء. حاول مرة أخرى."
     }
   },
   "connectedApps": {
@@ -7763,6 +7906,10 @@
     "shareToggleLabel": "إتاحة لكل من في مؤسستك",
     "shareToggleHint": "يضيف “{name}” إلى موصلات الجميع. يسجّل كل شخص الدخول بحسابه — لا يرى أحد بيانات غيره.",
     "useAsAgent": "استخدام كوكيل",
+    "enableForChat": "تفعيل في المحادثة",
+    "disableForChat": "تعطيل في المحادثة",
+    "enabledHint": "مُفعّل — يمكن للذكاء الاصطناعي استخدامه في المحادثة",
+    "disabledHint": "مُعطّل — لن يستخدمه الذكاء الاصطناعي في المحادثة",
     "movedToAgents": "أصبح {name} وكيلًا الآن"
   },
   "tablePreview": {
@@ -7869,6 +8016,13 @@
       "none": "بلا حد",
       "ask": "اسأل",
       "auto": "تلقائي"
+    },
+    "pii": {
+      "title": "سياسة PII",
+      "hint": "تنطبق على كل طلب يتضمن هذا الوكيل، إضافةً إلى سياسة النموذج. يُطبَّق الخيار الأكثر صرامة لكل قاعدة.",
+      "disabled": "حماية PII متوقفة في هذه المؤسسة.",
+      "saved": "تم حفظ سياسة PII",
+      "saveError": "تعذّر حفظ سياسة PII"
     }
   },
   "productUpdates": {
@@ -8257,5 +8411,40 @@
       "key": "معرّف",
       "set_by_admin": "حدّده مسؤول"
     }
+  },
+  "apps": {
+    "title": "تطبيقاتك",
+    "subtitle": "افتح تطبيقًا للبدء.",
+    "openWorkspace": "فتح مساحة العمل",
+    "search": "البحث في التطبيقات",
+    "untitled": "تطبيق بلا عنوان",
+    "inApplication": "في {name}",
+    "allApps": "كل التطبيقات",
+    "language": "اللغة",
+    "account": "الحساب",
+    "signOut": "تسجيل الخروج",
+    "loadFailed": "تعذّر تحميل تطبيقاتك.",
+    "retry": "إعادة المحاولة",
+    "noMatches": "لا توجد تطبيقات تطابق «{query}».",
+    "empty": {
+      "title": "لا توجد تطبيقات بعد",
+      "body": "عندما يشارك أحدهم تطبيقًا معك، سيظهر هنا."
+    },
+    "requestAccess": {
+      "prompt": "هل تحتاج إلى أكثر من هذه التطبيقات؟",
+      "button": "طلب وصول كامل",
+      "sent": "تم إرسال الطلب. سيراجعه أحد المسؤولين.",
+      "failed": "تعذّر إرسال الطلب. حاول مرة أخرى."
+    },
+    "showMore": "عرض المزيد"
+  },
+  "hostApps": {
+    "newUserRole": "ينضم الأشخاص الجدد بصفة",
+    "newUserRoleHelp": "للحسابات التي تُنشأ عند تسجيل الدخول عبر هذا التطبيق. من لديه حساب بالفعل يحتفظ بدوره.",
+    "newUserRoleApp": "مستخدم تطبيقات",
+    "newUserRoleAppHelp": "يمكنه استخدام التطبيقات المشتركة معه، لا مساحة العمل.",
+    "newUserRoleMember": "عضو",
+    "newUserRoleMemberHelp": "يمكنه أيضًا استخدام مساحة العمل: التقارير والوكلاء ولوحات المعلومات.",
+    "newPeopleAs": "ينضم الأشخاص الجدد بصفة {role}"
   }
 }

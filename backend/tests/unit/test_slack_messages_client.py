@@ -537,15 +537,26 @@ async def test_code_exchange_posts_to_slack_and_returns_the_user_token(monkeypat
 # ----------------------------------------------------------------- registry
 
 
-def test_registry_entry_is_a_dev_only_per_user_chat_source():
+def test_registry_entry_is_a_per_user_chat_source():
     from app.schemas.data_source_registry import get_entry, resolve_client_class
 
     entry = get_entry("slack_messages")
     assert resolve_client_class("slack_messages") is SlackMessagesClient
-    assert entry.dev_only is True and entry.catalog_ownership == "per_user"
+    assert entry.catalog_ownership == "per_user"
     assert entry.credentials_auth.by_auth["oauth"].scopes == ["user"]
     assert set(SlackMessagesClient.capabilities) <= {
         Capability.LIST_CHAT_MESSAGES, Capability.READ_CHAT_THREAD, Capability.SEARCH_CHAT_MESSAGES}
+
+
+def test_slack_is_available_outside_dev_environments(monkeypatch):
+    """Slack is GA: listed in the catalog and resolvable in production."""
+    from app.schemas import data_source_registry as registry
+
+    monkeypatch.setattr(registry, "_is_dev_environment", lambda: False)
+    entry = registry.REGISTRY["slack_messages"]
+    assert entry.dev_only is False
+    assert registry.get_entry("slack_messages") is entry
+    assert registry._entry_visible(entry)
 
 
 

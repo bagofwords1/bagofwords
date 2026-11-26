@@ -63,6 +63,7 @@ const SEARCH_ALIASES: Record<string, string[]> = {
   onenote: ['microsoft', 'office'],
   sharepoint: ['microsoft', 'office'],
   sharepoint_lists: ['microsoft', 'office'],
+  sharepoint_onprem_lists: ['microsoft', 'office', 'lists', 'server', 'on-prem', 'onprem', 'ntlm', 'kerberos'],
   mcp: ['model context protocol', 'tools'],
   oracledb: ['oracle'],
   starburst: ['galaxy', 'enterprise', 'trino', 'presto', 'federated', 'lakehouse'],

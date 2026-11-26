@@ -350,7 +350,20 @@ class UserManager(BaseUserManager[User, str]):
             # ensure_system_role_assignment is a no-op when already held).
             await self._materialize_pending_rbac(session, membership, user.id)
             if invite_role:
-                await ensure_system_role_assignment(session, org_id, str(user.id), invite_role)
+                # Built-ins only: custom roles came across with the pending RBAC
+                # above, as the admin last edited them.
+                await ensure_system_role_assignment(
+                    session, org_id, str(user.id), invite_role, allow_custom=False)
+
+            from app.core.permissions_registry import APP_USER_ROLE
+            if not claimed and invite_role and invite_role != APP_USER_ROLE:
+                # The existing row may be an app user's (created by an embedded
+                # artifact's sign-in). An invite is an admin's explicit grant —
+                # of a system role or the org's own custom role — so it replaces
+                # the app_user role instead of sitting beside it with the
+                # membership still labelled an app user.
+                from app.core.permission_resolver import lift_app_user
+                await lift_app_user(session, org_id, str(user.id), invite_role, allow_custom=False)
 
             if not claimed:
                 # Hard-delete the retired invite — membership removal is a hard
@@ -538,12 +551,18 @@ class UserManager(BaseUserManager[User, str]):
                     "skipping auto-invite for %s", s.organization_id, email
                 )
                 continue
-            role = str(policy.get("auto_invite_role") or "member")
-            session.add(Membership(
+            from app.services.organization_settings_service import resolve_signup_role
+            role = await resolve_signup_role(session, str(s.organization_id), policy)
+            invite = Membership(
                 email=email_norm,
                 organization_id=s.organization_id,
                 role=role,
-            ))
+            )
+            session.add(invite)
+            # A custom role travels as a pending RBAC row (acceptance grants
+            # only built-ins from the name).
+            from app.core.permission_resolver import stage_invite_role
+            await stage_invite_role(session, str(s.organization_id), invite, role)
             created_for.add(str(s.organization_id))
         await session.flush()
         return created_for
@@ -1196,10 +1215,12 @@ async def admit_directory_identity(session: AsyncSession, identity: dict, ldap_c
         session.add(user)
         await session.flush()
         from app.core.permission_resolver import ensure_system_role_assignment, insert_membership_if_absent
+        from app.services.organization_settings_service import resolve_default_member_role
+        role = await resolve_default_member_role(session, str(ldap_config.organization_id))
         await insert_membership_if_absent(session, Membership(
             user_id=user.id, organization_id=ldap_config.organization_id,
-            role="member", directory_provider=identity["provider"]))
-        await ensure_system_role_assignment(session, ldap_config.organization_id, str(user.id), "member")
+            role=role, directory_provider=identity["provider"]))
+        await ensure_system_role_assignment(session, ldap_config.organization_id, str(user.id), role)
     else:
         from app.core.instance_admin import directory_sign_in_refused_for_superuser
         if not user.is_active or directory_sign_in_refused_for_superuser(user):
@@ -1313,13 +1334,18 @@ async def auto_provision_user_for_org(
             from app.core.permission_resolver import claim_pending_invite
             await claim_pending_invite(db, existing_user, organization_id)
         else:
-            role = str(policy.get("auto_invite_role") or "member")
-            from app.core.permission_resolver import insert_membership_if_absent
-            await insert_membership_if_absent(db, Membership(
+            from app.services.organization_settings_service import resolve_signup_role
+            from app.core.permission_resolver import ensure_system_role_assignment, insert_membership_if_absent
+            role = await resolve_signup_role(db, organization_id, policy)
+            _, created = await insert_membership_if_absent(db, Membership(
                 user_id=existing_user.id,
                 organization_id=organization_id,
                 role=role,
             ))
+            if created:
+                # A real RBAC assignment: the legacy-role net only understands
+                # member/admin, so a custom default role would otherwise grant nothing.
+                await ensure_system_role_assignment(db, organization_id, str(existing_user.id), role)
         from app.core.user_lifecycle import reactivate_user_for_membership
         await reactivate_user_for_membership(db, str(existing_user.id), organization_id)
         await db.commit()
@@ -1343,13 +1369,15 @@ async def auto_provision_user_for_org(
         from app.core.permission_resolver import claim_pending_invite
         await claim_pending_invite(db, user, organization_id)
     else:
-        role = str(policy.get("auto_invite_role") or "member")
-        from app.core.permission_resolver import insert_membership_if_absent
+        from app.services.organization_settings_service import resolve_signup_role
+        from app.core.permission_resolver import ensure_system_role_assignment, insert_membership_if_absent
+        role = await resolve_signup_role(db, organization_id, policy)
         await insert_membership_if_absent(db, Membership(
             user_id=user.id,
             organization_id=organization_id,
             role=role,
         ))
+        await ensure_system_role_assignment(db, organization_id, str(user.id), role)
 
     await db.commit()
     await db.refresh(user)
@@ -1603,6 +1631,21 @@ async def current_user(
     api_key: Optional[str] = Depends(api_key_header),
     db: AsyncSession = Depends(get_async_db),
 ) -> User:
+    """The authenticated caller (JWT, OAuth token or API key), refused when
+    they are an app user reaching outside their apps (core/workspace_access)."""
+    user = await _authenticate(request, jwt_user, api_key, db)
+    from app.core.workspace_access import gate_user
+
+    await gate_user(request, db, user)
+    return user
+
+
+async def _authenticate(
+    request: Request,
+    jwt_user: Optional[User],
+    api_key: Optional[str],
+    db: AsyncSession,
+) -> User:
     """
     Get the current user from either JWT token or API key.
 
@@ -1682,6 +1725,12 @@ async def current_user_optional(
         return await current_user(request, jwt_user, api_key, db)
     except HTTPException:
         return None
+    except AppError as e:
+        # An app user outside their apps is nobody here, exactly as a signed-
+        # out visitor is: a public page stays public, the rest asks to sign in.
+        if e.error_code == ErrorCode.WORKSPACE_ACCESS_REQUIRED.value:
+            return None
+        raise
 
 
 async def get_current_organization(
@@ -1723,6 +1772,8 @@ async def get_current_organization(
             "This API key belongs to a different organization",
         )
     await assert_principal_belongs_to_org(db, user, org.id)
+    from app.core.workspace_access import gate_organization
+    await gate_organization(request, db, user, str(org.id))
     from app.core.request_org import set_request_organization_id
     set_request_organization_id(str(org.id))
     return org

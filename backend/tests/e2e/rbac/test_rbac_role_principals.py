@@ -149,7 +149,9 @@ def test_custom_role_still_gets_baseline_permissions(
     # A custom role holding exactly one unrelated org permission.
     role_resp = create_role(
         name="conn_only",
-        permissions=["manage_connections"],
+        # A workspace role: without `access_workspace` its holder would be an
+        # app user, who gets no baseline (tests/e2e/dashboards/test_app_users.py).
+        permissions=["access_workspace", "manage_connections"],
         user_token=admin["token"],
         org_id=org_id,
     )

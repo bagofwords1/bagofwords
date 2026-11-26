@@ -280,9 +280,60 @@ BoW-style text; numbers in the loop doc):
 - `tools/agent/presidio_service.py`: the same API serving spaCy or GLiNER, for
   loops and as a reference for a multilingual deployment.
 
+### Phase 5 — validated identifiers from Presidio
+
+- `detectors/catalog.py` now has two kinds of detector entity: `ner` (names,
+  places, organizations, groups) and `pattern`: 21 Presidio recognizers that
+  confirm a match with a **checksum** (credit card/Luhn, IBAN/mod-97, ABA
+  routing, Bitcoin address, US NPI, US DEA, UK NHS, ES NIF/NIE, IT fiscal code,
+  DE tax ID, PL PESEL, FI HETU, SE personnummer, TR national ID, AU
+  TFN/ABN/Medicare, IN Aadhaar, KR RRN, ZA ID). A valid match scores 1.0, a
+  broken checksum is dropped, so the default `min_score` of 0.7 holds.
+  Recognizers without a checksum (US passport, driver's license, bank
+  account…) are left out: they score 0.05–0.5 and pass only with context.
+- Why next to the built-in regex rules: on random 13–16 digit IDs the built-in
+  `credit_card` rule matches every one; Presidio's `CREDIT_CARD` about one in
+  ten (those that pass Luhn). Both can be on; an overlapping built-in match wins.
+- In-process: the pattern recognizers are added to the registry with either
+  engine (no model needed). HTTP: the entities offered are the ones the service
+  lists at `GET /supportedentities` (the official image disables several by
+  default in `default_recognizers.yaml`); a service without the endpoint is
+  treated as NER-only.
+- Settings page: a separate **Validated identifiers** group, off until enabled.
+
+### Phase 6 — more rules, and richer custom rules
+
+- **Presidio `context` entities** (`detectors/catalog.py`): Presidio's
+  recognizers without a checksum (US SSN/ITIN/passport/driver's license/bank
+  account/MBI, UK NINO/passport/driving licence/postcode, CA SIN, SG NRIC,
+  IN PAN/passport/voter, ES/IT passports, IT licence/ID card, KR/PH passports,
+  international phone numbers). Each carries its own default `min_score`
+  (0.4; 0.7 for phone and India voter ID): a context word adds 0.35, so weak
+  patterns need one nearby. Measured on synthetic order rows: 0 hits at the
+  defaults. Left out after measuring: India GSTIN (Presidio accepts a wrong
+  check character at 1.0), German passport / ID card (≈5% of letter+8-digit
+  SKUs score 1.0), dates, URLs, UUIDs.
+- The in-process detector matches context words **whole-word**
+  (`context_matching_mode="whole_word"`): Presidio's default substring mode
+  made "us" (a US passport context word) hit inside "customer". A Presidio
+  service keeps its own setting (the official image: substring).
+- **Built-in rules that ship off** (`enabled_by_default: False`): IPv6, MAC
+  address, Israeli ID (with checksum), JWT, PEM private key, API keys/tokens
+  (GitHub, Slack, Stripe, Google, OpenAI, Anthropic), password in a URL. An
+  existing policy redacts exactly what it did before the upgrade; the merge,
+  the resolver and the settings page all read the flag.
+- **Custom rule conditions** (`checks.py`), stored on the shared rule:
+  `terms` (exact words/phrases → one whole-word, case-insensitive
+  alternation, longest first; a rule may have terms and no regex), `checksum`
+  (`luhn`, `iban`, `il_id`, `aba`) and `context` (words, one within 60
+  characters of a match). Checksum and context wrap each compiled pattern in
+  a `FilteredPattern`, so model redaction, block detection, merged policies
+  and display masking all apply the same conditions.
+
 ## Not in scope
 
 - Policies per agent or data source: one prompt mixes several agents' content
-  (see the provider-exemption feedback loop).
+  (see the provider-exemption feedback loop). A "strictest wins" variant that
+  avoids this is proposed in `docs/design/pii-agent-policies.md`.
 - Per-user policies.
 - Applying PII rules to stored data at rest.

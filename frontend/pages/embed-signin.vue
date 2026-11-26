@@ -43,6 +43,9 @@ onMounted(async () => {
   }
   await getSession()
   if (status.value !== 'authenticated') {
+    // The sign-in and sign-up pages read the host application from this
+    // redirect and attach it to the one request that can create an account
+    // (composables/useEmbedSignupIntent.ts).
     await navigateTo(`/users/sign-in?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`)
     return
   }

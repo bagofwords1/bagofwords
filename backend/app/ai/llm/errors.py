@@ -152,6 +152,9 @@ _INTERNAL_QUOTA_MARKERS = (
     "monthly llm token quota",
     "monthly llm spend quota",
     "monthly usage quota",
+    "daily llm token quota",
+    "daily llm spend quota",
+    "daily usage quota",
 )
 
 # AWS surfaces everything as botocore ClientError: no HTTP status on the

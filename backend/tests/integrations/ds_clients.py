@@ -39,6 +39,9 @@ DATA_SOURCES = [
     "hpe_oneview",
     "cisco_apic",
     "sharepoint_onprem",  # Real SharePoint Server; configure in integrations.json.
+    # Real SharePoint Server lists (SHAREPOINT_LISTS_TEST_* env vars), or
+    # tools/agent/mock_sharepoint_lists_server.py for a loopback NTLM lab.
+    "sharepoint_onprem_lists",
     "postgresql",
     "mysql",
     # Remote mode: a Starburst Galaxy (or Enterprise) cluster configured in
@@ -575,6 +578,14 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
             "drive_name": os.environ.get("SHAREPOINT_TEST_LIBRARY", "Documents"),
             "folder_path": os.environ.get("SHAREPOINT_TEST_FOLDER", ""),
             "recursive": True,
+        }
+    if name == "sharepoint_onprem_lists" and os.environ.get("SHAREPOINT_LISTS_TEST_SITE_URL"):
+        return {
+            "site_url": os.environ["SHAREPOINT_LISTS_TEST_SITE_URL"],
+            "username": os.environ.get("SHAREPOINT_LISTS_TEST_USERNAME"),
+            "password": os.environ.get("SHAREPOINT_LISTS_TEST_PASSWORD"),
+            "lists": os.environ.get("SHAREPOINT_LISTS_TEST_LISTS", "*"),
+            "allow_http": os.environ.get("SHAREPOINT_LISTS_TEST_ALLOW_HTTP") == "true",
         }
     cfg = dict(DS_CREDENTIALS.get(name, {}))
     if not cfg:

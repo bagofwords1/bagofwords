@@ -226,7 +226,11 @@ async def create_agents(
     *,
     report=None,
     folder_id: str | None = None,
+    created_ids: list | None = None,
 ) -> InstallResult:
+    """``created_ids``, when given, receives each agent's id the moment it is
+    committed — so a caller rolling back a failed install deletes exactly what
+    this install made, even when it fails before returning."""
     from app.schemas.data_source_schema import DataSourceCreate
     from app.services.data_source_service import DataSourceService
     from app.core.permission_resolver import invalidate_rbac_memo
@@ -243,13 +247,15 @@ async def create_agents(
             name = next(f"{name} ({i})" for i in range(2, 1000) if f"{name} ({i})".lower() not in taken)
         taken.add(name.lower())
         try:
+            # Recorded at the agent's first commit, not when create returns:
+            # the create commits the row before steps that can still raise.
             created = await service.create_data_source(db, organization, user, DataSourceCreate(
                 name=name,
                 connection_ids=[str(connection.id)],
                 folder_id=folder_id,
                 is_public=False,
                 use_llm_sync=False,
-            ))
+            ), on_committed=created_ids.append if created_ids is not None else None)
         except HTTPException as he:
             reason = {409: "name_taken", 402: "limit_reached", 403: "permission_denied"}.get(he.status_code, "rejected")
             result.skipped_agents.append({"name": agent.name, "reason": reason, "detail": str(he.detail)})

@@ -227,6 +227,11 @@ class PlannerInput(BaseModel):
     # then runs them concurrently under that same setting).
     parallel_tools_enabled: bool = False
 
+    # Set for one planner call when a build was asked for and the turn tried
+    # to end without one: only these tools are offered and the model must
+    # call one of them (no text-only answer). See agent_v2 forced build.
+    forced_tools: Optional[List[str]] = None
+
     # Model identity + routing state for the per-turn runtime head. Rendered in
     # the USER message (never the system prompt) so mid-run routing never
     # fragments a model's system-prompt cache lineage.

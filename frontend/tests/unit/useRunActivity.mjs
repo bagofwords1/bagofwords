@@ -4,6 +4,7 @@ import {
   computeRunActivity,
   computeRunToolGroups,
   describeDataOutput,
+  isPendingWait,
   findFinalBlock,
 } from '../../composables/useRunActivity.ts'
 
@@ -98,15 +99,16 @@ const table = (title, rows) => tool('create_data', { title }, {
 }
 
 // Running work with its own Stop (an eval, a sub-agent) is never hidden: open
-// in place while live — even inside a merged tool group — and kept under the
-// answer once the run folds, after the outputs. Finished work folds as usual.
+// in place while live — run_eval is a deliverable, so it is its own row rather
+// than a member of the search group — and kept under the answer once the run
+// folds, after the outputs. Finished work folds as usual.
 {
   const search = tool('search_evals')
   const evalRun = tool('run_eval', {}, { te: { status: 'running' } })
   const keepVisible = (b) => b.id === evalRun.id
   const live = computeRunActivity([search, evalRun], { runStatus: 'in_progress', keepVisible })
   assert.deepEqual(live?.openIds, [evalRun.id])
-  assert.deepEqual(live?.toolGroups.map((g) => g.blockIds), [[search.id, evalRun.id]])
+  assert.deepEqual(live?.toolGroups.map((g) => g.blockIds), [[search.id], [evalRun.id]])
   assert.deepEqual(live?.deliverableIds, [])
 
   const dash = tool('create_dashboard', {}, { te: { result_json: { artifact_id: 'a1' } } })
@@ -451,4 +453,70 @@ console.log('useRunActivity: shared-link payload assertions passed')
   const [stillRunning] = computeRunToolGroups([tool('inspect_data', {}, { te: { status: 'running' } })], undefined, false)
   assert.equal(stillRunning.failedCount, 0)
   console.log('useRunActivity: tool-group failure count passed')
+}
+
+// Deliverables never fold into a live tool group: a dashboard, an instruction
+// or a doc is its own row (a one-call group renders as a plain tool row), and
+// the groupable calls around it keep their own groups on either side.
+{
+  const ids = (blocks) => computeRunToolGroups(blocks, undefined, false).map((g) => g.blockIds)
+
+  const a = tool('inspect_data'), b = tool('create_data', { title: 'Sales' }), dash = tool('create_artifact')
+  assert.deepEqual(ids([a, b, dash]), [[a.id, b.id], [dash.id]])
+
+  const s = tool('search_instructions'), r = tool('read_instruction'), ed = tool('edit_instruction')
+  const cr = tool('create_instruction'), after = tool('inspect_data')
+  assert.deepEqual(ids([s, r, ed, cr, after]), [[s.id, r.id], [ed.id], [cr.id], [after.id]])
+
+  const d1 = tool('create_data', { title: 'A' }), edit = tool('edit_artifact'), d2 = tool('create_data', { title: 'B' }), d3 = tool('inspect_data')
+  assert.deepEqual(ids([d1, edit, d2, d3]), [[d1.id], [edit.id], [d2.id, d3.id]])
+
+  // Every listed deliverable (and submit_*) stands alone; a plain read still groups.
+  for (const name of ['create_doc', 'edit_doc', 'create_dashboard', 'create_scheduled_task', 'send_email', 'submit_review', 'execute_sql']) {
+    const x = tool('read_file'), y = tool(name)
+    assert.deepEqual(ids([x, y]), [[x.id], [y.id]], name)
+  }
+  const x = tool('read_file'), y = tool('grep_files')
+  assert.deepEqual(ids([x, y]), [[x.id, y.id]])
+  console.log('useRunActivity: deliverables stay out of tool groups passed')
+}
+
+// A wait still armed keeps its card (countdown + Cancel) in view: the page
+// passes it as keepVisible, so a run that ends on it lists the card under the
+// conclusion instead of folding it away. Cancelled, elapsed or failed waits
+// fold like any other step.
+{
+  const now = Date.UTC(2026, 0, 1, 12, 0, 0)
+  const iso = (ms) => new Date(ms).toISOString()
+  const te = (rj) => ({ tool_name: 'wait', status: 'success', result_json: rj })
+  assert.equal(isPendingWait(te({ status: 'scheduled', wake_at: iso(now + 60000) }), now), true)
+  assert.equal(isPendingWait(te({ status: 'scheduled', wake_at: iso(now - 1000) }), now), false)
+  assert.equal(isPendingWait(te({ status: 'cancelled', wake_at: iso(now + 60000) }), now), false)
+  assert.equal(isPendingWait(te({ status: 'scheduled' }), now), true, 'no wake time yet: still armed')
+  assert.equal(isPendingWait(te({}), now), false)
+  assert.equal(isPendingWait({ tool_name: 'run_eval', result_json: { status: 'scheduled' } }, now), false)
+
+  const data = tool('create_data', { title: 'Revenue' })
+  const wait = tool('wait', { delay_minutes: 10 }, {
+    te: { result_json: { status: 'scheduled', wake_at: iso(Date.now() + 600000) } },
+    block: { content: 'Waiting 10 minutes, then I\'ll pick this back up automatically.', plan_decision: { analysis_complete: true } },
+  })
+  const keepVisible = (b) => isPendingWait(b.tool_execution)
+  const done = computeRunActivity([data, wait], { runStatus: 'success', keepVisible })
+  assert.equal(done?.finalBlockId, wait.id, 'the wait ends the turn with its message')
+  assert.deepEqual(done?.deliverableIds, [wait.id])
+  assert.deepEqual(computeRunActivity([data, wait], { runStatus: 'success', keepVisible: () => false })?.deliverableIds, [])
+  console.log('useRunActivity: an armed wait stays in view passed')
+}
+
+// Approved or undone actions are deliverables too: their outcome stays under
+// the conclusion, and they never join a live tool group.
+{
+  for (const name of ['delete_list_rows', 'set_report_agents', 'cancel_wait', 'cancel_scheduled_task', 'stop_eval_run', 'stop_sub_agent']) {
+    const read = tool('read_file'), act = tool(name)
+    assert.deepEqual(computeRunToolGroups([read, act], undefined, false).map((g) => g.blockIds), [[read.id], [act.id]], name)
+    const done = computeRunActivity([read, act, final()], { runStatus: 'success' })
+    assert.deepEqual(done?.deliverableIds, [act.id], name)
+  }
+  console.log('useRunActivity: approved and undone actions stay in view passed')
 }

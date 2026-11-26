@@ -110,7 +110,7 @@ def world(bootstrap_admin, invite_user_to_org, sqlite_data_source, grant_resourc
             status="success", duration_ms=5_000, **run)])[0]
     rollup_agent_executions()
     return {"org_id": org_id, "admin": admin, "manager_b": manager_b, "member": member, "ids": ids,
-            "report_a": r_a["id"]}
+            "report_a": r_a["id"], "ds_a": ds_a, "ds_b": ds_b}
 
 
 def _trace(test_client, world, actor, name):
@@ -230,3 +230,26 @@ def test_tokens_and_models_follow_the_trace_permission(test_client, world, actor
     else:
         assert resp.status_code in (403, 404), resp.text
         assert "models" not in resp.text
+
+
+@pytest.mark.parametrize("name, agent", [("anthropic", "ds_a"), ("routed", "ds_a"), ("openai", "ds_b"), ("legacy", "ds_b")])
+def test_trace_names_the_agents_the_run_drew_on(test_client, world, name, agent):
+    """An ordinary run's agents are its report's agents, as the diagnosis
+    runs table shows them, with what the icon needs."""
+    agents = _ok(_trace(test_client, world, "admin", name))["agents"]
+    assert [(a["id"], a["name"]) for a in agents] == [(world[agent]["id"], world[agent]["name"])]
+    assert all("type" in a and "icon" in a for a in agents)
+
+
+def test_a_run_on_a_report_without_agents_names_none(test_client, world, create_report, seed_agent_executions):
+    report = create_report(title="No agent", user_token=world["admin"]["token"], org_id=world["org_id"])
+    run_id = seed_agent_executions(world["org_id"], report["id"], [dict(
+        user_id=world["admin"]["user_id"], prompt="hello", created_at=NOW, status="success")])[0]
+    body = _ok(test_client.get(f"/api/console/agent_executions/{run_id}",
+                               headers=_headers(world["admin"]["token"], world["org_id"])))
+    assert body["agents"] == []
+
+
+def test_a_scoped_manager_sees_the_agents_of_runs_they_may_trace(test_client, world):
+    body = _ok(_trace(test_client, world, "manager_b", "openai"))
+    assert [a["name"] for a in body["agents"]] == [world["ds_b"]["name"]]

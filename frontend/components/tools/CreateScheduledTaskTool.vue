@@ -11,7 +11,9 @@
 <script setup lang="ts">
 import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
 import { ref as activityRef } from 'vue'
-const toolHeaderExpanded = activityRef(false)
+// Open by default: the schedule card (when it runs, what it does) is the
+// result of this call, not a detail of it.
+const toolHeaderExpanded = activityRef(true)
 import { computed } from 'vue'
 
 interface ToolExecution {

@@ -244,14 +244,16 @@
             <template #agent="{ agent }">
             <TreeGroup :dragging-agent="folderExplorer?.dragged?.id === agent.id" :drag-agent="canManageAgent(agent.id) && folderExplorer?.canDrag(agent)"
               @agent-drag="folderExplorer?.startDrag($event, agent)" @agent-drag-end="folderExplorer?.endDrag()"
-              :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
+              :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : (hasConnections(agent) ? '' : $t('connectionlessAgent.badge'))))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
               <!-- Content sections need a queryable agent, so they stay hidden while
                    the viewer hasn't signed in with their own credentials. Settings
                    (below) stays reachable for managers — deleting or reconfiguring
                    an agent must not require personal credentials to it. -->
-              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
+              <!-- Tables and tools come from connections: an agent with none
+                   has neither, so the groups would only ever say "none". -->
+              <TreeGroup v-if="!agentAccessBlocked(agent) && hasConnections(agent)" :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" :icon="t.routine ? ROUTINE_ICON : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono :addable="canAddInstrFor(agent.id)" :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
@@ -259,7 +261,7 @@
                 <EmptyHint v-if="agentTables[agent.id] && activeTables(agent.id).length === 0" :text="$t('agentsPage.noActiveTables')" :pad="48" />
               </TreeGroup>
 
-              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.tools')" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
+              <TreeGroup v-if="!agentAccessBlocked(agent) && hasConnections(agent)" :label="$t('agentsPage.tools')" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
                 <!-- Grouped by connection (MCP / custom API). Click a group to expand its tools. -->
                 <TreeGroup v-for="grp in toolGroups(agent.id)" :key="grp.connId" :label="grp.name" :count="grp.tools.length" :indent="2" :open="isOpen('toolconn:' + agent.id + ':' + grp.connId)" @toggle="expand('toolconn:' + agent.id + ':' + grp.connId)">
                   <template #icon><DataSourceIcon v-if="grp.type" :type="grp.type" :connector-key="grp.connector_key" class="w-4 h-4 shrink-0" /><UIcon v-else name="i-heroicons-wrench-screwdriver" class="w-4 h-4 text-ink-muted shrink-0" /></template>
@@ -499,6 +501,10 @@
                         <span class="sr-only">{{ $t(statusLabelKey(getEffectiveStatus(connection))) }}</span>
                       </button>
                     </UTooltip>
+                  </div>
+                  <div v-else-if="agentDetail && !agentDetail.connections?.length" class="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-ink-muted" data-testid="agent-no-connections">
+                    <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-link-slash" class="h-3.5 w-3.5" />{{ $t('connectionlessAgent.landingHint') }}</span>
+                    <button v-if="agentCanUpdate" type="button" class="text-blue-600 hover:text-blue-700 dark:text-blue-400" data-testid="agent-add-connection" @click="openConnModal(agentView.agentId)">{{ $t('connectionlessAgent.addConnection') }}</button>
                   </div>
                   <div v-if="agentLandingCounts.length" class="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400" data-testid="agent-resource-counts">
                     <button v-for="count in agentLandingCounts" :key="count.kind" type="button" class="rounded py-0.5 hover:text-gray-900 dark:hover:text-gray-100" @click="openAgentSection(count.kind, agentView.agentId)">{{ $t(count.label, { n: count.value == null ? '–' : formatAgentNumber(count.value) }, statChoice(count.value)) }}</button>
@@ -3606,6 +3612,9 @@ const needsSignIn = (a: any) => pendingSignInConnections(a).length > 0
 // A missing credential on one connection must not hide the usable sources.
 const agentAccessBlocked = (a: any) => (a?.connections || []).length > 0
   && (a.connections || []).every(needsConnectionSignIn)
+// An agent can have no connection at all (instructions and files only): it
+// has no tables or tools to show, and is flagged so that is not a surprise.
+const hasConnections = (a: any) => (a?.connections || []).length > 0
 // In-app OBO/user sign-in (was: window.open the legacy /old_agents page).
 const openAgentTab = (id: string) => { connectAgent(id) }
 
@@ -4405,6 +4414,9 @@ const InstrLeaf = defineComponent({
     // this scope ('global' | agentId). Only passed inside directory-aware groups.
     dragScope: { type: String, default: '' },
     draggable: Boolean,
+    // Replaces the default click (open in the agent's detail pane). The folder
+    // tree passes one so a click still opens the folder pane around the row.
+    onOpen: Function,
     // Render a one-line body snippet under the title. The Instructions pane
     // sets it: a search matches the body, so the row should show why it hit.
     snippet: Boolean,
@@ -4435,8 +4447,8 @@ const InstrLeaf = defineComponent({
         // (especially one with user-select: none) unless it is asked to treat
         // the element itself as the drag source. No effect in Chrome/Firefox.
         style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px', ...(props.draggable ? { WebkitUserDrag: 'element' } : {}) },
-        onClick: () => openInstruction(ins),
-        onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openInstruction(ins) } },
+        onClick: () => props.onOpen ? props.onOpen(ins) : openInstruction(ins),
+        onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); props.onOpen ? props.onOpen(ins) : openInstruction(ins) } },
         onDragstart: props.draggable ? (e: DragEvent) => startDragInstr(props.dragScope, ins.id, e) : undefined,
         onDragend: props.draggable ? endDrag : undefined,
       }, [
@@ -4461,6 +4473,11 @@ const InstrLeaf = defineComponent({
 // A folder in the tree: header row (rename/delete/new-subfolder on hover, drag
 // to re-parent, drop target for instructions and folders) + its contents when
 // open (child folders, then instructions filed directly in it). Recursive.
+// Folder trees (AgentFolders → FolderKnowledgeTree) draw their instruction
+// rows with this same leaf, so a folder's list carries the status dot, pending
+// badge, icons and load-mode chip an agent's list does.
+provide('knowledgeInstrLeaf', InstrLeaf)
+
 const DirNode = defineComponent({
   props: {
     dir: { type: Object as () => Dir, required: true },

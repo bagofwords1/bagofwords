@@ -439,9 +439,10 @@ async function handleSave() {
   }
 }
 
-onMounted(() => {
-  fetchIntegration()
-  loadDraftInstruction()
+onMounted(async () => {
+  await fetchIntegration()
+  // No connection, no schema to draft an overview instruction from.
+  if ((integration.value?.connections || []).length > 0) loadDraftInstruction()
   fetchAllMentionItems()
   fetchMentionItems()
 })

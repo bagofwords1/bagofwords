@@ -540,6 +540,12 @@ class TablesSchemaContext(ContextSection):
         # and, worse, unaware of WHICH URLs are in scope (so it guesses wrong ones).
         browser_scope: Optional[Dict[str, Any]] = None
 
+        # The agent has no connection at all: it is instructions, files and a
+        # description. It renders anyway (with a note saying there is nothing
+        # to query) so the planner knows it exists and what it is for, instead
+        # of being dropped for having no tables.
+        no_connections: bool = False
+
         # MCP tools are registered natively, each carrying its schema in the
         # request's tools array. False only when the run could not build its
         # MCP catalog and falls back to execute_mcp (set by the context hub):
@@ -1481,7 +1487,12 @@ class TablesSchemaContext(ContextSection):
             # long as ONE connection is live (or there is a down connection worth
             # flagging), so a dead DB connection never takes its healthy file
             # sibling — or the whole agent — down with it.
-            if not (sample_xml or index_xml or mcp_xml or file_xml or browser_xml or unhealthy_xml):
+            no_data_xml = (
+                xml_tag("no_data", "This agent has no data connection: nothing to query. "
+                        "Answer from its description and instructions.")
+                if getattr(ds, "no_connections", False) else ""
+            )
+            if not (sample_xml or index_xml or mcp_xml or file_xml or browser_xml or unhealthy_xml or no_data_xml):
                 continue
 
             # Check if multi-connection (sample_xml will contain <connection> tags if so)
@@ -1521,6 +1532,8 @@ class TablesSchemaContext(ContextSection):
                 inner_parts.append(browser_xml)
             if unhealthy_xml:
                 inner_parts.append(unhealthy_xml)
+            if no_data_xml:
+                inner_parts.append(no_data_xml)
 
             attrs = {
                 "name": ds.info.name,

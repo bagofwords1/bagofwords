@@ -338,6 +338,35 @@ def _prepare_auth_credentials(conn_type: str, config, credentials):
     return {**cleaned, **validated.model_dump(exclude_none=True)}
 
 
+async def connectors_deleted_with(db: AsyncSession, connection) -> List[tuple]:
+    """``[(id, name)]`` of the data sources that deleting ``connection``
+    deletes: connectors (someone's own mailbox, an MCP preset; see
+    app/services/data_source_kind.py) whose only connection it is. Every other
+    linked data source is kept. The delete itself and the delete confirmation
+    both use this, so what the warning names is what goes."""
+    from app.models.domain_connection import domain_connection
+    from app.services.data_source_kind import CONNECTOR, KINDS, connection_is_connector
+
+    linked = list(connection.data_sources or [])
+    if not linked:
+        return []
+    counts = dict((await db.execute(
+        select(domain_connection.c.data_source_id, func.count())
+        .where(domain_connection.c.data_source_id.in_([str(ds.id) for ds in linked]))
+        .group_by(domain_connection.c.data_source_id)
+    )).all())
+    out = []
+    for ds in linked:
+        if counts.get(str(ds.id), 0) > 1:
+            continue
+        # With this as its only connection the derived kind is this
+        # connection's; an explicit kind wins, as in data_source_kind().
+        kind = ds.kind if ds.kind in KINDS else (CONNECTOR if connection_is_connector(connection) else None)
+        if kind == CONNECTOR:
+            out.append((str(ds.id), ds.name))
+    return out
+
+
 async def grant_connection_owner(
     db: AsyncSession, organization_id: str, connection_id: str, user_id: str,
 ) -> None:
@@ -525,9 +554,13 @@ def _unread_prefixes(client) -> tuple[str, ...]:
         return ()
 
 
-def _athena_config_is_multi(config) -> bool:
-    from app.schemas.data_sources.configs import parse_athena_database_spec
-    return parse_athena_database_spec((config or {}).get("database"))[2]
+def _athena_config_mode(config) -> tuple[bool, bool]:
+    from app.schemas.data_sources.configs import athena_unify_tables_enabled, parse_athena_database_spec
+    config = config or {}
+    return (
+        parse_athena_database_spec(config.get("database"))[2],
+        athena_unify_tables_enabled(config.get("unify_tables")),
+    )
 
 
 def _validate_connection_config(connection_type: str, config) -> None:
@@ -553,10 +586,10 @@ def _reject_athena_mode_switch(connection, new_config) -> None:
     stored = connection.config
     if isinstance(stored, str):
         stored = json.loads(stored)
-    if _athena_config_is_multi(stored) != _athena_config_is_multi(new_config):
+    if _athena_config_mode(stored) != _athena_config_mode(new_config):
         raise AppError.bad_request(
             ErrorCode.CONNECTION_ATHENA_MODE_SWITCH,
-            "Cannot switch an Athena connection between one database and several. Create a new connection instead.",
+            "Cannot change an Athena connection between one database, several databases and unified tables. Create a new connection instead.",
         )
 
 
@@ -1320,7 +1353,12 @@ class ConnectionService:
         - UserConnectionTable/Column (user overlays)
         - domain_connection junction records (DB-level cascade)
 
-        Data sources that only have this connection will also be deleted.
+        Agents are never deleted with a connection: every agent linked to it is
+        unlinked first (the same cleanup as removing a connection from an
+        agent), and one that had no other connection is kept, connectionless,
+        with its instructions, queries, files and description. A connector
+        (someone's own mailbox, an MCP preset) with no other connection is the
+        exception: it is deleted with the connection.
         """
         # Capture the org id as a plain string up front. The retry path below
         # rolls back on a concurrent-write FK violation, and a rollback expires
@@ -1379,9 +1417,8 @@ class ConnectionService:
             await db.execute(_delete(DataSourceConnectionSetting).where(
                 DataSourceConnectionSetting.connection_id == str(connection.id)))
 
-            # Agents that existed only through this connection were deleted
-            # above, through the agent delete; any left here share another
-            # connection and only lose this link (domain_connection cascade).
+            # Every agent was unlinked above; the domain_connection cascade
+            # only catches a link added concurrently since.
             await db.delete(connection)
             await db.commit()
             return connection_name
@@ -1389,36 +1426,63 @@ class ConnectionService:
         deleted_config = None
         await _drain()
 
-        # Agents that exist only through this connection go with it — through
-        # the full agent delete (DataSourceService.delete_data_source), the one
-        # place that knows every reference to an agent: content scoped to it,
-        # project / webhook / instruction links, folders, repositories, audit.
-        # A hand-rolled `db.delete(ds)` here used to skip most of that and fail
-        # on Postgres foreign keys. Every such agent is checked first, so one
-        # that cannot be deleted stops the connection delete before anything is
-        # removed.
+        # Unlink every agent first, through the same cleanup as removing a
+        # connection from an agent (its tables and what hangs off them —
+        # stats, usage, feedback, instruction references, overlays, tool
+        # policies, per-connection settings). The ORM cascade on the delete
+        # below misses the references that carry no foreign key. An agent
+        # left with no connection is kept: its instructions, queries, lists,
+        # files and description stay, and a connection can be linked again.
+        #
+        # The exception is a *connector* (someone's Gmail, Outlook, an MCP
+        # preset — app/services/data_source_kind.py) with no other connection:
+        # it is nothing but a line into this connection, so it goes with it,
+        # through the full agent delete.
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         connection = await self.get_connection(db, connection_id, organization)
         has_file_table_cache = connection.type == "network_dir"
-        linked = list(connection.data_sources or [])
+        linked = [
+            (str(ds.id), ds.name, len(ds.connections or []))
+            for ds in (connection.data_sources or [])
+        ]
         agent_count = len(linked)
-        sole = [(str(ds.id), ds.name) for ds in linked if len(ds.connections) == 1]
         if agent_count:
             logger.info(
                 f"Deleting connection {connection.name} ({connection_id}) which is linked to "
-                f"{agent_count} agent(s): {[ds.name for ds in linked]}"
+                f"{agent_count} agent(s): {[name for _, name, _ in linked]}"
             )
-        for ds_id, ds_name in sole:
+        sole_connectors = await connectors_deleted_with(db, connection)
+        # Every connector to delete is checked first, so one that cannot be
+        # deleted stops the connection delete before anything is removed.
+        for ds_id, ds_name in sole_connectors:
             await ds_service._assert_nothing_blocks_agent_delete(db, ds_id, ds_name)
-        deleted_agent_names: list = []
-        for ds_id, ds_name in sole:
-            logger.info(f"Deleting data source {ds_name} ({ds_id}) as it only has this connection")
+        deleted_connector_names: list = []
+        for ds_id, ds_name in sole_connectors:
             await ds_service.delete_data_source(db, ds_id, organization, current_user)
-            deleted_agent_names.append(ds_name)
-        # The loaded connection still lists the agents just deleted; drop the
-        # stale state so the connection delete below re-reads what remains.
-        db.expire_all()
+            deleted_connector_names.append(ds_name)
+        if sole_connectors:
+            db.expire_all()
+            organization = await db.get(Organization, organization_id)
+        connectionless_agent_names: list = []
+        deleted_ids = {ds_id for ds_id, _ in sole_connectors}
+        for ds_id, ds_name, n_connections in linked:
+            if ds_id in deleted_ids:
+                continue
+            await ds_service.remove_connection_from_domain(
+                db=db, data_source_id=ds_id, connection_id=str(connection_id),
+                organization=organization, current_user=current_user,
+            )
+            if n_connections <= 1:
+                connectionless_agent_names.append(ds_name)
+        # Start the delete below from a clean session. The loaded connection
+        # still lists the agents just unlinked, and the unlink's bulk deletes
+        # leave any table rows this session already held in a deleted state —
+        # the connection's ORM cascade would try to delete them a second time.
+        if linked:
+            db.expunge_all()
+        else:
+            db.expire_all()
         organization = await db.get(Organization, organization_id)
 
         try:
@@ -1457,7 +1521,9 @@ class ConnectionService:
                 user_id=current_user_id,
                 resource_type="connection",
                 resource_id=str(connection_id),
-                details={"name": connection_name, "impacted_agents": agent_count, "deleted_agents": deleted_agent_names},
+                details={"name": connection_name, "impacted_agents": agent_count,
+                         "agents_without_connections": connectionless_agent_names,
+                         "deleted_connectors": deleted_connector_names},
             )
         except Exception:
             pass
@@ -1465,7 +1531,10 @@ class ConnectionService:
         return {
             "message": "Connection deleted successfully",
             "impacted_agents": agent_count,
-            "deleted_agents": deleted_agent_names,
+            # Agents that had only this connection: kept, now connectionless.
+            "agents_without_connections": connectionless_agent_names,
+            # Connectors that had only this connection: deleted with it.
+            "deleted_connectors": deleted_connector_names,
         }
 
     async def test_tool_params(
@@ -2067,7 +2136,7 @@ class ConnectionService:
         manual = (
             variant is not None and "user" in (variant.scopes or [])
             and payload.auth_mode not in ("oauth", "kerberos", KERBEROS_SSO_MODE)
-            and connection.type in ("sharepoint_onprem", "exchange_onprem", "documentum", "kms_lighthouse",
+            and connection.type in ("sharepoint_onprem", "sharepoint_onprem_lists", "exchange_onprem", "documentum", "kms_lighthouse",
                                     "confluence_dc", "jira_dc")
         )
         if connection.auth_policy != "user_required" or not manual:

@@ -5,6 +5,11 @@ import { reactive, ref, computed } from 'vue'
 
 export const PII_DEFAULT = 'default'
 export const PII_EXEMPT = 'exempt'
+// Agent assignment: "no agent policy" (only the provider's policy applies).
+// The colon keeps both apart from policy ids (a policy may be named "none").
+export const PII_NONE = ':none'
+// Agent assignment: use the org's default agent policy (stored as no entry).
+export const PII_INHERIT = ':inherit'
 export const PII_DEFAULT_MIN_SCORE = 0.7
 
 export type PiiRuleKind = 'builtin' | 'custom' | 'detector'
@@ -18,7 +23,9 @@ export interface PiiPolicy {
     detector_overrides: Record<string, PiiRuleOptions>
     on_detector_error: string
 }
-export interface PiiCustomRule { id: string; name: string; patterns: string[]; replacement: string }
+// terms: exact words/phrases; checksum: luhn | iban | il_id | aba; context: words one of which must be near a match.
+export interface PiiCustomRule { id: string; name: string; patterns: string[]; replacement: string; terms?: string[]; checksum?: string | null; context?: string[] }
+export const PII_CHECKSUMS = ['luhn', 'iban', 'il_id', 'aba'] as const
 
 const emptyPolicy = (name: string): PiiPolicy => ({
     name, mode: 'replace', redact_context: false, builtin_overrides: {}, custom_overrides: {},
@@ -30,19 +37,25 @@ const pii = reactive<{
     custom_rules: PiiCustomRule[]
     policies: Record<string, PiiPolicy>
     provider_policies: Record<string, string>
+    agent_policies: Record<string, string>
+    default_agent_policy: string
 }>({
     enabled: false,
     custom_rules: [],
     policies: { [PII_DEFAULT]: emptyPolicy('Default') },
     provider_policies: {},
+    agent_policies: {},
+    default_agent_policy: PII_NONE,
 })
 const loading = ref(true)
 const loaded = ref(false)
 const providers = ref<Array<{ id: string; name: string; provider_type: string }>>([])
 const providersLoaded = ref(false)
-const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number }>>([])
+const agents = ref<Array<{ id: string; name: string; type: string }>>([])
+const agentsLoaded = ref(false)
+const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number; enabled_by_default?: boolean }>>([])
 // The detector (Presidio) on this instance, if any: names, locations, organizations.
-const detector = ref<{ available: boolean; name: string | null; entities: Array<{ id: string; name: string; replacement: string }> }>(
+const detector = ref<{ available: boolean; name: string | null; entities: Array<{ id: string; name: string; replacement: string; kind?: 'ner' | 'pattern' | 'context'; min_score?: number }> }>(
     { available: false, name: null, entities: [] }
 )
 
@@ -69,15 +82,39 @@ export function usePiiSettings() {
     const providersOf = (policyId: string) =>
         providers.value.filter(p => providerPolicy(p.id) === policyId)
 
+    // --- per-agent policies (docs/design/pii-agent-policies.md) ---
+    // The agent's own choice: a policy id, PII_NONE, or PII_INHERIT.
+    const agentPolicy = (agentId: string) => {
+        const p = pii.agent_policies[agentId]
+        return p && (p === PII_NONE || pii.policies[p]) ? p : PII_INHERIT
+    }
+    const setAgentPolicy = (agentId: string, policyId: string) => {
+        const next = { ...pii.agent_policies }
+        if (!policyId || policyId === PII_INHERIT) delete next[agentId]
+        else next[agentId] = policyId
+        pii.agent_policies = next
+    }
+    // The policy the agent ends up with (PII_NONE when none).
+    const effectiveAgentPolicy = (agentId: string) => {
+        const own = agentPolicy(agentId)
+        return own === PII_INHERIT ? pii.default_agent_policy : own
+    }
+    const agentsOf = (policyId: string) =>
+        agents.value.filter(a => effectiveAgentPolicy(a.id) === policyId)
+
     // --- per-policy rule options (missing = rule default) ---
     const overridesOf = (policy: PiiPolicy, kind: PiiRuleKind) =>
         kind === 'builtin' ? policy.builtin_overrides
             : kind === 'custom' ? policy.custom_overrides : policy.detector_overrides
     const ruleOption = (policy: PiiPolicy, kind: PiiRuleKind, id: string): PiiRuleOptions =>
         overridesOf(policy, kind)[id] || {}
-    // Pattern rules are on unless turned off; detector entities are off unless turned on.
-    const ruleEnabled = (policy: PiiPolicy, kind: PiiRuleKind, id: string) =>
-        kind === 'detector' ? ruleOption(policy, kind, id).enabled === true : ruleOption(policy, kind, id).enabled ?? true
+    // Pattern rules are on unless turned off (built-in rules added later ship
+    // off: enabled_by_default false); detector entities are off unless turned on.
+    const ruleEnabled = (policy: PiiPolicy, kind: PiiRuleKind, id: string) => {
+        if (kind === 'detector') return ruleOption(policy, kind, id).enabled === true
+        const byDefault = kind === 'builtin' ? (builtinRules.value.find(r => r.id === id)?.enabled_by_default ?? true) : true
+        return ruleOption(policy, kind, id).enabled ?? byDefault
+    }
     const ruleAction = (policy: PiiPolicy, kind: PiiRuleKind, id: string) =>
         ruleOption(policy, kind, id).action || policy.mode
     const setRuleOption = (policy: PiiPolicy, kind: PiiRuleKind, id: string, key: keyof PiiRuleOptions, val: any) => {
@@ -109,6 +146,11 @@ export function usePiiSettings() {
         pii.provider_policies = Object.fromEntries(
             Object.entries(pii.provider_policies).filter(([, p]) => p !== id)
         )
+        // Its agents go back to the default agent policy.
+        pii.agent_policies = Object.fromEntries(
+            Object.entries(pii.agent_policies).filter(([, p]) => p !== id)
+        )
+        if (pii.default_agent_policy === id) pii.default_agent_policy = PII_NONE
     }
     const deleteCustomRule = (ruleId: string) => {
         pii.custom_rules = pii.custom_rules.filter(r => r.id !== ruleId)
@@ -118,7 +160,7 @@ export function usePiiSettings() {
     const buildConfig = () => {
         const rules = pii.custom_rules
             .map(r => ({ ...r, patterns: r.patterns.map(p => p.trim()).filter(Boolean) }))
-            .filter(r => r.name.trim() || r.patterns.length)
+            .filter(r => r.name.trim() || r.patterns.length || r.terms?.length)
         const ids = new Set(rules.map(r => r.id))
         const policies: Record<string, PiiPolicy> = {}
         for (const [id, p] of Object.entries(pii.policies)) {
@@ -132,6 +174,9 @@ export function usePiiSettings() {
         // Without the provider list the assignments are not resent, so a failed
         // load can never wipe them.
         if (providersLoaded.value) config.provider_policies = pii.provider_policies
+        // Same for agents.
+        if (agentsLoaded.value) config.agent_policies = pii.agent_policies
+        config.default_agent_policy = pii.default_agent_policy
         return config
     }
 
@@ -139,10 +184,11 @@ export function usePiiSettings() {
         // A second page of the same settings shows what is already loaded while it refreshes.
         loading.value = !loaded.value
         try {
-            const [settingsRes, rulesRes, providersRes] = await Promise.all([
+            const [settingsRes, rulesRes, providersRes, agentsRes] = await Promise.all([
                 useMyFetch('/api/organization/settings'),
                 useMyFetch('/api/organization/pii/builtin-rules'),
                 useMyFetch('/api/llm/providers'),
+                useMyFetch('/api/data_sources?show_all=true'),
             ])
             const cfg = (settingsRes.data.value as any)?.config?.pii_protection
             if (cfg) {
@@ -152,6 +198,10 @@ export function usePiiSettings() {
                     name: r.name || '',
                     patterns: r.patterns && r.patterns.length ? [...r.patterns] : [''],
                     replacement: r.replacement || '[REDACTED]',
+                    // Kept as saved, so the next save never drops them.
+                    terms: [...(r.terms || [])],
+                    checksum: r.checksum || null,
+                    context: [...(r.context || [])],
                 }))
                 const policies: Record<string, PiiPolicy> = {}
                 for (const [id, p] of Object.entries<any>(cfg.policies || {})) {
@@ -168,6 +218,16 @@ export function usePiiSettings() {
                 if (!policies[PII_DEFAULT]) policies[PII_DEFAULT] = emptyPolicy('Default')
                 pii.policies = policies
                 pii.provider_policies = { ...(cfg.provider_policies || {}) }
+                pii.agent_policies = { ...(cfg.agent_policies || {}) }
+                pii.default_agent_policy = cfg.default_agent_policy || PII_NONE
+            }
+            if (agentsRes.status.value === 'success') {
+                const rows = (agentsRes.data.value as any)
+                const list = Array.isArray(rows) ? rows : (rows?.items || rows?.data_sources || [])
+                agents.value = list
+                    .map((a: any) => ({ id: String(a.id), name: a.name, type: a.type }))
+                    .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''))
+                agentsLoaded.value = true
             }
             if (providersRes.status.value === 'success') {
                 providers.value = ((providersRes.data.value as any[]) || [])
@@ -226,8 +286,9 @@ export function usePiiSettings() {
     const policyIds = computed(() => Object.keys(pii.policies))
 
     return {
-        pii, loading, loaded, providers, builtinRules, detector, policyIds,
+        pii, loading, loaded, providers, agents, builtinRules, detector, policyIds,
         policyLabel, providerPolicy, setProviderPolicy, providersOf,
+        agentPolicy, setAgentPolicy, effectiveAgentPolicy, agentsOf,
         ruleOption, ruleEnabled, ruleAction, setRuleOption, enabledRuleCount,
         createPolicy, deletePolicy, deleteCustomRule,
         load, save, preview,

@@ -31,7 +31,8 @@ const label = computed(() => {
     }
     if (title) return title
   }
-  return group.categories.map(category => translate(`reportView.runFold.groups.${category}`, { count: group.counts[category] })).join(', ')
+  // A number picks the plural form ("Ran 1 query" / "Ran 3 queries") and fills {count}.
+  return group.categories.map(category => translate(`reportView.runFold.groups.${category}`, group.counts[category])).join(', ')
 })
 </script>
 

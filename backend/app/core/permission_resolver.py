@@ -248,6 +248,14 @@ async def assert_principal_belongs_to_org(db: AsyncSession, user, org_id: str) -
         raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
 
+def has_workspace_access(org_permissions) -> bool:
+    """Whether a resolved org permission set may use the BOW workspace (as
+    opposed to only the artifacts shared with its holder)."""
+    from app.core.permissions_registry import WORKSPACE_ACCESS
+
+    return FULL_ADMIN in org_permissions or WORKSPACE_ACCESS in org_permissions
+
+
 async def resolve_assignable_system_role(
     db: AsyncSession, org_id: str, role_name: str,
 ) -> Optional[Role]:
@@ -284,19 +292,71 @@ async def resolve_assignable_system_role(
     )).scalar_one_or_none()
 
 
+async def resolve_assignable_role(
+    db: AsyncSession, org_id: str, role_name: str,
+) -> Optional[Role]:
+    """Return the ``Role`` an assignment for ``role_name`` in ``org_id`` should
+    target, admitting a **custom, org-scoped role** as well as a system role.
+
+    ``resolve_assignable_system_role`` resolves only built-in roles and their
+    per-org overrides, so a provisioning path handed a custom role name — an
+    org's own ``auto_invite_role`` in the sign-up policy, an OIDC mapping's
+    role — got ``None`` and silently granted nothing, leaving the user with no
+    real role. This wrapper falls back to a custom role of that exact name in
+    the org, so every role an admin can pick for auto-provisioning actually
+    reaches the user. A system role still wins on a name collision (it is
+    resolved first), and a missing name still returns ``None``.
+    """
+    system = await resolve_assignable_system_role(db, org_id, role_name)
+    if system is not None:
+        return system
+    return (await db.execute(
+        select(Role).where(
+            Role.organization_id == org_id,
+            Role.name == role_name,
+            Role.is_system == False,
+            Role.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+
+
 async def ensure_system_role_assignment(
     db: AsyncSession, org_id: str, user_id: str, role_name: str,
+    *, allow_custom: bool = True,
 ) -> None:
-    """Idempotently ensure ``user_id`` holds the system role ``role_name`` in
+    """Idempotently ensure ``user_id`` holds the role ``role_name`` in
     ``org_id`` (RBAC path). Does NOT commit — the caller commits.
 
     Used by provisioning paths (SCIM/LDAP/OIDC) that create a ``Membership`` so
     the user gets a real ``role_assignment`` instead of relying on the resolver's
-    transitional legacy-role net. Honors a per-org override of the role.
+    transitional legacy-role net. ``role_name`` may be a system role (honoring a
+    per-org override) or a custom, org-scoped role — both resolve through
+    ``resolve_assignable_role`` — so an org's own ``auto_invite_role`` reaches
+    the user instead of being dropped.
+
+    ``allow_custom=False`` resolves built-in roles only. Invite acceptance uses
+    it: an invite's custom roles live in its pending role assignments, which an
+    admin may have edited since; the name in ``Membership.role`` is the one it
+    was created with, and granting it would restore a role the admin removed.
     """
     from app.models.role_assignment import RoleAssignment
 
-    role = await resolve_assignable_system_role(db, org_id, role_name)
+    if role_name == "member":
+        # Provisioning paths ask for `member` by name. A membership that was
+        # created as an app user's (a host application's sign-in, see
+        # core/workspace_access) gets the role it says, not the workspace.
+        from app.core.permissions_registry import APP_USER_ROLE
+        from app.models.membership import Membership
+
+        stated = (await db.execute(
+            select(Membership.role).where(
+                Membership.user_id == user_id, Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None)).limit(1)
+        )).scalar_one_or_none()
+        if stated == APP_USER_ROLE:
+            role_name = APP_USER_ROLE
+    resolve = resolve_assignable_role if allow_custom else resolve_assignable_system_role
+    role = await resolve(db, org_id, role_name)
     if not role:
         return
     existing = (await db.execute(
@@ -316,6 +376,72 @@ async def ensure_system_role_assignment(
         principal_type="user",
         principal_id=user_id,
     ))
+
+
+async def lift_app_user(db: AsyncSession, org_id: str, user_id: str, role_name: str,
+                        *, allow_custom: bool = True) -> bool:
+    """Replace an app user's ``app_user`` role with the workspace system role
+    ``role_name`` (their other roles and groups are untouched). A no-op,
+    returning False, for anyone who is not an app user. Does NOT commit.
+    """
+    from app.core.permissions_registry import APP_USER_ROLE
+    from app.models.membership import Membership
+    from app.models.role_assignment import RoleAssignment
+
+    membership = (await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == org_id,
+            Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).scalars().first()
+    if membership is None or (membership.role or "").lower() != APP_USER_ROLE:
+        return False
+    membership.role = role_name
+    await db.flush()  # ensure_system_role_assignment below reads the stated role
+    app_role = await resolve_assignable_system_role(db, org_id, APP_USER_ROLE)
+    if app_role is not None:
+        for row in (await db.execute(
+            select(RoleAssignment).where(
+                RoleAssignment.organization_id == org_id,
+                RoleAssignment.role_id == app_role.id,
+                RoleAssignment.principal_type == "user",
+                RoleAssignment.principal_id == user_id,
+            )
+        )).scalars().all():
+            await db.delete(row)
+    await ensure_system_role_assignment(db, org_id, user_id, role_name, allow_custom=allow_custom)
+    invalidate_rbac_memo(db, user_id, org_id)
+    return True
+
+
+async def sync_app_user_label(db: AsyncSession, org_id: str, user_id: str) -> None:
+    """Keep the legacy ``Membership.role`` string telling app users and
+    workspace members apart after a role assignment changed: the sign-in
+    paths read it (OIDC organization mapping, invitations), and an answered
+    "request full access" is closed. ``admin`` is left alone. Does NOT commit.
+    """
+    from app.core.permissions_registry import APP_USER_ROLE
+    from app.models.membership import Membership
+
+    membership = (await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == org_id,
+            Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).scalars().first()
+    if membership is None or membership.role not in (APP_USER_ROLE, "member"):
+        return
+    invalidate_rbac_memo(db, user_id, org_id)
+    workspace = has_workspace_access((await resolve_permissions(db, user_id, org_id)).org_permissions)
+    if workspace and membership.role == APP_USER_ROLE:
+        membership.role = "member"
+        from app.services.app_launcher import resolve_requests
+        await resolve_requests(db, org_id, user_id)
+    elif not workspace and membership.role == "member":
+        membership.role = APP_USER_ROLE
+    invalidate_rbac_memo(db, user_id, org_id)
 
 
 async def materialize_pending_rbac(
@@ -426,6 +552,30 @@ async def materialize_pending_rbac(
         # Never block the caller if pending-RBAC tables aren't present
         # (pre-migration) or a conversion hits a transient conflict.
         pass
+
+
+async def stage_invite_role(db: AsyncSession, org_id: str, membership, role_name: str) -> None:
+    """Give a pending invite (``user_id`` NULL) a pending role assignment for
+    ``role_name`` when it is a custom role, as the Add-member path does.
+
+    Invite acceptance grants only built-in roles from ``Membership.role``
+    (``ensure_system_role_assignment(..., allow_custom=False)``), so a custom
+    role must travel as an RBAC row, which an admin can then edit or remove
+    before the invite is accepted. Built-in roles need nothing here. Does NOT
+    commit.
+    """
+    from app.models.role_assignment import RoleAssignment
+
+    if not role_name or await resolve_assignable_system_role(db, org_id, role_name) is not None:
+        return
+    role = await resolve_assignable_role(db, org_id, role_name)
+    if role is None:
+        return
+    await db.flush([membership])
+    db.add(RoleAssignment(
+        organization_id=org_id, role_id=role.id,
+        principal_type="membership", principal_id=str(membership.id),
+    ))
 
 
 async def insert_membership_if_absent(db: AsyncSession, membership):
@@ -568,8 +718,10 @@ async def claim_pending_invite(db: AsyncSession, user, org_id: str):
             db.expunge(invite)
         return None
     await materialize_pending_rbac(db, invite, str(user.id))
+    # Built-ins only: the invite's custom roles came across with its pending
+    # RBAC above, as the admin last left them (see ensure_system_role_assignment).
     await ensure_system_role_assignment(
-        db, str(org_id), str(user.id), invite.role or "member"
+        db, str(org_id), str(user.id), invite.role or "member", allow_custom=False,
     )
     return invite
 
@@ -702,19 +854,6 @@ async def _resolve_permissions_inner(
         ).limit(1)
     )).first()
 
-    # Baseline: every member of the org holds these regardless of which roles
-    # they have, because they are hidden from the role editor and so cannot be
-    # granted through it (see permissions_registry.BASELINE_PERMISSIONS).
-    # Without this, a user whose only role is a custom one holds neither
-    # `view_reports` nor `manage_files` and cannot use the product at all.
-    # Gated on the Membership row so it never leaks to a non-member, and so
-    # service accounts (bound via ServiceAccount, no Membership) keep exactly
-    # the permissions their role grants.
-    if membership_row is not None:
-        from app.core.permissions_registry import BASELINE_PERMISSIONS
-
-        org_permissions.update(BASELINE_PERMISSIONS)
-
     # Transitional backward-compat net: a membership that resolves to NO RBAC
     # role assignment (e.g. a user provisioned via SCIM/LDAP/OIDC before the
     # assignment backfill ran) falls back to the permissions implied by its
@@ -743,6 +882,23 @@ async def _resolve_permissions_inner(
             else:
                 org_permissions.update(DEFAULT_MEMBER_PERMISSIONS)
             role_names.append("member")
+
+    # Baseline: every *workspace* member of the org holds these regardless of
+    # which roles they have, because they are hidden from the role editor and
+    # so cannot be granted through it (see permissions_registry.
+    # BASELINE_PERMISSIONS). Without this, a user whose only role is a custom
+    # one holds neither `view_reports` nor `manage_files` and cannot use the
+    # product at all.
+    # Gated on the Membership row so it never leaks to a non-member, and so
+    # service accounts (bound via ServiceAccount, no Membership) keep exactly
+    # the permissions their role grants. Gated on `access_workspace` (run
+    # after the role union and the legacy net, which can both grant it) so an
+    # app user — a member whose roles withhold the workspace — holds only
+    # what their roles carry. Keep in step with resolve_permissions_bulk.
+    if membership_row is not None and has_workspace_access(org_permissions):
+        from app.core.permissions_registry import BASELINE_PERMISSIONS
+
+        org_permissions.update(BASELINE_PERMISSIONS)
 
     # 4. Fetch resource grants (user, groups, and roles the user has)
     grant_principal_conditions = [
@@ -1023,15 +1179,36 @@ async def resolve_permissions_bulk(
         from app.models.membership import Membership
         from app.core.permissions_registry import BASELINE_PERMISSIONS
 
-        member_org_ids = (await db.execute(
-            select(Membership.organization_id).where(
+        member_rows = (await db.execute(
+            select(Membership.organization_id, Membership.role).where(
                 Membership.user_id == user_id,
                 Membership.organization_id.in_(org_ids),
                 Membership.deleted_at.is_(None),
             )
-        )).scalars().all()
-        for org_id in member_org_ids:
-            if org_id in org_perms:
+        )).all()
+        for org_id, legacy_role in member_rows:
+            if org_id not in org_perms:
+                continue
+            # The legacy-role net of _resolve_permissions_inner: a membership
+            # with no role assignment at all falls back to its role string, so
+            # whoami never reports such a member as an app user while the
+            # routes still let them in.
+            if not role_ids_by_org[org_id]:
+                if legacy_role == "admin":
+                    org_perms[org_id].add(FULL_ADMIN)
+                    role_names_by_org[org_id].append("admin")
+                elif legacy_role == "member":
+                    from app.core.permissions_registry import DEFAULT_MEMBER_PERMISSIONS
+
+                    override = await resolve_assignable_system_role(db, org_id, "member")
+                    if override is not None and override.organization_id is not None \
+                            and isinstance(override.permissions, list):
+                        org_perms[org_id].update(override.permissions)
+                    else:
+                        org_perms[org_id].update(DEFAULT_MEMBER_PERMISSIONS)
+                    role_names_by_org[org_id].append("member")
+            # Only alongside workspace access, as in _resolve_permissions_inner.
+            if has_workspace_access(org_perms[org_id]):
                 org_perms[org_id].update(BASELINE_PERMISSIONS)
 
         # 3. Resource grants (1 query) for user / groups / roles across all orgs.

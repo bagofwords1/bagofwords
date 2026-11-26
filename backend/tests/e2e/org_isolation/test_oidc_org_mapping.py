@@ -173,6 +173,135 @@ def test_higher_mapped_role_is_granted_and_never_lowered(test_client, monkeypatc
     assert _roles(test_client, _sign_in(idp, test_client, email, [G_FINANCE])) == {org: "admin"}
 
 
+def test_a_member_rule_does_not_give_an_app_user_the_workspace(test_client, monkeypatch, multi_org):
+    """An app user (a member whose role withholds the workspace) is not a rank
+    below member that the mapping lifts at the next sign-in: an admin took the
+    workspace away, or a host application never gave it. An admin rule still
+    applies."""
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    idp = FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[
+        f"{G_FINANCE}:{org}:member", f"{G_FINANCE_LEADS}:{org}:admin",
+    ])])
+    email = unique_email("appuser")
+    session = _sign_in(idp, test_client, email, [G_FINANCE])
+    user_id = whoami(test_client, session)["id"]
+    members = test_client.get(f"/api/organizations/{org}/members", headers=hdr(admin["token"], org)).json()
+    membership = next(m for m in members if m.get("user_id") == user_id)
+    demoted = test_client.put(f"/api/organizations/{org}/members/{membership['id']}", json={"role": "app_user"},
+                              headers=hdr(admin["token"], org))
+    assert demoted.status_code == 200, demoted.text
+
+    again = _sign_in(idp, test_client, email, [G_FINANCE])
+    assert _roles(test_client, again) == {org: "app_user"}
+    assert test_client.get("/api/reports", headers=hdr(again, org)).status_code == 403
+    lead = _sign_in(idp, test_client, email, [G_FINANCE, G_FINANCE_LEADS])
+    assert _roles(test_client, lead) == {org: "admin"}
+
+
+def _provider_round_trip(test_client, idp, email, *, embed_host=None, carry=None):
+    """Press a provider button (the authorization), come back from the
+    provider (the callback). ``carry`` adds cookies a browser might still
+    hold from an earlier authorization. Returns (session, cookies set)."""
+    from urllib.parse import parse_qs, urlparse
+
+    test_client.cookies.clear()
+    started = test_client.get("/api/auth/corp/authorize", params={"embed_host": embed_host} if embed_host else None)
+    assert started.status_code == 200, started.text
+    state = parse_qs(urlparse(started.json()["authorization_url"]).query)["state"][0]
+    cookies = {name: value for name, value in started.cookies.items()}
+    test_client.cookies.clear()
+    idp.claims = {"sub": f"sub-{email}", "email": email, "groups": [G_FINANCE]}
+    jar = {**(carry or {}), **cookies, "oidc_corp_state": state, "oidc_corp_verifier": "verifier"}
+    back = test_client.get("/api/auth/corp/callback", params={"code": "auth-code", "state": state},
+                           headers={"Cookie": "; ".join(f"{k}={v}" for k, v in jar.items() if v)},
+                           follow_redirects=False)
+    assert back.status_code == 303, back.text
+    code = parse_qs(urlparse(back.headers["location"]).query)["login_code"][0]
+    return test_client.post("/api/auth/exchange", json={"login_code": code}).json()["access_token"], cookies
+
+
+def _portal(test_client, admin, org):
+    host = test_client.post("/api/host_applications", headers=hdr(admin["token"], org), json={
+        "name": "Portal", "allowed_origins": ["https://portal.example.com"], "identity_mode": "sso"})
+    assert host.status_code == 201, host.text
+    return host.json()
+
+
+def _member_of(test_client, admin, org, email):
+    members = test_client.get(f"/api/organizations/{org}/members", headers=hdr(admin["token"], org)).json()
+    return next(m for m in members if (m.get("user") or {}).get("email") == email)
+
+
+@pytest.mark.parametrize("in_window", [True, False])
+def test_a_provider_sign_in_started_in_an_applications_window_makes_an_app_user(test_client, monkeypatch, multi_org,
+                                                                               in_window):
+    """The sign-in page's provider button, inside an embedded artifact's
+    sign-in window: the authorization itself names the host application
+    (`?embed_host=`) and the intent is bound to that authorization's state,
+    so the account the callback creates is that application's kind of
+    account, however long the page sat open. The same sign-in outside a
+    window makes a member."""
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    idp = FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[f"{G_FINANCE}:{org}:member"])])
+    host = _portal(test_client, admin, org)
+    email = unique_email("button")
+    session, cookies = _provider_round_trip(test_client, idp, email,
+                                            embed_host=host["public_id"] if in_window else None)
+    assert ("oidc_corp_embed" in cookies) is in_window
+
+    member = _member_of(test_client, admin, org, email)  # read by the admin: what was stored
+    assert member["role"] == ("app_user" if in_window else "member")
+    assert member["created_via_host_application"] == ("Portal" if in_window else None)
+    assert [r["name"] for r in member["roles"]] == ["app_user" if in_window else "member"]
+    assert test_client.get("/api/reports", headers=hdr(session, org)).status_code == (403 if in_window else 200)
+
+
+def test_an_abandoned_window_s_authorization_does_not_reach_another_sign_in(test_client, monkeypatch, multi_org):
+    """A provider button was pressed inside an app's window and the window
+    abandoned. An ordinary sign-in from another tab, even with that
+    authorization's cookie still in the browser, is an ordinary one: the
+    intent was bound to the other authorization's state."""
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    idp = FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[f"{G_FINANCE}:{org}:member"])])
+    host = _portal(test_client, admin, org)
+    abandoned = test_client.get("/api/auth/corp/authorize", params={"embed_host": host["public_id"]})
+    left_behind = {"oidc_corp_embed": abandoned.cookies.get("oidc_corp_embed")}
+    assert left_behind["oidc_corp_embed"]
+
+    email = unique_email("othertab")
+    session, cookies = _provider_round_trip(test_client, idp, email, carry=left_behind)
+    assert "oidc_corp_embed" not in cookies or not cookies["oidc_corp_embed"]
+    member = _member_of(test_client, admin, org, email)
+    assert member["role"] == "member" and member["created_via_host_application"] is None
+    assert test_client.get("/api/reports", headers=hdr(session, org)).status_code == 200
+
+
+@pytest.mark.parametrize("named", ["unknown", "disabled", "malformed"])
+def test_an_authorization_that_cannot_be_tied_to_its_application_does_not_start(test_client, monkeypatch, multi_org,
+                                                                               named):
+    """Fail closed: a sign-in that says it belongs to a host application
+    either is bound to it or does not begin. Beginning it unbound would make
+    an ordinary member where the application says app user."""
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[f"{G_FINANCE}:{org}:member"])])
+    host = _portal(test_client, admin, org)
+    if named == "disabled":
+        off = test_client.patch(f"/api/host_applications/{host['id']}", headers=hdr(admin["token"], org),
+                                json={"revision": host["revision"], "enabled": False})
+        assert off.status_code == 200, off.text
+    embed_host = {"unknown": "host_" + "0" * 20, "disabled": host["public_id"], "malformed": "not-a-host"}[named]
+    test_client.cookies.clear()
+    started = test_client.get("/api/auth/corp/authorize", params={"embed_host": embed_host})
+    assert started.status_code == 403, started.text
+    assert "authorization_url" not in started.text and not started.cookies.get("oidc_corp_embed")
+    # The same button outside a window still works.
+    assert test_client.get("/api/auth/corp/authorize").status_code == 200
+
+
 def test_rule_for_an_unknown_organization_is_skipped(test_client, monkeypatch, multi_org):
     admin = bootstrap_admin(test_client)
     idp = FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[

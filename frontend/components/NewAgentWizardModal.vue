@@ -55,7 +55,7 @@
           <!-- Connection selector (multi-select for existing connections) -->
           <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Connections <span class="text-red-500">*</span>
+              Connections <span class="font-normal text-ink-muted">{{ $t('connectionlessAgent.optional') }}</span>
             </label>
             <USelectMenu
               v-model="selectedConnections"
@@ -93,6 +93,9 @@
                 </div>
               </template>
             </USelectMenu>
+            <p v-if="selectedConnections.length === 0" class="mt-1.5 text-xs text-ink-muted" data-testid="connectionless-hint">
+              {{ $t('connectionlessAgent.createHint') }}
+            </p>
             <button
               type="button"
               class="mt-2 inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700"
@@ -105,9 +108,10 @@
             </button>
           </div>
 
-          <!-- Existing connection flow (main form) -->
-          <div v-if="selectedConnections.length > 0">
-            <div class="flex items-center gap-2 mb-4">
+          <!-- Connections are optional: with none, the agent is instructions,
+               files and a description, and a connection can be linked later. -->
+          <div>
+            <div v-if="selectedConnections.length > 0" class="flex items-center gap-2 mb-4">
               <UToggle v-model="useLlmSync" :disabled="creatingFromConnection" size="xs" color="blue" />
               <span class="text-xs text-gray-700 dark:text-gray-300">Use LLM to learn agent</span>
             </div>
@@ -130,13 +134,6 @@
                 {{ $t('common.cancel') }}
               </button>
             </div>
-          </div>
-
-          <!-- No selection yet (just show cancel) -->
-          <div v-else class="flex justify-start pt-4 border-t border-gray-100 dark:border-gray-800">
-            <button class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="isOpen = false">
-              ← Cancel
-            </button>
           </div>
         </div>
       </div>
@@ -223,15 +220,21 @@ const isOpen = computed({
 })
 
 // ── Wizard step state ───────────────────────────────────────────────────────
-const steps = [
+// An agent with no connection has no tables to select: its wizard skips that
+// step. Decided by the selection until the agent exists, then by what it was
+// created with.
+const withoutConnections = computed(() =>
+  dsId.value ? createdWithoutConnections.value : selectedConnections.value.length === 0
+)
+const steps = computed(() => [
   { key: 'connect', label: 'Connection' },
-  { key: 'schema', label: 'Select Tables' },
+  ...(withoutConnections.value ? [] : [{ key: 'schema', label: 'Select Tables' }]),
   { key: 'context', label: 'Set Context' },
-] as const
+])
 const step = ref<'connect' | 'schema' | 'context'>('connect')
 const expanded = ref(false)
-const order = ['connect', 'schema', 'context']
 function isDone(key: string) {
+  const order = steps.value.map(s => s.key)
   return order.indexOf(key) < order.indexOf(step.value)
 }
 function circleClass(key: string) {
@@ -242,6 +245,7 @@ function circleClass(key: string) {
 
 // The created agent / data source id (carries across steps)
 const dsId = ref('')
+const createdWithoutConnections = ref(false)
 
 // Reset everything when the modal opens.
 watch(isOpen, (val) => {
@@ -249,6 +253,7 @@ watch(isOpen, (val) => {
   if (val) {
     step.value = 'connect'
     dsId.value = ''
+    createdWithoutConnections.value = false
     agentName.value = ''
     selectedConnections.value = []
     useLlmSync.value = true
@@ -288,8 +293,8 @@ const creatingFromConnection = ref(false)
 const errorMessage = ref('')
 const showAddConnectionModal = ref(false)
 
+// Only a name is required: connections are optional.
 const canSubmitExisting = computed(() =>
-  selectedConnections.value.length > 0 &&
   agentName.value.trim().length > 0 &&
   !creatingFromConnection.value
 )
@@ -328,7 +333,8 @@ async function handleNewConnectionCreated(connectionData: any) {
 }
 
 async function createAgentFromExistingConnection() {
-  if (selectedConnections.value.length === 0 || !agentName.value.trim()) return
+  if (!agentName.value.trim()) return
+  const noConnections = selectedConnections.value.length === 0
   creatingFromConnection.value = true
   errorMessage.value = ''
   try {
@@ -336,7 +342,8 @@ async function createAgentFromExistingConnection() {
       name: agentName.value.trim(),
       folder_id: props.folderId || null,
       connection_ids: selectedConnections.value.map(c => c.id),
-      use_llm_sync: useLlmSync.value,
+      // Nothing to learn from without a connection.
+      use_llm_sync: noConnections ? false : useLlmSync.value,
       is_public: false,
       // "New agent" builds an analysis agent, whatever it connects to.
       kind: 'agent',
@@ -352,8 +359,9 @@ async function createAgentFromExistingConnection() {
     }
     const result = response.data.value as any
     if (result?.id) {
+      createdWithoutConnections.value = noConnections
       dsId.value = result.id
-      step.value = 'schema'
+      step.value = noConnections ? 'context' : 'schema'
     } else {
       isOpen.value = false
     }
@@ -376,7 +384,8 @@ const instructionText = ref('')
 watch(step, (s) => {
   if (s === 'context') {
     fetchIntegration()
-    loadDraftInstruction()
+    // No schema to draft an overview instruction from.
+    if (!createdWithoutConnections.value) loadDraftInstruction()
   }
 })
 

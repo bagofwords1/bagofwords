@@ -15,15 +15,23 @@
       <button v-if="errors.has(section.kind)" class="text-xs text-ink-muted" @click="load(section.kind)">{{ $t('changelog.retry') }}</button>
       <Spinner v-else-if="!items[section.kind]" class="size-3 text-ink-muted" />
       <p v-else-if="!items[section.kind]?.length" class="py-1 text-2xs text-ink-muted">{{ $t(section.empty) }}</p>
-      <button v-for="item in items[section.kind]" :key="item.id" type="button" :title="item.name"
+      <template v-else-if="section.kind === 'instructions' && instrLeaf">
+        <component :is="instrLeaf" v-for="item in items.instructions" :key="item.id" :ins="item" :indent="-1"
+          :on-open="() => $emit('pick', 'instructions', item)" />
+      </template>
+      <button v-for="item in items[section.kind]" v-else :key="item.id" type="button" :title="item.name"
         class="block h-7 w-full truncate rounded-md px-2 text-start text-xs hover:bg-surface-muted"
         @click="$emit('pick', section.kind, item)">{{ item.name }}</button>
     </div>
   </div>
 </template>
 <script setup lang="ts">
+import type {Component} from 'vue'
 type Kind = 'instructions' | 'files' | 'evals'
 type Item = {id: string, name: string}
+// The explorer's instruction row, when this tree sits inside it: the same row
+// an agent's Instructions list draws. Elsewhere, fall back to plain titles.
+const instrLeaf = inject<Component | null>('knowledgeInstrLeaf', null)
 const props = defineProps<{folder: {id: string, capabilities: string[], can_query: boolean}, revision: number}>()
 defineEmits<{pick: [kind: Kind, item?: Item]}>()
 const groups = [

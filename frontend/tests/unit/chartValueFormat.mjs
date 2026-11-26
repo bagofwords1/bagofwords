@@ -7,7 +7,7 @@ import ts from 'typescript';
 const root = new URL('../../', import.meta.url);
 const m = { exports: {} };
 new Function('exports', 'module', ts.transpileModule(fs.readFileSync(new URL('utils/chartValueFormat.ts', root), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(m.exports, m);
-const { valueFormatter, zoomWindow, latestWindowZoom } = m.exports;
+const { valueFormatter, zoomWindow, latestWindowZoom, topSeriesSelection } = m.exports;
 
 assert.equal(valueFormatter(undefined), undefined, 'nothing stored: plain numbers, as before');
 assert.equal(valueFormatter({ format: 'number' }), undefined);
@@ -33,6 +33,12 @@ const days = Array.from({ length: 70 }, (_, i) => new Date(Date.UTC(2025, 0, 1 +
 assert.equal(latestWindowZoom(days, 1)[0].startValue, 0, 'newest-first dates');
 const names = Array.from({ length: 70 }, (_, i) => `item ${i}`);
 assert.equal(latestWindowZoom(names, 1)[0].startValue, 10, 'labels without a time order keep the trailing window');
+// Over 8 series: the 8 largest by total selected, the rest greyed; 8 or fewer: no selection.
+const many = Array.from({ length: 12 }, (_, k) => ({ name: `S${k}`, data: [k + 1, { value: k + 1 }, [0, k + 1]] }));
+const sel = topSeriesSelection(many);
+assert.equal(Object.values(sel).filter(v => !v).length, 4);
+assert.deepEqual(Object.keys(sel).filter(k => sel[k]).sort(), ['S10', 'S11', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9']);
+assert.equal(topSeriesSelection(many.slice(0, 8)), null);
 console.log('PASS: stored-chart value formats and the latest-window zoom');
 
 const read = f => fs.readFileSync(new URL(f, root), 'utf8');
@@ -40,6 +46,7 @@ for (const f of ['components/RenderVisual.vue', 'components/dashboard/charts/ECh
   const src = read(f);
   assert.match(src, /valueFormatter\(/, `${f} formats the value axis`);
   assert.match(src, /showDataZoom \? latestWindowZoom\(/, `${f} opens crowded charts on the latest window`);
+  assert.match(src, /selected: topSeriesSelection\(/, `${f} shows only the 8 largest of many series`);
 }
 console.log('PASS: both renderers use them');
 

@@ -31,6 +31,7 @@ from app.models.membership import Membership
 from app.models.organization import Organization
 from app.models.user import User
 from app.settings.bow_config import ORG_MAPPING_MARKER_PREFIX, ORG_MAPPING_ROLES
+from app.core.permissions_registry import APP_USER_ROLE
 from app.settings.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -47,9 +48,16 @@ def mapping_marker(provider_name: str) -> str:
 
 
 def _rank(role: Optional[str]) -> int:
+    name = (role or "").lower()
     try:
-        return ORG_MAPPING_ROLES.index((role or "").lower())
+        return ORG_MAPPING_ROLES.index(name)
     except ValueError:
+        # A custom role (e.g. the org's default member role, or one an admin
+        # granted) is a workspace member's role: a "member" rule must not
+        # "raise" it to the built-in member and overwrite the admin's choice.
+        # An "admin" rule still outranks it.
+        if name and name != APP_USER_ROLE:
+            return ORG_MAPPING_ROLES.index("member")
         return -1
 
 
@@ -148,6 +156,13 @@ async def _ensure_membership(db, provider_name: str, user: User, organization_id
             )
             return
 
+    # An app user (a member whose role withholds the workspace) is not a rank
+    # below member that a "member" rule lifts: that would turn every app user
+    # in a mapped group into a workspace member at their next sign-in. Giving
+    # them the workspace is an admin's act (the members list, or a group that
+    # carries a workspace role). An "admin" rule still applies.
+    if (membership.role or "").lower() == APP_USER_ROLE and role != "admin":
+        return
     if _rank(role) > _rank(membership.role):
         from app.services.organization_service import OrganizationService
 

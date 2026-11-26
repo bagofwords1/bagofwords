@@ -1,0 +1,3 @@
+model default: claude-haiku-4-5 | daily_token_limit set to today's usage = 9300
+CAPPED   -> ('error', 'claude-haiku-4-5-20251001', 'Organization usage quota reached: Daily LLM token quota exceeded. Resets at 00:00 Asia/Jerusalem (in 2h 53m).')
+UNCAPPED -> ('error', 'claude-haiku-4-5-20251001', 'anthropic quota or credit balance exhausted: Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.')

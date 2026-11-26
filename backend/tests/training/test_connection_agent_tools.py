@@ -34,6 +34,7 @@ from app.ai.tools.implementations.get_connection import GetConnectionTool
 from app.ai.tools.implementations.create_agent import CreateAgentTool
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 
 async def _final(tool, tool_input, ctx):
@@ -555,9 +556,9 @@ async def test_agent_with_drafts_suite_can_be_deleted_without_losing_suite():
 
 
 @pytest.mark.asyncio
-async def test_connection_delete_detaches_drafts_suite_from_owned_agent():
-    """Deleting a connection also deletes its sole-linked agent and must
-    detach that agent's Drafts suite before the parent row is removed."""
+async def test_connection_delete_keeps_owned_agent_and_its_drafts_suite():
+    """Deleting a connection keeps the agent that had only that connection,
+    and with it the agent's Drafts suite, still homed on the agent."""
     from app.services.connection_service import ConnectionService
 
     ids = await _seed()
@@ -585,10 +586,13 @@ async def test_connection_delete_detaches_drafts_suite_from_owned_agent():
             db, ids["conn_other"], org, admin
         )
 
-        assert await db.get(DataSource, ds_id) is None
+        db.expire_all()
+        kept = await db.get(DataSource, ds_id)
+        assert kept is not None
+        assert list(kept.connections) == []
         preserved = await db.get(EvalSuite, suite_id)
         assert preserved is not None
-        assert preserved.data_source_id is None
+        assert preserved.data_source_id == ds_id
 
 
 @pytest.mark.asyncio
@@ -724,3 +728,32 @@ async def test_create_agent_tool_selection_overlay():
         disabled = {name_by_id[str(o.connection_tool_id)] for o in overlays if not o.is_enabled}
         assert enabled == {"get_board", "list_items"}
         assert disabled == {"send_message"}
+
+
+@pytest.mark.asyncio
+async def test_create_agent_with_no_connection():
+    """An agent can be built with no connection (instructions, files and a
+    description only); the org-level create permission still gates it."""
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        member = await db.get(User, ids["member"])
+
+        for tool_input in ({"name": f"Handbook {ids['suffix']}"},
+                           {"name": f"Glossary {ids['suffix']}", "connection_ids": []}):
+            ev = await _final(CreateAgentTool(), {**tool_input, "description": "Company policies."},
+                              {"db": db, "organization": org, "user": admin})
+            out = ev.payload["output"]
+            assert out["success"] is True, out
+            ds = (await db.execute(
+                select(DataSource).options(selectinload(DataSource.connections))
+                .where(DataSource.id == out["data_source_id"])
+            )).scalar_one()
+            assert list(ds.connections) == []
+            assert ds.description == "Company policies."
+
+        ev = await _final(CreateAgentTool(), {"name": f"Nope {ids['suffix']}"},
+                          {"db": db, "organization": org, "user": member})
+        out = ev.payload["output"]
+        assert out["success"] is False and out["rejected_reason"] == "permission_denied"

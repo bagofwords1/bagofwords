@@ -20,7 +20,9 @@ from app.models.connection_table import ConnectionTable, KIND_BOW, KIND_TABLE
 from app.models.connection_tool import ConnectionTool
 from app.models.data_source import DataSource
 from app.dependencies import get_current_organization
-from app.services.connection_service import ConnectionService, _check_pg_schemas, _check_pg_test_overrides
+from app.services.connection_service import (
+    ConnectionService, _check_pg_schemas, _check_pg_test_overrides, connectors_deleted_with,
+)
 from app.services.ssh_host_keys import SSHHostKeyRequest, discover_host_keys
 from app.core.permissions_decorator import (
     requires_permission, requires_resource_permission, check_resource_permissions, require_org_permission,
@@ -583,6 +585,7 @@ async def get_connection(
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         agent_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
+        connectors_deleted_with_it=[name for _, name in await connectors_deleted_with(db, connection)],
         has_credentials=has_credentials,
         management_auth="user" if personal_management else "system",
         last_connection_status=None if personal_management else connection.last_connection_status,
@@ -715,7 +718,8 @@ async def delete_connection(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Delete a connection. Fails if connection is linked to any agents."""
+    """Delete a connection. Agents linked to it are unlinked and kept; one that
+    had no other connection is left with none."""
     return await connection_service.delete_connection(
         db=db,
         connection_id=connection_id,

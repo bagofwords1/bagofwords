@@ -8,18 +8,15 @@ import uuid
 
 import pytest
 
-from ._shared_member import accept_invite, h, invite, org_ids, two_orgs  # noqa: F401
+from ._shared_member import h, invite, org_ids, two_orgs  # noqa: F401
 
 
 @pytest.fixture
 def admin_of_a_member_of_b(test_client, two_orgs, whoami):
     o = two_orgs
     me = whoami(o["a_token"])
-    pending = invite(test_client, admin_token=o["b_token"], org_id=o["b_org"], email=me["email"], role="member")
-    accept_invite(
-        test_client, admin_token=o["b_token"], org_id=o["b_org"],
-        membership_id=pending["id"], user_token=o["a_token"],
-    )
+    added = invite(test_client, admin_token=o["b_token"], org_id=o["b_org"], email=me["email"], role="member")
+    assert added["user_id"] == me["id"]  # an existing account joins directly
     assert org_ids(whoami, o["a_token"]) == {o["a_org"], o["b_org"]}
     return {**o, "token": o["a_token"]}
 

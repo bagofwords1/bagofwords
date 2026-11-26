@@ -79,7 +79,7 @@ def _strip_code_role(test_client, admin, member, create_role, assign_role):
     org_id = admin["org_id"]
     role = create_role(
         name=f"viewer-{uuid.uuid4().hex[:6]}",
-        permissions=["view_reports", "create_reports", "manage_files", "view_members"],
+        permissions=["access_workspace", "view_reports", "create_reports", "manage_files", "view_members"],
         user_token=admin["token"], org_id=org_id,
     )
     assert role.status_code == 200, role.text
@@ -342,7 +342,7 @@ async def test_permissions_union_across_roles_so_member_role_must_be_removed(
     member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
 
     role = create_role(
-        name=f"restricted-{uuid.uuid4().hex[:6]}", permissions=["view_reports"],
+        name=f"restricted-{uuid.uuid4().hex[:6]}", permissions=["access_workspace", "view_reports"],
         user_token=admin["token"], org_id=admin["org_id"],
     )
     assign_role(
@@ -560,7 +560,7 @@ async def test_console_trace_withholds_code_from_a_console_user_without_view_cod
     role_id = _strip_code_role(test_client, admin, member, create_role, assign_role)
     updated = test_client.put(
         f"/api/organizations/{admin['org_id']}/roles/{role_id}",
-        json={"permissions": ["view_reports", "manage_settings"]},
+        json={"permissions": ["access_workspace", "view_reports", "manage_settings"]},
         headers=_hdr(admin["token"], admin["org_id"]),
     )
     assert updated.status_code == 200, updated.text
@@ -601,7 +601,7 @@ async def test_member_without_run_custom_code_cannot_preview_supplied_entity_cod
         test_client.delete(f"/api/organizations/{org_id}/role-assignments/{a['id']}", headers=hdr)
     role = create_role(
         name=f"author-{uuid.uuid4().hex[:6]}",
-        permissions=["view_reports", "create_reports", "manage_entities"],
+        permissions=["access_workspace", "view_reports", "create_reports", "manage_entities"],
         user_token=admin["token"], org_id=org_id,
     )
     assert role.status_code == 200, role.text
@@ -651,7 +651,7 @@ def _entity_author(test_client, admin, member, create_role, assign_role, *, run_
         params={"principal_type": "user", "principal_id": member["user_id"]},
     ).json():
         test_client.delete(f"/api/organizations/{org_id}/role-assignments/{a['id']}", headers=hdr)
-    permissions = ["view_reports", "create_reports", "manage_entities"]
+    permissions = ["access_workspace", "view_reports", "create_reports", "manage_entities"]
     if run_custom_code:
         permissions.append("run_custom_code")
     role = create_role(

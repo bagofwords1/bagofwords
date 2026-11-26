@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.services.artifact_payload import row_count_fields
+from app.ai.tools.implementations._artifact_parse import ParseCheckUnavailable, parse_check_page_code
 from app.ai.tools.mcp.base import MCPTool
 from app.errors.redact import describe_for_log
 from app.ai.tools.mcp.context import build_rich_context
@@ -331,6 +332,17 @@ class EditArtifactMCPTool(MCPTool):
             await self._finish_tracking(db, tracking, success=result['success'],
                 summary='Artifact edit validated' if result['success'] else 'Artifact edit requires repair')
             return result
+
+        if artifact.mode == "page":
+            try:
+                diagnostic = await parse_check_page_code(new_code)
+            except ParseCheckUnavailable as exc:
+                diagnostic = str(exc)
+            if diagnostic:
+                await self._finish_tracking(db, tracking, success=False, summary="Artifact JSX validation failed")
+                return MCPEditArtifactOutput(
+                    report_id=str(report.id), success=False, error_message=diagnostic,
+                ).model_dump()
 
         # Create a NEW artifact record (preserves version history for frontend dropdown)
         new_title = input_data.title or artifact.title

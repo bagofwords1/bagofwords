@@ -324,6 +324,21 @@
 												{{ responseT('reportView.rerun') }}
 											</button>
 										</UTooltip>
+										<!-- Rewind: remove this prompt and everything after it from the
+										     conversation and the agent's context; the prompt goes back to
+										     the box for editing. Idle-only (the server refuses mid-run). -->
+										<UTooltip v-if="canRewindPrompt(m)" :text="isRunBusy ? responseT('reportView.rewindBusyTooltip') : responseT('reportView.rewindTooltip')" :popper="{ placement: 'bottom' }">
+											<button
+												type="button"
+												data-testid="user-message-rewind"
+												:disabled="isRunBusy"
+												@click="askRewind(m)"
+												class="text-chat-3 text-ink-muted hover:text-ink-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-0.5"
+											>
+												<Icon name="heroicons-backward" class="w-3 h-3 rtl-flip" />
+												{{ responseT('reportView.rewind') }}
+											</button>
+										</UTooltip>
 										<span v-if="m.created_at" class="text-chat-3 text-ink-muted">{{ formatMessageDate(m.created_at) }}</span>
 									</div>
 								</div>
@@ -1212,6 +1227,7 @@
 	</SplitScreenLayout>
 
 	<!-- Trace Modal -->
+	<RewindConfirmModal v-model="showRewindConfirm" :count="rewindCount" :memories-count="rewindMemoriesCount" :busy="rewinding" @confirm="confirmRewind" />
 	<TraceModal
 		v-model="showTraceModal"
 		:report-id="report_id"
@@ -1255,7 +1271,7 @@ import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import { placeSteers, isSteerApplied, groupSteersByParent } from '~/composables/useSteerPlacement'
-import { describeDataOutput, isDataResultCall, type RunActivity } from '~/composables/useRunActivity'
+import { describeDataOutput, isDataResultCall, isPendingWait, type RunActivity } from '~/composables/useRunActivity'
 import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
 import { isRunWorking } from '~/composables/runWorkingDot'
 import { citeText, collectSources, stripCitations, FIGURE_TAGS, type CitationSource } from '~/composables/useCitations'
@@ -1363,6 +1379,7 @@ import ForkPreparing from '~/components/ForkPreparing.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import FollowUpSuggestions from '~/components/report/FollowUpSuggestions.vue'
 import RevealTransition from '~/components/report/RevealTransition.vue'
+import RewindConfirmModal from '~/components/report/RewindConfirmModal.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
@@ -1494,6 +1511,7 @@ interface ChatMessage {
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
 const toast = useToast()
+const { getErrorMessage: getRewindErrorMessage } = useErrorMessage()
 const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
@@ -1658,8 +1676,9 @@ function isAwaitingUser(b: any): boolean {
 		!isConfirmationAnswered(cid)
 }
 // Work that outlives its tool call and carries its own Stop: an eval run still
-// going (attached to this turn or detached in the background) and a sub-agent
-// still investigating. The run fold never hides these cards.
+// going (attached to this turn or detached in the background), a sub-agent
+// still investigating, and a wait still armed (its card holds the countdown
+// and Cancel). The run fold never hides these cards.
 const LIVE_SUB_AGENT_STATUSES = new Set(['running', 'pending', 'waiting'])
 const TERMINAL_EVAL_STATUSES = new Set(['success', 'error', 'stopped'])
 function hasRunningStopControl(b: any): boolean {
@@ -1669,6 +1688,7 @@ function hasRunningStopControl(b: any): boolean {
 		const id = te.result_json?.sub_agent_id
 		return !!id && LIVE_SUB_AGENT_STATUSES.has(String(subAgentById.value[id]?.status || ''))
 	}
+	if (te.tool_name === 'wait') return isPendingWait(te)
 	if (te.tool_name === 'run_eval') {
 		if (te.status === 'running') return true
 		const rj = te.result_json || {}
@@ -6021,7 +6041,8 @@ function startArtifactFramePrefetch(artifactId: string) {
     ensureArtifactLibs(artifactPageLibs({ reactBuild: 'development', babel: false, pdf: false }))
     artifactFramePrefetch.value = {
         artifactId,
-        queries: useMyFetch(`/api/queries?report_id=${report_id}&artifact_id=${artifactId}`),
+        // As the frame asks for it: used as it came, never written to (useMyFetch noClone).
+        queries: useMyFetch(`/api/queries?report_id=${report_id}&artifact_id=${artifactId}`, { noClone: true } as any),
         viewerContext: useMyFetch('/api/users/me/viewer_context'),
     }
 }
@@ -6378,6 +6399,91 @@ async function rerunPrompt(m: ChatMessage) {
 	}
 	if (isRunBusy.value) onQueuePrompt(payload)
 	else onSubmitCompletion(payload)
+}
+
+// Rewind: remove a prompt and everything after it from the
+// conversation and the agent's context, then put the prompt back into the box
+// to edit and resend. Widgets/queries/dashboards built in those turns stay.
+function canRewindPrompt(m: ChatMessage) {
+	return !!report.value && isReportOwner.value
+		&& m.status !== 'queued'
+		&& m.message_type !== 'steering'
+		// Optimistic rows have no server id yet.
+		&& !String(m.id).startsWith('user-')
+}
+
+const showRewindConfirm = ref(false)
+const rewinding = ref(false)
+const rewindTarget = ref<ChatMessage | null>(null)
+// What the confirmation counts: the server's count of transcript rows that go
+// (dry run), or until it answers, the prompt and every later message shown.
+const rewindServerCount = ref<number | null>(null)
+const rewindCount = computed(() => {
+	if (rewindServerCount.value != null) return rewindServerCount.value
+	const target = rewindTarget.value
+	if (!target) return 0
+	const idx = messages.value.findIndex(m => m.id === target.id)
+	if (idx < 0) return 0
+	return messages.value.slice(idx).filter(m => m.role === 'user' || m.role === 'system').length
+})
+
+const rewindMemoriesCount = ref(0)
+
+async function askRewind(m: ChatMessage) {
+	if (!canRewindPrompt(m) || isRunBusy.value) return
+	rewindTarget.value = m
+	rewindMemoriesCount.value = 0
+	rewindServerCount.value = null
+	showRewindConfirm.value = true
+	// Dry run: how many memories came from the turns that would go (they are
+	// kept; the dialog says so). Best effort — the dialog works without it.
+	try {
+		const { data } = await useMyFetch(`/reports/${report_id}/rewind`, {
+			method: 'POST',
+			body: { completion_id: m.id, dry_run: true },
+		})
+		const preview = data.value as any
+		if (preview && rewindTarget.value?.id === m.id) {
+			rewindMemoriesCount.value = Number(preview.memories_kept || 0)
+			if (typeof preview.visible_removed_count === 'number') rewindServerCount.value = preview.visible_removed_count
+		}
+	} catch { /* preview only */ }
+}
+
+async function confirmRewind() {
+	const target = rewindTarget.value
+	if (!target || rewinding.value) return
+	rewinding.value = true
+	try {
+		const { data, error } = await useMyFetch(`/reports/${report_id}/rewind`, {
+			method: 'POST',
+			body: { completion_id: target.id },
+		})
+		if (error.value) {
+			toast.add({ title: t('reportView.rewindFailed'), description: getRewindErrorMessage(error.value, t('errors.generic')), color: 'red' })
+			return
+		}
+		const result = data.value as any
+		const removed = new Set<string>((result?.removed_ids || []).map(String))
+		messages.value = messages.value.filter(m => !removed.has(String(m.id)))
+		applyClearResult(result)
+		if (!result?.covers_until_completion_id) compactionWatermarkId.value = null
+		showRewindConfirm.value = false
+		// Put the prompt back into the box (reset first so the same text
+		// re-applies even when the box already held it).
+		prefillText.value = ''
+		await nextTick()
+		prefillText.value = result?.prompt?.content || target.prompt?.content || ''
+		toast.add({ title: t('reportView.rewindDone'), color: 'green' })
+		await loadCompletions()
+		promptBoxRef.value?.refreshContextEstimate?.(true)
+	} catch (e) {
+		console.error('Failed to rewind:', e)
+		toast.add({ title: t('reportView.rewindFailed'), description: getRewindErrorMessage(e, t('errors.generic')), color: 'red' })
+	} finally {
+		rewinding.value = false
+		if (!showRewindConfirm.value) rewindTarget.value = null
+	}
 }
 
 // A starter or follow-up question is sent here, not through the box: wait for

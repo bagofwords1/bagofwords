@@ -11,15 +11,41 @@ from app.services.connection_service import (
 
 def test_presets_include_default_dcr_set():
     keys = {p["key"] for p in mcp_presets()}
-    assert {"monday", "notion", "atlassian", "linear", "sentry"} <= keys
+    assert {"monday", "notion", "atlassian", "linear", "sentry", "fathom"} <= keys
 
 
 def test_dcr_presets_are_oauth():
     # The zero-setup (DCR) set connects via per-user OAuth.
-    for key in ("monday", "notion", "atlassian", "linear", "sentry"):
+    for key in ("monday", "notion", "atlassian", "linear", "sentry", "fathom"):
         assert mcp_preset(key).auth == "oauth"
     # GitHub needs an OAuth app.
     assert mcp_preset("github").auth == "oauth_app"
+
+
+def test_fathom_preset():
+    f = mcp_preset("fathom")
+    assert f.server_url == "https://api.fathom.ai/mcp"
+    assert f.transport == "streamable_http"
+    assert f.allowed_auth == ["dcr"]
+    assert f.title == "Fathom"
+    assert f.sample_tools == [
+        "get_identity", "list_teams", "list_meetings", "get_meeting_summary",
+        "get_meeting_transcript", "find_person", "find_relevant_meetings",
+        "get_relevant_meetings_result", "scan_meeting_summaries", "search_meetings",
+        "get_recording_by_call_id", "get_recording_by_url",
+    ]
+
+
+def test_microsoft_learn_preset_is_public():
+    m = mcp_preset("microsoft_learn")
+    assert m.server_url == "https://learn.microsoft.com/api/mcp"
+    assert m.transport == "streamable_http"
+    assert m.auth == "none"
+    assert m.allowed_auth == ["none"]
+    assert m.oauth_defaults is None
+    assert m.sample_tools == [
+        "microsoft_docs_search", "microsoft_code_sample_search", "microsoft_docs_fetch",
+    ]
 
 
 def test_x_preset_is_bearer():
@@ -72,7 +98,7 @@ def test_x_oauth_defaults_are_correct():
 
 def test_dcr_presets_have_no_oauth_defaults():
     # DCR discovers its endpoints — no admin-entered constants needed.
-    for key in ("monday", "notion", "atlassian", "linear", "sentry"):
+    for key in ("monday", "notion", "atlassian", "linear", "sentry", "fathom"):
         assert mcp_preset(key).oauth_defaults is None
 
 
@@ -166,6 +192,23 @@ def test_hubspot_is_a_services_tile_and_serializes():
     assert hs["transport"] == "streamable_http"
     assert hs["title"] == "HubSpot"
     assert hs["oauth_defaults"]["authorize_url"].startswith("https://mcp.hubspot.com/")
+
+
+def test_hubspot_catalog_guide_shows_the_oauth_redirect_uri():
+    from app.core.base_url import connection_oauth_redirect_uri
+    guide = next(p for p in mcp_presets() if p["key"] == "hubspot")["setup_guide"]
+    assert guide and all(step["title"] and step["body"] for step in guide)
+    assert [step["code"] for step in guide if step["code"]] == [connection_oauth_redirect_uri()]
+
+
+def test_presets_with_a_guide_do_not_share_a_registry_type_name():
+    from app.schemas.data_source_registry import REGISTRY
+    guided = {p["key"] for p in mcp_presets() if p["setup_guide"]}
+    assert guided and not guided & set(REGISTRY)
+
+
+def test_presets_without_a_guide_serialize_it_as_none():
+    assert next(p for p in mcp_presets() if p["key"] == "notion")["setup_guide"] is None
 
 
 def test_scope_normalization_comma_or_space():

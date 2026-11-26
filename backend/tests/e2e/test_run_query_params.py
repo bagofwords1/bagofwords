@@ -192,6 +192,40 @@ def test_runs_the_saved_code_for_the_requested_values(report):
     assert [p["name"] for p in obs["parameters"]] == ["region"]
 
 
+# Four rows whatever the values: a plain column sum the observation can pin.
+SUMS_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    return pd.DataFrame({
+        "region": ["DE", "FR", "IT", "ES"],
+        "revenue": [100, 250, 400, 610],
+        "region_id": [1, 2, 3, 4],
+        "year": [2024, 2024, 2024, 2024],
+    })
+"""
+
+
+@pytest.mark.e2e
+def test_observation_carries_sums_output_does_not(report):
+    from tests.unit.test_data_preview_sums import _assert_k_clean, _dicts_with_key
+    import pandas as pd
+
+    _assert_k_clean(pd.DataFrame({"revenue": [100, 250, 400, 610]}), ["revenue"])
+    seeded = _run(_seed_query(report["report_id"], [_spec()], code=SUMS_CODE))
+    payload = _run(_call(report["org_id"], report["user_id"], report["report_id"],
+                         {"query_id": seeded["query_id"], "params": {"region": "DE"}}))
+    out, obs = payload["output"], payload["observation"]
+
+    assert out["success"], out.get("error")
+    # 1360 / 610 = 2.23: no total-row signature. region_id and year are guarded.
+    assert obs["data_preview"]["column_sums"] == {
+        "note": "sum = sum of all 4 rows", "sum": {"revenue": 1360},
+    }
+    # The output (UI, SSE, result_json) keeps the plain preview.
+    assert out["data_preview"]["rows"] == obs["data_preview"]["rows"]
+    assert _dicts_with_key(out, "column_sums") == []
+
+
 @pytest.mark.e2e
 def test_creates_no_step_and_leaves_the_shared_snapshot_alone(report):
     seeded = _run(_seed_query(report["report_id"], [_spec()]))

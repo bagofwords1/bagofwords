@@ -402,7 +402,7 @@ def test_postgres_extension_load_failure_names_the_fix(monkeypatch):
 @pytest.mark.parametrize(("postgres", "duckdb_type"), [
     ("integer", "BIGINT"), ("numeric(12,2)", "DECIMAL(12,2)"), ("character varying(50)", "VARCHAR"),
     ("timestamp without time zone", "TIMESTAMP"), ("timestamp with time zone", "TIMESTAMP WITH TIME ZONE"),
-    ("boolean", "BOOLEAN"), ("date", "DATE"),
+    ("boolean", "BOOLEAN"), ("date", "DATE"), ("json", "VARCHAR"), ("jsonb", "VARCHAR"),
 ])
 def test_coarse_type_matches_postgres_and_duckdb_names(postgres, duckdb_type):
     from app.data_sources.clients.postgresql_multi_engine import coarse_type

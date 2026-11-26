@@ -1,0 +1,9 @@
+[ui] Interns limits cell: Day Month Tokens 50,000 500,000 Queries 40 — Data — — Spend $1.00 $10.00
+[ui] Power users limits cell: Day Month Tokens — 20,000,000 Queries — — Data — — Spend — $400.00
+[ui] modal header: Limit per user Per day Resets 00:00 Asia/Jerusalem Per month Resets on the 1st Tokens Daily limit can't be higher than t
+[ui] saved via UI: {"d_tok":20000,"m_tok":500000,"d_q":25,"m_q":null,"d_b":536870912,"d_s":2.5,"m_s":40}
+[ui] Contractors row: Day Month Tokens 20,000 500,000 Queries 25 — Data 512.0 MB — Spend $2.50 $40.00
+[ui] member tokens used today after first run: 3450
+[ui] member sees: Organization usage quota reached: Daily LLM token quota exceeded. Resets at 00:00 Asia/Jerusalem (in 2h 55m).
+[ui] profile today line: Today: 3,450 / 3,450
+[ui] ALL UI CHECKS PASSED

@@ -379,17 +379,27 @@ async def admit_user(cfg, issuer, subject, identity_hash, email, name, db):
             invite.invite_token = None
             invite.directory_provider = "saml:" + cfg.name
             role = invite.role
+            # The invite's pending roles and groups, as the admin last edited
+            # them, move onto the user (same as every other acceptance path).
+            from app.core.permission_resolver import materialize_pending_rbac
+            await materialize_pending_rbac(db, invite, str(user.id))
         else:
+            # No invite: the org's default member role (Members page), which may
+            # be one of the org's custom roles.
+            from app.services.organization_settings_service import resolve_default_member_role
+            role = await resolve_default_member_role(db, str(cfg.organization_id))
             db.add(
                 Membership(
                     user_id=user.id,
                     organization_id=cfg.organization_id,
-                    role="member",
+                    role=role,
                     directory_provider="saml:" + cfg.name,
                 )
             )
-            role = "member"
-        await ensure_system_role_assignment(db, cfg.organization_id, str(user.id), role)
+        # An invite grants built-ins from its name; its custom roles came
+        # across with the pending RBAC above.
+        await ensure_system_role_assignment(db, cfg.organization_id, str(user.id), role,
+                                            allow_custom=not valid_invite)
     if not identity:
         db.add(
             SAMLIdentity(

@@ -71,3 +71,25 @@ export function latestWindowZoom(categories: unknown[] | number, series: number,
     { type: 'slider', [axisIndexKey]: 0, startValue, endValue, bottom: 4, height: 18, brushSelect: false },
   ];
 }
+
+/** Over this many series a chart can't be read: the palette repeats and the lines knot together. */
+export const MAX_VISIBLE_SERIES = 8;
+
+/** Legend selection showing the `max` largest series (by total of |value|); the rest stay in the
+ *  legend, greyed and one click away. null when there are few enough to show them all. */
+export function topSeriesSelection(series: Array<{ name?: unknown; data?: unknown[] }>, max = MAX_VISIBLE_SERIES): Record<string, boolean> | null {
+  const named = (series || []).filter(s => s && s.name != null);
+  if (named.length <= max) return null;
+  const total = (s: { data?: unknown[] }) => (s.data || []).reduce<number>((acc, d) => {
+    let v: unknown = d && typeof d === 'object' ? (Array.isArray(d) ? d[d.length - 1] : (d as { value?: unknown }).value) : d;
+    if (Array.isArray(v)) v = v[v.length - 1];
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    return Number.isFinite(n) ? acc + Math.abs(n) : acc;
+  }, 0);
+  const ranked = named.map(s => ({ name: String(s.name), t: total(s) })).sort((a, b) => b.t - a.t);
+  const top = new Set(ranked.slice(0, max).map(r => r.name));
+  // Keys in series order, so a refresh that swaps two totals keeps the same shape.
+  const selected: Record<string, boolean> = {};
+  named.forEach(s => { selected[String(s.name)] = top.has(String(s.name)); });
+  return selected;
+}

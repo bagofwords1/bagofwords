@@ -63,7 +63,7 @@
 
       <p v-if="authMode !== 'sso_only'" class="mt-6 text-sm text-center text-gray-500 dark:text-gray-400">
         {{ $t('auth.newToBow') }}
-        <NuxtLink to="/users/sign-up" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
+        <NuxtLink :to="signUpLink" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
           {{ $t('auth.signUp') }}
         </NuxtLink>
       </p>
@@ -192,6 +192,13 @@
   }
 
   const OAUTH_REDIRECT_STORAGE_NAME = 'bow:postSignInRedirect'
+
+  // Sign-up keeps where the visitor was headed (e.g. an embedded artifact's
+  // sign-in popup), as sign-in itself does.
+  const signUpLink = computed(() => {
+    const target = safeRedirectTarget(route.query.redirect)
+    return target ? { path: '/users/sign-up', query: { redirect: target } } : '/users/sign-up'
+  })
 
   // Helper to extract error message from server response
   const { getErrorMessage } = useErrorMessage()
@@ -365,13 +372,14 @@
     };
 
     try {
-      const response = await $fetch('/api/auth/jwt/login', {
+      // A directory sign-in can create the account: inside a host
+      // application's sign-in window it is sent with the host's intent or not
+      // at all (utils/embedSignupIntent.ts).
+      const response = await submitWithEmbedIntent(route.query.redirect, headers => $fetch('/api/auth/jwt/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...headers },
         body: qs.stringify(credentials),
-      });
+      }));
 
 
       if (response) {
@@ -395,7 +403,10 @@
         isSubmitting.value = false
       }
     } catch (error: any) {
-      error_message.value = extractErrorMessage(error, t('auth.invalidCredentials'))
+      // Nothing was sent when the host application could not be confirmed.
+      error_message.value = error instanceof EmbedIntentError
+        ? t('embed.signin.intentFailed')
+        : extractErrorMessage(error, t('auth.invalidCredentials'))
       isSubmitting.value = false
     }
   }
@@ -409,8 +420,10 @@
     try {
       loadingProvider.value = 'google'
       persistRedirectForOAuth()
+      const embedHost = embedHostOfRedirect(route.query.redirect)
       const response = await $fetch('/api/auth/google/authorize', {
         method: 'GET',
+        query: embedHost ? { embed_host: embedHost } : undefined,
       });
 
       if (response.authorization_url) {
@@ -428,9 +441,13 @@
       persistRedirectForOAuth()
       const provider = oidcProviders.value.find((p) => p.name === name)
       const path = provider?.protocol === 'saml' ? `saml/${name}` : name
+      const embedHost = embedHostOfRedirect(route.query.redirect)
       const response = await $fetch(`/api/auth/${path}/authorize`, {
         method: 'GET',
-        query: loginHint.value ? { login_hint: loginHint.value } : undefined,
+        query: {
+          ...(loginHint.value ? { login_hint: loginHint.value } : {}),
+          ...(embedHost ? { embed_host: embedHost } : {}),
+        },
       })
       if ((response as any)?.authorization_url) {
         window.location.href = (response as any).authorization_url

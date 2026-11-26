@@ -383,12 +383,12 @@ def coarse_type(dtype: str | None) -> str | None:
     if match:
         precision = match.group(3)
         return "decimal" if precision and int(precision) <= _MAX_EXACT_DIGITS else "float"
-    if _TEXT_TYPES.match(t):
+    if _TEXT_TYPES.match(t) or t in ("json", "jsonb"):
         return "text"
     if t.startswith("timestamp"):
         return "timestamptz" if ("with time zone" in t and "without" not in t) or t == "timestamptz" else "timestamp"
-    if t in ("date", "boolean", "bool", "uuid", "json", "jsonb", "bytea", "blob", "interval"):
-        return {"bool": "boolean", "jsonb": "json", "bytea": "blob"}.get(t, t)
+    if t in ("date", "boolean", "bool", "uuid", "bytea", "blob", "interval"):
+        return {"bool": "boolean", "bytea": "blob"}.get(t, t)
     if t.startswith("time"):
         return "time"
     return None
