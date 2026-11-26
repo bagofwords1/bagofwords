@@ -25,15 +25,28 @@ try:
 except Exception:  # pragma: no cover
     LIBS, HAVE_BABEL = None, False
 
-try:
-    import playwright  # noqa: F401
-    HAVE_PLAYWRIGHT = True
-except ImportError:  # pragma: no cover
-    HAVE_PLAYWRIGHT = False
+
+def _have_chromium() -> bool:
+    """A Chromium executable for the compiler: BOW_CHROMIUM_EXECUTABLE, else
+    Playwright's own download (checked to exist, not launched). The Python
+    package alone isn't enough; CI's backend jobs install it without a
+    browser."""
+    exe = os.environ.get("BOW_CHROMIUM_EXECUTABLE")
+    if exe:
+        return os.path.exists(exe)
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            return os.path.exists(p.chromium.executable_path)
+    except Exception:  # pragma: no cover
+        return False
+
+
+HAVE_CHROMIUM = _have_chromium()
 
 requires_browser_babel = pytest.mark.skipif(
-    not (HAVE_BABEL and HAVE_PLAYWRIGHT),
-    reason="needs vendored babel-standalone (scripts/download-vendor-libs.sh) and Playwright",
+    not (HAVE_BABEL and HAVE_CHROMIUM),
+    reason="needs vendored babel-standalone (scripts/download-vendor-libs.sh) and a Chromium executable",
 )
 
 
