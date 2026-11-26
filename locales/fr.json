@@ -774,6 +774,7 @@
     "continueWithProvider": "Continuer avec {provider}",
     "invalidCredentials": "Identifiants invalides",
     "signInFailed": "Échec de la connexion. Veuillez réessayer.",
+    "popupReturnFailed": "La connexion est terminée, mais cette fenêtre n'a pas pu la transmettre à la page qui l'a ouverte. Fermez cette fenêtre et réessayez depuis cette page.",
     "registrationError": "Une erreur s'est produite lors de l'inscription.",
     "googleInitError": "Échec de l'initialisation de la connexion Google",
     "providerInitError": "Échec de l'initialisation de la connexion {provider}",

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi import Depends
 from pydantic import BaseModel
 
@@ -14,6 +14,11 @@ router.include_router(saml_router)
 
 class LoginCodeExchange(BaseModel):
     login_code: str
+
+
+class LoginCodeHandoff(BaseModel):
+    login_code: str
+    code_challenge: str
 
 
 @router.get("/auth/{provider}/authorize")
@@ -59,3 +64,34 @@ async def exchange_login_code(payload: LoginCodeExchange) -> JSONResponse:
         raise HTTPException(status_code=400, detail="Invalid or expired login code")
 
     return JSONResponse({"access_token": access_token, "token_type": "bearer"})
+
+
+@router.post("/auth/exchange/handoff", status_code=204)
+async def hand_off_login_code(payload: LoginCodeHandoff) -> Response:
+    """Pass a login code from the sign-in popup to the framed page that opened it.
+
+    The popup spends its code against the frame's challenge; the frame then
+    redeems its own verifier at ``/auth/exchange``. See
+    ``login_exchange_service.hand_off_login_code``.
+    """
+    from app.services.login_exchange_service import hand_off_login_code as hand_off
+
+    if not await hand_off(payload.login_code, payload.code_challenge):
+        raise HTTPException(status_code=400, detail="Invalid or expired login code")
+    return Response(status_code=204)
+
+
+@router.get("/auth/exchange/handoff/{code_challenge}")
+async def login_code_handoff_status(code_challenge: str) -> JSONResponse:
+    """Whether a handoff is waiting (``ready``), was taken (``consumed``) or
+    ran out unclaimed (``expired``); ``pending`` when there is nothing to say.
+
+    The frame polls it to learn the popup is done; the popup polls it to learn
+    the frame took the session, and only then closes.
+    """
+    from app.services.login_exchange_service import handoff_status
+
+    return JSONResponse(
+        {"status": await handoff_status(code_challenge)},
+        headers={"Cache-Control": "no-store"},
+    )

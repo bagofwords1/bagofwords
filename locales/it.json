@@ -774,6 +774,7 @@
     "continueWithProvider": "Continua con {provider}",
     "invalidCredentials": "Credenziali non valide",
     "signInFailed": "Accesso non riuscito. Riprova.",
+    "popupReturnFailed": "L'accesso è terminato, ma questa finestra non è riuscita a restituirlo alla pagina che l'ha aperta. Chiudi questa finestra e riprova da quella pagina.",
     "registrationError": "Si è verificato un errore durante la registrazione.",
     "googleInitError": "Impossibile inizializzare l'accesso con Google",
     "providerInitError": "Impossibile inizializzare l'accesso con {provider}",

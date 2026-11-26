@@ -839,6 +839,7 @@
     "continueWithProvider": "המשך עם {provider}",
     "invalidCredentials": "פרטי התחברות לא תקינים",
     "signInFailed": "ההתחברות נכשלה. אנא נסה שוב.",
+    "popupReturnFailed": "ההתחברות הסתיימה, אך החלון הזה לא הצליח להעביר אותה בחזרה לדף שפתח אותו. יש לסגור את החלון ולנסות שוב מאותו דף.",
     "registrationError": "אירעה שגיאה במהלך ההרשמה.",
     "googleInitError": "לא ניתן להפעיל התחברות עם Google",
     "providerInitError": "לא ניתן להפעיל התחברות עם {provider}",

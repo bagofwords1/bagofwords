@@ -78,6 +78,7 @@
 
   import { ref, computed, onMounted } from 'vue';
   import Spinner from '~/components/Spinner.vue';
+  import { beginPopupFlow, deliverPopupResult, isFramed } from '~/utils/ssoPopup';
 
   const { t } = useI18n()
   const { rawToken } = useAuthState()
@@ -246,6 +247,19 @@
       url.searchParams.delete('app_sso')
       window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
     }
+    // This window is the sign-in popup of a framed BOW (utils/ssoPopup.ts) and
+    // the provider just sent it back: the frame that opened it finishes the
+    // sign-in, so hand it the result and close instead of signing in here.
+    // It closes only once the frame has the result. If the frame never takes
+    // it (it was removed, or it cannot be reached), say so here: this window
+    // is all the user is looking at.
+    const handover = await deliverPopupResult(route.query)
+    if (handover === 'closing') return
+    if (handover === 'undelivered' && route.query.login_code) {
+      error_message.value = t('auth.popupReturnFailed')
+      pageLoaded.value = true
+      return
+    }
     try {
       const settings = await $fetch('/api/settings')
       if (settings?.oidc_providers?.length || settings?.saml_providers?.length) {
@@ -308,6 +322,19 @@
       return
     }
 
+    // Opened as that popup by a framed sign-in page whose provider button was
+    // clicked: start the provider it names. The click already happened in the
+    // frame, so there is nothing to choose here.
+    const popupFlow = authMode.value !== 'local_only' ? beginPopupFlow(route.query) : null
+    if (popupFlow) {
+      const provider = oidcProviders.value.find((p) => p.name === popupFlow.provider)
+      if (provider || (popupFlow.provider === 'google' && googleSignIn.value)) {
+        await (provider ? signInWithProvider(provider.name) : signInWithGoogle())
+        if (loadingProvider.value === null) pageLoaded.value = true
+        return
+      }
+    }
+
     // Single-provider SSO on the embedded flow: the button would be the only
     // thing on the page, so press it. This is what lets an embedding app open
     // BOW with no visible sign-in step when the user already has a live
@@ -330,6 +357,9 @@
       && !route.query.error_code
       && !route.query.error
       && ssoProviderCount.value === 1
+      // Framed, the provider's page cannot load in place and a popup needs a
+      // click: show the button, which opens one.
+      && !isFramed()
     ) {
       const provider = oidcProviders.value[0]
       await (provider ? signInWithProvider(provider.name) : signInWithGoogle())

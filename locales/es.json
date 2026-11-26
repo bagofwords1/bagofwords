@@ -839,6 +839,7 @@
     "continueWithProvider": "Continuar con {provider}",
     "invalidCredentials": "Credenciales no válidas",
     "signInFailed": "Error al iniciar sesión. Inténtalo de nuevo.",
+    "popupReturnFailed": "El inicio de sesión terminó, pero esta ventana no pudo devolverlo a la página que la abrió. Cierra esta ventana e inténtalo de nuevo desde esa página.",
     "registrationError": "Ha ocurrido un error durante el registro.",
     "googleInitError": "No se pudo iniciar el inicio de sesión con Google",
     "providerInitError": "No se pudo iniciar el inicio de sesión con {provider}",
