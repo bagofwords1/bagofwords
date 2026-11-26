@@ -131,6 +131,7 @@ async def get_draft_dashboard(
         theme_name=report[0] if report else None, theme_overrides=report[1] if report else None,
         show_widget_info=bool(artifact.show_widget_info),
         allow_popups=bool(artifact.allow_popups),
+        chat_enabled=bool(artifact.chat_enabled),
         general=await _general(db, artifact),
         can_edit=await dashboard_access.can_edit(db, artifact, user),
         is_owner=await dashboard_access.counts_as_owner(db, artifact, user),

@@ -75,3 +75,21 @@ def test_a_draft_file_opens_only_if_the_draft_holds_it(corpus, corpus_rows, test
     assert _get(test_client, corpus, f"/api/d/{aid}/draft/files/{new}/embed_token").status_code == 200
     for fid in (old, str(uuid.uuid4()), "not-an-id"):  # old: only a deleted version holds it
         assert _get(test_client, corpus, f"/api/d/{aid}/draft/files/{fid}/embed_token").status_code == 404, fid
+
+
+@pytest.mark.e2e
+def test_the_draft_meta_exposes_the_chat_toggle_for_its_preview(corpus, corpus_rows, test_client):
+    """So an editor can preview the chat bubble in the draft before publishing,
+    the draft meta carries `chat_enabled` -- following the owner's toggle."""
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+
+    def draft_chat_enabled():
+        return _get(test_client, corpus, f"/api/d/{aid}/draft").json()["chat_enabled"]
+
+    def set_chat(on):
+        return test_client.put(f"/api/artifacts/{aid}/settings", json={"chat_enabled": on},
+                               headers=as_(corpus, "owner"))
+
+    for on in (True, False, True):
+        assert set_chat(on).status_code == 200
+        assert draft_chat_enabled() is on
