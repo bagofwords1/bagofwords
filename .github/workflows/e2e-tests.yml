@@ -307,6 +307,12 @@ jobs:
 
     - uses: ./.github/actions/setup-backend
 
+    # The artifact JSX syntax check runs the vendored Babel compiler
+    # (tests/unit/test_artifact_parse.py); without these files it reports the
+    # compiler as unavailable.
+    - name: Download vendored artifact libraries
+      run: bash scripts/download-vendor-libs.sh frontend/public/libs
+
     - name: Run unit tests
       working-directory: ./backend
       env:
