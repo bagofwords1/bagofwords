@@ -144,6 +144,24 @@ def transient_credential_fields(name: str) -> List[str]:
     ]
 
 
+def readonly_config_fields(name: str) -> List[str]:
+    """Config fields the driver fills in itself (e.g. a generated public key); input for them is ignored."""
+    schema = config_schema(name)
+    return [
+        field_name for field_name, info in schema.model_fields.items()
+        if (info.json_schema_extra or {}).get("readOnly")
+    ]
+
+
+def prepare_credentials(name: str, config: Dict[str, Any], credentials: Dict[str, Any]) -> tuple:
+    """Let the driver complete a backend's settings before they are stored
+    (e.g. generate a key pair when none was given). Returns ``(config, credentials)``."""
+    hook = getattr(driver_class(name), "prepare_credentials", None)
+    if hook is None:
+        return config, credentials
+    return hook(config, credentials)
+
+
 def describe_type(name: str) -> Dict[str, Any]:
     """What the admin form needs for one type: its schemas and what it can offer."""
     backend_type = get_backend_type(name)

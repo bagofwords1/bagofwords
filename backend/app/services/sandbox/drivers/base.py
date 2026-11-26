@@ -341,6 +341,11 @@ class SandboxDriver(abc.ABC):
         """Pre-pull an image; returns its digest when the backend can tell. Optional."""
         return None
 
+    async def confirm_identity(self, fingerprint: str) -> None:
+        """Trust the backend's identity (e.g. a server's host key) once an admin
+        has confirmed the fingerprint ``check`` reported. Optional."""
+        raise SandboxDriverError("This backend type has nothing to confirm", code="unsupported")
+
     async def enroll(self, transient: Mapping[str, Any]) -> None:
         """Use one-time credentials (e.g. a password that installs a key) once.
 

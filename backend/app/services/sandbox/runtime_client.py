@@ -207,7 +207,9 @@ class SandboxRuntimeClient:
         code = exc.code() if hasattr(exc, "code") else None
         mapped = {
             grpc.StatusCode.UNAUTHENTICATED: "unauthenticated",
-            grpc.StatusCode.PERMISSION_DENIED: "unauthenticated",
+            # sandboxd uses this for a working directory outside the sandbox root.
+            grpc.StatusCode.PERMISSION_DENIED: "invalid",
+            # ... and this for a command that does not exist in the image.
             grpc.StatusCode.NOT_FOUND: "not_found",
             grpc.StatusCode.INVALID_ARGUMENT: "invalid",
             grpc.StatusCode.UNAVAILABLE: "unreachable",
@@ -215,6 +217,36 @@ class SandboxRuntimeClient:
         }.get(code, "runtime_error")
         detail = exc.details() if hasattr(exc, "details") else str(exc)
         return SandboxRuntimeError(detail or "The sandbox refused the request", code=mapped)
+
+    @staticmethod
+    def _status_was_lost(exc) -> bool:
+        """A call that failed at once can reach us with its status stripped.
+
+        ``sandboxd`` answers an immediate failure (bad token, a command that
+        cannot start) with a response that has no body. A proxy in front of it
+        may forward that as headers followed by an empty end-of-stream frame,
+        which gRPC reports as ``UNKNOWN: Stream removed``, losing the real
+        status. Nothing ran in that case.
+        """
+        import grpc
+
+        return exc.code() == grpc.StatusCode.UNKNOWN and "Stream removed" in (exc.details() or "")
+
+    async def _explain_lost_status(self) -> SandboxRuntimeError:
+        """Work out why a call was refused when its status was lost: the file
+        API answers the same token check with a plain HTTP status."""
+        try:
+            response = await self._request("GET", "/v1/metadata", timeout=10)
+        except SandboxRuntimeError as exc:
+            return exc
+        if response.status_code in (401, 403):
+            return self._http_error(response)
+        if response.status_code >= 500:
+            return self._http_error(response)
+        return SandboxRuntimeError(
+            "The sandbox refused to start the command (it may not exist in this image, or the working "
+            "directory may be outside the workspace).", code="invalid",
+        )
 
     @staticmethod
     def _http_error(response) -> SandboxRuntimeError:
@@ -306,11 +338,12 @@ class SandboxRuntimeClient:
         request = pb.StartRequest(config=self._config(command, env, cwd))
         started = time.monotonic()
         tails = {"stdout": _Tail(output_tail_bytes), "stderr": _Tail(output_tail_bytes)}
-        state: Dict[str, Any] = {"pid": None, "exit_code": None}
+        state: Dict[str, Any] = {"pid": None, "exit_code": None, "events": 0}
         call = self._process_stub().Start(request, metadata=self._metadata())
 
         async def consume() -> None:
             async for event in call:
+                state["events"] += 1
                 kind = event.WhichOneof("event")
                 if kind == "init":
                     state["pid"] = event.init.process_id
@@ -339,6 +372,8 @@ class SandboxRuntimeClient:
                 await self._terminate(state, consumer)
             await consumer  # re-raises a stream error
         except grpc.aio.AioRpcError as exc:
+            if stopped_by is None and not state["events"] and self._status_was_lost(exc):
+                raise await self._explain_lost_status() from exc
             if stopped_by is None or exc.code() != grpc.StatusCode.CANCELLED:
                 raise self._grpc_error(exc) from exc
         except asyncio.CancelledError:
@@ -413,6 +448,8 @@ class SandboxRuntimeClient:
                 request, metadata=self._metadata(), timeout=(time_limit + 30) if time_limit else None,
             )
         except grpc.aio.AioRpcError as exc:
+            if self._status_was_lost(exc):
+                raise await self._explain_lost_status() from exc
             raise self._grpc_error(exc) from exc
         timed_out = response.termination_reason == pb.EXECUTE_TERMINATION_REASON_TIME_LIMIT_EXCEEDED
         status = RUN_TIMEOUT if timed_out else (RUN_SUCCEEDED if response.exit_code == 0 else RUN_FAILED)

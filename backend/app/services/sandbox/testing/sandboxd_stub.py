@@ -136,6 +136,9 @@ class StubHost:
         self._ready = threading.Event()
         self._startup_error: Optional[BaseException] = None
         self._workdir: Optional[Path] = None
+        # Test knob: forward immediate gRPC failures the way a proxy sometimes
+        # does, with the status lost ("UNKNOWN: Stream removed").
+        self.lose_immediate_status: bool = False
         self.rest_port: int = 0
         self.grpc_port: int = 0
         self.ca_pem: str = ""
@@ -489,6 +492,15 @@ class _ProcessService:
     def __init__(self, host: StubHost):
         self.host = host
 
+    async def _refuse(self, context, code, message: str):
+        """Fail a call before it produced anything, as sandboxd does (or, with
+        the test knob on, as it looks after a proxy dropped the status)."""
+        import grpc
+
+        if self.host.lose_immediate_status:
+            await context.abort(grpc.StatusCode.UNKNOWN, "Stream removed (Data frame with END_STREAM flag received)")
+        await context.abort(code, message)
+
     async def _sandbox(self, context) -> StubSandbox:
         import grpc
 
@@ -502,6 +514,8 @@ class _ProcessService:
                 401: grpc.StatusCode.UNAUTHENTICATED, 404: grpc.StatusCode.NOT_FOUND,
                 502: grpc.StatusCode.UNAVAILABLE,
             }.get(exc.status, grpc.StatusCode.PERMISSION_DENIED)
+            if exc.status == 401:
+                await self._refuse(context, code, exc.message)
             await context.abort(code, exc.message)
             raise  # unreachable; abort raises
 
@@ -509,19 +523,23 @@ class _ProcessService:
         import grpc
 
         if not config.command:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "command is empty")
+            await self._refuse(context, grpc.StatusCode.INVALID_ARGUMENT, "command is required")
         try:
             cwd = _resolve(sandbox, config.cwd) if config.HasField("cwd") else sandbox.root
-        except _Refused as exc:
-            await context.abort(grpc.StatusCode.PERMISSION_DENIED, exc.message)
+        except _Refused:
+            await self._refuse(context, grpc.StatusCode.PERMISSION_DENIED,
+                               f'cwd: access denied: path "{config.cwd}": path escapes sandbox root')
         try:
             process = await asyncio.create_subprocess_exec(
                 *config.command, cwd=str(cwd), env=self.host.process_env(sandbox, dict(config.env_vars)),
                 stdin=asyncio.subprocess.PIPE if stdin else asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, start_new_session=True,
             )
-        except (FileNotFoundError, PermissionError, NotADirectoryError) as exc:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"cannot start {config.command[0]!r}: {exc.strerror}")
+        except (FileNotFoundError, PermissionError, NotADirectoryError):
+            await self._refuse(
+                context, grpc.StatusCode.NOT_FOUND,
+                f'failed to start command: command or path not found: exec: "{config.command[0]}": executable file not found in $PATH',
+            )
         sandbox.processes[process.pid] = process
         return process
 

@@ -125,9 +125,34 @@ async def test_short_commands_run_with_the_daemons_own_limits(runtime):
 async def test_a_command_that_cannot_start_is_an_error_not_a_result(runtime):
     with pytest.raises(SandboxRuntimeError) as failure:
         await runtime.run(["no-such-program-anywhere"])
-    assert failure.value.code == "invalid"
+    assert failure.value.code == "not_found" and "no-such-program-anywhere" in failure.value.message
     with pytest.raises(SandboxRuntimeError):
         await runtime.run([])
+    # Through a shell the same mistake is an ordinary result the caller can read.
+    result = await runtime.run(["sh", "-c", 'exec "$0" "$@"', "no-such-program-anywhere"])
+    assert (result.status, result.exit_code) == (RUN_FAILED, 127) and b"not found" in result.stderr
+
+
+async def test_a_refusal_whose_status_was_lost_on_the_way_is_still_explained(endpoint):
+    """A proxy can forward an immediate gRPC failure with its status stripped
+    ("UNKNOWN: Stream removed"). The client then asks the file API, which
+    answers the same token check with a plain HTTP status."""
+    host = get_stub_host()
+    host.lose_immediate_status = True
+    try:
+        async with SandboxRuntimeClient(dataclasses.replace(endpoint, token="wrong")) as wrong:
+            for call in (wrong.run(["true"]), wrong.execute(["true"])):
+                with pytest.raises(SandboxRuntimeError) as refused:
+                    await call
+                assert refused.value.code == "unauthenticated"
+        async with SandboxRuntimeClient(endpoint) as right:
+            with pytest.raises(SandboxRuntimeError) as not_started:
+                await right.run(["no-such-program-anywhere"])
+            # The token is fine, so it was the command: reported as a bad request, not as a lost sandbox.
+            assert not_started.value.code == "invalid"
+            assert (await right.run(["sh", "-c", "echo fine"])).stdout == b"fine\n"
+    finally:
+        host.lose_immediate_status = False
 
 
 async def test_a_large_file_survives_the_trip_each_way(runtime):

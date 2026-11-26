@@ -142,6 +142,37 @@ def _split_credentials(type_name: str, credentials: Optional[Dict[str, Any]]) ->
     return stored, transient
 
 
+def _complete(type_name: str, config: Dict[str, Any], credentials: Dict[str, Any], *,
+              previous_config: Dict[str, Any]) -> tuple:
+    """Fields the driver owns keep their stored value whatever was sent; then
+    the driver completes the settings (for example by generating a key pair)."""
+    try:
+        for field in registry.readonly_config_fields(type_name):
+            if field in previous_config:
+                config[field] = previous_config[field]
+            else:
+                config.pop(field, None)
+        return registry.prepare_credentials(type_name, config, credentials)
+    except SandboxDriverError as exc:
+        raise SandboxError(errors.INVALID, exc.message) from exc
+
+
+async def confirm_identity(db: AsyncSession, organization_id: str, actor_id: Optional[str],
+                           backend: SandboxBackend, fingerprint: str) -> None:
+    """Trust the backend's identity after the admin confirmed the fingerprint Test connection showed."""
+    driver = await build_driver(db, backend)
+    try:
+        await driver.confirm_identity(fingerprint)
+        await store_driver_state(db, backend, driver)
+    except SandboxDriverError as exc:
+        raise SandboxError(errors.INVALID if exc.code != "unreachable" else errors.UNAVAILABLE, exc.message) from exc
+    finally:
+        await driver.close()
+    await audit(db, organization_id, "sandbox_backend.identity_confirmed", actor_id, "sandbox_backend", backend.id,
+                {"title": backend.name, "fingerprint": fingerprint})
+    await db.commit()
+
+
 async def _enroll(db: AsyncSession, backend: SandboxBackend, transient: Dict[str, Any]) -> None:
     """Use one-time credentials once. They are in memory for this call only."""
     if not transient:
@@ -166,6 +197,7 @@ async def create_backend(db: AsyncSession, organization_id: str, actor_id: Optio
     stored, transient = _split_credentials(data.type, data.credentials)
     if await _name_taken(db, organization_id, data.name):
         raise SandboxError(errors.NAME_TAKEN, f"A sandbox backend named '{data.name}' already exists", status=409)
+    config, stored = _complete(data.type, config, stored, previous_config={})
 
     backend = SandboxBackend(
         organization_id=str(organization_id), name=data.name.strip(), type=data.type, config=config,
@@ -195,20 +227,25 @@ async def update_backend(db: AsyncSession, organization_id: str, actor_id: Optio
             raise SandboxError(errors.NAME_TAKEN, f"A sandbox backend named '{changes['name']}' already exists", status=409)
         backend.name = changes["name"].strip()
         changed.append("name")
-    if changes.get("config") is not None:
-        try:
-            config = registry.validate_config(backend.type, changes["config"])
-        except SandboxDriverError as exc:
-            raise SandboxError(errors.INVALID, exc.message) from exc
-        if config != dict(backend.config or {}):
+    if changes.get("config") is not None or changes.get("credentials") is not None:
+        previous_config = dict(backend.config or {})
+        config = previous_config
+        if changes.get("config") is not None:
+            try:
+                config = registry.validate_config(backend.type, changes["config"])
+            except SandboxDriverError as exc:
+                raise SandboxError(errors.INVALID, exc.message) from exc
+        stored: Dict[str, Any] = {}
+        if changes.get("credentials") is not None:
+            stored, transient = _split_credentials(backend.type, changes["credentials"])
+        merged = dict(backend.credentials or {})
+        merged.update(stored)
+        config, merged = _complete(backend.type, config, merged, previous_config=previous_config)
+        if config != previous_config:
             backend.config = config
             flag_modified(backend, "config")
             changed.append("config")
-    if changes.get("credentials") is not None:
-        stored, transient = _split_credentials(backend.type, changes["credentials"])
         if stored:
-            merged = dict(backend.credentials or {})
-            merged.update(stored)
             backend.credentials = merged
             changed.append("credentials")
     if changes.get("labels") is not None and list(changes["labels"]) != list(backend.labels or []):

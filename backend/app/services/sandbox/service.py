@@ -910,7 +910,10 @@ def _plan(request: RunRequest) -> _Plan:
     if request.command:
         command = ["sh", "-c", request.command]
     else:
-        command = [code_path if part == "{file}" else part for part in runner]
+        # Through a shell, so an interpreter the image does not have is an
+        # ordinary result ("python: not found", exit 127) the agent can read,
+        # not a refusal to start.
+        command = ["sh", "-c", 'exec "$0" "$@"'] + [code_path if part == "{file}" else part for part in runner]
     packages = [str(p).strip() for p in (request.packages or []) if str(p).strip()]
     install_command = None
     if packages:
