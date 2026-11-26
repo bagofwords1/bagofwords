@@ -728,17 +728,110 @@
     function notify() { for (var i = 0; i < listeners.length; i++) { try { listeners[i](); } catch (e) {} } }
     function post(msg) { try { window.parent.postMessage(msg, '*'); } catch (e) {} }
 
-    function commit(targets) {
+    // skipSame: an automatic commit drops changes that equal the value already
+    // in flight or confirmed, unless that value last went out to chosen
+    // targets only (apply(targets)) or the run failed: then it goes out again.
+    // apply() always sends what is pending. only(name), when given, limits the
+    // commit to those params; the rest stay pending.
+    function commit(targets, skipSame, only) {
       var changes = {};
+      trailing = false;
       var any = false;
+      var held = false;
+      var rest = {};
+      for (var k in pending) {
+        if (only && !only(k)) { rest[k] = pending[k]; continue; }
+        held = true;
+        var current = (k in inflight) ? inflight[k] : values[k];
+        if (skipSame && !error && !sentTargeted[k] && JSON.stringify(pending[k]) === JSON.stringify(current)) continue;
+        changes[k] = pending[k];
+        any = true;
+      }
+      if (!held) return;
+      pending = rest;
+      for (var d in staged) if (!(d in pending)) delete staged[d];
+      for (var b in batched) if (!(b in pending)) delete batched[b];
+      if (!any) { notify(); return; }
       commitSeq += 1;
-      for (var k in pending) { changes[k] = pending[k]; inflight[k] = pending[k]; inflightSeq[k] = commitSeq; any = true; }
-      if (!any) return;
-      pending = {};
+      for (var c in changes) { inflight[c] = changes[c]; inflightSeq[c] = commitSeq; sentTargeted[c] = !!targets; }
       loading = true;
       error = null;
       notify();
       post({ type: 'ARTIFACT_SET_PARAMS', changes: changes, targets: targets || null, seq: commitSeq });
+      // A burst of discrete picks: the rest wait for one trailing commit.
+      if (cooldown) clearTimeout(cooldown);
+      cooldown = setTimeout(function() {
+        cooldown = null;
+        if (!trailing) return;
+        trailing = false;
+        // Text edited after the latest pick keeps its own debounce, and so
+        // does every value set together with text; text that was pending
+        // before the latest pick rides along with the pick.
+        if (editedAfterPick) {
+          commit(null, true, function(n) { return !staged[n] && !batched[n] && isDiscrete(n); });
+          return;
+        }
+        if (timer) { clearTimeout(timer); timer = null; }
+        commit(null, true, notStaged);
+      }, 250);
+    }
+
+    // A param whose declaration fixes its choices (options or options_source)
+    // changes in one deliberate pick, so it commits without the 250 ms wait.
+    // Everything else (typed text, numbers, dates, options the host only
+    // derived) keeps the debounce, and so does a setParams that includes any
+    // of them. Same-tick picks share one commit; within 250 ms of the last
+    // commit they go out as one trailing commit. Values staged with
+    // apply:false wait for apply(); only the typing debounce still sends
+    // them, as it always did.
+    var micro = 0;  // token of the queued pick microtask, 0 when none
+    var queued = 0;
+    var cooldown = null;
+    var trailing = false;
+    var editedAfterPick = false;
+    var staged = {};
+    var batched = {};
+    var sentTargeted = {};
+    function notStaged(name) { return !staged[name]; }
+    function isDiscrete(name) {
+      for (var i = 0; i < declarations.length; i++) {
+        var d = declarations[i];
+        if (d && d.name === name) return !!((d.options && d.options.length) || d.options_source);
+      }
+      return false;
+    }
+    function hold(names, apply) {
+      for (var i = 0; i < names.length; i++) {
+        if (apply) delete staged[names[i]]; else staged[names[i]] = true;
+      }
+    }
+    function schedule(names) {
+      var now = names.length > 0;
+      var i;
+      for (i = 0; i < names.length && now; i++) now = isDiscrete(names[i]);
+      if (!now) {
+        editedAfterPick = true;
+        for (i = 0; i < names.length; i++) batched[names[i]] = true;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function() { timer = null; commit(null, true); }, 250);
+        return;
+      }
+      for (i = 0; i < names.length; i++) delete batched[names[i]];
+      editedAfterPick = false;
+      if (cooldown) { trailing = true; return; }
+      if (micro) return;
+      queued += 1;
+      var token = micro = queued;
+      Promise.resolve().then(function() {
+        if (micro !== token) return;  // apply() already sent it
+        micro = 0;
+        if (cooldown) {
+          for (var k in pending) if (!staged[k]) { trailing = true; break; }
+          return;
+        }
+        if (timer) { clearTimeout(timer); timer = null; }
+        commit(null, true, notStaged);
+      });
     }
 
     return {
@@ -786,19 +879,25 @@
       getError: function() { return error; },
       setParam: function(name, value, opts) {
         pending[name] = value;
+        var apply = !(opts && opts.apply === false);
+        hold([name], apply);
         notify();
-        if (opts && opts.apply === false) return;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(function() { timer = null; commit(null); }, 250);
+        if (!apply) return;
+        schedule([name]);
       },
       setParams: function(changes, opts) {
         for (var k in (changes || {})) pending[k] = changes[k];
+        var apply = !(opts && opts.apply === false);
+        hold(Object.keys(changes || {}), apply);
         notify();
-        if (opts && opts.apply === false) return;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(function() { timer = null; commit(null); }, 250);
+        if (!apply) return;
+        schedule(Object.keys(changes || {}));
       },
-      apply: function(targets) { if (timer) { clearTimeout(timer); timer = null; } commit(targets || null); },
+      apply: function(targets) {
+        if (timer) { clearTimeout(timer); timer = null; }
+        micro = 0;
+        commit(targets || null);
+      },
       refresh: function(targets) { loading = true; notify(); post({ type: 'ARTIFACT_REFRESH_PARAMS', targets: targets || null }); },
       sub: function(fn) {
         listeners.push(fn);
