@@ -1,5 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, discovery_summary, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 from typing import List, Dict, Optional, Tuple
 import requests
@@ -21,6 +22,13 @@ _INTERNAL_COLUMN_RE = re.compile(
 
 def _is_internal_column(column_name: str) -> bool:
     return bool(_INTERNAL_COLUMN_RE.match((column_name or "").strip()))
+
+
+_GUID_RE = re.compile(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", re.ASCII)
+
+
+def _is_guid(value) -> bool:
+    return isinstance(value, str) and _GUID_RE.fullmatch(value) is not None
 
 
 def _clean_table_display_name(table_name: str) -> str:
@@ -2225,6 +2233,13 @@ UNION(
             )
 
         self._assert_dax_tables_activated(query, dataset_id)
+        # The ids go into the executeQueries URL path: each must be a GUID
+        # before a URL is built or a token requested (a workspace may be absent).
+        if not _is_guid(dataset_id) or not (workspace_id is None or _is_guid(workspace_id)):
+            raise ReadOnlyViolation(
+                "Power BI dataset_id and workspace_id must be GUIDs; pass the schema "
+                "table name, or the ids from the table's powerbi metadata."
+            )
         return self._execute_dax_internal(workspace_id, dataset_id, query, max_rows=max_rows)
 
     def _blocked_schema_name(self, table_name: str) -> str | None:

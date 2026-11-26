@@ -24,6 +24,59 @@ from app.schemas.data_source_registry import resolve_client_class
 import json
 
 
+# Types whose member credentials keep only their credentials model's fields.
+# The client merges the credentials over the connection's config, so a
+# member's extra key (a Postgres `schema`, say) would override the admin's.
+# Rows saved before a type joined keep what they hold; the read drops their
+# extra keys (`applied_member_credentials`).
+_MODEL_FIELDS_ONLY = frozenset({"mssql", "neo4j", "postgresql"})
+
+
+def _kept_credentials(ds_type: str, validated, credentials, auth_mode: Optional[str] = None):
+    """What a member's save stores and tests with: the validated model's
+    fields for the types above, the payload as sent for the others.
+    Kerberos-delegated rows are handled as before."""
+    from app.services.connection_identity import KERBEROS_SSO_MODE
+    if auth_mode == KERBEROS_SSO_MODE:
+        return credentials
+    return validated.model_dump() if ds_type.lower() in _MODEL_FIELDS_ONLY else credentials
+
+
+def _registry_entry(connection_type: str):
+    """The registry entry for a stored type: the type as stored, else the
+    entry whose key matches it case-insensitively (MSSQL is registered as
+    "MSSQL"); None when there is none."""
+    from app.schemas.data_source_registry import REGISTRY
+    entry = REGISTRY.get(connection_type)
+    if entry is None:
+        lowered = connection_type.lower()
+        entry = next((e for key, e in REGISTRY.items() if key.lower() == lowered), None)
+    return entry
+
+
+def applied_member_credentials(connection_type: str, auth_mode: str, credentials) -> dict:
+    """A stored member row as it applies to one connection. The save keys on
+    the data source's first connection, but the row applies to every
+    `user_required` connection of the data source, so for the types above
+    the read keeps only the field names of that connection type's model for
+    the row's auth mode (none when the type has no such mode), as
+    `ConnectionService.resolve_credentials` keeps an MSSQL connection row to
+    its model. Extra keys are dropped by name, not validated, so rows saved
+    before keep loading. On a type that has the Kerberos-delegated mode,
+    those rows are handled as before; a type without it applies none of them."""
+    credentials = credentials or {}
+    if (connection_type or "").lower() not in _MODEL_FIELDS_ONLY:
+        return credentials
+    from app.services.connection_identity import KERBEROS_SSO_MODE
+    entry = _registry_entry(connection_type)
+    variant = (entry.credentials_auth.by_auth or {}).get(auth_mode) if entry is not None else None
+    if variant is None:
+        return {}
+    if auth_mode == KERBEROS_SSO_MODE:
+        return credentials
+    return {k: v for k, v in credentials.items() if k in variant.schema.model_fields}
+
+
 class UserDataSourceCredentialsService:
     def _get_connection_info(self, data_source: DataSource) -> tuple:
         """
@@ -367,6 +420,8 @@ class UserDataSourceCredentialsService:
             # extra keys cannot override the connection's config (e.g. base_url).
             if ds_type.lower() in ("mssql", "neo4j", "kms_lighthouse", "confluence_dc", "jira_dc"):
                 payload.credentials = validated.model_dump()
+            else:
+                payload.credentials = _kept_credentials(ds_type, validated, payload.credentials)
         except Exception as e:
             if ds_type == "kms_lighthouse":
                 # The token-format rule gets its typed, localized code (as on save).
@@ -429,8 +484,7 @@ class UserDataSourceCredentialsService:
         schema_cls = variant.schema
         try:
             validated = schema_cls(**(payload.credentials or {}))
-            if ds_type.lower() in ("mssql", "neo4j"):
-                payload.credentials = validated.model_dump()
+            payload.credentials = _kept_credentials(ds_type, validated, payload.credentials)
         except Exception as e:
             raise HTTPException(status_code=422, detail=credentials_error_detail(e))
 
@@ -528,11 +582,11 @@ class UserDataSourceCredentialsService:
             # Validate new credentials
             schema_cls = variant.schema
             try:
-                schema_cls(**(payload.credentials or {}))
+                validated = schema_cls(**(payload.credentials or {}))
             except Exception as e:
                 raise HTTPException(status_code=422, detail=credentials_error_detail(e))
             row.auth_mode = payload.auth_mode
-            row.encrypt_credentials(payload.credentials or {})
+            row.encrypt_credentials(_kept_credentials(ds_type, validated, payload.credentials or {}, row.auth_mode))
 
         if payload.credentials and not payload.auth_mode:
             # Validate against current auth_mode
@@ -542,10 +596,10 @@ class UserDataSourceCredentialsService:
             if schema_cls is None:
                 raise HTTPException(status_code=400, detail="Cannot validate credentials for current auth_mode")
             try:
-                schema_cls(**payload.credentials)
+                validated = schema_cls(**payload.credentials)
             except Exception as e:
                 raise HTTPException(status_code=422, detail=credentials_error_detail(e))
-            row.encrypt_credentials(payload.credentials)
+            row.encrypt_credentials(_kept_credentials(ds_type, validated, payload.credentials, row.auth_mode))
 
         if payload.is_active is not None:
             row.is_active = bool(payload.is_active)

@@ -12,6 +12,7 @@ import sqlalchemy
 from app.data_sources.engine_pool import get_engine
 from app.data_sources.query_cancellation import track
 from sqlalchemy import text
+from app.data_sources.clients._exact_sql import read_sql_exact
 from contextlib import contextmanager
 from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
@@ -189,7 +190,7 @@ class OracledbClient(DataSourceClient):
         """Execute SQL statement and return the result as a DataFrame."""
         try:
             with self.connect() as conn:
-                df = pd.read_sql(text(sql), conn)
+                df = read_sql_exact(sql, conn)
             return df
         except Exception as e:
             print(f"Error executing SQL: {e}")

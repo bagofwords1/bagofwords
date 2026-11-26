@@ -583,11 +583,14 @@ class SecurityConfig(BaseModel):
                     raise ValueError(f"organization_file_roots[{org_id}]: {root!r} is not an absolute path")
             out[str(org_id).strip()] = list(roots)
         return out
-    # UNSAFE. Restores the old behaviour: no path policy, no session lock, no
-    # read-only check for csv/qvd/pbix, SQLite opened read-write. Anyone who
-    # can query such a connection can then read and write any file the app
-    # user can. Only for a single-tenant install that depends on it (e.g. a
-    # .duckdb file whose views read files elsewhere) while it migrates.
+    # UNSAFE. Restores the old behaviour. It lifts the path policy; the
+    # session lock on DuckDB, CSV, QVD, PBIX, Report Server and Iceberg
+    # connections; the file connections' statement checks; and the in-process
+    # DuckDB checks for Iceberg and network folders. SQLite is opened
+    # read-write. Accelerated (FAST) tables and network folders stay locked.
+    # Anyone who can query such a connection can then read and write any file
+    # the app user can. Only for a single-tenant install that depends on it
+    # (e.g. a .duckdb file whose views read files elsewhere) while it migrates.
     # Env: BOW_UNSAFE_ALLOW_UNRESTRICTED_FILE_CONNECTORS (true/1/yes/on).
     unsafe_allow_unrestricted_file_connectors: bool = Field(
         default_factory=lambda: (os.getenv("BOW_UNSAFE_ALLOW_UNRESTRICTED_FILE_CONNECTORS") or "").strip().lower()

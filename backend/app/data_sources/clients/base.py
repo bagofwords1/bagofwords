@@ -131,21 +131,19 @@ class DataSourceClient(DiscoveryClient, ABC):
     # sources (mail, files, metrics APIs).
     relative_date_hint: Optional[str] = None
 
-    # How a query parameter's string value is written as a literal in this
-    # engine's query language (app/ai/code_execution/query_params.py,
-    # LITERAL_STYLE_*): "standard" doubles the quote; engines that read a
-    # backslash as an escape inside strings declare "doubled" or "backslash",
-    # citing their grammar. None refuses parameters: for a language where a
-    # backslash escapes inside strings and no style here is established for
-    # it (KQL, PromQL, SPL), a query with parameters is refused rather than
-    # written with a quoting rule known to be wrong for it.
+    # How this engine's query language writes a string literal
+    # (app/ai/code_execution/query_params.py, LITERAL_STYLE_*): "standard"
+    # doubles the quote; engines that read a backslash as an escape inside
+    # strings declare "doubled" or "backslash", citing their grammar; None
+    # where no rule is established (KQL, PromQL, SPL). Parameters are rendered
+    # by the renderer declared for the class in client_profiles, which must
+    # honour this rule (test_query_params checks each one); the identity
+    # check reads a capture whose dialect is not known with a dialect that
+    # follows it.
     sql_literal_style: Optional[str] = "standard"
     # True for a connector whose query is a JSON envelope carrying its SQL in
-    # a "sql" field (Elasticsearch, OpenSearch): a value renders there as a
-    # SQL literal, and the envelope is serialized again so it stays inside its
-    # JSON string. Elsewhere in a JSON query document -- any connector's -- a
-    # parameter renders as the engine's literal inside a string value
-    # (JSON-escaped), as a finite number as a bare value, and never in a key.
+    # a "sql" field (Elasticsearch, OpenSearch): the identity check reads that
+    # SQL as the statement that ran.
     sql_in_json_envelope: bool = False
 
     # When True, listing files live from the source is cheap enough to do on

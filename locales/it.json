@@ -2387,7 +2387,8 @@
     "saveFailed": "Impossibile salvare l'entità",
     "stepRequired": "Passaggio richiesto per salvare",
     "publishedToast": "Query pubblicata nel catalogo",
-    "suggestedToast": "Suggerimento inviato per la revisione"
+    "suggestedToast": "Suggerimento inviato per la revisione",
+    "savedRunFailed": "Salvata, ma l'esecuzione della query non è riuscita"
   },
   "mentionInput": {
     "placeholder": "Digita {'@'} per menzionare...",
@@ -5119,6 +5120,7 @@
     "locale.invalid": "La lingua non è abilitata",
     "report.not_found": "Report non trovato",
     "entity.not_found": "Entità non trovata",
+    "entity.run_failed": "Non è stato possibile eseguire la query salvata. Chiedi al suo proprietario di controllarla.",
     "user.not_found": "Utente non trovato",
     "membership.not_found": "Appartenenza non trovata",
     "role.not_found": "Ruolo non trovato",
@@ -5137,7 +5139,8 @@
     "resource.duplicate": "Risorsa duplicata",
     "setting.update_failed": "Impossibile aggiornare l'impostazione",
     "query": {
-      "failed_silently": "Una query è fallita ma il codice generato ha restituito un risultato vuoto invece di segnalarlo"
+      "failed_silently": "Una query è fallita ma il codice generato ha restituito un risultato vuoto invece di segnalarlo: {query_errors}",
+      "timeout": "La query ha superato {timeout_seconds} secondi ed è stata interrotta. Restringila con filtri, un limite di righe o un'aggregazione, oppure dividila in query più piccole."
     },
     "llm": {
       "model_id_required": "L'ID del modello non può essere vuoto",

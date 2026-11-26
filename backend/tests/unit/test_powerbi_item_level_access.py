@@ -84,7 +84,7 @@ PRIOR = {
         "columns": [{"name": "id", "dtype": "int64"}, {"name": "Region", "dtype": "string"}],
         "pks": [], "fks": [],
         "metadata_json": {"powerbi": {
-            "datasetId": "ds-shared", "workspaceId": "ws-hidden",
+            "datasetId": "5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f", "workspaceId": "7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b",
             "workspaceName": "obo-itemshare", "datasetName": "shared_orders",
             "tableName": "Orders",
         }},
@@ -102,14 +102,14 @@ def test_item_shared_model_is_discovered_by_probe():
     end up in this identity's catalog."""
     t = _Tenant()
     _no_listing(t)
-    t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries", ROW_OK)
+    t.route("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries", ROW_OK)
 
     tables = _client(t).get_schemas(prior_tables=PRIOR)
 
     assert [x.name for x in tables] == ["shared_orders/Orders"]
     assert [c.name for c in tables[0].columns] == ["id", "Region"]
     # Probed tenant-level: the workspace-scoped URL would 401 for this identity.
-    assert t.attempted("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries")
+    assert t.attempted("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries")
 
 
 def test_unqueryable_model_is_not_added_to_the_catalog():
@@ -117,7 +117,7 @@ def test_unqueryable_model_is_not_added_to_the_catalog():
     probe is the authorization check, so a 404/401 means 'not yours'."""
     t = _Tenant()
     _no_listing(t)
-    t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries",
+    t.route("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries",
             _resp(404, {"error": {"code": "PowerBIEntityNotFound"}}))
 
     assert _client(t).get_schemas(prior_tables=PRIOR) == []
@@ -129,7 +129,7 @@ def test_rls_model_without_role_membership_is_not_added():
     same as no access."""
     t = _Tenant()
     _no_listing(t)
-    t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries",
+    t.route("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries",
             _resp(401, {"error": {"code": "RLSNotAuthorizedForModel"}}))
 
     c = _client(t)
@@ -151,7 +151,7 @@ def test_unnamed_refusal_is_reported_as_nothing():
     must not file a diagnostic saying one thing or the other."""
     t = _Tenant()
     _no_listing(t)
-    t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries", _resp(401, {}))
+    t.route("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries", _resp(401, {}))
 
     c = _client(t)
     assert c.get_schemas(prior_tables=PRIOR) == []
@@ -226,15 +226,15 @@ def test_listed_datasets_are_not_probed():
     """Datasets the workspace listing already returned must not cost an extra
     probe — executeQueries is rate-limited per user."""
     t = _Tenant()
-    t.route("GET", "/groups", _resp(200, {"value": [{"id": "ws-hidden", "name": "obo-itemshare"}]}))
-    t.route("GET", "/groups/ws-hidden/datasets",
-            _resp(200, {"value": [{"id": "ds-shared", "name": "shared_orders"}]}))
-    t.route("GET", "/groups/ws-hidden/reports", _resp(200, {"value": []}))
+    t.route("GET", "/groups", _resp(200, {"value": [{"id": "7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b", "name": "obo-itemshare"}]}))
+    t.route("GET", "/groups/7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b/datasets",
+            _resp(200, {"value": [{"id": "5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f", "name": "shared_orders"}]}))
+    t.route("GET", "/groups/7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b/reports", _resp(200, {"value": []}))
 
     tables = _client(t).get_schemas(prior_tables=PRIOR)
 
     assert [x.name for x in tables] == ["shared_orders/Orders"]
-    assert t.count("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries") == 0
+    assert t.count("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries") == 0
 
 
 def test_probe_count_is_capped(monkeypatch):
@@ -245,7 +245,7 @@ def test_probe_count_is_capped(monkeypatch):
     prior = {
         f"m{i}/T": {
             "columns": [{"name": "id", "dtype": "int64"}], "pks": [], "fks": [],
-            "metadata_json": {"powerbi": {"datasetId": f"ds{i}", "workspaceId": "ws-hidden",
+            "metadata_json": {"powerbi": {"datasetId": f"ds{i}", "workspaceId": "7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b",
                                           "datasetName": f"m{i}", "tableName": "T"}},
         }
         for i in range(10)
@@ -263,8 +263,8 @@ def test_query_falls_back_to_tenant_level_on_401():
     """The workspace-scoped endpoint 401s for an item-level identity; the query
     must still run via the tenant-level endpoint."""
     t = _Tenant()
-    t.route("POST", "/groups/ws-hidden/datasets/ds-shared/executeQueries", _resp(401))
-    t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries",
+    t.route("POST", "/groups/7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries", _resp(401))
+    t.route("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries",
             _resp(200, {"results": [{"tables": [{"rows": [{"Orders[Region]": "EMEA"}]}]}]}))
 
     c = _client(t)
@@ -272,15 +272,15 @@ def test_query_falls_back_to_tenant_level_on_401():
     df = c.execute_query("EVALUATE Orders", "shared_orders/Orders")
 
     assert list(df["Region"]) == ["EMEA"]
-    assert "ws-hidden" in c._tenant_scoped_workspaces
+    assert "7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b" in c._tenant_scoped_workspaces
 
 
 def test_tenant_level_fallback_is_sticky_per_workspace():
     """After one fallback the workspace-scoped URL is not retried again — the
     401 is a property of the identity, not of the query."""
     t = _Tenant()
-    t.route("POST", "/groups/ws-hidden/datasets/ds-shared/executeQueries", _resp(401))
-    t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries",
+    t.route("POST", "/groups/7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries", _resp(401))
+    t.route("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries",
             _resp(200, {"results": [{"tables": [{"rows": [{"Orders[Region]": "EMEA"}]}]}]}))
 
     c = _client(t)
@@ -288,14 +288,14 @@ def test_tenant_level_fallback_is_sticky_per_workspace():
     for _ in range(3):
         c.execute_query("EVALUATE Orders", "shared_orders/Orders")
 
-    assert t.count("POST", "/groups/ws-hidden/datasets/ds-shared/executeQueries") == 1
-    assert t.count("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries") == 3
+    assert t.count("POST", "/groups/7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries") == 1
+    assert t.count("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries") == 3
 
 
 def test_group_scoped_success_never_falls_back():
     """A workspace member keeps using the workspace-scoped endpoint."""
     t = _Tenant()
-    t.route("POST", "/groups/ws-hidden/datasets/ds-shared/executeQueries",
+    t.route("POST", "/groups/7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries",
             _resp(200, {"results": [{"tables": [{"rows": [{"Orders[Region]": "US"}]}]}]}))
 
     c = _client(t)
@@ -303,7 +303,7 @@ def test_group_scoped_success_never_falls_back():
     c.execute_query("EVALUATE Orders", "shared_orders/Orders")
 
     assert c._tenant_scoped_workspaces == set()
-    assert t.count("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries") == 0
+    assert t.count("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries") == 0
 
 
 def test_connect_succeeds_with_no_workspace_role_but_a_queryable_model():
@@ -312,7 +312,7 @@ def test_connect_succeeds_with_no_workspace_role_but_a_queryable_model():
     'sees fewer tables' and 'cannot connect at all'."""
     t = _Tenant()
     _no_listing(t)
-    t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries", ROW_OK)
+    t.route("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries", ROW_OK)
 
     c = _client(t)
     c.attach_table_metadata([{"name": n, "metadata_json": v["metadata_json"]} for n, v in PRIOR.items()])
@@ -327,7 +327,7 @@ def test_connect_fails_cleanly_when_nothing_is_queryable():
     report connectivity so an admin can still save the connection."""
     t = _Tenant()
     _no_listing(t)
-    t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries", _resp(404))
+    t.route("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries", _resp(404))
 
     c = _client(t)
     c.attach_table_metadata([{"name": n, "metadata_json": v["metadata_json"]} for n, v in PRIOR.items()])
@@ -346,7 +346,7 @@ def test_forbidden_workspace_still_checks_the_known_catalog(code):
     t.route("GET", "/groups", _resp(200, {"value": [{"id": "ws1", "name": "Sales"}]}))
     t.route("GET", "/groups/ws1/datasets", _resp(200, {"value": [{"id": "d1", "name": "Blocked"}]}))
     t.route("POST", "/groups/ws1/datasets/d1/executeQueries", _resp(code))
-    t.route("POST", "/v1.0/myorg/datasets/ds-shared/executeQueries", ROW_OK)
+    t.route("POST", "/v1.0/myorg/datasets/5d1f2e3a-0b4c-4d6e-8f70-9a1b2c3d4e5f/executeQueries", ROW_OK)
 
     c = _client(t)
     c.attach_table_metadata([{"name": n, "metadata_json": v["metadata_json"]} for n, v in PRIOR.items()])

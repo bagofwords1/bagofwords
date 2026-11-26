@@ -138,6 +138,81 @@ def test_toggling_activation_changes_what_can_be_queried(tmp_path):
         _count(_run(_clients(ds_id)), "events")
 
 
+@pytest.mark.parametrize("call", ["execute_query(sql={q!r})", "query(sql={q!r})"])
+def test_statement_passed_by_name_is_held_to_the_selection(tmp_path, call):
+    # Stored code (a viewer's or forker's run executes the same wrapper) that
+    # names the client's own SQL parameter instead of passing it positionally.
+    path = tmp_path / "wh.db"
+    _make_db(path, ["events", "secret"])
+    ds_id = _run(_seed(path, ["events"], ["secret"]))
+    clients = _run(_clients(ds_id))
+    key = next(k for k in clients if ":" in k)
+
+    def run(sql):
+        code = (
+            "def generate_df(ds_clients, excel_files):\n"
+            f"    return ds_clients[{key!r}]." + call.format(q=sql) + "\n"
+        )
+        df, _, _ = StreamingCodeExecutor().execute_code(code=code, ds_clients=clients, excel_files=[])
+        return int(df["n"].iloc[0])
+
+    assert run("SELECT COUNT(*) AS n FROM events") == 3
+    with pytest.raises(TableAccessError):
+        run("SELECT COUNT(*) AS n FROM secret")
+
+
+NONPARSING_CLIENTS = [
+    ("db2_client", "Db2Client"),
+    ("ibmi_client", "IbmiClient"),
+    ("vertica_client", "VerticaClient"),
+    ("sybase_client", "SybaseClient"),
+    ("sap_hana_client", "SapHanaClient"),
+    ("pinot_client", "PinotClient"),
+]
+
+
+def _stub_of(module, name, sent):
+    """The real client class (the query checks know it by type) with its
+    connection replaced: the statements it is sent are recorded."""
+    import importlib
+
+    import pandas as pd
+
+    parent = getattr(importlib.import_module(f"app.data_sources.clients.{module}"), name)
+
+    def __init__(self, database=None):
+        pass
+
+    def execute_query(self, sql):
+        sent.append(sql)
+        return pd.DataFrame({"n": [3]})
+
+    return type("Stub" + name, (parent,), {"__init__": __init__, "execute_query": execute_query})
+
+
+@pytest.mark.parametrize("module, name", NONPARSING_CLIENTS)
+def test_a_connection_without_a_parser_dialect_keeps_sql_access_to_its_enabled_tables(
+        tmp_path, monkeypatch, module, name):
+    # `secret` stays disabled throughout: the enabled table is still
+    # queryable, and the disabled one is refused before the client is called,
+    # read directly or joined from the enabled one.
+    sent = []
+    monkeypatch.setattr("app.services.data_source_service.resolve_client_class",
+                        lambda _type: _stub_of(module, name, sent))
+    path = tmp_path / "wh.db"
+    ds_id = _run(_seed(path, ["events"], ["secret"]))
+    clients = _run(_clients(ds_id))
+
+    assert _count(clients, "events") == 3
+    assert sent == ["SELECT COUNT(*) AS n FROM events"]
+
+    with pytest.raises(TableAccessError, match="SECRET is not enabled for this agent"):
+        _count(clients, "secret")
+    with pytest.raises(TableAccessError, match="SECRET is not enabled for this agent"):
+        _count(clients, "events e JOIN secret s ON e.id = s.id")
+    assert sent == ["SELECT COUNT(*) AS n FROM events"]
+
+
 def test_unindexed_data_source_is_not_restricted(tmp_path):
     # No table rows at all: there is no selection to enforce, so the legacy
     # behaviour (query whatever the connection can read) is kept.

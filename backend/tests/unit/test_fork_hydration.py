@@ -493,6 +493,9 @@ def test_what_the_executor_raises_decides_whether_a_failed_run_keeps_its_code(mo
     from app.services.fork_service import _failure_keeps_code
 
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        # In-process mode runs only in a development environment.
+        monkeypatch.setenv("ENVIRONMENT", "development")
 
     class _Held:
         def execute_query(self, *a, **k):

@@ -110,10 +110,11 @@ class ElasticsearchHttpError(RuntimeError):
 
 class ElasticsearchClient(DataSourceClient):
 
-    # Parameters render only into the envelope's "sql" field (Elasticsearch
-    # SQL). Its string literal is single-quoted, a quote inside is doubled and a
-    # backslash is an ordinary character (Elasticsearch SQL reference, Lexical
-    # structure: string literals): standard.
+    # The envelope's "sql" field is Elasticsearch SQL. Its string literal is
+    # single-quoted, a quote inside is doubled and a backslash is an ordinary
+    # character (Elasticsearch SQL reference, Lexical structure: string
+    # literals): standard. No renderer is declared for it (client_profiles),
+    # so parameters reach the envelope only as bare JSON numbers.
     sql_literal_style = "standard"
     sql_in_json_envelope = True
     search_summary_results = True

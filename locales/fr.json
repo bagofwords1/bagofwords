@@ -2387,7 +2387,8 @@
     "saveFailed": "Échec de l'enregistrement de l'entité",
     "stepRequired": "Une étape est requise pour enregistrer",
     "publishedToast": "Requête publiée dans le catalogue",
-    "suggestedToast": "Suggestion soumise pour révision"
+    "suggestedToast": "Suggestion soumise pour révision",
+    "savedRunFailed": "Enregistrée, mais l'exécution de la requête a échoué"
   },
   "mentionInput": {
     "placeholder": "Tapez {'@'} pour mentionner...",
@@ -5119,6 +5120,7 @@
     "locale.invalid": "Cette langue n'est pas activée",
     "report.not_found": "Rapport introuvable",
     "entity.not_found": "Entité introuvable",
+    "entity.run_failed": "La requête enregistrée n'a pas pu être exécutée. Demandez à son propriétaire de la vérifier.",
     "user.not_found": "Utilisateur introuvable",
     "membership.not_found": "Adhésion introuvable",
     "role.not_found": "Rôle introuvable",
@@ -5137,7 +5139,8 @@
     "resource.duplicate": "Ressource en double",
     "setting.update_failed": "Échec de la mise à jour du paramètre",
     "query": {
-      "failed_silently": "Une requête a échoué mais le code généré a renvoyé un résultat vide au lieu de le signaler"
+      "failed_silently": "Une requête a échoué mais le code généré a renvoyé un résultat vide au lieu de le signaler : {query_errors}",
+      "timeout": "La requête a dépassé {timeout_seconds} secondes et a été arrêtée. Affinez-la avec des filtres, une limite de lignes ou une agrégation, ou divisez-la en requêtes plus petites."
     },
     "llm": {
       "model_id_required": "L'ID du modèle ne peut pas être vide",

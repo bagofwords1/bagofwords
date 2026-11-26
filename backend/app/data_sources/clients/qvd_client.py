@@ -19,6 +19,7 @@ from typing import Callable, Generator, List, Optional
 import duckdb
 import pandas as pd
 
+from app.ai.code_execution.duckdb_guard import check_duckdb_file_query
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients import _duckdb_lockdown as lockdown
@@ -221,7 +222,7 @@ class QVDClient(DataSourceClient):
     @staticmethod
     def _cache_key(filepath: str) -> tuple[str, Path]:
         """Return (file_hash, cache_path) for the given QVD file + its current mtime."""
-        abs_path = os.path.abspath(filepath)
+        abs_path = os.path.realpath(filepath)
         file_hash = hashlib.sha256(abs_path.encode("utf-8")).hexdigest()[:16]
         mtime_ns = os.stat(abs_path).st_mtime_ns
         return file_hash, _CACHE_DIR / f"{file_hash}_{mtime_ns}_v{_PARQUET_SCHEMA_VERSION}.parquet"
@@ -585,6 +586,14 @@ class QVDClient(DataSourceClient):
 
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+        with self._open() as (con, _views, _not_ready):
+            yield con
+
+    @contextmanager
+    def _open(self) -> Generator[tuple[duckdb.DuckDBPyConnection, list[str], list[str]], None, None]:
+        """A locked connection, the views it registered (the tables agent SQL
+        may read on it), and the tables discovery lists that it could not
+        register because their Parquet cache is not built yet."""
         t0 = time.perf_counter()
         files = self._resolve_files()
         logger.info(
@@ -596,7 +605,8 @@ class QVDClient(DataSourceClient):
             con = duckdb.connect(database=":memory:")
             used: set[str] = set()
             table_map: dict[str, str] = {}
-            parquets: List[str] = []
+            parquet_paths: list[str] = []
+            not_ready: list[str] = []
             skipped = 0
             for filepath in files:
                 file_hash, fresh_path = self._cache_key(filepath)
@@ -617,6 +627,9 @@ class QVDClient(DataSourceClient):
                             },
                         )
                         skipped += 1
+                        # The name get_tables gives it, taken in the same
+                        # order so the names after it match too.
+                        not_ready.append(self._safe_table_name(filepath, used))
                         continue
                     logger.warning(
                         "qvd.connect.file.stale",
@@ -633,10 +646,10 @@ class QVDClient(DataSourceClient):
                     f"CREATE VIEW \"{table_name}\" AS SELECT * FROM read_parquet('{parquet_sql}')"
                 )
                 table_map[table_name] = filepath
-                parquets.append(str(parquet))
-
-            # From here the session reads this connection's caches only.
-            lockdown.lock_connection(con, paths=parquets)
+                parquet_paths.append(str(parquet))
+            # The views read their Parquet caches lazily: from here on the
+            # connection may read those files and nothing else.
+            lockdown.lock_connection(con, paths=parquet_paths)
             self._table_map = table_map
             logger.info(
                 "qvd.connect.done",
@@ -646,23 +659,27 @@ class QVDClient(DataSourceClient):
                     "qvd_elapsed_s": round(time.perf_counter() - t0, 3),
                 },
             )
-            yield con
         except Exception as e:
+            if con is not None:
+                con.close()
             logger.error(
                 "qvd.connect.error",
                 extra={"qvd_error": str(e), "qvd_elapsed_s": round(time.perf_counter() - t0, 3)},
             )
             raise RuntimeError(f"Error connecting to QVD files: {e}")
+        # The yield is outside the try above: an error raised by the caller's
+        # `with` body (a refused query) keeps its type.
+        try:
+            yield con, list(table_map), not_ready
         finally:
-            if con is not None:
-                con.close()
+            con.close()
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("qvd.query.start", extra={"qvd_sql": sql})
-        lockdown.check_user_sql(sql, deferred=True)
         try:
-            with self.connect() as con:
+            with self._open() as (con, views, not_ready):
+                check_duckdb_file_query(sql, views, not_ready=not_ready)
                 lockdown.check_session_sql(con, sql)
                 df = con.execute(sql).df()
             logger.info(

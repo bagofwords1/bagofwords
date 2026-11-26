@@ -836,9 +836,15 @@ class DataSourceService:
             # Extract connection-related fields
             ds_type = data_source_dict.pop("type", None)
             # Save-time guards (the validation above is skipped for user_required).
-            from app.services.connection_service import _check_network_dir_root, _reject_unsafe_google_keys, _validate_connection_config
+            from app.services.connection_service import (
+                _check_network_dir_root,
+                _check_pg_schemas,
+                _reject_unsafe_google_keys,
+                _validate_connection_config,
+            )
             _check_network_dir_root(ds_type, config)
             _validate_connection_config(ds_type, config)
+            _check_pg_schemas(ds_type, config, credentials)
             _reject_unsafe_google_keys(credentials)
             allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
 
@@ -2741,12 +2747,14 @@ class DataSourceService:
             # transport guards the connect itself, rebinding included).
             from app.services.connection_service import (
                 _check_network_dir_root,
+                _check_pg_schemas,
                 _check_tool_provider_url,
                 _prepare_auth_credentials,
                 _reject_unsafe_google_keys,
                 _validate_connection_config,
             )
             _validate_connection_config(data_source_type, config)
+            _check_pg_schemas(data_source_type, config, credentials)
             try:
                 _check_tool_provider_url(data_source_type, config)
                 _check_network_dir_root(data_source_type, config)
@@ -2925,7 +2933,9 @@ class DataSourceService:
         # Overlay variants (e.g. Qlik on-prem "identity") carry only the user's
         # identity fields — the connection's system credentials supply the rest.
         from app.schemas.data_source_registry import overlay_system_credentials
-        return overlay_system_credentials(conn, row.decrypt_credentials() or {}, row.auth_mode)
+        from app.services.user_data_source_credentials_service import applied_member_credentials
+        return overlay_system_credentials(
+            conn, applied_member_credentials(conn.type, row.auth_mode, row.decrypt_credentials()), row.auth_mode)
 
     async def construct_client(self, db: AsyncSession, data_source: DataSource, current_user: User | None):
         """
@@ -3577,11 +3587,14 @@ class DataSourceService:
         Covers the rows of THIS connection plus unlinked legacy rows, the same
         set `_attach_stored_table_metadata` reads. Nothing is attached when the
         data source has no table rows (never indexed: there is no selection to
-        enforce) or the client is not a SQL dialect the check can parse.
+        enforce) or the client is not SQL. SQL without a sqlglot dialect
+        (guard profile "nonparsing_sql") gets the scope too: its queries are
+        checked while the selection disables any table.
 
         Errors propagate: a client that should be scoped must not be handed
         out unscoped.
         """
+        from app.ai.code_execution.client_profiles import guard_profile
         from app.ai.code_execution.sql_guard import dialect_for_client
         from app.ai.code_execution.table_scope import TABLE_SCOPE_ATTR, TableScope
         from app.models.datasource_table import DataSourceTable
@@ -3609,7 +3622,8 @@ class DataSourceService:
             ))).all()
             attach_catalog(client, selected, files)
             return
-        if not dialect_for_client(client):
+        profile = guard_profile(client)
+        if not dialect_for_client(client) and not (profile is not None and profile.kind == "nonparsing_sql"):
             return
         rows = (await db.execute(
             select(DataSourceTable.name, DataSourceTable.is_active)
@@ -3693,8 +3707,11 @@ class DataSourceService:
                     # Overlay variants merge over the connection's system
                     # credentials instead of replacing them.
                     from app.schemas.data_source_registry import overlay_system_credentials
+                    from app.services.user_data_source_credentials_service import applied_member_credentials
                     return overlay_system_credentials(
-                        connection, row.decrypt_credentials() or {}, row.auth_mode
+                        connection,
+                        applied_member_credentials(connection.type, row.auth_mode, row.decrypt_credentials()),
+                        row.auth_mode,
                     )
             except Exception:
                 pass

@@ -1,13 +1,73 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients import _duckdb_lockdown as lockdown
+from app.data_sources.clients._duckdb_lockdown import _list_literal
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 
 import duckdb
+import os
 import pandas as pd
+import re
 from contextlib import contextmanager
 from typing import Generator, List
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 import urllib.parse
+
+# Characters that make a URI a glob pattern to DuckDB. In an http(s) URL `?`
+# starts the query string and `[` is an ordinary character: only `*` globs.
+_GLOB_CHAR = re.compile(r"[*?\[]")
+_HTTP_GLOB_CHAR = re.compile(r"\*")
+_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+_ROOT_GLOB = ("A URI of this connection is a glob or a directory at the root of the local file system, "
+              "directly after its scheme, or with a .. segment after its scheme. "
+              "Name the directory its files are in.")
+_RELATIVE_GLOB = ("A URI of this connection is a glob or a directory relative to the working directory that "
+                  "names no directory under it. Name the directory its files are in.")
+_FILE_HOST = ("A URI of this connection names a host after file://. "
+              "Write a local file as file:///path or file://localhost/path.")
+_PROTECTED_MATCH = "A URI of this connection can match a protected system or application file."
+_NO_WORKING_DIRECTORY = ("A URI of this connection is relative, and the working directory it is relative to "
+                         "no longer exists. Name its files from the root.")
+
+
+def _spelled_absolute(uri: str) -> bool:
+    """Whether a local path or file URI names its file from the root as
+    written: '/...', 'file:/...', 'file:///...' or 'file://localhost/...'.
+    Every other local URI, a `~` one included, is resolved against
+    something else."""
+    return uri.startswith(("/", "file:/"))
+
+
+def _working_directory() -> str:
+    try:
+        return os.path.realpath(os.getcwd())
+    except FileNotFoundError:
+        raise ValueError(_NO_WORKING_DIRECTORY) from None
+
+
+def _read_back(con: duckdb.DuckDBPyConnection, setting: str, uri: str) -> str:
+    """`uri` as DuckDB itself resolves it in `setting` (allowed_paths or
+    allowed_directories): set on its own on `con`, then read back. The
+    setting is left empty."""
+    con.execute(f"SET {setting} = {_list_literal([uri])}")
+    entries = con.execute(f"SELECT current_setting('{setting}')").fetchone()[0]
+    con.execute(f"SET {setting} = []")
+    if len(entries) != 1:
+        raise ValueError(f"DuckDB resolved a URI of this connection to {len(entries)} entries in {setting}.")
+    return entries[0]
+
+
+def _resolved_directory(con: duckdb.DuckDBPyConnection, directory: str, cwd: str | None) -> str:
+    """`directory` (a local path or file URI) as DuckDB resolves it,
+    ending in '/'. Raises ValueError when that is the root, or, for a
+    directory not spelled absolute (`cwd` given), the working directory
+    `cwd` or one above it."""
+    resolved = _read_back(con, "allowed_directories", directory)
+    if not resolved.strip("/"):
+        raise ValueError(_ROOT_GLOB)
+    if cwd is not None and os.path.commonpath([resolved, cwd]) == resolved.rstrip("/"):
+        raise ValueError(_RELATIVE_GLOB)
+    return resolved
 
 
 class DuckDBClient(DataSourceClient):
@@ -147,10 +207,11 @@ class DuckDBClient(DataSourceClient):
         used.add(name)
         return name
 
-    def _create_views(self, con: duckdb.DuckDBPyConnection) -> List[str]:
-        created: List[str] = []
+    def view_names(self) -> List[str]:
+        """The name of the view `connect()` registers for each URI, in URI
+        order: the tables agent SQL may read over URIs. Pure: opens nothing."""
+        names: List[str] = []
         used: set[str] = set()
-        import os
         for pattern in self.uri_patterns:
             normalized = self._normalize_uri(pattern)
             # derive a friendly name from the last path segment (filename without extension)
@@ -165,7 +226,13 @@ class DuckDBClient(DataSourceClient):
             else:
                 # strip extension
                 candidate = last_segment.rsplit(".", 1)[0]
-            view = self._safe_view_name(candidate, used)
+            names.append(self._safe_view_name(candidate, used))
+        return names
+
+    def _create_views(self, con: duckdb.DuckDBPyConnection) -> List[str]:
+        created: List[str] = []
+        for pattern, view in zip(self.uri_patterns, self.view_names()):
+            normalized = self._normalize_uri(pattern)
             lower = normalized.lower()
             if lower.endswith(".parquet") or ".parquet" in lower:
                 con.execute(f"CREATE OR REPLACE VIEW {self._quoted(view)} AS SELECT * FROM read_parquet({self._sql_literal(normalized)})")
@@ -175,20 +242,83 @@ class DuckDBClient(DataSourceClient):
             created.append(view)
         return created
 
+    def _lockdown_targets(self, con: duckdb.DuckDBPyConnection) -> tuple[List[str], List[str]]:
+        """(the exact paths the views read; the directories they may read
+        under), for locking `con`, which has no views yet. A URI without a
+        glob character is an exact path, and a non-http(s) one ending in
+        '/', or a local one that is a directory (DuckDB reads every file
+        under either), is both an exact path and a directory. A glob URI's
+        directory is the part up to the last '/' before its first glob
+        character.
+
+        A local path or file URI is taken in the form DuckDB itself
+        resolves it to (set on `con`, then read back: links, `~`, `..`,
+        file prefixes and the working directory all resolved). Raises
+        ValueError when a local directory resolves to the root or, not
+        spelled absolute, to the working directory or one above it; when
+        a file URI names a host; and when another scheme's directory is
+        empty after the scheme or holds a '..' segment. A bucket or a host
+        on its own is a directory like any other."""
+        paths: List[str] = []
+        directories: List[str] = []
+        for pattern in self.uri_patterns:
+            uri = self._normalize_uri(pattern)
+            if uri.lower().startswith("file:") and not uri.startswith("file:"):
+                raise ValueError(lockdown.FILE_SCHEME_CASE)
+            if uri.startswith("file://") and not uri.startswith(("file:///", "file://localhost/")):
+                raise ValueError(_FILE_HOST)
+            scheme = _SCHEME.match(uri)
+            local = scheme is None or uri.startswith("file:")
+            cwd = None if not local or _spelled_absolute(uri) else _working_directory()
+            http = uri.lower().startswith(("http://", "https://"))
+            glob = (_HTTP_GLOB_CHAR if http else _GLOB_CHAR).search(uri)
+            if glob is None and (http or not uri.endswith("/")):
+                if not local:
+                    paths.append(uri)
+                    continue
+                path = _read_back(con, "allowed_paths", uri)
+                paths.append(path)
+                if not os.path.isdir(path):
+                    continue
+                # A directory written without its '/': DuckDB reads every
+                # file under it, as it does for the '/' form.
+                directory = _resolved_directory(con, uri, cwd)
+                paths.append(directory)
+                directories.append(directory)
+                continue
+            directory = uri if glob is None else uri[:uri.rfind("/", 0, glob.start()) + 1]
+            if local:
+                written = directory
+                directory = _resolved_directory(con, directory, cwd)
+                # What the glob can match under the directory as resolved.
+                if glob is not None and lockdown.pattern_reaches_protected_file(directory + uri[len(written):]):
+                    raise ValueError(_PROTECTED_MATCH)
+            else:
+                after = directory[scheme.end():]
+                if not after.strip("/") or ".." in after.split("/"):
+                    raise ValueError(_ROOT_GLOB)
+            if glob is None:
+                paths.append(directory)
+            directories.append(directory)
+        return paths, directories
+
+    def _local_duckdb_uri(self) -> str | None:
+        """The first URI naming a .duckdb or .db file, as written."""
+        for pattern in self.uri_patterns:
+            if pattern.lower().endswith(('.duckdb', '.db')):
+                return pattern
+        return None
+
     def _find_local_duckdb_file(self) -> str | None:
         """Check if any URI pattern is a local .duckdb or .db file.
 
         Supports both direct paths (/data/my.duckdb) and file:// URIs (file:///data/my.duckdb).
         Returns the normalized path (strips file:// prefix if present).
         """
-        for pattern in self.uri_patterns:
-            lower = pattern.lower()
-            if lower.endswith('.duckdb') or lower.endswith('.db'):
-                # Strip file:// prefix if present
-                if lower.startswith('file://'):
-                    return pattern[7:]  # Remove 'file://' prefix
-                return pattern
-        return None
+        pattern = self._local_duckdb_uri()
+        if pattern is not None and pattern.lower().startswith('file://'):
+            return pattern[7:]  # Remove 'file://' prefix
+        return pattern
 
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
@@ -198,30 +328,57 @@ class DuckDBClient(DataSourceClient):
             db_file = self.database or local_db
 
             if db_file:
-                # Open the local .duckdb file directly, read-only. The file is
-                # the whole connection: nothing outside it stays reachable.
+                # Open the local .duckdb file directly, read-only.
                 if lockdown.unrestricted():
                     con = duckdb.connect(database=db_file, read_only=True)
                 else:
+                    organization = lockdown.organization_of(self)
+                    # The file the policy checks is the file opened: a
+                    # file: prefix read as DuckDB reads it, links followed.
+                    written = self.database or self._local_duckdb_uri()
+                    local = lockdown.local_path_of(written)
+                    database = lockdown.database_file(written, organization)
                     # Besides the file: its own folder, where the files its
                     # views read usually sit, and any other URI listed on the
-                    # connection. Nothing else.
-                    others = [p for p in self.uri_patterns if lockdown.local_path_of(p) != db_file and p != db_file]
-                    paths, directories = lockdown.database_file_sources(
-                        db_file, others, lockdown.organization_of(self))
-                    con = duckdb.connect(database=db_file, read_only=True)
-                    lockdown.lock_connection(con, paths=paths, directories=directories)
-            else:
-                # In-memory database with views from URI patterns. The path
-                # policy runs before a view can read a file; the session is
-                # sealed to these sources once the views exist.
-                paths, directories = self._allowed_sources()
+                    # connection, as the path policy (organization roots
+                    # included) accepts them, before the file is opened.
+                    others = [p for p in self.uri_patterns if p != written and lockdown.local_path_of(p) != local]
+                    paths, directories = lockdown.engine_resolved(
+                        *lockdown.database_file_sources(database, others, organization))
+                    # The path policy on exactly what the lock will grant.
+                    lockdown.check_lock_targets(paths, directories, organization)
+                    con = duckdb.connect(database=database, read_only=True)
+                    lockdown.lock_connection(con, paths=paths, directories=directories, database_path=database)
+            elif lockdown.unrestricted():
+                # In-memory database with views from URI patterns, unlocked.
                 con = duckdb.connect(database=":memory:")
                 self._configure_httpfs(con)
                 self._create_views(con)
+            else:
+                # In-memory database with views from URI patterns.
+                con = duckdb.connect(database=":memory:")
+                # Secrets come from this connection's settings only, never
+                # from files on disk, which the lock would refuse anyway.
+                # Set first: DuckDB refuses the change once anything (an
+                # extension download included) has used its secrets.
+                con.execute("SET allow_persistent_secrets = false")
+                # Extensions and their settings: none can change once locked.
+                self._configure_httpfs(con)
+                # What the connection is locked to, in the form DuckDB
+                # resolves each URI to; a glob at a root is refused here,
+                # before anything is read.
+                paths, directories = self._lockdown_targets(con)
+                # The path policy, before anything is read: on exactly what
+                # the lock will grant, and on the URIs as written.
+                lockdown.check_lock_targets(paths, directories, lockdown.organization_of(self))
+                self._allowed_sources()
                 lockdown.lock_connection(con, paths=paths, directories=directories)
+                # Views are created on the locked connection: one over
+                # anything else fails at once instead of reading it.
+                self._create_views(con)
             yield con
-        except IndexingCancelled:
+        except (IndexingCancelled, ReadOnlyViolation):
+            # A query refused on the session keeps its type.
             raise
         except Exception as e:
             raise RuntimeError(f"Error while connecting to DuckDB: {e}")
