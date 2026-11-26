@@ -308,6 +308,31 @@ async def check_backend(db: AsyncSession, organization_id: str, backend: Sandbox
     return health
 
 
+async def mark_bootstrap_started(db: AsyncSession, backend: SandboxBackend, driver: Optional[SandboxDriver] = None) -> List[dict]:
+    """Record that a bootstrap is under way, with its steps all pending."""
+    own = driver is None
+    driver = driver or await build_driver(db, backend)
+    try:
+        steps = [StepResult(key=s.key, title=s.title).as_dict() for s in driver.prepare_steps()]
+    finally:
+        if own:
+            await driver.close()
+    backend.bootstrap_status = "running"
+    backend.bootstrap_steps = steps
+    backend.updated_at = _now()
+    flag_modified(backend, "bootstrap_steps")
+    await db.commit()
+    return steps
+
+
+async def live_sandboxes(db: AsyncSession, backend_id: str) -> List[Sandbox]:
+    rows = await db.execute(
+        select(Sandbox).where(Sandbox.backend_id == str(backend_id), Sandbox.deleted_at.is_(None),
+                              Sandbox.state.in_(LIVE_STATES))
+    )
+    return list(rows.scalars().all())
+
+
 async def bootstrap_backend(db: AsyncSession, organization_id: str, actor_id: Optional[str],
                             backend: SandboxBackend, *, take_over: bool = False) -> List[StepResult]:
     """Prepare a backend. Each step's result is stored as it happens, so any
@@ -316,11 +341,7 @@ async def bootstrap_backend(db: AsyncSession, organization_id: str, actor_id: Op
 
     images = [pinned_image(env) for env in await _environments_matching(db, organization_id, backend)]
     driver = await build_driver(db, backend)
-    steps = [StepResult(key=s.key, title=s.title).as_dict() for s in driver.prepare_steps()]
-    backend.bootstrap_status = "running"
-    backend.bootstrap_steps = steps
-    flag_modified(backend, "bootstrap_steps")
-    await db.commit()
+    await mark_bootstrap_started(db, backend, driver)
 
     async def on_step(result: StepResult) -> None:
         current = [dict(s) for s in (backend.bootstrap_steps or [])]

@@ -63,6 +63,10 @@ class FakeConfig(BaseModel):
     live_stats: bool = Field(default=True, title="Live stats")
     unreachable: bool = Field(default=False, title="Unreachable", description="Make every call to the backend fail as if it were down.")
     fail_step: Optional[str] = Field(default=None, title="Failing bootstrap step", description="Key of a bootstrap step that should fail.")
+    server: Optional[str] = Field(
+        default=None, title="Server name",
+        description="Backends with the same server name are the same pretend server (for ownership and take-over).",
+    )
 
 
 class FakeCredentials(BaseModel):
@@ -140,7 +144,7 @@ class FakeDriver(SandboxDriver):
     @property
     def _backend(self) -> _FakeBackend:
         with _LOCK:
-            return _BACKENDS[self.ctx.backend_id]
+            return _BACKENDS[self.config.server or self.ctx.backend_id]
 
     @property
     def _host(self):
@@ -205,8 +209,8 @@ class FakeDriver(SandboxDriver):
                     if backend.owner and backend.owner != self.ctx.instance_id:
                         if not take_over:
                             raise SandboxDriverError(
-                                "This backend is owned by another BoW instance. Take it over to use it here; "
-                                "that removes the other instance's sandboxes.", code="owned_by_other",
+                                "This backend is owned by another BoW instance. Choose Take over to remove the "
+                                "other instance's sandboxes and claim it.", code="owned_by_other",
                             )
                         for sandbox in [s for s in backend.sandboxes.values() if s.instance_id != self.ctx.instance_id]:
                             self._host.remove_sandbox(_stub_id(sandbox.sandbox_id))

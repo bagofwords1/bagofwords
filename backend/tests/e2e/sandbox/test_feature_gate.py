@@ -24,6 +24,14 @@ _ROUTES = [
     ("put", "/api/sandbox/environments/any-id"),
     ("delete", "/api/sandbox/environments/any-id"),
     ("put", "/api/sandbox/environments/any-id/access"),
+    ("get", "/api/sandbox/backend-types"),
+    ("get", "/api/sandbox/backends"),
+    ("post", "/api/sandbox/backends"),
+    ("post", "/api/sandbox/backends/any-id/test"),
+    ("post", "/api/sandbox/backends/any-id/bootstrap"),
+    ("delete", "/api/sandbox/backends/any-id"),
+    ("get", "/api/sandbox/settings"),
+    ("put", "/api/sandbox/settings"),
 ]
 
 
