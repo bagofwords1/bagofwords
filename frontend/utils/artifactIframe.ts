@@ -624,7 +624,8 @@ function readySignalScript(): string {
  * A frame that used a JSON copy, or had to share, says so once in the console.
  * The re-attach never stops the script it runs in (the runtime nonce and the
  * other globals follow it): a throw is logged, and every chart not reached
- * yet shares its source rows, so no chart is left with null rows.
+ * yet shares its source rows where it can; only a chart whose rows cannot be
+ * assigned at all keeps its null placeholder.
  * With nothing repeated the statement is exactly the plain JSON one.
  */
 function artifactDataAssignment(data: ArtifactIframeData): string {
@@ -651,7 +652,7 @@ function artifactDataAssignment(data: ArtifactIframeData): string {
       + `try{c=structuredClone(s)}catch(e){try{c=JSON.parse(JSON.stringify(s));if(!j){j=1;w('[dashboard] Chart rows could not be copied with structuredClone; used a JSON copy instead.',e)}}`
       + `catch(e2){c=s;if(!f){f=1;w('[dashboard] Chart rows could not be copied; charts of one query share one rows array.',e2)}}}`
       + `v[l[i]].rows=c}}`
-      + `catch(e){try{console.error('[dashboard] Could not give every chart its rows; the charts left share the rows of their query.',e)}catch(_){}`
+      + `catch(e){try{console.error('[dashboard] Could not give every chart its own rows; the charts left share the rows of their query where possible.',e)}catch(_){}`
       + `for(;l.length>i;i+=2){try{v[l[i]].rows=v[l[i+1]].rows}catch(_){}}}})(${JSON.stringify(links)});`
     : '';
   return `window.ARTIFACT_DATA = ${json};${reattach}`.replace(/</g, '\\u003c');
