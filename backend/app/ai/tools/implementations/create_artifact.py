@@ -141,20 +141,28 @@ class CreateArtifactTool(Tool):
                 # pageerror catches thrown/uncaught exceptions (incl. Babel
                 # transform errors), console 'error' catches failures that
                 # libraries report without throwing (React render errors).
+                # A chart that can't draw from its props only warns; its
+                # message is kept as-is, so it is fatal and drives repair.
+                from app.ai.tools.implementations._artifact_refs import is_chart_error
+
                 def _on_pageerror(err):
                     if len(js_errors) < 10:
                         js_errors.append(str(err))
 
                 def _on_console(msg):
                     try:
-                        if msg.type == "error" and len(js_errors) < 10:
-                            text = msg.text or ""
+                        if len(js_errors) >= 10:
+                            return
+                        text = msg.text or ""
+                        if msg.type == "error":
                             # Skip noise that isn't a code defect
                             if "favicon" in text.lower():
                                 return
                             entry = f"[console.error] {text}"
                             if not any(text in e for e in js_errors):
                                 js_errors.append(entry)
+                        elif is_chart_error(msg.type, text) and text not in js_errors:
+                            js_errors.append(text)
                     except Exception:
                         pass
 
@@ -412,7 +420,8 @@ class CreateArtifactTool(Tool):
 
     @staticmethod
     def fatal_render_errors(errors: List[str]) -> List[str]:
-        """Errors that gate completion: thrown/uncaught exceptions.
+        """Errors that gate completion: thrown/uncaught exceptions, and charts
+        that can't draw from their props (`[bow-chart] …`).
 
         `[console.error]` entries are advisory — React dev builds log
         non-fatal warnings through console.error, so they inform repair but
