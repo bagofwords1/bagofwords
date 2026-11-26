@@ -53,9 +53,10 @@ const watchers = [
 assert.ok(watchers.length >= 1, 'the frame re-sends its data when it changes (watcher)')
 
 const FUNCTIONS = ['fetchData', 'runParamQueries', 'sendDataToIframe', 'paramSubsetForQuery', 'queriesWithIdentityParams', 'replaceVisualizationsData',
-  'handleIframeMessage', 'frameContext', 'frameHasSeedData', 'frameIframeOptions', 'sameFrameInputs', 'frameDocument']
+  'handleIframeMessage', 'frameContext', 'frameHasSeedData', 'frameIframeOptions', 'sameFrameInputs', 'frameDocument',
+  'postParamsStatus', 'postToRuntimeFrames', 'postHeldParamsStatus']
 const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'srcdocSeed', 'seededFrom', 'builtSrcdoc', 'dataLoadsInFlight', 'loadSent',
-  'sendHeld', 'artifactColorMode', 'iframeSrcdoc'].filter(declaration)
+  'sendHeld', 'heldParamsStatus', 'artifactColorMode', 'iframeSrcdoc'].filter(declaration)
 const present = FUNCTIONS.filter(fn)
 const frameCode = "'use strict';\n" + transpile([
   ...DECLARED.map(declaration),
@@ -113,7 +114,7 @@ function frame() {
     effectiveViewerContext: ref({ id: 'u-1', name: 'Viewer' }),
     verificationRequests: new Map(), verificationRevision: 0, previewConversationPolicy: null,
     paramAckSeq: 0, paramRunCounter: 0, latestParamRunForQid: {}, logActivity: null,
-    verificationEvent: () => {}, handleTableLayoutMessage: () => false, postParamsStatus: () => {}, syncParamsToUrl: () => {}, readParamsFromUrl: () => ({}),
+    verificationEvent: () => {}, handleTableLayoutMessage: () => false, paramRunLoading: ref(false), syncParamsToUrl: () => {}, readParamsFromUrl: () => ({}),
     watchHydration: () => {}, resolveParamOptions: async () => {}, fetchArtifactFiles: async () => [],
     whenArtifactLibsSettled: async () => {}, inlineableArtifactLibs: () => [], artifactLibSources: () => ({}),
     paramsPayload: () => ({ values: {} }), artifactRuntime: () => ({ version: 11 }),
@@ -122,7 +123,7 @@ function frame() {
     isDocMode: ref(false), showViewerGate: ref(false), slidesPreviewsMissing: ref(false), hasArtifact: ref(true),
     sampleArtifactCode: ref('Sample'), t: (k) => k,
     // The app's theme; the frame's snapshot of it (artifactColorMode) is ArtifactFrame.vue's own.
-    colorMode: ref('light'), postToRuntimeFrames: () => {},
+    colorMode: ref('light'),
   }
   const own = new Function(...Object.keys(state), frameCode)(...Object.values(state))
   // The page's template: each mounted frame shows the srcdoc; a new string reloads it.
@@ -138,8 +139,13 @@ function frame() {
     await flush()
   }
   const clear = () => { for (const f of Object.values(frames)) f.received.length = 0 }
-  const types = (name = 'main') => frames[name].received.map((m) => m.type)
-  return { own, state, responses, frames, shown, ready, clear, types }
+  // The data a frame was posted (ARTIFACT_DATA*); log() is everything it was posted.
+  const pushes = (name = 'main') => frames[name].received.filter((m) => m.type.startsWith('ARTIFACT_DATA'))
+  const types = (name = 'main') => pushes(name).map((m) => m.type)
+  const log = (name = 'main') => frames[name].received.map((m) => m.type === 'ARTIFACT_PARAMS_STATUS'
+    ? `STATUS loading=${m.payload.loading} error=${m.payload.error}`
+    : m.type === 'ARTIFACT_SET_COLOR_MODE' ? `COLOR ${m.mode}` : m.type)
+  return { own, state, responses, frames, shown, ready, clear, pushes, types, log }
 }
 
 // An open dashboard: loaded, its frame rendered from the seed and READY.
@@ -168,7 +174,7 @@ test('an in-place refresh keeps the frame\'s document and sends the refreshed ro
   assert.equal(f.frames.main.loads, loads, 'no reload of the frame')
   assert.equal(f.state.iframeReady.value, true, 'the frame stays ready')
   assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'one push for one refresh')
-  assert.deepEqual(f.frames.main.received[0].payload.visualizations.map((v) => v.rows), [REFRESHED, REFRESHED, [{ n: 1 }]], 'with the refreshed rows')
+  assert.deepEqual(f.pushes('main')[0].payload.visualizations.map((v) => v.rows), [REFRESHED, REFRESHED, [{ n: 1 }]], 'with the refreshed rows')
 })
 
 test('an in-place refresh with the fullscreen frame open sends each ready frame the rows once', async () => {
@@ -178,7 +184,7 @@ test('an in-place refresh with the fullscreen frame open sends each ready frame 
   await refreshInPlace(f)
   assert.deepEqual(f.types('main'), ['ARTIFACT_DATA'])
   assert.deepEqual(f.types('fullscreen'), ['ARTIFACT_DATA'])
-  assert.deepEqual(f.frames.fullscreen.received[0].payload.visualizations[0].rows, REFRESHED)
+  assert.deepEqual(f.pushes('fullscreen')[0].payload.visualizations[0].rows, REFRESHED)
 })
 
 test('new artifact code reloads the frame; nothing is posted to it until READY, then it gets the stale seed\'s refresh once', async () => {
@@ -198,8 +204,8 @@ test('new artifact code reloads the frame; nothing is posted to it until READY, 
   assert.deepEqual(f.types(), [], 'no push targets the loading frame')
   await f.ready()
   assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'READY: one push of what the seed lacks')
-  assert.equal(f.frames.main.received.some((m) => m.whileLoading), false)
-  assert.deepEqual(f.frames.main.received[0].payload.visualizations[0].rows, REFRESHED)
+  assert.equal(f.pushes('main').some((m) => m.whileLoading), false)
+  assert.deepEqual(f.pushes('main')[0].payload.visualizations[0].rows, REFRESHED)
 })
 
 test('the per-widget info toggle reloads the frame, which gets its data after READY', async () => {
@@ -210,7 +216,7 @@ test('the per-widget info toggle reloads the frame, which gets its data after RE
   assert.equal(f.state.iframeReady.value, false)
   await f.ready()
   assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'the report changed since the seed: one push on READY')
-  assert.equal(f.frames.main.received[0].payload.report.show_widget_info, true)
+  assert.equal(f.pushes('main')[0].payload.report.show_widget_info, true)
 })
 
 test('a full reload (new seed) while the frame is ready: no push into the reloading frame, READY finds the seed current', async () => {
@@ -220,7 +226,7 @@ test('a full reload (new seed) while the frame is ready: no push into the reload
   await f.own.fetchData('art-1')
   await flush()
   assert.ok(f.own.iframeSrcdoc.value !== html, 'a new seed: a new document')
-  assert.equal(f.frames.main.received.some((m) => m.whileLoading), false, 'nothing posted while it loads')
+  assert.equal(f.pushes('main').some((m) => m.whileLoading), false, 'nothing posted while it loads')
   assert.equal(f.state.iframeReady.value, false)
   await f.ready()
   assert.deepEqual(f.types(), ['ARTIFACT_DATA_CURRENT'], 'the new seed holds the data: no payload')
@@ -279,14 +285,14 @@ test('a filter run while only a stale load is in flight reaches the frame once t
   const f = await staleLoadThenFilter((slow) => slow.resolve(queriesResponse(REFRESHED)))
   assert.equal(f.own.dataLoadsInFlight, 0)
   assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'the held send is delivered, once')
-  assert.deepEqual(f.frames.main.received[0].payload.visualizations[0].rows, FILTERED, 'with the filter run\'s rows')
+  assert.deepEqual(f.pushes('main')[0].payload.visualizations[0].rows, FILTERED, 'with the filter run\'s rows')
 })
 
 test('a stale load that throws releases the counter and delivers the held send', async () => {
   const f = await staleLoadThenFilter((slow) => slow.reject(new Error('network down')))
   assert.equal(f.own.dataLoadsInFlight, 0, 'the counter is released')
   assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'the held send is delivered, once')
-  assert.deepEqual(f.frames.main.received[0].payload.visualizations[0].rows, FILTERED)
+  assert.deepEqual(f.pushes('main')[0].payload.visualizations[0].rows, FILTERED)
   f.clear()
   f.state.filesData.value = [{ id: 'file-1', url: 'https://files.test/1' }]
   await flush()
@@ -330,4 +336,89 @@ test('an in-place refresh never hides the frame document on the way', async () =
   watch(f.own.iframeSrcdoc, (html) => seen.push(html), { flush: 'sync' })
   await refreshInPlace(f)
   assert.equal(seen.includes(undefined), false)
+})
+
+// A filter run that ends while an in-place refresh still waits on the network:
+// its rows go out with the refresh's one push, and so does its status.
+async function filterDuringRefresh(runResponse) {
+  const f = await opened()
+  const slow = deferred()
+  f.responses[QUERIES] = slow.promise
+  const refresh = f.own.fetchData('art-1', { inPlace: true })
+  await flush()
+  f.clear()
+  f.responses[RUN_Q1] = runResponse
+  await f.own.runParamQueries({ region: 'EMEA' })
+  await flush()
+  const beforePush = f.log()
+  slow.resolve(queriesResponse(REFRESHED))
+  await refresh
+  await flush()
+  return { f, beforePush, afterPush: f.log().slice(beforePush.length) }
+}
+
+test('a filter run during an in-place refresh reports done only after the refresh\'s push: rows, then status, once', async () => {
+  const { beforePush, afterPush } = await filterDuringRefresh({ status: 'success', data: { rows: FILTERED, columns: [] } })
+  assert.deepEqual(beforePush, ['STATUS loading=true error=null'], 'no done status (and no rows) before the push')
+  assert.deepEqual(afterPush, ['ARTIFACT_DATA', 'STATUS loading=false error=null'], 'rows, then the status, once')
+})
+
+test('a filter run that fails during an in-place refresh still reports its error, after the push', async () => {
+  const { f, beforePush, afterPush } = await filterDuringRefresh({ status: 'error', error: 'region not allowed' })
+  assert.deepEqual(beforePush, ['STATUS loading=true error=null'])
+  assert.deepEqual(afterPush, ['ARTIFACT_DATA', 'STATUS loading=false error=region not allowed'])
+  assert.equal(f.state.paramRunLoading.value, false)
+})
+
+test('two filter runs during an in-place refresh: one done status after the push, the newer run\'s', async () => {
+  const f = await opened()
+  const slow = deferred()
+  f.responses[QUERIES] = slow.promise
+  const refresh = f.own.fetchData('art-1', { inPlace: true })
+  await flush()
+  f.clear()
+  f.responses[RUN_Q1] = { status: 'error', error: 'first run failed' }
+  await f.own.runParamQueries({ region: 'EMEA' })
+  f.responses[RUN_Q1] = { status: 'success', data: { rows: FILTERED, columns: [] } }
+  await f.own.runParamQueries({ region: 'APAC' })
+  await flush()
+  slow.resolve(queriesResponse(REFRESHED))
+  await refresh
+  await flush()
+  assert.deepEqual(f.log(), ['STATUS loading=true error=null', 'STATUS loading=true error=null', 'ARTIFACT_DATA', 'STATUS loading=false error=null'])
+})
+
+test('a filter run while only a stale load is in flight reports its status after the held send', async () => {
+  const f = await staleLoadThenFilter((slow) => slow.resolve(queriesResponse(REFRESHED)))
+  assert.deepEqual(f.log(), ['STATUS loading=true error=null', 'ARTIFACT_DATA', 'STATUS loading=false error=null'])
+})
+
+test('the fullscreen frame opened after a theme toggle and a refresh gets the current theme on READY', async () => {
+  const f = await opened()
+  f.state.colorMode.value = 'dark'
+  await flush()
+  await refreshInPlace(f)
+  f.clear()
+  await f.ready('fullscreen')  // boots from the srcdoc built in light mode
+  assert.deepEqual(f.log('fullscreen'), ['COLOR dark', 'ARTIFACT_DATA'], 'the current theme, then its data')
+  assert.equal(f.frames.fullscreen.received[0].whileLoading, false)
+})
+
+test('a frame whose document was built in the current theme gets no theme post on READY', async () => {
+  const f = await opened()
+  await f.ready('fullscreen')
+  assert.deepEqual(f.log('fullscreen').filter((m) => m.startsWith('COLOR')), [])
+  f.state.reportData.value = { ...f.state.reportData.value, show_widget_info: true }
+  await f.ready()
+  assert.deepEqual(f.log('main').filter((m) => m.startsWith('COLOR')), [], 'a rebuild reads the current theme: nothing to correct')
+})
+
+test('a theme toggle while the main frame reloads reaches it on READY', async () => {
+  const f = await opened()
+  f.state.reportData.value = { ...f.state.reportData.value, show_widget_info: true }  // rebuilt in light, loading
+  f.state.colorMode.value = 'dark'  // posted into the loading document: lost
+  await flush()
+  f.clear()
+  await f.ready()
+  assert.deepEqual(f.log('main')[0], 'COLOR dark')
 })

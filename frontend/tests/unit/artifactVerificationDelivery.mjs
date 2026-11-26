@@ -43,7 +43,7 @@ const state = {
   window:{location:{origin:'https://preview.test'}},console:{log(){},error(){}},
   iframeRef:{value:{contentWindow:{postMessage(m){messages.push(m)}}}},
   toRaw:v=>v, ...framePayload.exports, ...rowCounts.exports, paramsPayload:()=>({}),artifactRuntime:()=>({}),tableLayoutKey:()=>'',loadTableLayouts:()=>({}),syncParamsToUrl(){},postParamsStatus(){},
-  logActivity:null,previewConversationPolicy:null,verificationEvent:(kind,fields)=>events.push({kind,...fields}),useMyFetch:(...args)=>respond(...args),
+  dataLoadsInFlight:0, logActivity:null,previewConversationPolicy:null,verificationEvent:(kind,fields)=>events.push({kind,...fields}),useMyFetch:(...args)=>respond(...args),
 }
 vm.createContext(state)
 vm.runInContext(code, state)

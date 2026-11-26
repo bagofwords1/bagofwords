@@ -1544,7 +1544,10 @@ async function runParamQueries(
   // A fully superseded run stays quiet: the newer run owns the status line
   // and will push its own (fresher) data.
   if (myRun === paramRunCounter) {
-    postParamsStatus(false, firstError);
+    // During a data load its rows wait for the load's one push: so does its
+    // status, or the viewer would see "done" over the old rows.
+    if (dataLoadsInFlight) heldParamsStatus = { run: myRun, error: firstError };
+    else postParamsStatus(false, firstError);
     syncParamsToUrl();
   }
 }
@@ -1594,6 +1597,15 @@ let visualizationsSendDue = false;
 // selected now, or it threw), that end sends it.
 let dataLoadsInFlight = 0;
 let sendHeld = false;
+// The status of a filter run that ended during a load, posted right after the
+// push carrying its rows (fetchData's finally). Only if no newer run started:
+// that run owns the status line.
+let heldParamsStatus: { run: number; error: string | null } | null = null;
+function postHeldParamsStatus() {
+  const held = heldParamsStatus;
+  heldParamsStatus = null;
+  if (held && held.run === paramRunCounter) postParamsStatus(false, held.error);
+}
 let loadSent: { visualizations: any[]; files: any[] } | null = null;
 function replaceVisualizationsData(next: any[], { send = true }: { send?: boolean } = {}) {
   if (send) visualizationsSendDue = true;
@@ -2938,6 +2950,12 @@ function handleIframeMessage(event: MessageEvent) {
     verificationEvent('data_received', { data_revision: event.data.revision });
     return;
   }
+  // A frame booted from a document built in another theme (the fullscreen one
+  // opened after a toggle, or one that was loading when the toggle was posted)
+  // gets the current theme first; one built in it gets nothing (no re-render).
+  if (event.data?.type === 'ARTIFACT_READY' && builtSrcdoc && builtSrcdoc.colorMode !== artifactColorMode) {
+    (event.source as Window | null)?.postMessage({ type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode }, '*');
+  }
   if (event.data?.type === 'ARTIFACT_READY' && event.source === fullscreenRuntimeFrame.value?.contentWindow) {
     fullscreenReady.value = true;
     sendDataToIframe();
@@ -3322,9 +3340,13 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       sendHeld = false;
       sendDataToIframe();
       loadSent = { visualizations: visualizationsData.value, files: toRaw(filesData.value) };
-    } else if (!dataLoadsInFlight && sendHeld) {
-      sendHeld = false;
-      sendDataToIframe();
+      postHeldParamsStatus();
+    } else if (!dataLoadsInFlight) {
+      if (sendHeld) {
+        sendHeld = false;
+        sendDataToIframe();
+      }
+      postHeldParamsStatus();
     }
   }
 }
@@ -3623,7 +3645,8 @@ ${SC}
 });
 
 // The last frame document built and what it was built from.
-let builtSrcdoc: { inputs: Record<string, any>; html: string } | null = null;
+// colorMode: the theme it was built in (a later toggle reaches only live frames).
+let builtSrcdoc: { inputs: Record<string, any>; html: string; colorMode: string } | null = null;
 
 // The frame's document. One that goes away (doc mode, a full load, the viewer
 // gate, libraries pending) is not kept: the next one is built anew — a new
@@ -3687,7 +3710,7 @@ function frameDocument(): string | undefined {
   // reason reads the current theme.
   const builtFrom = { ...inputs, colorMode: undefined };
   if (!builtSrcdoc || !sameFrameInputs(builtSrcdoc.inputs, builtFrom)) {
-    builtSrcdoc = { inputs: builtFrom, html: buildArtifactIframeHtml(inputs) };
+    builtSrcdoc = { inputs: builtFrom, html: buildArtifactIframeHtml(inputs), colorMode: inputs.colorMode };
   }
   return builtSrcdoc.html;
 }
