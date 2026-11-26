@@ -368,6 +368,7 @@ class OpenAIResponsesClient(LLMClient):
         disable_parallel_tools: bool = True,
         web_search: Optional[bool] = None,
         web_search_domains: Optional[list] = None,
+        require_tool: bool = False,
     ) -> AsyncIterator[LLMStreamEvent]:
         input_items = self._translate_messages(messages)
         if images:
@@ -407,6 +408,8 @@ class OpenAIResponsesClient(LLMClient):
             request_tools.append(web_tool)
         if request_tools:
             request_kwargs["tools"] = request_tools
+            if require_tool:
+                request_kwargs["tool_choice"] = "required"
             # Only constrain parallelism for our function tools; the server-side
             # web_search tool is unaffected.
             # BOW_FORCE_PARALLEL_TOOLS relaxes single-tool mode (mirrors

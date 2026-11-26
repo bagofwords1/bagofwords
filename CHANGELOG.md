@@ -1,5 +1,52 @@
 # Release Notes
 
+## Version 0.0.638 (November 25, 2026)
+- Added a Microsoft Learn connector for searching and reading Microsoft and Azure documentation, with no sign-in needed (#1929)
+- Added Rewind to report chat: remove a prompt and everything after it from the chat and the agent's context, then edit and resend it (#1913)
+- Added sending a document the agent writes on WhatsApp to the user as a PDF (#1925)
+- Added a setup guide to the HubSpot connect form, with the redirect URL to copy (#1922)
+- Added unified Athena tables: same-named tables across tenant Glue databases become one table with a `tenant_db` column (#1921, #1931) — the "Unify tables across databases" connection setting, fixed once the connection is created
+- Changed agent-built dashboards to open with the answer (KPIs or a lead chart) and to build the page or document asked for instead of replying in chat (#1744)
+- Changed agent-written documents to take totals from exact column sums instead of adding rows by hand (#1886)
+- Fixed deleted custom tables coming back on every agent after a connection schema reload (#1928)
+- Fixed a custom role set as the sign-up default not being given to users who join through their domain or SSO (#1924)
+- Fixed people joining through SSO, SCIM, LDAP, CSV import or domain signup not getting the org's default member role (#1932)
+- Fixed the in-app dashboard sending its data again when it opens, which crashed the tab on large dashboards (#1927)
+- Fixed slow dashboard opening in the app, caused by background requests loading every step's data (#1916)
+- Fixed charts and tables on your own data: the right currency, fewer series per chart, rankings that show every name, and right-to-left tables on Hebrew pages (#1733)
+- Fixed dashboard charts showing a `needs viz` developer message instead of drawing from their own rows (#1768, #1769)
+- Fixed redundant `[1]` citation footnotes in WhatsApp and Slack answers next to the chart they cite (#1926)
+- Fixed edited-dashboard tool headers in chat showing a "Diff" label (#1923)
+
+## Version 0.0.637 (November 25, 2026)
+- Added Slack as a data source, read live with each user's own access and limited per agent to chosen channels (#1920)
+- Added more PII identifiers: 45 Presidio types, 7 built-in rules for secrets and network IDs, and custom rules with exact terms, checksums and context words (#1919) — off until a policy turns them on
+
+## Version 0.0.636 (November 24, 2026)
+- Added PII policies per agent; an agent's policy merges with the provider's and the strictest rule wins (#1911) — set in Settings → PII or the agent's settings
+- Added a SharePoint Server lists connector for on-prem SharePoint 2013+ over NTLM or Kerberos (#1910)
+- Added a Fathom connector for meetings, summaries and transcripts, with each user signing in to their own account (#1905)
+- Added sending requested files back to the user over WhatsApp (#1903)
+- Added removing a report from a project on the project page (#1902)
+- Added a per-user on/off toggle for personal connectors in the chat composer, remembered across chats (#1901)
+- Added app users: members who can use the apps (embedded artifacts) shared with them but not the workspace — set "New people join as" on a host application; give the workspace later by changing their role or through a group (#1914)
+- Added an app launcher at `/apps` listing the apps shared with you, with "Request full access" for app users (#1914)
+- Added "Use the workspace" to the role editor, on for every existing role (#1914)
+- Changed the command palette's All tab to show only reports and dashboards (#1900)
+- Changed a shared folder's instruction list in the Knowledge Explorer to show status, Pending review, category and load mode, like an agent's list (#1908)
+- Fixed result cards in chat opening collapsed, and a pending wait's Cancel button scrolling out of view (#1897)
+- Fixed Power BI schema refresh failing when one semantic model has no readable tables; that model is now skipped with a warning (#1907)
+- Fixed the Outlook Mail connect form missing its setup steps; it now lists the Entra app steps, permissions and the redirect URI to copy (#1912)
+- Fixed slow opening of shared dashboards with large results, which also blocked other requests while loading (#1909)
+- Fixed sign-up inside an embedded app's sign-in window not returning to the app (#1914)
+
+## Version 0.0.635 (November 23, 2026)
+- Added agents with no data connection, built from instructions, files and a description only (#1895)
+- Added daily caps on LLM tokens, LLM spend, data queries and data scanned to usage policies, alongside monthly caps (#1896) — the day resets at midnight in the org's timezone
+- Added the agents a run drew on to the trace modal's turn strip (#1892)
+- Changed deleting a connection to keep the agents that used it, unlinked, instead of deleting them; the delete dialog always lists the agents affected (#1895)
+- Fixed users being signed out when the session check failed during a deploy, restart or network blip (#1894)
+
 ## Version 0.0.634 (November 22, 2026)
 - Added a PostgreSQL (multi-database) connector: one server with a database per tenant, queried across tenants (#1879, originally #1808 by @roytev)
 - Added WhatsApp "typing…" while the agent works on a question; the user's message now shows as read when the run starts (#1880)

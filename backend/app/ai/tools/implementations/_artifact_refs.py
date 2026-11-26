@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections import OrderedDict
 import uuid
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
 VIZ_POSITIONAL_RE = re.compile(r"\bviz\[(\d+)\]")
@@ -591,12 +593,15 @@ _CHART_FIELD_PROPS = {"TrendChart": ("x", "y", "series"), "RankChart": ("label",
 _VIZ_ASSIGN_RE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*vizById\(\s*['\"]([0-9a-fA-F][0-9a-fA-F-]{10,40})['\"]\s*\)")
 
 
-def _jsx_tag_body(src: str, start: int) -> str:
+def _jsx_tag_body(src: str, start: int, ends: Optional[Dict[int, Optional[int]]] = None) -> str:
     """The attribute text of the JSX tag opening at ``start`` (``<Name …>``).
 
     Walks braces and quotes so an ``onClick={p => …}`` arrow does not end the tag.
+    ``ends`` caches where elements in ``src`` end; pass one dict for every tag
+    of the same ``src``.
     """
-    depth, quote, i = 0, None, start + 1
+    depth, quote, i, comments = 0, None, start + 1, {}
+    ends = {} if ends is None else ends
     while i < len(src):
         ch = src[i]
         if quote:
@@ -605,6 +610,9 @@ def _jsx_tag_body(src: str, start: int) -> str:
                 continue
             if ch == quote:
                 quote = None
+        elif (j := _skip_nested(src, i, depth, comments, ends)) != i:
+            i = j
+            continue
         elif ch in "\"'`":
             quote = ch
         elif ch == "{":
@@ -617,14 +625,16 @@ def _jsx_tag_body(src: str, start: int) -> str:
     return src[start:]
 
 
-def _jsx_prop(body: str, name: str):
+def _jsx_prop(body: str, name: str, ends: Optional[Dict[int, Optional[int]]] = None):
     """(kind, value) for prop ``name``: ("str", text) for name="…", ("expr", text) for name={…}.
 
     Only a top-level attribute counts: text inside another attribute's quoted
-    value or {expression} (``alt='id="x"'``) is skipped.
+    value or {expression} (``alt='id="x"'``) is skipped. ``ends`` caches where
+    elements in ``body`` end, for reading several props of one body.
     """
     attr = re.compile(r"\s" + re.escape(name) + r"\s*=\s*")
-    depth, quote, i, m = 0, None, 0, None
+    depth, quote, i, m, comments = 0, None, 0, None, {}
+    ends = {} if ends is None else ends
     while i < len(body):
         ch = body[i]
         if quote:
@@ -633,6 +643,9 @@ def _jsx_prop(body: str, name: str):
                 continue
             if ch == quote:
                 quote = None
+        elif (j := _skip_nested(body, i, depth, comments, ends)) != i:
+            i = j
+            continue
         elif ch in "\"'`":
             quote = ch
         elif ch == "{":
@@ -658,6 +671,77 @@ def _jsx_prop(body: str, name: str):
             if depth == 0:
                 return ("expr", rest[1:j].strip())
     return None
+
+
+_SERIES_KEY_RE = re.compile(r"\bseries\s*:")
+# Every ECharts series type, so a mixed chart (a scatter with a fitted line, a
+# candlestick with a moving average) is seen as mixed, not as a line chart.
+_SERIES_TYPE_RE = re.compile(
+    r"""\btype\s*:\s*['"`](line|bar|scatter|effectScatter|pie|candlestick|boxplot|heatmap|radar|tree|treemap|"""
+    r"""sunburst|map|lines|graph|sankey|funnel|gauge|pictorialBar|themeRiver|custom|parallel)['"`]"""
+)
+
+
+def _series_values(src: str):
+    """The text of each ``series: …`` value in the code (an array literal or an expression)."""
+    for m in _SERIES_KEY_RE.finditer(src):
+        depth, quote, i = 0, None, m.end()
+        while i < len(src):
+            ch = src[i]
+            if quote:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+            elif ch in "\"'`":
+                quote = ch
+            elif ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif ch == "," and depth == 0:
+                break
+            i += 1
+        yield src[m.end():i]
+
+
+def _raw_line_bar_charts(src: str) -> int:
+    """How many chart options draw only line or only bar series (a bar-and-line combo is a target chart)."""
+    count = 0
+    for value in _series_values(src or ""):
+        kinds = set(_SERIES_TYPE_RE.findall(value))
+        if kinds in ({"line"}, {"bar"}):
+            count += 1
+    return count
+
+
+def raw_chart_errors(code: str, artifact_data: Dict[str, Any], previous_code: Optional[str] = None) -> List[str]:
+    """A raw <EChart> line or bar chart where TrendChart / RankChart fit.
+
+    The components handle units, every category label and the point cap;
+    raw charts brought those defects back on unfamiliar data. Runtime 11+ only.
+    On an edit (``previous_code``) only charts the edit adds count, so an
+    existing page isn't blocked by charts it already had.
+    """
+    runtime = (artifact_data or {}).get("runtime") or {}
+    try:
+        version = int(runtime.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    src = code or ""
+    if version < 11 or "<EChart" not in src:
+        return []
+    added = _raw_line_bar_charts(src) - (_raw_line_bar_charts(previous_code) if previous_code is not None else 0)
+    if added <= 0:
+        return []
+    return [
+        "[charts] The code draws a line or bar chart with a raw <EChart> option. Build a measure over time with "
+        "<TrendChart> and a ranking or comparison by category with <RankChart>: they show every label, the units "
+        "and the point cap. Keep <EChart> for other types (scatter, pie, heatmap…) or a bar-and-line target chart."
+    ]
 
 
 _BOW_FILE_TAG_RE = re.compile(r"<BowFile\b")
@@ -687,8 +771,9 @@ def bow_file_literal_ids(code: str) -> set:
     """
     src = code or ""
     found: set = set()
+    ends: Dict[int, Optional[int]] = {}
     for m in _BOW_FILE_TAG_RE.finditer(src):
-        prop = _jsx_prop(_jsx_tag_body(src, m.start()), "id")
+        prop = _jsx_prop(_jsx_tag_body(src, m.start(), ends), "id")
         if not prop:
             continue
         kind, value = prop
@@ -743,13 +828,309 @@ def _function_param_names(src: str) -> set:
     return found
 
 
-def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
-    """TrendChart/RankChart field props must name columns of their viz.
+_SCRIPT_OPEN_RE = re.compile(r"^\s*<script\b[^>]*>", re.I)
+# Where an expression may start, so a `<` opens JSX and a `/` a regex: after
+# one of these characters or keywords, not after a value (`i < n`, `a / b`).
+_EXPR_START_CHARS = frozenset("([{,;:=!&|?+-*/%~^<>")
+_EXPR_START_WORDS = frozenset((
+    "return", "case", "typeof", "void", "delete", "in", "of", "await", "yield",
+    "throw", "else", "do", "new", "instanceof", "default", "export",
+))
 
-    Checked only where the chart provably draws the viz's own rows: no ``rows``
-    prop, or ``rows={v.rows}`` / ``rows={filterRows(v.rows…)}`` for the same viz.
-    Derived rows, expression props and a viz that can't be resolved are skipped,
-    so a correct chart is never flagged. Runtime 11+ only, like design_errors.
+
+def _expression_may_start(src: str, i: int, comments: Optional[Dict[int, int]] = None) -> bool:
+    """Whether an expression may start at ``src[i]``, judged by the token before it.
+
+    ``comments`` maps the end offset of each comment before ``i`` to its start,
+    so a comment between that token and ``i`` is passed over.
+    """
+    k = i - 1
+    while k >= 0:
+        if src[k].isspace():
+            k -= 1
+        elif comments and k + 1 in comments:
+            k = comments[k + 1] - 1
+        else:
+            break
+    if k < 0:
+        return True
+    if src[k] in _EXPR_START_CHARS:
+        return True
+    if src[k].isalnum() or src[k] in "_$":
+        end = k + 1
+        while k >= 0 and (src[k].isalnum() or src[k] in "_$"):
+            k -= 1
+        return src[k + 1:end] in _EXPR_START_WORDS
+    return False
+
+
+def _skip_regex(src: str, i: int, end: int) -> int:
+    """End of the regex literal starting at ``src[i] == "/"``; ``i + 1`` if it isn't one."""
+    j, in_class = i + 1, False
+    while j < end:
+        ch = src[j]
+        if ch == "\n":
+            return i + 1
+        if ch == "\\":
+            j += 2
+            continue
+        if in_class:
+            in_class = ch != "]"
+        elif ch == "[":
+            in_class = True
+        elif ch == "/":
+            return j + 1
+        j += 1
+    return i + 1
+
+
+def _comment_end(src: str, i: int, end: int) -> int:
+    """End of the ``//`` or ``/* */`` comment starting at ``src[i]``; ``i`` if none starts there."""
+    if src.startswith("//", i, end):
+        nl = src.find("\n", i, end)
+        return end if nl < 0 else nl
+    if src.startswith("/*", i, end):
+        close = src.find("*/", i + 2, end)
+        return end if close < 0 else close + 2
+    return i
+
+
+def _skip_nested(src: str, i: int, depth: int, comments: Dict[int, int], ends: Dict[int, Optional[int]]) -> int:
+    """End of what starts at ``src[i]`` and is not the tag's own syntax; ``i`` if nothing does.
+
+    For the JSX tag walkers: a comment, and inside a ``{…}`` expression
+    (``depth > 0``) a regex literal or a JSX element (``format={v => <b>…</b>}``).
+    A quote in any of them is not a string, and a ``//`` or ``/*`` in an
+    element's text is not a comment. ``comments`` collects the comments passed,
+    for the look-behind; ``ends`` caches where elements in ``src`` end.
+    """
+    end = len(src)
+    j = _comment_end(src, i, end)
+    if j != i:
+        comments[j] = i
+        return j
+    if depth > 0 and src[i] == "/" and src[i - 1] != "<" and _expression_may_start(src, i, comments):
+        return _skip_regex(src, i, end)
+    if depth > 0 and _jsx_opens(src, i, end, comments):
+        close = _jsx_element_end(src, i, ends)
+        if close is not None:
+            return close
+    return i
+
+
+def _jsx_opens(src: str, i: int, end: int, comments: Dict[int, int]) -> bool:
+    """Whether the ``<`` at ``src[i]`` in code opens a JSX element (or a ``<>`` fragment).
+
+    A ``<`` right after another is the second half of a ``<<`` shift (``1 <<n``).
+    """
+    return (
+        src[i] == "<" and i + 1 < end and (src[i + 1].isalpha() or src[i + 1] == ">")
+        and (i == 0 or src[i - 1] != "<")
+        and _expression_may_start(src, i, comments)
+    )
+
+
+def _jsx_scan(
+    src: str, i: int, end: int, stack: List[str], starts: set, comments: Dict[int, int],
+    ends: Optional[Dict[int, Optional[int]]] = None, open_elements: Optional[List[int]] = None,
+) -> int:
+    """A small JS/JSX scanner: runs from ``src[i]`` in the state on top of ``stack``
+    until ``end`` or until the stack empties, and returns where it stopped.
+
+    String, template and regex literals and comments are skipped, so a tag named
+    inside one is not an element; in JSX text quotes, ``//`` and ``/*`` are plain
+    characters (``<p>Don't</p>``). The ``<`` of every element opened is added to
+    ``starts``, the end -> start of every comment in code to ``comments``.
+
+    ``ends``, if given, gets start -> end of every element the scan closes, and
+    start -> None for the ones still open when it reaches ``end``.
+    ``open_elements`` holds the starts of the elements already on ``stack``.
+    """
+    # Modes: code | template | tag (inside <Name …>) | text (an element's children).
+    # Each tag/text entry on the stack is an element; its start is in `opened`.
+    opened = open_elements if open_elements is not None else []
+
+    def element_closed(at: int) -> None:
+        start = opened.pop()
+        if ends is not None:
+            ends[start] = at
+
+    while i < end and stack:
+        mode, ch = stack[-1], src[i]
+        if mode == "code":
+            if src.startswith(("//", "/*"), i):
+                j = _comment_end(src, i, end)
+                comments[j] = i
+                i = j
+            elif ch in "'\"":
+                j = i + 1
+                while j < end and src[j] != ch and src[j] != "\n":
+                    j += 2 if src[j] == "\\" else 1
+                i = j + 1
+            elif ch == "`":
+                stack.append("template")
+                i += 1
+            elif ch == "/" and _expression_may_start(src, i, comments):
+                i = _skip_regex(src, i, end)
+            elif ch == "{":
+                stack.append("code")
+                i += 1
+            elif ch == "}":
+                if len(stack) > 1:
+                    stack.pop()
+                i += 1
+            elif _jsx_opens(src, i, end, comments):
+                starts.add(i)
+                opened.append(i)
+                stack.append("tag")
+                i += 1
+            else:
+                i += 1
+        elif mode == "template":
+            if ch == "\\":
+                i += 2
+            elif ch == "`":
+                stack.pop()
+                i += 1
+            elif src.startswith("${", i):
+                stack.append("code")
+                i += 2
+            else:
+                i += 1
+        elif mode == "tag":
+            if ch in "'\"":  # JSX attribute strings have no escapes
+                close = src.find(ch, i + 1, end)
+                i = end if close < 0 else close + 1
+            elif src.startswith(("//", "/*"), i):
+                i = _comment_end(src, i, end)
+            elif ch == "{":
+                stack.append("code")
+                i += 1
+            elif src.startswith("/>", i):
+                stack.pop()
+                i += 2
+                element_closed(i)
+            elif ch == ">":
+                stack[-1] = "text"
+                i += 1
+            else:
+                i += 1
+        else:  # text
+            if ch == "{":
+                stack.append("code")
+                i += 1
+            elif src.startswith("</", i):
+                gt = src.find(">", i, end)
+                i = end if gt < 0 else gt + 1
+                stack.pop()
+                element_closed(i)
+            elif ch == "<":
+                starts.add(i)
+                opened.append(i)
+                stack.append("tag")
+                i += 1
+            else:
+                i += 1
+    if ends is not None and i >= end:
+        ends.update(dict.fromkeys(opened))
+    return i
+
+
+def _jsx_element_starts(src: str) -> set:
+    """Offsets of the ``<`` of every JSX element the page's code opens.
+
+    The stored ``<script type="text/babel">`` wrapper is not part of the code.
+    """
+    start, end = 0, len(src)
+    wrapper = _SCRIPT_OPEN_RE.match(src)
+    if wrapper:
+        start = wrapper.end()
+        close = src.rfind("</script>")
+        end = close if close >= start else end
+    starts: set = set()
+    # The bottom "code" state is never popped, so this runs to the end.
+    _jsx_scan(src, start, end, ["code"], starts, {})
+    return starts
+
+
+def _jsx_element_end(src: str, i: int, ends: Dict[int, Optional[int]]) -> Optional[int]:
+    """Offset just past the JSX element (or fragment) whose ``<`` is at ``src[i]``:
+    after its ``/>``, or after its matching close tag, nested elements included.
+    None if it never closes.
+
+    ``ends`` caches start -> end for ``src``, filled by every scan with all the
+    elements it passes, so an element that never closes is scanned to the end
+    of ``src`` once, not once per tag that holds one.
+    """
+    if i not in ends:
+        _jsx_scan(src, i + 1, len(src), ["tag"], set(), {}, ends, [i])
+    return ends[i]
+
+
+def _has_spread_attr(body: str, ends: Optional[Dict[int, Optional[int]]] = None) -> bool:
+    """Whether a JSX tag body has a top-level ``{...props}`` attribute."""
+    depth, quote, i, comments = 0, None, 0, {}
+    ends = {} if ends is None else ends
+    while i < len(body):
+        ch = body[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif (j := _skip_nested(body, i, depth, comments, ends)) != i:
+            i = j
+            continue
+        elif ch in "\"'`":
+            quote = ch
+        elif ch == "{":
+            if depth == 0 and body[i + 1:].lstrip().startswith("..."):
+                return True
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        i += 1
+    return False
+
+
+def _charts_without_viz(src: str) -> List[Tuple[str, str, str]]:
+    """(component, whole tag with whitespace collapsed, tag body as written) of each
+    chart with no ``viz`` prop. Collapsing joins a ``//`` comment's line to the next,
+    so props are read from the body as written.
+
+    Tags inside a comment or a string, and tags with a ``{...spread}`` that may
+    carry the viz, are left out.
+    """
+    elements = _jsx_element_starts(src)
+    found: List[Tuple[str, str, str]] = []
+    ends: Dict[int, Optional[int]] = {}
+    for m in _CHART_TAG_RE.finditer(src):
+        start = m.start()
+        if start not in elements:
+            continue
+        body = _jsx_tag_body(src, start, ends)
+        body_ends: Dict[int, Optional[int]] = {}
+        if _jsx_prop(body, "viz", body_ends) is not None or _has_spread_attr(body, body_ends):
+            continue
+        tag = body + ">" if src[start + len(body):start + len(body) + 1] == ">" else body
+        found.append((m.group(1), " ".join(tag.split()), body))
+    return found
+
+
+def chart_prop_errors(code: str, artifact_data: Dict[str, Any], *, previous_code: Optional[str] = None) -> List[str]:
+    """TrendChart/RankChart must name their viz, and field props its columns.
+
+    A chart without a ``viz`` prop has no ⓘ of its own, and without ``rows`` it
+    draws an error box. ``previous_code`` (an edit) leaves the viz-less charts
+    the page already had alone, so only the ones an edit adds are flagged. A
+    page with no visualizations has no viz to pass, so it isn't asked for one.
+
+    Field props are checked only where the chart provably draws the viz's own
+    rows: no ``rows`` prop, or ``rows={v.rows}`` / ``rows={filterRows(v.rows…)}``
+    for the same viz. Derived rows, expression props and a viz that can't be
+    resolved are skipped, so a correct chart is never flagged. Runtime 11+ only,
+    like design_errors.
     """
     runtime = (artifact_data or {}).get("runtime") or {}
     try:
@@ -773,10 +1154,30 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     params = _function_param_names(src)
     names = {k: next(iter(v)) for k, v in seen.items() if len(v) == 1 and k not in params}
     errors: List[str] = []
+    # A page with no visualizations (static, resource-backed) has no viz to
+    # pass: its charts draw from their own rows.
+    existing = Counter(tag for _, tag, _ in _charts_without_viz(previous_code or "")) if vizs else Counter()
+    for comp, tag, body in _charts_without_viz(src) if vizs else []:
+        if existing[tag] > 0:
+            existing[tag] -= 1
+            continue
+        shown = tag if len(tag) <= 120 else tag[:119] + "…"
+        drawn = "" if _jsx_prop(body, "rows") is not None else " and draws an error box instead of a chart"
+        errors.append(
+            f"[chart] <{comp}> has no viz prop ({shown}): it has no ⓘ of its own{drawn}. "
+            f"Pass viz={{vizById(\"<uuid>\")}} for the visualization its rows come from, inside a SectionCard too "
+            "(a card with the same viz keeps the only ⓘ); keep rows= for filtered or derived rows. "
+            "Only when its rows come from no visualization (a resource or constants) pass viz={null}."
+        )
+    elements = _jsx_element_starts(src)
+    ends: Dict[int, Optional[int]] = {}
     for m in _CHART_TAG_RE.finditer(src):
+        if m.start() not in elements:
+            continue
         comp = m.group(1)
-        body = _jsx_tag_body(src, m.start())
-        viz_prop = _jsx_prop(body, "viz")
+        body = _jsx_tag_body(src, m.start(), ends)
+        body_ends: Dict[int, Optional[int]] = {}
+        viz_prop = _jsx_prop(body, "viz", body_ends)
         if not viz_prop or viz_prop[0] != "expr":
             continue
         expr = viz_prop[1]
@@ -786,7 +1187,7 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
         viz = vizs.get(str(viz_id)) if viz_id else None
         if not viz:
             continue
-        rows_prop = _jsx_prop(body, "rows")
+        rows_prop = _jsx_prop(body, "rows", body_ends)
         if rows_prop is not None:
             v = rows_prop[1] if rows_prop[0] == "expr" else ""
             own = bool(ident) and (
@@ -799,7 +1200,7 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
         if not cols:
             continue
         for prop in _CHART_FIELD_PROPS[comp]:
-            p = _jsx_prop(body, prop)
+            p = _jsx_prop(body, prop, body_ends)
             if not p or p[0] != "str" or p[1] in cols:
                 continue
             title = viz.get("title") or "Untitled"
@@ -808,3 +1209,111 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
                 f"Columns: {', '.join(cols)}. Use one of them, or pass rows= with the derived rows that have that field."
             )
     return errors
+
+
+# Every chart for the focal-point check; chart_prop_errors checks only _CHART_TAG_RE.
+_ANY_CHART_TAG_RE = re.compile(r"<(TrendChart|RankChart|EChart)\b")
+# What counts as "the answer first": a KPI card, a big number, or a line of text.
+_FOCAL_RE = re.compile(r"<KPICard\b|<p[\s>]|\btext-(?:2|3|4|5|6)xl\b")
+# Turns (head completion ids) that already got the layout note: it is given once.
+_LAYOUT_NOTED: "OrderedDict[str, bool]" = OrderedDict()
+_LAYOUT_NOTED_MAX = 2000
+
+
+def _has_focal_point(src: str) -> bool:
+    charts = [m.start() for m in _ANY_CHART_TAG_RE.finditer(src)]
+    if len(charts) < 2:
+        return True
+    # A KPI card anywhere counts (sub-components may be defined above App);
+    # otherwise a big number or a text line must come before the first chart.
+    return "<KPICard" in src or bool(_FOCAL_RE.search(src[: charts[0]]))
+
+
+def focal_point_errors(
+    code: str,
+    artifact_data: Dict[str, Any],
+    previous_code: Optional[str] = None,
+    once_key: Optional[str] = None,
+) -> List[str]:
+    """A page of two or more charts with no answer above them.
+
+    A soft check: the note is returned once per turn (``once_key``, the head
+    completion id), so a page that should open with charts still builds on the
+    next attempt. Runtime 11+ only. On an edit (``previous_code``) it applies
+    only when the edit removes the focal point the page had.
+    """
+    runtime = (artifact_data or {}).get("runtime") or {}
+    try:
+        version = int(runtime.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    src = code or ""
+    if version < 11 or _has_focal_point(src):
+        return []
+    if previous_code is not None and not _has_focal_point(previous_code):
+        return []
+    if once_key is not None:
+        if once_key in _LAYOUT_NOTED:
+            return []
+        _LAYOUT_NOTED[once_key] = True
+        while len(_LAYOUT_NOTED) > _LAYOUT_NOTED_MAX:
+            _LAYOUT_NOTED.popitem(last=False)
+    return [
+        "[layout] The page opens with a stack of charts and no answer above them. Put the answer first: 2–4 KPICards, "
+        "a one-line summary carrying the key number, or one lead chart wider than the rest. This note is given once: "
+        "if the page should open with the charts, send it again as it is."
+    ]
+
+
+_USER_VAR_RE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*useCurrentUser\s*\(\s*\)")
+_USER_DESTRUCT_RE = re.compile(r"\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*useCurrentUser\s*\(\s*\)")
+_USER_FIELDS = r"(?:name|email|first_name|last_name|full_name|display_name|username)"
+_HEADING_TEXT_RE = re.compile(r"<(h1|h2)\b[^>]*>([\s\S]*?)</\1>")
+# A greeting or a "signed in as" line may name the viewer.
+_GREETING_RE = re.compile(r"welcome|hello|\bhi\b|signed in|logged in|שלום|ברוכ|מחובר|bienvenid|hola|bonjour|willkommen", re.I)
+
+
+def _viewer_name_refs(src: str) -> List[str]:
+    """Titles, subtitles, eyebrows and h1/h2 headings that show the signed-in viewer's name or email."""
+    pats = [r"useCurrentUser\s*\(\s*\)\s*\??\.\s*" + _USER_FIELDS + r"\b"]
+    for m in _USER_VAR_RE.finditer(src):
+        pats.append(r"\b" + re.escape(m.group(1)) + r"\s*\??\.\s*" + _USER_FIELDS + r"\b")
+    for m in _USER_DESTRUCT_RE.finditer(src):
+        for part in m.group(1).split(","):
+            key, _, alias = part.partition(":")
+            if re.fullmatch(r"\s*" + _USER_FIELDS + r"\s*", key):
+                pats.append(r"\b" + re.escape((alias or key).strip().split("=")[0].strip()) + r"\b")
+    ref = re.compile("|".join(pats))
+    hits: List[str] = []
+    for m in re.finditer(r"<[A-Za-z][\w.]*", src):
+        body = _jsx_tag_body(src, m.start())
+        for prop in ("title", "subtitle", "eyebrow"):
+            p = _jsx_prop(body, prop)
+            if p and p[0] == "expr" and ref.search(p[1]) and not _GREETING_RE.search(p[1]):
+                hits.append(f"{prop}={{{p[1][:80]}}}")
+    for m in _HEADING_TEXT_RE.finditer(src):
+        if ref.search(m.group(2)) and not _GREETING_RE.search(m.group(2)):
+            hits.append(f"<{m.group(1)}>{m.group(2).strip()[:80]}</{m.group(1)}>")
+    return hits
+
+
+def viewer_name_errors(code: str, artifact_data: Dict[str, Any], previous_code: Optional[str] = None) -> List[str]:
+    """The signed-in viewer's name or email in a page's title, subtitle or heading.
+
+    A page is shared: whoever opens it would see the builder's (or their own)
+    name as the page's title. A greeting or "signed in as" line is fine. On an
+    edit (``previous_code``) only references the edit adds count.
+    """
+    src = code or ""
+    if "useCurrentUser" not in src:
+        return []
+    hits = _viewer_name_refs(src)
+    if previous_code is not None and len(hits) <= len(_viewer_name_refs(previous_code)):
+        return []
+    if not hits:
+        return []
+    return [
+        "[viewer] The page shows the signed-in viewer's name in its title or heading (" + "; ".join(hits[:2]) + "). "
+        "A page is shared, so its title, subtitle and headings name the subject, never the viewer. Keep current_user "
+        "for a greeting, a \"signed in as\" line, or filtering to the viewer's own rows."
+    ]

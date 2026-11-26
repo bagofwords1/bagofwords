@@ -1760,6 +1760,23 @@ def parse_athena_database_spec(spec) -> tuple[list[str], list[str], bool]:
     return includes, excludes, multi
 
 
+def athena_unify_tables_enabled(value) -> bool:
+    """Read `unify_tables` the way `AWSAthenaConfig` validates it.
+
+    The stored config is the raw request body, so this must accept exactly the
+    spellings pydantic's `bool` accepts (1, "yes", "on", ...), or a connection
+    validated as unified would run per-database. Anything pydantic rejects
+    (None, "maybe") is off.
+    """
+    from pydantic import TypeAdapter, ValidationError
+    if value is None:
+        return False
+    try:
+        return TypeAdapter(bool).validate_python(value)
+    except ValidationError:
+        return False
+
+
 def validate_table_exclude_pattern(value):
     from app.utils.safe_regex import compile_bounded, pattern_cost_problem
     if value is not None and value.strip():
@@ -1788,6 +1805,13 @@ class AWSAthenaConfig(BaseModel):
         description="Optional regular expression; tables whose name matches are not indexed, e.g. '^day_\\d{2}'. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
         json_schema_extra={"ui:type": "string", "ui:titleKey": "data.athena.tableExcludeTitle",
                            "ui:descriptionKey": "data.athena.tableExcludeDescription"},
+    )
+    unify_tables: bool = Field(
+        False,
+        title="Unify tables across databases",
+        description="Join same-named tables across the matching databases into one table with a tenant_db column. Can't be changed after the connection is created.",
+        json_schema_extra={"ui:type": "boolean", "ui:titleKey": "data.athena.unifyTablesTitle",
+                           "ui:descriptionKey": "data.athena.unifyTablesDescription"},
     )
 
     @field_validator("table_exclude_pattern")
@@ -3209,6 +3233,51 @@ class SharePointOnpremKerberosCredentials(BaseModel):
         if not self.kerberos:
             raise ValueError("Kerberos must be enabled for this authentication variant.")
         return self
+
+
+# SharePoint Server lists — read-only tables over the on-premises REST API.
+class SharePointOnpremListsConfig(BaseModel):
+    site_url: str = Field(
+        ..., title="Site URL",
+        description="SharePoint Server site URL, including /sites/name (e.g. https://sharepoint.example.com/sites/finance). Not the Central Administration URL.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    lists: Optional[str] = Field(
+        "*", title="Lists",
+        description=(
+            "Lists to expose as tables: '*' (default) for every list on the site, or a "
+            "comma-separated set of list names (e.g. 'Expenses, Vendors'). Document "
+            "libraries are never included — use SharePoint Server (on-prem) for those."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    include_hidden: bool = Field(
+        False, title="Include Hidden Lists",
+        description="Also expose lists SharePoint marks as hidden (site plumbing). Usually off.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_items: int = Field(
+        20000, ge=1, le=100000, title="Max items per query",
+        description=(
+            "How many list items one query may read. SharePoint Server cannot filter "
+            "unindexed columns on lists over 5,000 items, so filters run after reading; "
+            "on a larger list, a filtered query covers this many items and says so."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_http: bool = Field(
+        False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+    @field_validator("site_url")
+    @classmethod
+    def _site_url(cls, value: str) -> str:
+        value = (value or "").strip().rstrip("/")
+        if not value.lower().startswith(("https://", "http://")):
+            raise ValueError("Site URL must start with https://")
+        return value
 
 
 # Exchange Server (on-premises) mail — read-only, over Exchange Web Services.

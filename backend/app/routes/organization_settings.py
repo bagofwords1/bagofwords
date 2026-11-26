@@ -361,6 +361,9 @@ async def get_pii_builtin_rules(
                 "name": r["name"],
                 "replacement": r["replacement"],
                 "pattern_count": len(r["patterns"]),
+                # Rules added after policies existed are off until turned on.
+                "enabled_by_default": r.get("enabled_by_default", True),
+                "checksum": r.get("checksum"),
             }
             for r in BUILTIN_PII_RULES
         ],

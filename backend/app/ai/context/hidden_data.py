@@ -66,6 +66,11 @@ def _scrub(value: Any) -> Any:
             # A terminal failure's final answer is the DB error itself.
             out[key] = redact_error_text(item)
             continue
+        if key == "column_sums" and "row_count" in value:
+            # A preview's column sums (data_preview.column_sums): a sum over
+            # one value is that cell, and Decimal sums are not in the gated
+            # stats. The gated stats keep the numeric sums.
+            continue
         out[key] = _scrub(item)
     if hidden:
         out["data_hidden"] = True

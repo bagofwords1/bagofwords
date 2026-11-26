@@ -69,6 +69,46 @@
                     </div>
                 </SettingsSection>
 
+                <!-- Which policy each agent adds (strictest wins; see docs/design/pii-agent-policies.md) -->
+                <SettingsSection :title="$t('settings.pii.agentsTitle')" :description="$t('settings.pii.agentsDesc')">
+                    <div data-testid="pii-agent-policies" :class="['space-y-3', { 'opacity-50 pointer-events-none': !pii.enabled }]">
+                        <div class="bow-table-card">
+                            <div class="flex items-center justify-between gap-4 px-5 py-3">
+                                <div class="min-w-0">
+                                    <div class="text-sm font-medium text-ink">{{ $t('settings.pii.defaultAgentPolicy') }}</div>
+                                    <div class="text-xs text-ink-muted">{{ $t('settings.pii.defaultAgentPolicyDesc') }}</div>
+                                </div>
+                                <USelect
+                                    :model-value="pii.default_agent_policy"
+                                    :options="defaultAgentOptions"
+                                    :aria-label="$t('settings.pii.defaultAgentPolicy')"
+                                    data-testid="pii-default-agent-policy"
+                                    size="sm" class="w-80 max-w-[50%] shrink-0"
+                                    @update:model-value="pii.default_agent_policy = $event; save()" />
+                            </div>
+                        </div>
+                        <div v-if="agents.length === 0" class="rounded-lg border border-dashed border-line">
+                            <SettingsEmpty icon="i-heroicons-circle-stack" :title="$t('settings.pii.noAgents')" compact />
+                        </div>
+                        <div v-else class="bow-table-card divide-y divide-line-subtle">
+                            <div v-for="agent in agents" :key="agent.id" data-testid="pii-agent-row" :data-agent-id="agent.id"
+                                 class="flex items-center justify-between gap-4 px-5 py-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <DataSourceIcon :type="agent.type" class="w-5 h-5 shrink-0" />
+                                    <div class="text-sm font-medium text-ink truncate">{{ agent.name }}</div>
+                                </div>
+                                <USelect
+                                    :model-value="agentPolicy(agent.id)"
+                                    :options="agentOptions"
+                                    :aria-label="$t('settings.pii.agentPolicyFor', { name: agent.name })"
+                                    data-testid="pii-agent-policy"
+                                    size="sm" class="w-80 max-w-[50%] shrink-0"
+                                    @update:model-value="setAgentPolicy(agent.id, $event); save()" />
+                            </div>
+                        </div>
+                    </div>
+                </SettingsSection>
+
                 <!-- Custom rules: defined once here, switched on per policy -->
                 <SettingsSection :title="$t('settings.pii.customTitle')" :description="$t('settings.pii.customDescShared')">
                     <template #actions>
@@ -85,7 +125,12 @@
                                  class="flex items-center justify-between gap-4 px-5 py-3">
                                 <div class="min-w-0">
                                     <div class="text-sm font-medium text-ink truncate">{{ rule.name || $t('settings.pii.ruleName') }}</div>
-                                    <div class="text-xs text-ink-muted font-mono truncate" dir="ltr">{{ rule.patterns.filter(Boolean).join('  ·  ') }}</div>
+                                    <div class="text-xs text-ink-muted font-mono truncate" dir="ltr">{{ [...rule.patterns.filter(Boolean), ...(rule.terms || []).map(t => `"${t}"`)].join('  ·  ') }}</div>
+                                    <div v-if="rule.checksum || rule.context?.length" class="text-xs text-ink-muted truncate" data-testid="pii-custom-rule-conditions">
+                                        <template v-if="rule.checksum">{{ $t('settings.pii.checksumSummary', { name: $t(`settings.pii.checksums.${rule.checksum}`) }) }}</template>
+                                        <template v-if="rule.checksum && rule.context?.length"> · </template>
+                                        <template v-if="rule.context?.length">{{ $t('settings.pii.contextSummary', { words: rule.context.join(', ') }) }}</template>
+                                    </div>
                                 </div>
                                 <div class="flex items-center gap-1 shrink-0">
                                     <UButton color="gray" variant="ghost" size="sm" icon="i-heroicons-pencil-square"
@@ -140,6 +185,17 @@
                         <UButton variant="link" size="xs" icon="i-heroicons-plus" class="mt-1 -ms-2"
                                  @click="draft.patterns.push('')">{{ $t('settings.pii.addPattern') }}</UButton>
                     </div>
+                    <SettingsRow :label="$t('settings.pii.terms')" :description="$t('settings.pii.termsHelp')" stacked for-id="pii-rule-terms">
+                        <UTextarea id="pii-rule-terms" v-model="draft.terms" :rows="3" data-testid="pii-rule-terms"
+                                   textarea-class="text-xs" :placeholder="$t('settings.pii.termsPlaceholder')" />
+                    </SettingsRow>
+                    <SettingsRow :label="$t('settings.pii.checksum')" :description="$t('settings.pii.checksumHelp')" stacked for-id="pii-rule-checksum">
+                        <USelect id="pii-rule-checksum" v-model="draft.checksum" :options="checksumOptions" data-testid="pii-rule-checksum" />
+                    </SettingsRow>
+                    <SettingsRow :label="$t('settings.pii.contextWords')" :description="$t('settings.pii.contextWordsHelp')" stacked for-id="pii-rule-context">
+                        <UInput id="pii-rule-context" v-model="draft.context" data-testid="pii-rule-context"
+                                :placeholder="$t('settings.pii.contextWordsPlaceholder')" />
+                    </SettingsRow>
                     <SettingsRow :label="$t('settings.pii.replacement')" stacked for-id="pii-rule-replacement">
                         <UInput id="pii-rule-replacement" v-model="draft.replacement" dir="ltr" input-class="font-mono text-xs" placeholder="[REDACTED]" />
                     </SettingsRow>
@@ -172,14 +228,16 @@ import SettingsRow from '~/components/settings/SettingsRow.vue'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
-import { usePiiSettings, PII_DEFAULT, PII_EXEMPT, type PiiCustomRule } from '~/composables/usePiiSettings'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { usePiiSettings, PII_DEFAULT, PII_EXEMPT, PII_NONE, PII_INHERIT, PII_CHECKSUMS, type PiiCustomRule } from '~/composables/usePiiSettings'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
 const { t } = useI18n()
 const { hasFeature } = useEnterprise()
 const {
-    pii, loading, providers, policyIds, policyLabel, providerPolicy, setProviderPolicy, providersOf,
+    pii, loading, providers, agents, policyIds, policyLabel, providerPolicy, setProviderPolicy, providersOf,
+    agentPolicy, setAgentPolicy, agentsOf,
     enabledRuleCount, createPolicy, deleteCustomRule, load, save,
 } = usePiiSettings()
 
@@ -187,9 +245,27 @@ const policyOptions = computed(() => [
     ...policyIds.value.map(id => ({ label: policyLabel(id), value: id })),
     { label: t('settings.pii.exemptOption'), value: PII_EXEMPT },
 ])
+// Agents can't be Exempt: an agent policy only adds redaction.
+const defaultAgentOptions = computed(() => [
+    { label: t('settings.pii.noAgentPolicy'), value: PII_NONE },
+    ...policyIds.value.map(id => ({ label: policyLabel(id), value: id })),
+])
+const agentOptions = computed(() => [
+    {
+        label: t('settings.pii.inheritAgentPolicy', {
+            policy: '\u2068' + (pii.default_agent_policy === PII_NONE ? t('settings.pii.noAgentPolicy') : policyLabel(pii.default_agent_policy)) + '\u2069',
+        }),
+        value: PII_INHERIT,
+    },
+    ...defaultAgentOptions.value,
+])
 const usedBy = (id: string) => {
     const names = providersOf(id).map(p => p.name)
-    return names.length ? t('settings.pii.usedBy', { providers: names.join(', ') }) : t('settings.pii.usedByNone')
+    const agentCount = agentsOf(id).length
+    const parts = []
+    if (names.length) parts.push(t('settings.pii.usedBy', { providers: names.join(', ') }))
+    if (agentCount) parts.push(t('settings.pii.usedByAgents', { n: agentCount }, agentCount))
+    return parts.length ? parts.join(' · ') : t('settings.pii.usedByNone')
 }
 
 // --- new policy ---
@@ -215,8 +291,16 @@ const confirmNewPolicy = async () => {
 const showRule = ref(false)
 const savingRule = ref(false)
 const editingRuleId = ref<string | null>(null)
-const draft = reactive<{ name: string; patterns: string[]; replacement: string }>({ name: '', patterns: [''], replacement: '[REDACTED]' })
-const draftValid = computed(() => !!draft.name.trim() && draft.patterns.some(p => p.trim()))
+// terms: one per line; context: comma-separated; checksum: '' = none.
+const draft = reactive<{ name: string; patterns: string[]; replacement: string; terms: string; checksum: string; context: string }>(
+    { name: '', patterns: [''], replacement: '[REDACTED]', terms: '', checksum: '', context: '' })
+const splitLines = (s: string) => [...new Set(s.split('\n').map(x => x.trim()).filter(Boolean))]
+const splitCommas = (s: string) => [...new Set(s.split(',').map(x => x.trim()).filter(Boolean))]
+const draftValid = computed(() => !!draft.name.trim() && (draft.patterns.some(p => p.trim()) || splitLines(draft.terms).length > 0))
+const checksumOptions = computed(() => [
+    { label: t('settings.pii.checksumNone'), value: '' },
+    ...PII_CHECKSUMS.map(c => ({ label: t(`settings.pii.checksums.${c}`), value: c })),
+])
 const ruleToDelete = ref<PiiCustomRule | null>(null)
 
 const openRule = (rule: PiiCustomRule | null) => {
@@ -224,6 +308,9 @@ const openRule = (rule: PiiCustomRule | null) => {
     draft.name = rule?.name || ''
     draft.patterns = rule ? [...rule.patterns] : ['']
     draft.replacement = rule?.replacement || '[REDACTED]'
+    draft.terms = (rule?.terms || []).join('\n')
+    draft.checksum = rule?.checksum || ''
+    draft.context = (rule?.context || []).join(', ')
     showRule.value = true
 }
 const confirmRule = async () => {
@@ -233,6 +320,9 @@ const confirmRule = async () => {
         name: draft.name.trim(),
         patterns: draft.patterns.map(p => p.trim()).filter(Boolean),
         replacement: draft.replacement.trim() || '[REDACTED]',
+        terms: splitLines(draft.terms),
+        checksum: draft.checksum || null,
+        context: splitCommas(draft.context),
     }
     if (editingRuleId.value) {
         pii.custom_rules = pii.custom_rules.map(r => r.id === editingRuleId.value ? { ...r, ...next } : r)

@@ -28,7 +28,7 @@ from app.ai.tools.schemas import (
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
 from app.ai.tools.implementations._artifact_refs import (
-    migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors,
+    migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors, raw_chart_errors, focal_point_errors, viewer_name_errors,
     file_reference_errors, bow_file_literal_ids, normalize_file_id,
 )
 from app.ai.tools.implementations._artifact_files import attachable_files, FileLookupFailed
@@ -368,16 +368,13 @@ class EditArtifactTool(Tool):
                 )
                 return
         else:
-            # Fast parse-only gate first: a syntax error introduced by the ops
-            # should cost ~1-2s (bare babel-standalone transform) with a
-            # bracket-balance hint, not a full validation render. Gate
-            # unavailable → None → the render pass below decides.
+            from app.ai.tools.implementations._artifact_parse import ParseCheckUnavailable, parse_check_page_code
             try:
-                from app.ai.tools.implementations._artifact_parse import parse_check_page_code
                 _parse_err = await parse_check_page_code(new_code)
-            except Exception as e:
-                logger.warning(f"edit_artifact: parse gate errored, deferring to render validation: {e}")
-                _parse_err = None
+            except ParseCheckUnavailable as exc:
+                yield self._fail(artifact, "validation_unavailable", str(exc),
+                                 {"remediation": "Restore the server JSX compiler and retry the edit."})
+                return
             if _parse_err is not None:
                 yield self._fail(
                     artifact, "parse_error",
@@ -390,7 +387,11 @@ class EditArtifactTool(Tool):
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
             gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data, previous_code=code, previous_visualization_ids=existing_viz_ids)
             gate_errors += design_errors(new_code, artifact_data)
-            gate_errors += chart_prop_errors(new_code, artifact_data)
+            gate_errors += chart_prop_errors(new_code, artifact_data, previous_code=code)
+            gate_errors += raw_chart_errors(new_code, artifact_data, previous_code=code)
+            gate_errors += viewer_name_errors(new_code, artifact_data, previous_code=code)
+            _hc = runtime_ctx.get("head_completion")
+            gate_errors += focal_point_errors(new_code, artifact_data, previous_code=code, once_key=str(getattr(_hc, "id", "") or "") or None)
             if gate_errors:
                 yield self._fail(
                     artifact, "contract_errors",

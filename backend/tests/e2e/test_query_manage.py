@@ -166,6 +166,46 @@ def test_delete_query_removes_it_from_all_reads(
 
 
 @pytest.mark.e2e
+def test_a_deleted_query_leaves_the_page_naming_a_viz_its_viewer_no_longer_gets(
+    create_report, create_user, login_user, whoami, test_client,
+):
+    """The page keeps its reference; the viewer's list drops the viz, so the
+    page's vizById() returns null and its charts say the data is gone."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    report = create_report(title="Data modal", user_token=token, org_id=org_id)
+    headers = _auth(token, org_id)
+    gone_query, gone_viz = _run(_seed_query(report["id"], failing_rerun=False))
+    _kept_query, kept_viz = _run(_seed_query(report["id"], failing_rerun=False))
+
+    async def _page():
+        async with async_session_maker() as db:
+            rep = await db.get(Report, report["id"])
+            version = await seed_artifact(
+                db, report_id=report["id"], user_id=str(rep.user_id), organization_id=str(rep.organization_id),
+                content={"code": "function App() {}", "visualization_ids": [gone_viz, kept_viz]},
+            )
+            await db.commit()
+            return str(version.id)
+
+    artifact_id = _run(_page())
+
+    def viewer_viz_ids():
+        listed = test_client.get(f"/api/queries?report_id={report['id']}&artifact_id={artifact_id}", headers=headers)
+        assert listed.status_code == 200, listed.json()
+        return {v["id"] for q in listed.json() for v in q.get("visualizations") or []}
+
+    assert viewer_viz_ids() == {gone_viz, kept_viz}
+    assert test_client.delete(f"/api/queries/{gone_query}", headers=headers).status_code == 200
+
+    page = test_client.get(f"/api/artifacts/{artifact_id}", headers=headers)
+    assert page.status_code == 200, page.json()
+    assert gone_viz in page.json()["content"]["visualization_ids"], "the page still names the viz"
+    assert viewer_viz_ids() == {kept_viz}, "the viewer no longer receives it"
+
+
+@pytest.mark.e2e
 def test_attach_and_detach_visualization_on_dashboard(
     create_report, create_user, login_user, whoami, test_client,
 ):

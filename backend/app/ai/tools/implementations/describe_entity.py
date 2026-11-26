@@ -357,7 +357,7 @@ class DescribeEntityTool(Tool):
         # options list, a lookup) come through whole instead of 5 head rows,
         # so the planner never needs a second read_query to see them.
         data_profile = self._build_data_profile(entity_data, allow_llm_see_data)
-        from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
+        from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy, with_column_sums
         data_preview = build_data_preview(entity_data or {}, allow_llm_see_data=allow_llm_see_data)
         _info = (entity_data or {}).get("info", {}) or {}
         stats = clamp_stats(_info) if allow_llm_see_data else clamp_stats(gate_stats_for_privacy(_info))
@@ -487,7 +487,7 @@ class DescribeEntityTool(Tool):
             "entity_type": described["entity_type"],
             "title": described["title"],
             "description": described["description"][:200] if described["description"] else None,
-            "data_preview": data_preview,
+            "data_preview": with_column_sums(data_preview, entity_data, call_id=runtime_ctx.get("tool_call_id")),
             "stats": stats,
             "analysis_complete": False,
             "final_answer": None,

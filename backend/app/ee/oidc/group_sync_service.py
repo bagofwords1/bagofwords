@@ -310,10 +310,12 @@ async def _ensure_org_membership(
             return
         # Shared race-safe insert (SAVEPOINT + unique index): a concurrent create
         # loses the race without 500'ing the login that triggered this sync.
+        from app.services.organization_settings_service import resolve_default_member_role
+        role = await resolve_default_member_role(db, str(organization_id))
         _, created = await insert_membership_if_absent(db, Membership(
             user_id=user_id,
             organization_id=organization_id,
-            role="member",
+            role=role,
         ))
         if not created:
             logger.info(
@@ -325,7 +327,7 @@ async def _ensure_org_membership(
         # app/core/user_lifecycle when the user's last one was removed.
         await reactivate_user_for_membership(db, str(user_id), organization_id)
         # Give the user a real RBAC assignment (not just the legacy string).
-        await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
+        await ensure_system_role_assignment(db, organization_id, str(user_id), role)
         logger.info(
             f"OIDC group sync: auto-created org membership for user {user_id} "
             f"in org {organization_id}"

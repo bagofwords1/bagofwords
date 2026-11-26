@@ -1734,15 +1734,22 @@
     const summary: any = usageQuota.value
     if (!summary || summary.enabled !== true) return null
 
-    const capped = QUOTA_METRICS
-      .map(metric => ({ metric, value: summary[metric.key] }))
-      .filter(row => row.value && row.value.limit !== null && row.value.limit !== undefined)
+    // Monthly caps first, then today's (daily) caps. Daily rows carry their own
+    // label so "Tokens · today" can sit right under "Tokens".
+    const isCapped = (value: any) => value && value.limit !== null && value.limit !== undefined
+    const capped = [
+      ...QUOTA_METRICS.map(metric => ({ metric, daily: false, value: summary[metric.key] })),
+      ...QUOTA_METRICS.map(metric => ({ metric, daily: true, value: summary.daily?.[metric.key] })),
+    ].filter(row => isCapped(row.value))
     if (!capped.length) return null  // metered but uncapped — nothing to show a share of
 
     // Money leads: it is what members and their admins actually ask about.
     // Only when spend is uncapped does the metric closest to its ceiling stand
     // in, so a token-only policy still says something true.
-    const spend = capped.find(row => row.metric.key === 'spend')
+    // A daily cap that is already full wins over everything: it is what is
+    // blocking the member right now.
+    const blockedToday = capped.find(row => row.daily && Number(row.value.percent ?? 0) >= QUOTA_FULL)
+    const spend = blockedToday || capped.find(row => row.metric.key === 'spend' && !row.daily)
     const chosen = spend || capped.reduce((worst, row) =>
       Number(row.value.percent ?? 0) > Number(worst.value.percent ?? 0) ? row : worst
     )
@@ -1754,8 +1761,8 @@
     const rows = capped.map((row) => {
       const rowPercent = Number(row.value.percent ?? 0)
       return {
-        key: row.metric.key,
-        label: row.metric.label(),
+        key: `${row.daily ? 'daily' : 'monthly'}-${row.metric.key}`,
+        label: row.daily ? t('quota.todayLabel', { metric: row.metric.label() }) : row.metric.label(),
         usedLabel: row.metric.format(row.value.used ?? 0),
         limitLabel: row.metric.format(row.value.limit),
         near: rowPercent >= QUOTA_NEAR,
@@ -1789,9 +1796,13 @@
     const summary: any = usageQuota.value
     const end = summary?.window_end ? new Date(summary.window_end) : null
     if (!end || Number.isNaN(end.getTime())) return ''
-    return t('quota.resetsOn', {
+    const monthly = t('quota.resetsOn', {
       date: end.toLocaleDateString(locale.value, { day: 'numeric', month: 'long' }),
     })
+    const daily = summary?.daily
+    const hasDailyCap = daily && QUOTA_METRICS.some(m => daily[m.key]?.limit !== null && daily[m.key]?.limit !== undefined)
+    if (!hasDailyCap) return monthly
+    return t('quota.resetsDailyAndMonthly', { tz: daily.timezone || 'UTC', monthly })
   })
   const userOrganizations = computed<any[]>(() => {
     return ((currentUser.value as any)?.organizations || []) as any[]

@@ -11,6 +11,12 @@ loop), so a plain blocking client with a firm timeout is the right tool. Any
 failure — unreachable, timeout, non-200, malformed body — is a DetectorError:
 the policy decides whether the request is refused or sent with pattern rules
 only.
+
+Which entities the service can find comes from its ``GET /supportedentities``:
+the official image enables some recognizers only for their own language (or
+not at all; see ``default_recognizers.yaml``), so the settings page offers
+only what the service will actually detect. A service without that endpoint
+is assumed to serve the NER entities only.
 """
 
 from __future__ import annotations
@@ -22,7 +28,7 @@ from typing import List, Optional, Sequence
 import httpx
 
 from .base import DetectedSpan, DetectorError
-from .catalog import DETECTOR_ENTITIES
+from .catalog import DETECTOR_ENTITIES, NER_ENTITY_IDS
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +42,7 @@ class PresidioHttpDetector:
         self._client: Optional[httpx.Client] = None
         self._transport = transport
         self._lock = threading.Lock()
+        self._supported: Optional[List[str]] = None
 
     def _http(self) -> httpx.Client:
         if self._client is None:
@@ -47,7 +54,28 @@ class PresidioHttpDetector:
         return self._client
 
     def supported_entities(self) -> List[str]:
-        return [e["id"] for e in DETECTOR_ENTITIES]
+        if self._supported is not None:
+            return self._supported
+        known = [e["id"] for e in DETECTOR_ENTITIES]
+        try:
+            resp = self._http().get(f"{self.url}/supportedentities", params={"language": self.language})
+        except httpx.HTTPError as exc:
+            # Not cached: the service may just be starting.
+            logger.warning("PII detector service: could not list supported entities (%s)", type(exc).__name__)
+            return list(NER_ENTITY_IDS)
+        if resp.status_code == 404:
+            self._supported = list(NER_ENTITY_IDS)
+            return self._supported
+        try:
+            body = resp.json() if resp.status_code == 200 else None
+        except ValueError:
+            body = None
+        if not isinstance(body, list):
+            logger.warning("PII detector service: unexpected /supportedentities response (HTTP %s)", resp.status_code)
+            return list(NER_ENTITY_IDS)
+        served = {str(x) for x in body}
+        self._supported = [e for e in known if e in served]
+        return self._supported
 
     def detect(self, text: str, entities: Sequence[str], language: Optional[str] = None) -> List[DetectedSpan]:
         try:

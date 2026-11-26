@@ -7,6 +7,7 @@ import pandas as pd
 from typing import List, Optional
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 import logging
+import re
 import awswrangler as wr
 import boto3
 from tenacity import retry, stop_after_attempt, wait_fixed
@@ -15,7 +16,16 @@ from datetime import datetime, timedelta, timezone
 import os
 from botocore.config import Config as BotoConfig
 from app.utils.safe_regex import compile_bounded, pattern_cost_problem
+from app.data_sources.clients.athena_unified_catalog import (
+    EXCLUDED_TENANTS_KEY, TENANT_CASTS_KEY, TENANT_MISSING_KEY, TENANTS_KEY, UNREADABLE_TENANTS_KEY,
+    unify_glue_catalogs,
+)
+from app.data_sources.clients.athena_union_rewrite import Rewrite, UnifiedTable, rewrite_unified
+from app.data_sources.clients.postgresql_multi_catalog import COLUMN_TYPES_KEY, TENANT_COLUMN
+from sqlglot import exp
+from sqlglot.errors import SqlglotError
 from app.data_sources.clients.database_spec import parse_database_spec, is_glob, is_excluded, spec_matches
+from app.schemas.data_sources.configs import athena_unify_tables_enabled
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -96,6 +106,24 @@ def log_before_retry(retry_state) -> None:
 MAX_SKIPPED_TABLE_ENTRIES = 50
 
 
+MAX_DROPPED_TENANTS_PER_QUERY = 5
+
+TABLE_NOT_FOUND_PATTERN = re.compile(r"Table '([^']+)' does not exist", re.IGNORECASE)
+SCHEMA_NOT_FOUND_PATTERN = re.compile(r"Schema '([^']+)' does not exist", re.IGNORECASE)
+COLUMN_NOT_FOUND_PATTERN = re.compile(r"Column '([^']+)' cannot be resolved", re.IGNORECASE)
+GLUE_TABLE_ARN_PATTERN = re.compile(r"arn:aws[a-z-]*:glue:[^:\s]*:[^:\s]*:table/([^/\s]+)/([^/\s'\",.]+)", re.IGNORECASE)
+S3_PATH_PATTERN = re.compile(r"s3://[^\s'\"<>,)]+", re.IGNORECASE)
+ACCESS_DENIED_PATTERN = re.compile(r"access\s*denied|permission denied|not authorized", re.IGNORECASE)
+
+REINDEX_HINT = "If a tenant database changed, re-index this connection."
+INCOMPATIBLE_TYPES_REASON = "incompatible column types"
+UNREADABLE_AT_INDEX_REASON = "not readable when last indexed"
+UNIFY_EXCLUSIONS_LABEL = "left out of unified tables"
+UNIFIED_QUERY_SHAPE = (
+    "This connection reads unified tables; send one SELECT over table names without a database."
+)
+
+
 class ExcludePatternTimeout(RuntimeError):
     pass
 
@@ -109,6 +137,15 @@ def _error_code(exc: Exception) -> Optional[str]:
 
 def _failure_reason(exc: Exception) -> str:
     return _error_code(exc) or type(exc).__name__
+
+
+def _exclusion_entry(entry: dict) -> dict:
+    if entry.get("column"):
+        return {
+            "name": f"{entry['table']} ({entry['tenant']})",
+            "reason": f"{entry.get('reason') or 'column type conflict'} on {entry['column']}",
+        }
+    return {"name": entry["table"], "reason": entry["reason"]}
 
 
 class AwsAthenaClient(DataSourceClient):
@@ -139,6 +176,7 @@ class AwsAthenaClient(DataSourceClient):
         encryption_option: str = None,
         kms_key: str = None,
         table_exclude_pattern: Optional[str] = None,
+        unify_tables: bool = False,
     ):
         """
         Initialize the Athena client using AWS Wrangler.
@@ -160,6 +198,7 @@ class AwsAthenaClient(DataSourceClient):
             result_reuse_minutes (int): How long to reuse cached results
             encryption_option (str): S3 encryption option
             kms_key (str): KMS key for encryption
+            unify_tables (bool): Join same-named tables across the matching databases
         """
         self.database = database
         self.s3_output_location = s3_output_location
@@ -179,10 +218,17 @@ class AwsAthenaClient(DataSourceClient):
         ):
             raise ValueError("Invalid table_exclude_pattern")
         self._includes, self._excludes, self._multi = parse_database_spec(database)
-        self.exact_table_scope_catalogs = ("awsdatacatalog",) if self._multi else None
+        self._unified = athena_unify_tables_enabled(unify_tables)
+        self.exact_table_scope_catalogs = ("awsdatacatalog",) if self._multi and not self._unified else None
+        self._unify_exclusions: List[dict] = []
         self._unread_dbs: List[str] = []
         self._diagnostics: List[dict] = []
         self._attached_dbs: List[str] = []
+        self._unified_tables: dict[str, UnifiedTable] = {}
+        self._excluded_tenants: dict[str, List[str]] = {}
+        self._learned_unreadable: List[str] = []
+        self._query_left_out: dict[str, dict[str, str]] = {}
+        self._diagnosis_glue_tables: dict[tuple[str, str], Optional[dict]] = {}
         self._count_cache: Optional[tuple] = None
         self._skipped_tables = 0
         self._counted_dbs = 0
@@ -212,42 +258,260 @@ class AwsAthenaClient(DataSourceClient):
         Returns:
             pd.DataFrame: Query result as a Pandas DataFrame.
         """
+        if self._unified:
+            return self._execute_unified(sql)
         if self._multi:
             self._check_multi_table_refs(sql)
         try:
-            logger.info("Executing query: %s", sql)
-            
-            # Common wrangler params
-            wrangler_params = {
-                'sql': sql,
-                'database': None if self._multi else self.database,
-                'ctas_approach': False,
-                'workgroup': self.workgroup,
-                'data_source': self.data_source,
-            }
-            if self.s3_output_location:
-                wrangler_params['s3_output'] = self.s3_output_location
-            
-            # Add optional parameters
-            if self.encryption_option:
-                wrangler_params['encryption'] = self.encryption_option
-            if self.kms_key:
-                wrangler_params['kms_key'] = self.kms_key
-            if self.result_reuse_enable:
-                wrangler_params['cache_seconds'] = self.result_reuse_minutes * 60
-            
-            # Use session manager if available, otherwise use regular session
-            if hasattr(self, 'session_manager'):
-                with self.session_manager as session:
-                    df = wr.athena.read_sql_query(**wrangler_params, boto3_session=session)
-            else:
-                df = wr.athena.read_sql_query(**wrangler_params, boto3_session=self.boto3_session)
-            
-            logger.info("Query executed successfully, returned %d rows", len(df))
-            return df
+            return self._read_sql(sql)
         except Exception as e:
-            logger.error("Error executing SQL query: %s", str(e), exc_info=True)
-            raise Exception(f"Query execution failed: {str(e)}")
+            raise self._query_failure(e) from e
+
+    def _read_sql(self, sql: str) -> pd.DataFrame:
+        logger.info("Executing query: %s", sql)
+        wrangler_params = {
+            'sql': sql,
+            'database': None if self._multi or self._unified else self.database,
+            'ctas_approach': False,
+            'workgroup': self.workgroup,
+            'data_source': self.data_source,
+        }
+        if self.s3_output_location:
+            wrangler_params['s3_output'] = self.s3_output_location
+        if self.encryption_option:
+            wrangler_params['encryption'] = self.encryption_option
+        if self.kms_key:
+            wrangler_params['kms_key'] = self.kms_key
+        if self.result_reuse_enable:
+            wrangler_params['cache_seconds'] = self.result_reuse_minutes * 60
+
+        if hasattr(self, 'session_manager'):
+            with self.session_manager as session:
+                df = wr.athena.read_sql_query(**wrangler_params, boto3_session=session)
+        else:
+            df = wr.athena.read_sql_query(**wrangler_params, boto3_session=self.boto3_session)
+
+        logger.info("Query executed successfully, returned %d rows", len(df))
+        return df
+
+    def _query_failure(self, error: Exception, note: str = "") -> Exception:
+        logger.error("Error executing SQL query: %s", str(error), exc_info=True)
+        return Exception(f"Query execution failed: {str(error)}{note}")
+
+    def _execute_unified(self, sql: str) -> pd.DataFrame:
+        dropped: list[tuple[str, str]] = []
+        error: Optional[Exception] = None
+        self._diagnosis_glue_tables = {}
+        while True:
+            rewrite = self._unified_rewrite(sql)
+            if rewrite.emptied:
+                raise self._emptied_failure(rewrite.emptied, error) from error
+            try:
+                df = self._read_sql(rewrite.sql)
+            except Exception as e:
+                error = e
+                found = self._diagnose_unified_failure(e, rewrite.branches, rewrite.columns)
+                if not found:
+                    hint = f" {REINDEX_HINT}" if self._may_be_catalog_drift(e, rewrite.columns) else ""
+                    raise self._query_failure(e, hint) from e
+                if len({t for _, t in dropped} | {t for _, t, _ in found}) > MAX_DROPPED_TENANTS_PER_QUERY:
+                    names = ", ".join(f"{tenant} ({table})" for table, tenant in dropped)
+                    raise self._query_failure(
+                        e,
+                        f" (stopped after leaving out {names or 'no tenants'}; more tenants failed in this query). "
+                        f"{REINDEX_HINT}",
+                    ) from e
+                for table, tenant, reason in found:
+                    logger.warning(
+                        "Leaving tenant out of unified table: table=%s tenant=%s reason=%s", table, tenant, reason
+                    )
+                    self._query_left_out.setdefault(table, {})[tenant] = reason
+                    dropped.append((table, tenant))
+                continue
+            return self._with_left_out_note(df, rewrite)
+
+    def _left_out_reasons(self) -> dict[str, dict[str, str]]:
+        """Per unified table, every tenant it must not read and why: left out at
+        index time (type conflict, unreadable) or dropped at query time."""
+        unreadable = sorted(set(self._learned_unreadable) | set(self._unread_dbs))
+        reasons: dict[str, dict[str, str]] = {}
+        for name in self._unified_tables:
+            table_reasons = {tenant: UNREADABLE_AT_INDEX_REASON for tenant in unreadable}
+            table_reasons.update(
+                {tenant: INCOMPATIBLE_TYPES_REASON for tenant in self._excluded_tenants.get(name, [])}
+            )
+            table_reasons.update(self._query_left_out.get(name, {}))
+            if table_reasons:
+                reasons[name] = table_reasons
+        return reasons
+
+    @staticmethod
+    def _left_out_text(left_out: dict[str, dict[str, str]]) -> str:
+        return "; ".join(
+            f"{table} leaves out " + ", ".join(
+                f"{tenant} ({reason})" for tenant, reason in sorted(left_out[table].items())
+            )
+            for table in left_out
+            if left_out.get(table)
+        )
+
+    def _may_be_catalog_drift(self, error: Exception, columns: dict[str, tuple[str, ...]]) -> bool:
+        """Whether a failure could come from a tenant changing since the last
+        index, so the re-index hint helps. A typo'd column or a syntax error
+        does not."""
+        text = str(error)
+        if TABLE_NOT_FOUND_PATTERN.search(text) or SCHEMA_NOT_FOUND_PATTERN.search(text):
+            return True
+        if ACCESS_DENIED_PATTERN.search(text):
+            return True
+        column = COLUMN_NOT_FOUND_PATTERN.search(text)
+        if column:
+            name = column.group(1).lower()
+            return any(name in {c.lower() for c in cols} for cols in columns.values())
+        return False
+
+    def _emptied_failure(self, tables: tuple[str, ...], error: Optional[Exception]) -> Exception:
+        reasons = self._left_out_reasons()
+        note = (
+            f"Every tenant this query reads from {', '.join(tables)} is left out "
+            f"({self._left_out_text({t: reasons.get(t, {}) for t in tables})}), so it was not run. "
+            f"{REINDEX_HINT}"
+        )
+        if error is None:
+            return self._query_failure(Exception(note))
+        return self._query_failure(error, f" {note}")
+
+    def _with_left_out_note(self, df: pd.DataFrame, rewrite: Rewrite) -> pd.DataFrame:
+        left_out = {
+            table: dict(self._query_left_out[table]) for table in rewrite.branches if self._query_left_out.get(table)
+        }
+        # Tenants the query's own tenant_db filter asked for but that were left
+        # out at index time: without this the result would just lack their rows.
+        reasons = self._left_out_reasons()
+        for table, tenants in rewrite.named_left_out.items():
+            for tenant in tenants:
+                left_out.setdefault(table, {})[tenant] = reasons.get(table, {}).get(tenant, "left out")
+        if not left_out:
+            return df
+        text_ = self._left_out_text(left_out)
+        logger.warning("Unified query result leaves out tenants: %s", text_)
+        df.attrs["unified_left_out"] = left_out
+        df.attrs["bow_notice"] = (
+            f"Results exclude tenants that could not be read: {text_}. "
+            "Tell the user results exclude them."
+        )
+        return df
+
+    def _diagnose_unified_failure(
+        self,
+        error: Exception,
+        branches: dict[str, tuple[str, ...]],
+        columns: Optional[dict[str, tuple[str, ...]]] = None,
+    ) -> list[tuple[str, str, str]]:
+        text = str(error)
+        found: dict[tuple[str, str], str] = {}
+
+        def emitted(table: str, tenant: str):
+            for name, tenants in branches.items():
+                if name.lower() == table.lower():
+                    for candidate in tenants:
+                        if candidate.lower() == tenant.lower():
+                            return name, candidate
+            return None
+
+        def blame(table: str, tenant: str, reason: str) -> None:
+            hit = emitted(table, tenant)
+            if hit:
+                found.setdefault(hit, reason)
+
+        match = TABLE_NOT_FOUND_PATTERN.search(text)
+        if match:
+            parts = match.group(1).split(".")
+            if len(parts) >= 2:
+                blame(parts[-1], parts[-2], "table vanished")
+        schema = SCHEMA_NOT_FOUND_PATTERN.search(text)
+        if schema:
+            missing_db = schema.group(1).split(".")[-1].lower()
+            for name, tenants in branches.items():
+                for tenant in tenants:
+                    if tenant.lower() == missing_db:
+                        found.setdefault((name, tenant), "database missing")
+        arn = GLUE_TABLE_ARN_PATTERN.search(text)
+        if arn and ACCESS_DENIED_PATTERN.search(text):
+            blame(arn.group(2), arn.group(1), "access denied")
+
+        if not found:
+            column = COLUMN_NOT_FOUND_PATTERN.search(text)
+            if column:
+                self._blame_tenants_lacking_column(column.group(1).lower(), branches, columns or {}, found)
+        if not found and ACCESS_DENIED_PATTERN.search(text):
+            paths = [p.lower() for p in S3_PATH_PATTERN.findall(text)]
+            if paths:
+                self._blame_tenants_by_location(paths, branches, found)
+        return [(table, tenant, reason) for (table, tenant), reason in found.items()]
+
+    def _glue_table_of(self, tenant: str, table: str) -> Optional[dict]:
+        # Cached for one execute_query: each retry diagnoses the same tenants again.
+        key = (tenant, table)
+        if key in self._diagnosis_glue_tables:
+            return self._diagnosis_glue_tables[key]
+        try:
+            found = self.glue_client.get_table(DatabaseName=tenant, Name=table)["Table"]
+        except Exception as e:
+            logger.warning("Could not read Glue table while diagnosing query failure: %s", _failure_reason(e))
+            found = None
+        self._diagnosis_glue_tables[key] = found
+        return found
+
+    def _blame_tenants_lacking_column(self, column: str, branches, columns, found: dict) -> None:
+        for name, tenants in branches.items():
+            unified = self._unified_tables.get(name)
+            if unified is None or column not in {c.lower() for c in columns.get(name, ())}:
+                continue
+            lacking = []
+            for tenant in tenants:
+                if column in {c.lower() for c in unified.missing.get(tenant, frozenset())}:
+                    continue
+                glue_table = self._glue_table_of(tenant, name)
+                if glue_table is None:
+                    continue
+                present = {
+                    c["Name"].lower()
+                    for c in (glue_table.get("StorageDescriptor") or {}).get("Columns", [])
+                    + glue_table.get("PartitionKeys", [])
+                }
+                if column not in present:
+                    lacking.append(tenant)
+            if lacking and len(lacking) < len(tenants):
+                for tenant in lacking:
+                    found.setdefault((name, tenant), "column missing")
+
+    def _blame_tenants_by_location(self, paths: list[str], branches, found: dict) -> None:
+        # A denied write to the query result location is no tenant's fault;
+        # skip the per-tenant Glue lookups for it.
+        output = (self.s3_output_location or "").lower().rstrip("/")
+        if output:
+            paths = [p for p in paths if not (p.rstrip("/") == output or p.startswith(output + "/"))]
+        if not paths:
+            return
+        candidates: list[tuple[str, str, str]] = []
+        for name, tenants in branches.items():
+            for tenant in tenants:
+                glue_table = self._glue_table_of(tenant, name)
+                if glue_table is None:
+                    return
+                location = (glue_table.get("StorageDescriptor") or {}).get("Location")
+                if location:
+                    candidates.append((name, tenant, location.lower().rstrip("/")))
+        for path in paths:
+            path = path.rstrip("/")
+            matches = [c for c in candidates if path == c[2] or path.startswith(c[2] + "/")]
+            if not matches:
+                continue
+            longest = max(len(c[2]) for c in matches)
+            best = [c for c in matches if len(c[2]) == longest]
+            if len(best) == 1:
+                found.setdefault((best[0][0], best[0][1]), "access denied")
 
     def test_connection(self) -> dict:
         """
@@ -261,7 +525,10 @@ class AwsAthenaClient(DataSourceClient):
             table_count = self.count_tables()
             logger.info(f"Successfully accessed Glue catalog, found {table_count} tables")
 
-            self.execute_query("SELECT 1")
+            if self._unified:
+                self._read_sql("SELECT 1")
+            else:
+                self.execute_query("SELECT 1")
 
             if not self._multi:
                 message = (
@@ -301,6 +568,8 @@ class AwsAthenaClient(DataSourceClient):
             "Double-quote any database or table name that is not made of lowercase letters, "
             'digits and underscores starting with a letter or underscore, e.g. "globex_db"."my-table".\n'
         )
+        if self._unified:
+            return self._unified_description()
         if not self._multi:
             system_prompt = f"""
         You can call the execute_query method to run SQL queries.
@@ -331,6 +600,70 @@ class AwsAthenaClient(DataSourceClient):
             "Examples:\n"
             "```python\n"
             'df = client.execute_query("SELECT * FROM globex_db.assets LIMIT 10")\n'
+            "```\n"
+        )
+
+    def _unified_rewrite(self, sql: str) -> Rewrite:
+        from app.ai.code_execution.sql_parser import parse_guard_sql
+        from app.ai.code_execution.table_scope import refuse_unchecked_reads_of
+        if not self._unified_tables:
+            raise ValueError(
+                "No unified tables are known for this connection yet. Index this connection first."
+            )
+        try:
+            statements = [
+                s for s in parse_guard_sql(sql, "athena") if s is not None and not isinstance(s, exp.Semicolon)
+            ]
+            if len(statements) != 1 or not isinstance(statements[0], exp.Query):
+                raise ValueError(f"This query was not run. {UNIFIED_QUERY_SHAPE}")
+            refuse_unchecked_reads_of(statements)
+            left_out = {table: frozenset(tenants) for table, tenants in self._left_out_reasons().items()}
+            return rewrite_unified(sql, self._unified_tables, self.data_source, left_out)
+        except SqlglotError as e:
+            raise ValueError(f"Could not read this query, so it was not run. {UNIFIED_QUERY_SHAPE}") from e
+
+    def _unified_description(self) -> str:
+        tenants = sorted({t for table in self._unified_tables.values() for t in table.tenants})
+        listed = f"({len(tenants)}): {format_name_list(tenants, 50)}" if tenants else "(none indexed yet)"
+        text_ = (
+            f"AWS Athena tenant databases {listed}\n\n"
+            "You can call the execute_query method to run SQL queries.\n"
+            "Every table is the union of that table across the tenant databases, named by its bare "
+            f"table name (for example assets). Its first column, {TENANT_COLUMN}, holds the name of the "
+            "database each row comes from.\n"
+            f"For one tenant, filter on it: WHERE {TENANT_COLUMN} = '<database>'.\n"
+            f"Every join between two tables must include a.{TENANT_COLUMN} = b.{TENANT_COLUMN}: each tenant "
+            "has its own id space, so a join on ids alone matches rows of different tenants.\n"
+            "Queries that name a database (<database>.<table>) are refused. "
+            "SHOW and DESCRIBE are not available.\n"
+        )
+        unreadable = sorted(set(self._learned_unreadable) | set(self._unread_dbs))
+        if unreadable:
+            text_ += (
+                f"Not readable, so missing from every table and every result: {format_name_list(unreadable, 50)}. "
+                "Tell the user results exclude them.\n"
+            )
+        notes = [
+            f"{table} leaves out {tenant} (incompatible column types)"
+            for table, tenants in sorted(self._excluded_tenants.items())
+            for tenant in tenants
+        ]
+        notes += [
+            f"{table} leaves out {tenant} (its table could not be read at query time)"
+            for table, tenants in sorted(self._query_left_out.items())
+            for tenant in sorted(tenants)
+        ]
+        if notes:
+            text_ += (
+                "Tenants left out of single tables: " + "; ".join(notes) + ". "
+                "Tell the user results from those tables exclude them.\n"
+            )
+        return text_ + (
+            "\nExamples:\n"
+            "```python\n"
+            f'df = client.execute_query("SELECT {TENANT_COLUMN}, count(*) FROM assets GROUP BY {TENANT_COLUMN}")\n'
+            'df = client.execute_query("SELECT a.id, u.name FROM assets a JOIN users u '
+            f'ON a.{TENANT_COLUMN} = u.{TENANT_COLUMN} AND a.user_id = u.id")\n'
             "```\n"
         )
 
@@ -417,10 +750,15 @@ class AwsAthenaClient(DataSourceClient):
             self._diagnostics.append({"name": full_name, "reason": SKIPPED_NAME_REASON})
 
     def _reported_diagnostics(self) -> List[dict]:
+        exclusions = [_exclusion_entry(e) for e in self._unify_exclusions[:MAX_SKIPPED_TABLE_ENTRIES]]
+        more = len(self._unify_exclusions) - MAX_SKIPPED_TABLE_ENTRIES
+        if more > 0:
+            exclusions.append({"name": f"+{more} more", "reason": UNIFY_EXCLUSIONS_LABEL})
+        diagnostics = [*self._diagnostics, *exclusions]
         extra = self._skipped_tables - MAX_SKIPPED_TABLE_ENTRIES
         if extra <= 0:
-            return list(self._diagnostics)
-        return [*self._diagnostics, {"name": f"+{extra} more tables", "reason": SKIPPED_NAME_REASON}]
+            return diagnostics
+        return [*diagnostics, {"name": f"+{extra} more tables", "reason": SKIPPED_NAME_REASON}]
 
     def _reset_run_state(self) -> None:
         self._unread_dbs = []
@@ -443,7 +781,7 @@ class AwsAthenaClient(DataSourceClient):
         columns += [
             TableColumn(name=p['Name'], dtype=p['Type']) for p in table.get('PartitionKeys', [])
         ]
-        if not self._multi:
+        if self._unified or not self._multi:
             return Table(name=table['Name'], columns=columns, pks=None, fks=None)
         return Table(
             name=f"{database}.{table['Name']}",
@@ -453,8 +791,10 @@ class AwsAthenaClient(DataSourceClient):
             metadata_json={"database": database},
         )
 
-    def get_tables(self) -> List[Table]:
+    def get_tables(self, prior_catalog: Optional[dict] = None) -> List[Table]:
         self._reset_run_state()
+        self._unify_exclusions = []
+        self._query_left_out = {}
         self._count_cache = None
         try:
             matcher = self._exclude_matcher()
@@ -466,6 +806,7 @@ class AwsAthenaClient(DataSourceClient):
                 databases = discovery_items(databases, 'databases', label=lambda d: d)
 
             tables = {}
+            per_tenant: dict = {}
             for database in databases:
                 found = []
                 try:
@@ -478,9 +819,19 @@ class AwsAthenaClient(DataSourceClient):
                         raise
                     self._record_database_failure(database, e)
                     continue
+                if self._unified:
+                    per_tenant[database] = found
+                    continue
                 for built in found:
                     tables[built.name] = built
 
+            if self._unified:
+                catalog = unify_glue_catalogs(per_tenant)
+                self._unify_exclusions = catalog.excluded
+                catalog.tables += self._kept_for_unread_tenants(prior_catalog, {t.name for t in catalog.tables})
+                for table in catalog.tables:
+                    table.metadata_json[UNREADABLE_TENANTS_KEY] = list(self._unread_dbs)
+                return catalog.tables
             return list(tables.values())
             
         except IndexingCancelled:
@@ -510,9 +861,14 @@ class AwsAthenaClient(DataSourceClient):
             raise RuntimeError(f"No Glue databases match '{self.database}'")
         total = 0
         readable = 0
+        unified_names: set = set()
         for database in databases:
             try:
-                count = sum(1 for _ in self._glue_tables(database, matcher))
+                if self._unified:
+                    unified_names.update(t['Name'] for t in self._glue_tables(database, matcher))
+                    count = 0
+                else:
+                    count = sum(1 for _ in self._glue_tables(database, matcher))
             except (IndexingCancelled, ExcludePatternTimeout):
                 raise
             except Exception as e:
@@ -525,14 +881,54 @@ class AwsAthenaClient(DataSourceClient):
         if readable == 0:
             reasons = "; ".join(f"{d['name']}: {d['reason']}" for d in self._diagnostics[:5])
             raise RuntimeError(f"None of the Glue databases could be read. {reasons}")
+        if self._unified:
+            total = len(unified_names)
         self._counted_dbs = readable
         self._count_cache = (
             total, readable, list(self._diagnostics), list(self._unread_dbs), self._skipped_tables,
         )
         return total
 
+    def _kept_for_unread_tenants(self, prior_catalog: Optional[dict], fresh: set) -> List[Table]:
+        """Unified tables from the last index that this run could not see only
+        because a tenant database was unreadable.
+
+        Per-database mode keeps such tables through `unindexed_table_prefixes`;
+        unified names carry no database prefix, so they are rebuilt here from
+        their stored metadata, narrowed to the unreadable tenants. Otherwise a
+        transient AccessDenied would prune the table and every agent's
+        selection of it.
+        """
+        unread = set(self._unread_dbs)
+        if not self._unified or not unread or not isinstance(prior_catalog, dict):
+            return []
+        kept: List[Table] = []
+        for name, meta in prior_catalog.items():
+            if name in fresh or not isinstance(meta, dict):
+                continue
+            prior = UnifiedTable.from_metadata(name, meta)
+            tenants = [t for t in (prior.tenants if prior else ()) if t in unread]
+            if not tenants:
+                continue
+            column_types = meta.get(COLUMN_TYPES_KEY) or {}
+            metadata = {
+                **meta,
+                TENANTS_KEY: tenants,
+                TENANT_CASTS_KEY: {t: c for t, c in (meta.get(TENANT_CASTS_KEY) or {}).items() if t in tenants},
+                TENANT_MISSING_KEY: {t: c for t, c in (meta.get(TENANT_MISSING_KEY) or {}).items() if t in tenants},
+            }
+            columns = [TableColumn(name=TENANT_COLUMN, dtype="varchar")] + [
+                TableColumn(name=c, dtype=t) for c, t in column_types.items() if c != TENANT_COLUMN
+            ]
+            logger.warning(
+                "Keeping unified table whose tenants could not be read on this run: table=%s tenants=%s",
+                name, ",".join(tenants),
+            )
+            kept.append(Table(name=name, columns=columns, pks=None, fks=None, metadata_json=metadata))
+        return kept
+
     def unindexed_table_prefixes(self) -> List[str]:
-        return list(self._unread_dbs)
+        return [] if self._unified else list(self._unread_dbs)
 
     def index_stats(self) -> dict:
         diagnostics = self._reported_diagnostics()
@@ -544,6 +940,34 @@ class AwsAthenaClient(DataSourceClient):
         }
 
     def attach_table_metadata(self, tables: List[dict]) -> None:
+        if self._unified:
+            learned: dict[str, UnifiedTable] = {}
+            excluded: dict[str, List[str]] = {}
+            unreadable: set = set()
+            for t in tables or []:
+                if not isinstance(t, dict) or not t.get("name"):
+                    continue
+                meta = t.get("metadata_json") or {}
+                if not isinstance(meta, dict):
+                    continue
+                table = UnifiedTable.from_metadata(t["name"], meta)
+                table = table.restricted_to(self._spec_matches) if table is not None else None
+                if table is None:
+                    continue
+                learned[table.name] = table
+                unreadable.update(
+                    x for x in meta.get(UNREADABLE_TENANTS_KEY) or [] if isinstance(x, str) and self._spec_matches(x)
+                )
+                dropped = [
+                    x for x in meta.get(EXCLUDED_TENANTS_KEY) or [] if isinstance(x, str) and self._spec_matches(x)
+                ]
+                if dropped:
+                    excluded[table.name] = dropped
+            self._unified_tables = learned
+            self._excluded_tenants = excluded
+            self._learned_unreadable = sorted(unreadable)
+            self._query_left_out = {}
+            return
         if not self._multi:
             return
         learned = set(self._attached_dbs)
@@ -564,11 +988,11 @@ class AwsAthenaClient(DataSourceClient):
         )
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None):
+    def get_schemas(self, progress_callback=None, prior_catalog=None):
         """
         Retrieve schemas for all tables in the specified database.
         """
-        return self.get_tables()
+        return self.get_tables(prior_catalog=prior_catalog)
 
     def prompt_schema(self):
         """

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A Presidio analyzer service with the official container's REST API
-(``POST /analyze``, ``GET /health``), for local loops and as a reference for
+(``POST /analyze``, ``GET /supportedentities``, ``GET /health``), for local loops and as a reference for
 serving a GLiNER model.
 
 BoW talks to it through ``pii.presidio_url`` (BOW_PII_PRESIDIO_URL). In
@@ -19,8 +19,9 @@ own environment. Run it from a venv that has:
     python tools/agent/presidio_service.py --engine spacy  --model en_core_web_lg --port 5002
     python tools/agent/presidio_service.py --engine gliner --model urchade/gliner_multi_pii-v1 --port 5003
 
-Only NER entities are served (PERSON, LOCATION, ORGANIZATION, NRP): BoW's
-built-in pattern rules cover the rest.
+Served: the NER entities (PERSON, LOCATION, ORGANIZATION, NRP) and the
+pattern recognizers BoW offers (credit card, IBAN, national IDs, passports…; keep PATTERN_RECOGNIZERS in step with
+backend/app/ai/llm/pii/detectors/catalog.py).
 """
 import argparse
 
@@ -31,6 +32,20 @@ from pydantic import BaseModel
 ENTITIES = ["PERSON", "LOCATION", "ORGANIZATION", "NRP"]
 SPACY_LABELS = {"PER": "PERSON", "PERSON": "PERSON", "LOC": "LOCATION", "GPE": "LOCATION",
                 "FAC": "LOCATION", "ORG": "ORGANIZATION", "NORP": "NRP"}
+PATTERN_RECOGNIZERS = [
+    "CreditCardRecognizer", "IbanRecognizer", "AbaRoutingRecognizer", "CryptoRecognizer",
+    "UsNpiRecognizer", "MedicalLicenseRecognizer", "NhsRecognizer",
+    "EsNifRecognizer", "EsNieRecognizer", "ItFiscalCodeRecognizer", "DeTaxIdRecognizer", "PlPeselRecognizer",
+    "FiPersonalIdentityCodeRecognizer", "SePersonnummerRecognizer", "TrNationalIdRecognizer",
+    "AuTfnRecognizer", "AuAbnRecognizer", "AuMedicareRecognizer", "InAadhaarRecognizer", "KrRrnRecognizer",
+    "ZaIdNumberRecognizer", "ItVatCodeRecognizer", "DeVatIdRecognizer",
+    # no checksum: match mostly with a context word nearby
+    "PhoneRecognizer", "UsSsnRecognizer", "UsItinRecognizer", "UsPassportRecognizer", "UsLicenseRecognizer",
+    "UsBankRecognizer", "UsMbiRecognizer", "UkNinoRecognizer", "UkPassportRecognizer", "UkDrivingLicenceRecognizer",
+    "UkPostcodeRecognizer", "CaSinRecognizer", "SgFinRecognizer", "InPanRecognizer", "InPassportRecognizer",
+    "InVoterRecognizer", "EsPassportRecognizer", "ItDriverLicenseRecognizer", "ItPassportRecognizer",
+    "ItIdentityCardRecognizer", "KrPassportRecognizer", "PhPassportRecognizer",
+]
 GLINER_LABELS = {"person": "PERSON", "location": "LOCATION", "organization": "ORGANIZATION",
                  "nationality or religious or political group": "NRP"}
 
@@ -62,7 +77,16 @@ def build_analyzer(engine: str, model: str, language: str = "en"):
                                         "low_confidence_score_multiplier": 0.4, "low_score_entity_names": []},
         }).create_engine()
         registry.add_recognizer(SpacyRecognizer(supported_language=language, supported_entities=ENTITIES))
-    return AnalyzerEngine(nlp_engine=nlp, registry=registry, supported_languages=[language])
+    from presidio_analyzer import predefined_recognizers
+    for name in PATTERN_RECOGNIZERS:
+        cls = getattr(predefined_recognizers, name, None)
+        if cls is not None:
+            registry.add_recognizer(cls(supported_language=language))
+    from presidio_analyzer.context_aware_enhancers import LemmaContextAwareEnhancer
+    # Whole-word context matching: by default "us" (a US passport context
+    # word) also matches inside "customer".
+    return AnalyzerEngine(nlp_engine=nlp, registry=registry, supported_languages=[language],
+                          context_aware_enhancer=LemmaContextAwareEnhancer(context_matching_mode="whole_word"))
 
 
 class AnalyzeRequest(BaseModel):
@@ -80,9 +104,13 @@ def create_app(engine: str, model: str) -> FastAPI:
     def health():
         return "Presidio Analyzer service is up"
 
+    @app.get("/supportedentities")
+    def supported_entities(language: str = "en"):
+        return analyzer.get_supported_entities(language="en")
+
     @app.post("/analyze")
     def analyze(req: AnalyzeRequest):
-        results = analyzer.analyze(text=req.text, language="en", entities=req.entities or ENTITIES,
+        results = analyzer.analyze(text=req.text, language="en", entities=req.entities,
                                    score_threshold=req.score_threshold)
         return [{"entity_type": r.entity_type, "start": r.start, "end": r.end, "score": float(r.score)} for r in results]
 

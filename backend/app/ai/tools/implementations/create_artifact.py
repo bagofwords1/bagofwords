@@ -741,9 +741,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         max_repairs caps the LLM repair rounds (None = MAX_RENDER_REPAIR_ATTEMPTS;
         0 = pure validation, no repair LLM — the planner-authored path).
-        strict=True additionally fails the result when contract errors
-        (viz refs / params wiring) remain — they are merged into `errors`
-        instead of riding along as annotations.
+        Contract errors (viz refs, params wiring, page checks) left after the
+        repairs fail the result in both modes; they are merged into `errors`.
+        strict=True also fails on file-reference errors when render
+        validation is unavailable.
 
         Async generator: yields ToolProgressEvent items for the UI, then a
         final dict result:
@@ -793,10 +794,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # The viz-reference contract rides along too: a reference to a viz that
         # isn't in the payload (or a payload viz the code never renders) is a
         # silent-wrong-data defect no screenshot can catch.
-        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors, chart_prop_errors, file_reference_errors
+        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors, chart_prop_errors, file_reference_errors, raw_chart_errors, focal_point_errors, viewer_name_errors
+        _hc = (runtime_ctx or {}).get("head_completion")
+        _layout_key = str(getattr(_hc, "id", "") or "") or None
         wiring = self.params_wiring_errors(code, artifact_data) if mode == "page" else []
         if mode == "page":
-            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data) + chart_prop_errors(code, artifact_data) + file_reference_errors(code, artifact_data)
+            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data) + chart_prop_errors(code, artifact_data) + file_reference_errors(code, artifact_data) + raw_chart_errors(code, artifact_data) + viewer_name_errors(code, artifact_data) + focal_point_errors(code, artifact_data, once_key=_layout_key)
 
         original_code = code
         original_screenshot = screenshot
@@ -831,12 +834,15 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             fatal = self.fatal_render_errors(errors)
             wiring = self.params_wiring_errors(candidate, artifact_data) if mode == "page" else []
             if mode == "page":
-                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data) + file_reference_errors(candidate, artifact_data)
+                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data) + file_reference_errors(candidate, artifact_data) + raw_chart_errors(candidate, artifact_data) + viewer_name_errors(candidate, artifact_data) + focal_point_errors(candidate, artifact_data, once_key=_layout_key)
 
-        if strict and not fatal and wiring:
-            # Strict (planner-authored) mode: contract errors are as fatal as
-            # render errors — return them as the failure so nothing persists
-            # and the planner gets the exact list to fix.
+        if not fatal and wiring:
+            # Contract errors left after the repairs are as fatal as render
+            # errors, whoever wrote the code: return them as the failure so the
+            # planner gets the exact list to fix. The tool-generated path used
+            # to save such a page with only a note, so every page check (a
+            # viewer's name in the title, a dead control, raw charts) could
+            # be skipped by not sending code.
             yield {
                 "code": original_code,
                 "clean": False,
@@ -846,9 +852,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "params_wiring_errors": wiring,
             }
         elif not fatal:
-            # Render fatality decides candidate vs original; unconverged wiring
-            # only ANNOTATES — a rendering dashboard with a dead control still
-            # beats no dashboard, but the caller must be able to say so.
+            # Renders and passes every page check.
             yield {
                 "code": candidate,
                 "clean": True,
@@ -1638,24 +1642,20 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             if included_files:
                 artifact_data["files"] = await self._build_file_datauris(db, included_files)
 
-            # Planner-authored code goes through a fast parse-only gate first:
-            # a syntax error should cost ~1-2s (babel-standalone transform in a
-            # bare page) and come back with a bracket-balance hint, not burn a
-            # full ~10s validation render to learn the same thing. Gate
-            # unavailable (no browser/libs) → None → full render decides.
-            parse_error: Optional[str] = None
+            from app.ai.tools.implementations._artifact_parse import ParseCheckUnavailable, parse_check_page_code
+            validation_unavailable = False
+            parse_error = None
             if planner_authored:
                 try:
-                    from app.ai.tools.implementations._artifact_parse import parse_check_page_code
                     parse_error = await parse_check_page_code(code)
-                except Exception as e:
-                    logger.warning(f"parse gate errored, deferring to render validation: {e}")
-                    parse_error = None
+                except ParseCheckUnavailable as exc:
+                    validation_unavailable = True
+                    parse_error = str(exc)
 
             _validate_result: Optional[Dict[str, Any]] = None
             if parse_error is not None:
                 render_clean = False
-                render_errors = [f"[parse] {parse_error}"]
+                render_errors = [parse_error if validation_unavailable else f"[parse] {parse_error}"]
             else:
                 async for _item in self._validate_and_repair_stream(
                     code, artifact_data, data.mode, runtime_ctx, deadline_monotonic=_repair_deadline,
@@ -1673,6 +1673,17 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 render_errors = list(_validate_result["errors"] or [])
                 repair_attempts = int(_validate_result["repair_attempts"] or 0)
                 params_wiring_errors = list(_validate_result.get("params_wiring_errors") or [])
+                # Generation and its repair loop may both supply new source.
+                # Check the exact candidate that would become the completed version.
+                if render_clean and not planner_authored:
+                    try:
+                        parse_error = await parse_check_page_code(code)
+                    except ParseCheckUnavailable as exc:
+                        validation_unavailable = True
+                        parse_error = str(exc)
+                    if parse_error:
+                        render_clean = False
+                        render_errors = [parse_error if validation_unavailable else f"[parse] {parse_error}"]
             try:
                 thumbnail_html = self._build_thumbnail_html(artifact_data, code, mode=data.mode)
             except Exception as e:
@@ -1704,7 +1715,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             content = {**content, 'sdk_version': 1,
                        'resource_requirements': replace_content.get('resource_requirements', {})}
         artifact.content = content
-        if data.mode == "page":
+        if data.mode == "page" and render_clean:
             # Precompile the final code in the background so the first view can
             # skip in-browser Babel (app.services.artifact_precompile).
             from app.services.artifact_precompile import schedule_compile
@@ -1891,6 +1902,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "visualization_ids": included_viz_ids,
                 "render_errors": render_errors,
             }
+            if validation_unavailable:
+                failure_observation["summary"] = first_error
+                failure_observation["error"].update(
+                    type="validation_unavailable",
+                    remediation="Restore the server JSX compiler and retry creation.",
+                )
             if warnings:
                 failure_observation["warnings"] = warnings
             _model = runtime_ctx.get("model")

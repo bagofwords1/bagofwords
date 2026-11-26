@@ -967,6 +967,14 @@ class SchemaContextBuilder:
                     mcp_tools=mcp_tools,
                     file_scopes=file_scopes,
                     browser_scope=self._browser_scope(ds),
+                    # ORM rows always carry `connections`; a caller passing a
+                    # shape without it is not claiming the agent has none.
+                    # Standing context only: a lookup filtered to tables or
+                    # connections is not asking about this agent.
+                    no_connections=(
+                        hasattr(ds, 'connections') and not (ds.connections or [])
+                        and not (table_names or name_patterns or connection_ids)
+                    ),
                     # Only flag connections as unavailable when at least one other
                     # connection is live — if EVERY connection is down the source
                     # renders nothing and is dropped as before (an all-dead agent

@@ -86,6 +86,18 @@ async def can_edit(db, artifact: Artifact, user) -> bool:
 
     if user is None or not await principal_belongs_to_org(db, user, str(artifact.organization_id)):
         return False
+    # Editing is the workspace. An app user (a member without
+    # access_workspace) reads what is published and shared with them, even a
+    # dashboard they own or were given to edit while they had the workspace:
+    # no draft, no unpublished changes, no editor's controls.
+    # Asked of the resolver directly (memoized per request): the list page
+    # calls this once per card, and membership was just checked above.
+    if not getattr(user, "is_service_account", False):
+        from app.core.permission_resolver import has_workspace_access, resolve_permissions
+
+        resolved = await resolve_permissions(db, str(user.id), str(artifact.organization_id))
+        if not has_workspace_access(resolved.org_permissions):
+            return False
     if is_owner(artifact, user):
         return True
     if await _edit_granted(db, artifact, user):

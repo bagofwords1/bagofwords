@@ -54,6 +54,7 @@ from app.schemas.data_sources.configs import (
     BrocadeConfig,
     BrocadeCredentials,
     SharePointOnpremConfig,
+    SharePointOnpremListsConfig,
     SharePointOnpremNtlmCredentials,
     DocumentumConfig,
     DocumentumUserPassCredentials,
@@ -406,6 +407,20 @@ class SetupStep(BaseModel):
     language: str = "bash"
 
 
+SETUP_GUIDE_REDIRECT_URI = "{oauth_redirect_uri}"
+
+
+def resolve_setup_guide(steps: list[SetupStep] | None) -> list[dict] | None:
+    if not steps:
+        return None
+    from app.core.base_url import connection_oauth_redirect_uri
+    redirect_uri = connection_oauth_redirect_uri()
+    return [
+        {**s.model_dump(), "code": s.code.replace(SETUP_GUIDE_REDIRECT_URI, redirect_uri) if s.code else s.code}
+        for s in steps
+    ]
+
+
 class DataSourceRegistryEntry(BaseModel):
     type: str
     title: str
@@ -538,7 +553,7 @@ class McpPreset(BaseModel):
     title: str
     server_url: str
     transport: str = "streamable_http"   # streamable_http | sse
-    auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer | basic
+    auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer | basic | none
     description: str = ""
     # UI grouping bucket — same vocabulary as DataSourceRegistryEntry.category.
     # Presets are branded MCP servers, so they slot into a domain category
@@ -557,6 +572,7 @@ class McpPreset(BaseModel):
     # (with schemas) is discovered per-connection via refresh_tools. None → the
     # form shows a "discovered after connecting" placeholder instead.
     sample_tools: Optional[List[str]] = None
+    setup_guide: list[SetupStep] | None = None
 
 
 def _is_dev_environment() -> bool:
@@ -2410,6 +2426,28 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="shared",
         requires_license="enterprise",
     ),
+    "sharepoint_onprem_lists": DataSourceRegistryEntry(
+        type="sharepoint_onprem_lists",
+        category="files",
+        title="SharePoint Server Lists (on-prem)",
+        description="Query SharePoint Server lists as tables using NTLM or Kerberos — every list on a site becomes a table with typed columns. No Microsoft Graph or Entra app required.",
+        config_schema=SharePointOnpremListsConfig,
+        # Same Windows sign-in as the on-prem files connector: a service
+        # account for the whole organization, or each user's own domain login
+        # so SharePoint's list permissions apply per person.
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=SharePointOnpremNtlmCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=SharePointOnpremKerberosCredentials, scopes=["system"]),
+        }),
+        client_path="app.data_sources.clients.sharepoint_onprem_lists_client.SharepointOnpremListsClient",
+        # Tables shape, like `sharepoint_lists`: lists carry typed columns and
+        # are queried with execute_query specs. The site's lists are one
+        # universe; per-user overlays are permission-filtered subsets.
+        data_shape="tables",
+        catalog_ownership="shared",
+        catalog_nouns=("list", "lists"),
+        requires_license="enterprise",
+    ),
     "sharepoint": DataSourceRegistryEntry(
         type="sharepoint",
         category="files",
@@ -2579,6 +2617,26 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         category="services",
         title="Outlook Mail",
         description="Read and search your Outlook / Microsoft 365 email — messages become available to the agent to search and read.",
+        setup_guide=[
+            SetupStep(
+                title="Register an app in Microsoft Entra",
+                body="In the Microsoft Entra admin center go to App registrations > New registration. Choose \"Accounts in this organizational directory only\". From the app's Overview, copy the Directory (tenant) ID and the Application (client) ID into the fields below.",
+            ),
+            SetupStep(
+                title="Add the redirect URI",
+                body="In the app go to Authentication > Add a platform > Web and paste this redirect URI.",
+                code=SETUP_GUIDE_REDIRECT_URI,
+                language="text",
+            ),
+            SetupStep(
+                title="Grant Microsoft Graph permissions",
+                body="In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app. Use Delegated permissions only, not Application permissions: the connector reads only the signed-in user's mailbox.",
+            ),
+            SetupStep(
+                title="Create a client secret",
+                body="In Certificates & secrets > New client secret, create a secret and copy its Value (not the Secret ID) into Client Secret below. You can't view the value again later.",
+            ),
+        ],
         config_schema=OutlookMailConfig,
         credentials_auth=AuthOptions(
             default="service_principal",
@@ -2689,7 +2747,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
-        dev_only=True,
     ),
     "gmail_mail": DataSourceRegistryEntry(
         type="gmail_mail",
@@ -3162,6 +3219,15 @@ _TOOLS_SENTRY = [
     "update_project", "create_dsn", "find_dsns", "analyze_issue_with_seer", "search_docs",
     "get_doc",
 ]
+_TOOLS_FATHOM = [
+    "get_identity", "list_teams", "list_meetings", "get_meeting_summary",
+    "get_meeting_transcript", "find_person", "find_relevant_meetings",
+    "get_relevant_meetings_result", "scan_meeting_summaries", "search_meetings",
+    "get_recording_by_call_id", "get_recording_by_url",
+]
+_TOOLS_MICROSOFT_LEARN = [
+    "microsoft_docs_search", "microsoft_code_sample_search", "microsoft_docs_fetch",
+]
 _TOOLS_GOOGLE_DRIVE = [
     "search_files", "list_recent_files", "read_file_content", "download_file_content",
     "get_file_metadata", "get_file_permissions", "create_file",
@@ -3226,6 +3292,13 @@ MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
               allowed_auth=["dcr"], sample_tools=_TOOLS_SENTRY, category="infra",
               description="Errors, issues and releases from Sentry."),
+    McpPreset(key="fathom", title="Fathom", server_url="https://api.fathom.ai/mcp",
+              allowed_auth=["dcr"], sample_tools=_TOOLS_FATHOM,
+              description="Meetings, summaries and transcripts from Fathom."),
+    McpPreset(key="microsoft_learn", title="Microsoft Learn",
+              server_url="https://learn.microsoft.com/api/mcp",
+              auth="none", allowed_auth=["none"], sample_tools=_TOOLS_MICROSOFT_LEARN,
+              description="Search and read official Microsoft and Azure documentation and code samples."),
     McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
               auth="oauth_app", allowed_auth=["oauth_app"],
               oauth_defaults=McpAuthDefaults(
@@ -3241,13 +3314,13 @@ MCP_PRESETS: List[McpPreset] = [
     # preset by exact server_url, adding a path also breaks preset recognition in
     # edit mode. Endpoints are the MCP-specific pair HubSpot advertises, not the
     # classic app.hubspot.com/api.hubapi.com ones; it takes client_secret_post
-    # (our default → left unset) and PKCE S256. Scopes are declared on the app and
-    # gated by portal tier (scopes_supported is empty). NOTE: for a HubSpot *MCP
-    # Connector* app the `scope` parameter is not what grants access — a live
-    # sign-in (2026-09) returned a fixed 37-scope bundle from the app's own
-    # config, unrelated to the 4 scopes requested here. The value below is kept
-    # only as documentation of the minimum an admin should configure on the app;
-    # it neither widens nor narrows what HubSpot actually grants. No audience:
+    # (our default → left unset) and PKCE S256. scopes_supported is empty: an MCP
+    # connector has no admin-set scopes; HubSpot derives them from its tools and
+    # the signing-in user's permissions. The `scope` parameter is not what grants
+    # access — a live sign-in (2026-09) returned a fixed 37-scope bundle,
+    # unrelated to the 4 scopes requested here. The value below is kept only as
+    # documentation of what the connector reads; it neither widens nor narrows
+    # what HubSpot actually grants. No audience:
     # HubSpot doesn't advertise RFC 8707, so we must not send `resource` on the
     # token request. See docs/feedback-loops/hubspot-mcp-preset.md.
     McpPreset(key="hubspot", title="HubSpot", server_url="https://mcp.hubspot.com",
@@ -3259,6 +3332,26 @@ MCP_PRESETS: List[McpPreset] = [
                           "crm.objects.companies.read, crm.objects.deals.read"),
               ),
               sample_tools=_TOOLS_HUBSPOT,
+              setup_guide=[
+                  SetupStep(
+                      title="Create an MCP connector in HubSpot",
+                      body="In your HubSpot account go to Development > MCP Connectors and click Create MCP connector. Give it a name.",
+                  ),
+                  SetupStep(
+                      title="Add the redirect URL",
+                      body="Paste this URL into the connector's Redirect URL field, then click Create.",
+                      code=SETUP_GUIDE_REDIRECT_URI,
+                      language="text",
+                  ),
+                  SetupStep(
+                      title="Copy the client ID and secret",
+                      body="On the connector's details page, copy the Client ID and Client secret into the fields below.",
+                  ),
+                  SetupStep(
+                      title="Each user signs in",
+                      body="You don't set scopes on the connector. Each user picks their HubSpot account and grants access when they sign in. The agent sees only what that user can see in HubSpot.",
+                  ),
+              ],
               description="CRM records, SQL queries, and marketing data from HubSpot (needs a HubSpot app)."),
     # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
     # client; no DCR — the authorize flow audience-binds the token to the MCP
@@ -3387,7 +3480,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "ui_form": e.ui_form,
             "personal_connector": e.personal_connector,
             "category": e.category,
-            "setup_guide": [s.model_dump() for s in e.setup_guide] if e.setup_guide else None,
+            "setup_guide": resolve_setup_guide(e.setup_guide),
         }
         for e in REGISTRY.values()
         if (
@@ -3402,7 +3495,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
 def mcp_presets() -> list[dict]:
     """The named MCP catalog presets (Notion, Linear…) as plain dicts. Powers
     `GET /connectors/catalog` and the connector tiles."""
-    return [p.model_dump() for p in MCP_PRESETS]
+    return [{**p.model_dump(), "setup_guide": resolve_setup_guide(p.setup_guide)} for p in MCP_PRESETS]
 
 
 def mcp_preset(key: str) -> Optional[McpPreset]:

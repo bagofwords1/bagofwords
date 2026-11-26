@@ -60,6 +60,15 @@ class CompletionBlock(BaseSchema):
 # Track text and tool-result sends independently so a block can send both once.
 _sent_block_text_ids = set()
 _sent_block_tool_ids = set()
+# Files already pushed to the channel, keyed "<completion_id>:<file_id>". The
+# agent can attach the same file across more than one block (or re-attach it on
+# a transcript rebuild); this keeps the user from receiving the same document
+# twice.
+_sent_attached_file_keys = set()
+# Doc artifacts already rendered to PDF and pushed, keyed "<completion_id>:<doc_id>".
+# The Chromium render is expensive, so this marks a doc before rendering so a
+# transcript rebuild (which re-runs this path) never renders it twice.
+_sent_doc_pdf_keys = set()
 # Completions whose processing reaction has already been swapped to a checkmark.
 # The finish path can fire more than once (status flip, then transcript rebuild),
 # so this guards against re-swapping.
@@ -251,6 +260,168 @@ async def _send_tool_output_for_block(
     )
 
 
+async def _send_attached_files_for_block(
+    db, completion, te, block_id_str, thread_ts, response_channel, org_id
+):
+    """Deliver an ``attach_file`` result to the chat channel as the file(s).
+
+    ``attach_file`` is the agent's explicit "this file is part of the answer"
+    signal: it materializes connector files as durable report Files (the same
+    kind a user upload produces). The web UI shows them in the report's file
+    list; this mirrors exactly those files to the channel so a WhatsApp user who
+    asked for a document ("send me tenant X's contract") receives it. Unlike
+    ``read_file`` — which the agent runs many times as internal research — only
+    files it deliberately attached reach the channel, so the research trail
+    (including rejected candidates) is never pushed.
+
+    Scoped to WhatsApp for now; the delivery loop serves every chat platform, so
+    the gate is what keeps Slack/Teams/Google Chat behaviour unchanged. Drop it
+    to extend. Sends any file type — ``send_file_in_thread`` chooses image vs
+    document itself. Returns True when this block is an attach_file we handled
+    (so the caller marks it sent), False when it is anything else.
+    """
+    if not (te and te.tool_name == "attach_file" and te.success):
+        return False
+    if completion.external_platform != "whatsapp":
+        return False
+    result = te.result_json if isinstance(te.result_json, dict) else {}
+    files = result.get("files")
+    if not isinstance(files, list):
+        return False
+    # Durable report File ids; failed attachments carry only an error. Bail if
+    # none succeeded, so a wholly-failed attach doesn't resolve an adapter for
+    # nothing.
+    sendable = [e for e in files if isinstance(e, dict) and e.get("session_file_id")]
+    if not sendable:
+        return False
+
+    platform = (
+        await db.execute(
+            select(ExternalPlatform).where(
+                ExternalPlatform.organization_id == org_id,
+                ExternalPlatform.platform_type == completion.external_platform,
+            )
+        )
+    ).scalar_one_or_none()
+    if not platform:
+        return False
+    adapter = PlatformAdapterFactory.create_adapter(platform)
+
+    from app.models.file import File
+    for entry in sendable:
+        session_file_id = entry.get("session_file_id")
+        key = f"{completion.id}:{session_file_id}"
+        if key in _sent_attached_file_keys:
+            continue
+        file_row = (
+            await db.execute(select(File).where(File.id == str(session_file_id)))
+        ).scalar_one_or_none()
+        if not file_row or not file_row.path:
+            continue
+        # Mark sent BEFORE the upload: a transient failure must not re-queue the
+        # same large document on the next transcript rebuild.
+        _sent_attached_file_keys.add(key)
+        caption = (file_row.filename or entry.get("name") or "file").strip()[:200]
+        try:
+            await adapter.send_file_in_thread(
+                completion.external_user_id,
+                file_row.path,
+                caption,
+                thread_ts,
+                channel_id=response_channel,
+                # Clean display name — the on-disk basename carries a uuid prefix
+                # the recipient should never see.
+                filename=(file_row.filename or entry.get("name") or None),
+            )
+        except Exception as e:
+            print(f"Error sending attached file {session_file_id} for block {block_id_str}: {e}")
+    # This block was an attach_file; the caller marks it handled so it is not
+    # revisited (per-file dedupe above owns which files actually went out).
+    return True
+
+
+async def _send_doc_pdf_for_block(
+    db, completion, te, block_id_str, thread_ts, response_channel, org_id
+):
+    """Render a ``create_doc`` document to PDF and send it to the chat channel.
+
+    ``create_doc`` writes a markdown document artifact to the report (mode='doc')
+    — the web UI shows it, but a chat channel got only the agent's prose, so a
+    WhatsApp user who asked for "the analysis as a PDF" received nothing to open.
+    This renders that artifact through the same ``ReportPdfService`` that backs
+    the web export / emailed share (it prints docs portrait at document margins),
+    then delivers the PDF as a document — reusing the attach_file delivery
+    plumbing. The render runs as the user the completion executed for, so
+    row-level security on any embedded live charts is honoured.
+
+    Scoped to WhatsApp for now (the delivery loop serves every chat platform;
+    the gate keeps the others unchanged). Returns True when this block is a
+    create_doc we handled, False when it is anything else.
+    """
+    if not (te and te.tool_name == "create_doc" and te.success):
+        return False
+    if completion.external_platform != "whatsapp":
+        return False
+    result = te.result_json if isinstance(te.result_json, dict) else {}
+    # create_doc returns the ArtifactVersion id as doc_id (new_artifact returns a
+    # version), which is exactly what generate_for_artifact loads.
+    doc_id = result.get("doc_id") or result.get("artifact_id")
+    if not doc_id:
+        return False
+    key = f"{completion.id}:{doc_id}"
+    if key in _sent_doc_pdf_keys:
+        return True
+
+    platform = (
+        await db.execute(
+            select(ExternalPlatform).where(
+                ExternalPlatform.organization_id == org_id,
+                ExternalPlatform.platform_type == completion.external_platform,
+            )
+        )
+    ).scalar_one_or_none()
+    if not platform:
+        return False
+    adapter = PlatformAdapterFactory.create_adapter(platform)
+
+    # Render as the identity the run executed for (RLS on embedded live charts);
+    # UNSCOPED only when the completion carries no user.
+    from app.services.artifact_payload import UNSCOPED
+    viewer = UNSCOPED
+    if getattr(completion, "user_id", None):
+        from app.models.user import User
+        viewer = (await db.get(User, str(completion.user_id))) or UNSCOPED
+
+    # Mark before the (expensive) render so a transcript rebuild can't render the
+    # same document twice.
+    _sent_doc_pdf_keys.add(key)
+    import os
+    from app.services.report_pdf_service import ReportPdfService
+    try:
+        pdf_path = await ReportPdfService().generate_for_artifact(str(doc_id), viewer=viewer)
+    except Exception as e:
+        print(f"Error rendering doc {doc_id} to PDF for block {block_id_str}: {e}")
+        pdf_path = None
+    if not pdf_path or not os.path.isfile(pdf_path):
+        # Render failed/unavailable: the block is still handled (the user has the
+        # text answer and the doc in the report). Don't fall through to re-send.
+        return True
+
+    title = (result.get("title") or "document").strip() or "document"
+    try:
+        await adapter.send_file_in_thread(
+            completion.external_user_id,
+            pdf_path,
+            title[:200],
+            thread_ts,
+            channel_id=response_channel,
+            filename=f"{title}.pdf"[:240],
+        )
+    except Exception as e:
+        print(f"Error sending doc PDF {doc_id} for block {block_id_str}: {e}")
+    return True
+
+
 async def send_completion_blocks_to_slack(completion_id: str):
     """Send all terminal completion blocks for a finished completion to Slack."""
     session_maker = create_async_session_factory()
@@ -368,6 +539,14 @@ async def send_completion_blocks_to_slack(completion_id: str):
                             te_result = await db.execute(te_stmt)
                             te = te_result.scalar_one_or_none()
                             if await _send_tool_output_for_block(
+                                db, completion, te, block_id_str, thread_ts, response_channel, org_id
+                            ):
+                                _sent_block_tool_ids.add(block_id_str)
+                            elif await _send_attached_files_for_block(
+                                db, completion, te, block_id_str, thread_ts, response_channel, org_id
+                            ):
+                                _sent_block_tool_ids.add(block_id_str)
+                            elif await _send_doc_pdf_for_block(
                                 db, completion, te, block_id_str, thread_ts, response_channel, org_id
                             ):
                                 _sent_block_tool_ids.add(block_id_str)
@@ -613,6 +792,14 @@ async def _send_block_to_slack(block_id: str):
                     except Exception:
                         te = None
                     if await _send_tool_output_for_block(
+                        db, completion, te, block_id_str, thread_ts, response_channel, org_id
+                    ):
+                        _sent_block_tool_ids.add(block_id_str)
+                    elif await _send_attached_files_for_block(
+                        db, completion, te, block_id_str, thread_ts, response_channel, org_id
+                    ):
+                        _sent_block_tool_ids.add(block_id_str)
+                    elif await _send_doc_pdf_for_block(
                         db, completion, te, block_id_str, thread_ts, response_channel, org_id
                     ):
                         _sent_block_tool_ids.add(block_id_str)

@@ -524,7 +524,8 @@
     "automations": "Automações",
     "agent": "Agente",
     "agents": "Agentes",
-    "viewAllAgents": "Ver todos os agentes →"
+    "viewAllAgents": "Ver todos os agentes →",
+    "apps": "Aplicativos"
   },
   "notifications": {
     "title": "Notificações",
@@ -1178,6 +1179,9 @@
     "dropHint": "Solte em um projeto",
     "movedTo": "Movido para {name}",
     "removeFromProject": "Remover do projeto",
+    "removedFromProject": "Removido do projeto",
+    "removeImpact": "Este relatório volta para a sua lista pessoal.",
+    "removeImpactShared": "Os membros deste projeto perderão o acesso a este relatório. Apenas você e as pessoas com quem o compartilhou diretamente o manterão.",
     "empty": "Novo projeto",
     "moveNoProjects": "Crie um projeto para organizar seus relatórios em pastas.",
     "moveShareDisclosure": "Mover um relatório para um projeto compartilhado permite que seus membros o vejam.",
@@ -1456,10 +1460,10 @@
         "search": "Pesquisou",
         "files": "Leu arquivos",
         "inspect": "Inspecionou dados",
-        "data": "Executou {count} consultas",
+        "data": "Executou {count} consulta | Executou {count} consultas",
         "create": "Criou e atualizou resultados",
         "tools": "Usou ferramentas",
-        "results": "Executou {count} consultas"
+        "results": "Executou {count} consulta | Executou {count} consultas"
       }
     },
     "tabChat": "Chat",
@@ -1644,7 +1648,6 @@
       "edit": "Editar artefato",
       "confirm": "Confirmar edição do artefato",
       "dashboardEdited": "Painel editado",
-      "diff": "Diff",
       "rewrite": "Reescrever",
       "plan": "Plano: ",
       "more": "mais",
@@ -2470,7 +2473,8 @@
       "manage_data_sources": "Gerenciar agentes",
       "manage_service_accounts": "Gerenciar contas de serviço",
       "view_code": "Ver código gerado",
-      "run_custom_code": "Editar e executar código personalizado"
+      "run_custom_code": "Editar e executar código personalizado",
+      "access_workspace": "Usar o espaço de trabalho"
     },
     "delete": "Excluir",
     "duplicate": "Duplicar",
@@ -2490,7 +2494,8 @@
       "knowledge": "Conhecimento dos agentes",
       "code": "Código",
       "admin": "Administração",
-      "other": "Outros"
+      "other": "Outros",
+      "workspace": "Espaço de trabalho"
     },
     "permissionHints": {
       "create_data_source": "Criar agentes nas conexões que podem usar",
@@ -2506,7 +2511,8 @@
       "manage_settings": "Alterar as configurações da organização",
       "manage_llm": "Configurar provedores e modelos de LLM",
       "view_audit_logs": "Ver quem fez o quê e quando",
-      "manage_identity_providers": "Configurar login único (SSO)"
+      "manage_identity_providers": "Configurar login único (SSO)",
+      "access_workspace": "Abrir o próprio espaço de trabalho: início, relatórios, agentes. Sem isso, um membro só tem os aplicativos compartilhados com ele."
     },
     "fullAdminHint": "Pode fazer tudo na organização",
     "fullAdminAccessTab": "O acesso total de administrador inclui todos os agentes, conexões e modelos.",
@@ -2641,7 +2647,8 @@
     "add": "Adicionar",
     "domainsHint": "Apenas correspondência exata. Sem curingas. Combine com verificação de e-mail para evitar falsificação.",
     "autoInviteRole": "Função de convite automático",
-    "roleHint": "Função concedida no cadastro. Você pode alterá-la para membros existentes posteriormente.",
+    "roleHint": "Deixe no padrão da organização para usar a função definida na página Membros, ou escolha uma função diferente para cadastros por domínio.",
+    "useOrgDefault": "Padrão da organização ({role})",
     "removeHint": "Remover um domínio afeta apenas novos cadastros — membros existentes mantêm seu acesso.",
     "save": "Salvar",
     "removeDomainAria": "Remover domínio",
@@ -3277,10 +3284,12 @@
       "attributesSaved": "Atributos salvos",
       "attributesSaveFailed": "Falha ao salvar os atributos",
       "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado.",
-      "defaultRoleHint": "Preenche a função ao adicionar ou convidar um membro.",
+      "defaultRoleHint": "Função que cada novo membro recebe: adicionado aqui, importado ou entrando via SSO, SCIM, LDAP ou cadastro por domínio. Aplica-se apenas a novos membros.",
       "defaultRoleSaved": "Função padrão salva",
       "defaultRoleFailed": "Falha ao salvar a função padrão",
-      "defaultRoleShort": "Função padrão"
+      "defaultRoleShort": "Função padrão",
+      "appUser": "Usuário de aplicativos",
+      "joinedVia": "Entrou por meio de {app}"
     },
     "organizationName": "Nome da organização",
     "organizationNameRequired": "O nome da organização não pode ficar vazio.",
@@ -4179,6 +4188,8 @@
       "masksValue": "Mantém os últimos 4 caracteres",
       "pseudonymizesValue": "As pessoas continuam vendo o valor",
       "detectorTitle": "Nomes, lugares e organizações",
+      "validatedTitle": "Identificadores validados",
+      "validatedNote": "Encontrados por padrão e confirmados por um dígito de controle (Luhn para cartões, mod-97 para IBANs, dígitos de controle para documentos), por isso capturam muito menos números parecidos que os identificadores comuns acima. Verificados na mensagem do usuário e nos dados, nunca em instruções ou esquemas.",
       "detectorUnavailable": "Detectar nomes, lugares e organizações exige um detector de dados pessoais, e esta instância não tem nenhum configurado. Peça ao administrador para instalar o extra pii do backend ou configurar um serviço Presidio.",
       "detectorErrorLabel": "Se o detector estiver indisponível",
       "detectorErrorDesc": "O que acontece com uma solicitação quando o detector não consegue verificá-la.",
@@ -4221,7 +4232,81 @@
         "PERSON": "Nome de pessoa",
         "LOCATION": "Lugar",
         "ORGANIZATION": "Organização",
-        "NRP": "Nacionalidade, grupo religioso ou político"
+        "NRP": "Nacionalidade, grupo religioso ou político",
+        "CREDIT_CARD": "Número de cartão de crédito (verificado com Luhn)",
+        "IBAN_CODE": "IBAN (com dígito de controle)",
+        "ABA_ROUTING_NUMBER": "Número de roteamento bancário dos EUA (ABA)",
+        "CRYPTO": "Endereço de carteira de cripto (Bitcoin)",
+        "US_NPI": "Identificador Nacional de Prestador dos EUA (NPI)",
+        "MEDICAL_LICENSE": "Número de registro DEA dos EUA",
+        "UK_NHS": "Número do NHS (Reino Unido)",
+        "ES_NIF": "NIF / DNI (Espanha)",
+        "ES_NIE": "NIE (Espanha)",
+        "IT_FISCAL_CODE": "Código fiscal (Itália)",
+        "DE_TAX_ID": "Número de identificação fiscal (Alemanha)",
+        "PL_PESEL": "PESEL (Polônia)",
+        "FI_PERSONAL_IDENTITY_CODE": "Código de identidade pessoal (Finlândia)",
+        "SE_PERSONNUMMER": "Personnummer (Suécia)",
+        "TR_NATIONAL_ID": "Número de identidade nacional (Turquia)",
+        "AU_TFN": "Número de arquivo fiscal (Austrália, TFN)",
+        "AU_ABN": "Número de empresa (Austrália, ABN)",
+        "AU_MEDICARE": "Número do Medicare (Austrália)",
+        "IN_AADHAAR": "Número Aadhaar (Índia)",
+        "KR_RRN": "Número de registro de residente (Coreia do Sul)",
+        "ZA_ID_NUMBER": "Número de identidade (África do Sul)",
+        "IT_VAT_CODE": "Número de IVA (Itália)",
+        "DE_VAT_ID": "Número de IVA (Alemanha)",
+        "PHONE_NUMBER": "Número de telefone (internacional)",
+        "US_SSN": "Número de Seguro Social dos EUA",
+        "US_ITIN": "Número de contribuinte dos EUA (ITIN)",
+        "US_PASSPORT": "Número de passaporte dos EUA",
+        "US_DRIVER_LICENSE": "Número da carteira de motorista dos EUA",
+        "US_BANK_NUMBER": "Número de conta bancária dos EUA",
+        "US_MBI": "ID de beneficiário do Medicare (MBI)",
+        "UK_NINO": "Número de National Insurance (Reino Unido)",
+        "UK_PASSPORT": "Número de passaporte (Reino Unido)",
+        "UK_DRIVING_LICENCE": "Número da carteira de motorista (Reino Unido)",
+        "UK_POSTCODE": "Código postal (Reino Unido)",
+        "CA_SIN": "Número de Seguro Social (Canadá)",
+        "SG_NRIC_FIN": "NRIC / FIN (Singapura)",
+        "IN_PAN": "PAN (Índia)",
+        "IN_PASSPORT": "Número de passaporte (Índia)",
+        "IN_VOTER": "Título de eleitor (Índia)",
+        "ES_PASSPORT": "Número de passaporte (Espanha)",
+        "IT_DRIVER_LICENSE": "Número da carteira de motorista (Itália)",
+        "IT_PASSPORT": "Número de passaporte (Itália)",
+        "IT_IDENTITY_CARD": "Número da carteira de identidade (Itália)",
+        "KR_PASSPORT": "Número de passaporte (Coreia do Sul)",
+        "PH_PASSPORT": "Número de passaporte (Filipinas)"
+      },
+      "agentsTitle": "Políticas por agente",
+      "agentsDesc": "Escolha a política que cada agente adiciona. A política de um agente se aplica a toda solicitação que inclui o agente, inclusive os dados dos outros agentes no mesmo chat, mesmo com um provedor isento. Quando várias políticas se aplicam, vence a opção mais rigorosa de cada regra.",
+      "defaultAgentPolicy": "Padrão para agentes",
+      "defaultAgentPolicyDesc": "Agentes sem escolha própria usam esta política.",
+      "noAgents": "Ainda não há agentes.",
+      "agentPolicyFor": "Política de PII para {name}",
+      "noAgentPolicy": "Sem política de agente",
+      "inheritAgentPolicy": "Padrão da organização: {policy}",
+      "usedByAgents": "{n} agente | {n} agentes",
+      "contextualTitle": "Precisam de uma palavra próxima",
+      "contextualNote": "Sem dígito de controle: a maioria só é encontrada quando uma palavra como \"passaporte\" ou \"conta\" está ao lado do valor. Funciona em frases e anotações; em linhas de tabela o nome da coluna geralmente não está ao lado do valor, então alguns passarão. Verificados na mensagem do usuário e nos dados, nunca em instruções ou esquemas.",
+      "termCount": "{n} termo | {n} termos",
+      "terms": "Termos exatos",
+      "termsHelp": "Palavras ou frases, uma por linha: codinomes, nomes de clientes, hosts internos. Reconhecidos como palavras inteiras, sem diferenciar maiúsculas. Use com padrões ou no lugar deles.",
+      "termsPlaceholder": "Projeto Falcão\nAcme Corp",
+      "checksum": "Dígito de controle",
+      "checksumHelp": "Uma correspondência só conta se passar nesta verificação, o que descarta a maioria dos números parecidos.",
+      "checksumNone": "Sem dígito de controle",
+      "contextWords": "Palavras de contexto",
+      "contextWordsHelp": "Separadas por vírgulas. Uma correspondência só conta se uma dessas palavras estiver a até 60 caracteres dela.",
+      "contextWordsPlaceholder": "passaporte, nº do passaporte",
+      "checksumSummary": "Controle: {name}",
+      "contextSummary": "Perto de: {words}",
+      "checksums": {
+        "luhn": "Luhn (cartões, IMEI, SIN canadense)",
+        "iban": "IBAN (mod 97)",
+        "il_id": "Identidade israelense (Teudat Zehut)",
+        "aba": "Número de roteamento bancário dos EUA (ABA)"
       }
     },
     "piiTab": "Dados pessoais",
@@ -4691,6 +4776,42 @@
           "title": "Exporte o certificado do SMS Provider",
           "body": "Por padrão, o site usa um certificado autoassinado. Execute isto no PowerShell do SMS Provider e cole a saída em SMS Provider certificate (PEM). Pule esta etapa se o certificado vier de uma AC em que este servidor já confia."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Registre um aplicativo no Microsoft Entra",
+          "body": "No centro de administração do Microsoft Entra, vá para App registrations > New registration. Escolha \"Accounts in this organizational directory only\". Na página Overview do aplicativo, copie Directory (tenant) ID e Application (client) ID para os campos abaixo."
+        },
+        {
+          "title": "Adicione o URI de redirecionamento",
+          "body": "No aplicativo, vá para Authentication > Add a platform > Web e cole este URI de redirecionamento."
+        },
+        {
+          "title": "Conceda permissões do Microsoft Graph",
+          "body": "Em API permissions > Add a permission > Microsoft Graph > Delegated permissions, adicione Mail.Read, User.Read, offline_access, openid e profile. Para permitir que os agentes movam, redijam ou enviem e-mails, adicione também Mail.ReadWrite e Mail.Send. Depois clique em \"Grant admin consent\" para que os usuários não precisem aprovar o aplicativo. Use apenas permissões Delegated, não Application: o conector lê somente a caixa de correio do usuário conectado."
+        },
+        {
+          "title": "Crie um segredo do cliente",
+          "body": "Em Certificates & secrets > New client secret, crie um segredo e copie o seu Value (não o Secret ID) para Client Secret abaixo. Não será possível ver o valor novamente depois."
+        }
+      ],
+      "hubspot": [
+        {
+          "title": "Criar um MCP connector no HubSpot",
+          "body": "Na sua conta HubSpot, vá a Development > MCP Connectors e clique em Create MCP connector. Dê-lhe um nome."
+        },
+        {
+          "title": "Adicionar o URL de redirecionamento",
+          "body": "Cole este URL no campo Redirect URL do conector e clique em Create."
+        },
+        {
+          "title": "Copiar o ID do cliente e o segredo",
+          "body": "Na página de detalhes do conector, copie o Client ID e o Client secret para os campos abaixo."
+        },
+        {
+          "title": "Cada utilizador inicia sessão",
+          "body": "Não define escopos no conector. Cada utilizador escolhe a sua conta HubSpot e concede acesso ao iniciar sessão. O agente vê apenas o que esse utilizador pode ver no HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "Falha ao copiar — selecione o texto",
@@ -4752,7 +4873,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Unificar tabelas entre bancos de dados",
+      "unifyTablesDescription": "Une as tabelas de mesmo nome dos bancos de dados correspondentes em uma única tabela com uma coluna tenant_db. Não pode ser alterado depois que a conexão é criada."
     },
     "postgresqlMulti": {
       "databasesTitle": "Bancos de dados",
@@ -4944,7 +5067,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "\"Permitir tudo\" só pode ser o padrão enquanto estiver ativado.",
     "tool_permission_mode.judge_model_unavailable": "Escolha um modelo de decisão ativado para o juiz do modo Automático.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "Não é possível alterar uma conexão Athena entre um banco de dados, vários bancos de dados e tabelas unificadas. Crie uma nova conexão.",
     "catalog_discovery_incomplete": "A atualização do catálogo falhou porque a descoberta ficou incompleta. O catálogo anterior e as seleções de tabelas foram mantidos.",
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
@@ -5124,7 +5247,8 @@
     "organization.name_taken": "Já existe uma organização chamada “{name}”.",
     "organization.signup_domains_instance_admin_required": "Só um administrador da instância pode atribuir domínios de registo a uma organização.",
     "organization.signup_domain_claimed": "O domínio {domain} já está atribuído a outra organização.",
-    "organization.member_instance_admin": "Esta conta é de um administrador da instância. Apenas um administrador da instância pode adicioná-la a uma organização."
+    "organization.member_instance_admin": "Esta conta é de um administrador da instância. Apenas um administrador da instância pode adicioná-la a uma organização.",
+    "workspace.access_required": "Sua conta pode usar os aplicativos compartilhados com você, mas não o espaço de trabalho."
   },
   "email": {
     "dashboardShare": {
@@ -6498,7 +6622,8 @@
       "windowNote": "O uso é reiniciado no início de cada mês.",
       "dailyNote": "por dia desde o início do mês",
       "disabledTitle": "O monitoramento de uso não está ativado",
-      "disabledNote": "O uso por usuário (tokens, consultas e dados analisados) é monitorado quando o recurso Limites de uso está ativado no seu plano."
+      "disabledNote": "O uso por usuário (tokens, consultas e dados analisados) é monitorado quando o recurso Limites de uso está ativado no seu plano.",
+      "today": "Hoje: {used} / {limit}"
     },
     "appearance": {
       "title": "Aparência",
@@ -6958,7 +7083,7 @@
     "newQuota": "Nova cota",
     "noDirectQuota": "Padrão",
     "noPoliciesFound": "Nenhuma política de cota encontrada",
-    "noPoliciesHint": "Crie uma cota para limitar o uso mensal de IA e de dados.",
+    "noPoliciesHint": "Crie uma cota para limitar o uso diário e mensal de IA e de dados.",
     "none": "Nenhuma",
     "principalTypes": {
       "group": "Grupo",
@@ -6980,7 +7105,20 @@
     "tokensShort": "Tokens",
     "unlimited": "Ilimitada",
     "update": "Atualizar",
-    "users": "Usuários"
+    "users": "Usuários",
+    "dayShort": "Dia",
+    "monthShort": "Mês",
+    "limitPerUser": "Limite por usuário",
+    "perDay": "Por dia",
+    "perMonth": "Por mês",
+    "resetsDaily": "Reinicia às 00:00 {tz}",
+    "resetsMonthly": "Reinicia no dia 1",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Consultas",
+    "dataLabel": "Dados escaneados (MB)",
+    "spendLabel": "Gasto com LLM (USD)",
+    "limitsHint": "Deixe vazio para ilimitado. Defina um limite diário, mensal ou ambos — a solicitação é bloqueada quando qualquer um é atingido. Os limites mensais de consultas e dados valem por conexão; os diários somam todas as conexões.",
+    "dailyAboveMonthly": "O limite diário não pode ser maior que o limite mensal."
   },
   "serviceAccounts": {
     "active": "Ativa",
@@ -7205,7 +7343,9 @@
     "nothingRan": "Não foi possível criar sua cópia: nenhuma das consultas pôde ser executada com suas credenciais."
   },
   "quota": {
-    "resetsOn": "reinicia em {date}"
+    "resetsOn": "reinicia em {date}",
+    "todayLabel": "{metric} · hoje",
+    "resetsDailyAndMonthly": "Hoje reinicia às 00:00 {tz} · mês {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Aprender durante a noite",
@@ -7706,6 +7846,9 @@
       "denied": "Você não tem acesso a isto. Peça ao proprietário que compartilhe com você.",
       "notAllowed": "Isto não está habilitado para este aplicativo. Um editor pode permitir isso nas configurações de incorporação no BOW.",
       "failed": "Não foi possível carregar. Tente novamente em instantes."
+    },
+    "signin": {
+      "intentFailed": "Não foi possível confirmar o aplicativo em que você está entrando. Nada foi enviado. Tente novamente."
     }
   },
   "connectedApps": {
@@ -7763,6 +7906,10 @@
     "shareToggleLabel": "Disponibilizar para todos na sua organização",
     "shareToggleHint": "Adiciona “{name}” aos conectores de todos. Cada pessoa entra com a própria conta — ninguém vê os dados dos outros.",
     "useAsAgent": "Usar como agente",
+    "enableForChat": "Ativar para o chat",
+    "disableForChat": "Desativar para o chat",
+    "enabledHint": "Ativado — a IA pode usá-lo no chat",
+    "disabledHint": "Desativado — a IA não o usará no chat",
     "movedToAgents": "{name} agora é um agente"
   },
   "tablePreview": {
@@ -7869,6 +8016,13 @@
       "none": "Sem limite",
       "ask": "Perguntar",
       "auto": "Automático"
+    },
+    "pii": {
+      "title": "Política de PII",
+      "hint": "Aplica-se a toda solicitação que inclui este agente, além da política do modelo. Vence a opção mais rigorosa de cada regra.",
+      "disabled": "A proteção de PII está desativada nesta organização.",
+      "saved": "Política de PII salva",
+      "saveError": "Não foi possível salvar a política de PII"
     }
   },
   "productUpdates": {
@@ -8257,5 +8411,40 @@
       "key": "identificador",
       "set_by_admin": "definida por um administrador"
     }
+  },
+  "apps": {
+    "title": "Seus aplicativos",
+    "subtitle": "Abra um aplicativo para começar.",
+    "openWorkspace": "Abrir o espaço de trabalho",
+    "search": "Buscar aplicativos",
+    "untitled": "Aplicativo sem título",
+    "inApplication": "Em {name}",
+    "allApps": "Todos os aplicativos",
+    "language": "Idioma",
+    "account": "Conta",
+    "signOut": "Sair",
+    "loadFailed": "Não foi possível carregar seus aplicativos.",
+    "retry": "Tentar novamente",
+    "noMatches": "Nenhum aplicativo corresponde a “{query}”.",
+    "empty": {
+      "title": "Ainda não há aplicativos",
+      "body": "Quando alguém compartilhar um aplicativo com você, ele aparecerá aqui."
+    },
+    "requestAccess": {
+      "prompt": "Precisa de mais do que estes aplicativos?",
+      "button": "Solicitar acesso completo",
+      "sent": "Solicitação enviada. Um administrador irá analisá-la.",
+      "failed": "Não foi possível enviar a solicitação. Tente novamente."
+    },
+    "showMore": "Mostrar mais"
+  },
+  "hostApps": {
+    "newUserRole": "Novas pessoas entram como",
+    "newUserRoleHelp": "Para contas criadas ao entrar por este aplicativo. Quem já tem uma conta mantém sua função.",
+    "newUserRoleApp": "Usuário de aplicativos",
+    "newUserRoleAppHelp": "Pode usar os aplicativos compartilhados com ele, não o espaço de trabalho.",
+    "newUserRoleMember": "Membro",
+    "newUserRoleMemberHelp": "Também pode usar o espaço de trabalho: relatórios, agentes e painéis.",
+    "newPeopleAs": "novas pessoas entram como {role}"
   }
 }

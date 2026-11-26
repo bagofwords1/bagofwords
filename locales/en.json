@@ -621,7 +621,8 @@
     "admin": "Admin",
     "backToApp": "Back to app",
     "notifications": "Notifications",
-    "automations": "Automations"
+    "automations": "Automations",
+    "apps": "Apps"
   },
   "notifications": {
     "title": "Notifications",
@@ -1298,6 +1299,9 @@
     "dropHint": "Drop on a project",
     "movedTo": "Moved to {name}",
     "removeFromProject": "Remove from project",
+    "removedFromProject": "Removed from project",
+    "removeImpact": "This report moves back to your personal list.",
+    "removeImpactShared": "Members of this project will lose access to this report. Only you and anyone you've shared it with directly will keep it.",
     "empty": "New project",
     "moveNoProjects": "Create a project to organize your reports into folders.",
     "moveShareDisclosure": "Moving a report into a shared project lets its members view the report.",
@@ -1604,6 +1608,17 @@
     "rerun": "Rerun",
     "rerunTooltip": "Run this prompt again as a new message",
     "rerunQueuedTooltip": "Add to the queue: runs again after the current response",
+    "rewind": "Rewind",
+    "rewindTooltip": "Go back to before this prompt: remove it and everything after it",
+    "rewindBusyTooltip": "Available when the current response finishes",
+    "rewindConfirmTitle": "Rewind to before this prompt?",
+    "rewindConfirmBody": "This removes 1 message (this prompt) from the conversation and from the agent's context. | This removes {n} messages (this prompt and everything after it) from the conversation and from the agent's context.",
+    "rewindConfirmKeeps": "Widgets, queries and dashboards built in those messages are kept.",
+    "rewindConfirmMemories": "1 memory saved from these messages is kept. You can manage your memories in your profile. | {n} memories saved from these messages are kept. You can manage your memories in your profile.",
+    "rewindConfirmPrefill": "The prompt's text goes back into the prompt box so you can edit and resend it. Mentions and attached files aren't restored.",
+    "rewindConfirmAction": "Rewind",
+    "rewindDone": "Rewound. Edit the prompt and send it again.",
+    "rewindFailed": "Could not rewind the conversation",
     "steered": "Steered",
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
@@ -1651,10 +1666,10 @@
         "search": "Searched",
         "files": "Read files",
         "inspect": "Inspected data",
-        "data": "Ran {count} queries",
+        "data": "Ran {count} query | Ran {count} queries",
         "create": "Created and updated results",
         "tools": "Used tools",
-        "results": "Ran {count} queries"
+        "results": "Ran {count} query | Ran {count} queries"
       },
       "workedFor": "Worked for {duration}",
       "worked": "Worked",
@@ -1881,7 +1896,6 @@
       "edit": "Edit Artifact",
       "confirm": "Confirm artifact edit",
       "dashboardEdited": "Dashboard edited",
-      "diff": "Diff",
       "rewrite": "Rewrite",
       "plan": "Plan: ",
       "more": "more",
@@ -2831,7 +2845,8 @@
       "manage": "Manage settings",
       "manage_connection": "Manage connection",
       "create_data_sources": "Create agents",
-      "manage_data_sources": "Manage agents"
+      "manage_data_sources": "Manage agents",
+      "access_workspace": "Use the workspace"
     },
     "delete": "Delete",
     "duplicate": "Duplicate",
@@ -2851,7 +2866,8 @@
       "knowledge": "Agent knowledge",
       "code": "Code",
       "admin": "Administration",
-      "other": "Other"
+      "other": "Other",
+      "workspace": "Workspace"
     },
     "permissionHints": {
       "create_data_source": "Create new agents on connections they can use",
@@ -2867,7 +2883,8 @@
       "manage_settings": "Change organization settings",
       "manage_llm": "Configure LLM providers and models",
       "view_audit_logs": "See who did what, and when",
-      "manage_identity_providers": "Configure single sign-on"
+      "manage_identity_providers": "Configure single sign-on",
+      "access_workspace": "Open the workspace itself: home, reports, agents. Without it, a member only has the apps shared with them."
     },
     "fullAdminHint": "Can do everything in the organization",
     "fullAdminAccessTab": "Full admin access includes every agent, connection and model.",
@@ -3048,7 +3065,7 @@
     "noDirectQuota": "Default",
     "inherited": "Inherited",
     "noPoliciesFound": "No quota policies found",
-    "noPoliciesHint": "Create a quota to limit monthly AI and data usage.",
+    "noPoliciesHint": "Create a quota to limit daily and monthly AI and data usage.",
     "editQuota": "Edit Quota",
     "createQuota": "Create Quota",
     "nameLabel": "Name",
@@ -3089,7 +3106,20 @@
       "user": "{n} users",
       "group": "{n} groups",
       "role": "{n} roles"
-    }
+    },
+    "dayShort": "Day",
+    "monthShort": "Month",
+    "limitPerUser": "Limit per user",
+    "perDay": "Per day",
+    "perMonth": "Per month",
+    "resetsDaily": "Resets 00:00 {tz}",
+    "resetsMonthly": "Resets on the 1st",
+    "tokensLabel": "Tokens",
+    "queriesLabel": "Queries",
+    "dataLabel": "Data scanned (MB)",
+    "spendLabel": "LLM spend (USD)",
+    "limitsHint": "Leave empty for unlimited. Set a daily limit, a monthly limit, or both — a request is blocked when either is reached. Monthly query and data limits apply per connection; daily ones count all connections together.",
+    "dailyAboveMonthly": "Daily limit can't be higher than the monthly limit."
   },
   "signupPolicy": {
     "title": "Domain-based signup",
@@ -3106,7 +3136,8 @@
     "add": "Add",
     "domainsHint": "Exact match only. No wildcards. Pair with email verification to avoid spoofing.",
     "autoInviteRole": "Auto-invite role",
-    "roleHint": "Role granted on signup. You can change it for existing members afterwards.",
+    "roleHint": "Leave on the organization default to use the role set on the Members page, or pick a role to give domain signups a different one.",
+    "useOrgDefault": "Organization default ({role})",
     "removeHint": "Removing a domain only affects new signups — existing members keep their access.",
     "save": "Save",
     "removeDomainAria": "Remove domain",
@@ -3747,13 +3778,15 @@
       "attributesSaved": "Attributes saved",
       "attributesSaveFailed": "Failed to save attributes",
       "importAttributesHint": "Add {column} columns to set member attributes, e.g. {example}. An empty cell leaves that attribute unchanged.",
-      "defaultRoleHint": "Pre-fills the role when adding or inviting a member.",
+      "defaultRoleHint": "Role every new member gets: added here, imported, or joining through SSO, SCIM, LDAP or domain signup. Applies to new members only.",
       "defaultRoleSaved": "Default role saved",
       "defaultRoleFailed": "Failed to save default role",
       "defaultRoleShort": "Default role",
       "importButton": "Import",
       "colNote": "Note",
-      "colLastLogin": "Last login"
+      "colLastLogin": "Last login",
+      "appUser": "App user",
+      "joinedVia": "Joined via {app}"
     },
     "organizationName": "Organization name",
     "organizationNameRequired": "Organization name can't be empty.",
@@ -4797,6 +4830,8 @@
       "masksValue": "Keeps the last 4 characters",
       "pseudonymizesValue": "People still see the value",
       "detectorTitle": "Names, places and organizations",
+      "validatedTitle": "Validated identifiers",
+      "validatedNote": "Matched by pattern and confirmed by a checksum (Luhn for cards, mod-97 for IBANs, check digits for ID numbers), so they catch far fewer look-alike numbers than the common identifiers above. Checked in the user's prompt and the data, never in instructions or schemas.",
       "detectorUnavailable": "Detecting names, places and organizations needs a PII detector, and none is set up on this instance. Ask your administrator to install the backend's pii extra or to configure a Presidio service.",
       "detectorErrorLabel": "If the detector is unavailable",
       "detectorErrorDesc": "What happens to a request when the detector can't check it.",
@@ -4839,14 +4874,88 @@
         "PERSON": "Person name",
         "LOCATION": "Location",
         "ORGANIZATION": "Organization",
-        "NRP": "Nationality, religious or political group"
+        "NRP": "Nationality, religious or political group",
+        "CREDIT_CARD": "Credit card number (Luhn-checked)",
+        "IBAN_CODE": "IBAN (checksum-validated)",
+        "ABA_ROUTING_NUMBER": "US bank routing number (ABA)",
+        "CRYPTO": "Crypto wallet address (Bitcoin)",
+        "US_NPI": "US National Provider Identifier (NPI)",
+        "MEDICAL_LICENSE": "US DEA registration number",
+        "UK_NHS": "UK NHS number",
+        "ES_NIF": "Spain NIF / DNI",
+        "ES_NIE": "Spain NIE (foreigner ID)",
+        "IT_FISCAL_CODE": "Italy fiscal code",
+        "DE_TAX_ID": "Germany tax ID (Steuer-ID)",
+        "PL_PESEL": "Poland PESEL",
+        "FI_PERSONAL_IDENTITY_CODE": "Finland personal identity code",
+        "SE_PERSONNUMMER": "Sweden personnummer",
+        "TR_NATIONAL_ID": "Turkey national ID (TC Kimlik)",
+        "AU_TFN": "Australia tax file number (TFN)",
+        "AU_ABN": "Australia business number (ABN)",
+        "AU_MEDICARE": "Australia Medicare number",
+        "IN_AADHAAR": "India Aadhaar number",
+        "KR_RRN": "South Korea resident registration number",
+        "ZA_ID_NUMBER": "South Africa ID number",
+        "IT_VAT_CODE": "Italy VAT number (partita IVA)",
+        "DE_VAT_ID": "Germany VAT ID (USt-IdNr.)",
+        "PHONE_NUMBER": "Phone number (international)",
+        "US_SSN": "US Social Security number",
+        "US_ITIN": "US taxpayer ID (ITIN)",
+        "US_PASSPORT": "US passport number",
+        "US_DRIVER_LICENSE": "US driver's license number",
+        "US_BANK_NUMBER": "US bank account number",
+        "US_MBI": "US Medicare Beneficiary ID (MBI)",
+        "UK_NINO": "UK National Insurance number",
+        "UK_PASSPORT": "UK passport number",
+        "UK_DRIVING_LICENCE": "UK driving licence number",
+        "UK_POSTCODE": "UK postcode",
+        "CA_SIN": "Canada Social Insurance Number",
+        "SG_NRIC_FIN": "Singapore NRIC / FIN",
+        "IN_PAN": "India PAN",
+        "IN_PASSPORT": "India passport number",
+        "IN_VOTER": "India voter ID",
+        "ES_PASSPORT": "Spain passport number",
+        "IT_DRIVER_LICENSE": "Italy driver's license number",
+        "IT_PASSPORT": "Italy passport number",
+        "IT_IDENTITY_CARD": "Italy identity card number",
+        "KR_PASSPORT": "South Korea passport number",
+        "PH_PASSPORT": "Philippines passport number"
+      },
+      "agentsTitle": "Agent policies",
+      "agentsDesc": "Choose the policy each agent adds. An agent's policy applies to every request that includes the agent, including the other agents' data in the same chat, and even on an Exempt provider. When several policies apply, the strictest option for each rule wins.",
+      "defaultAgentPolicy": "Default for agents",
+      "defaultAgentPolicyDesc": "Agents without their own choice use this policy.",
+      "noAgents": "No agents yet.",
+      "agentPolicyFor": "PII policy for {name}",
+      "noAgentPolicy": "No agent policy",
+      "inheritAgentPolicy": "Org default: {policy}",
+      "usedByAgents": "{n} agent | {n} agents",
+      "contextualTitle": "Need a nearby word",
+      "contextualNote": "No checksum, so most of these only match when a word such as \"passport\" or \"account\" is next to the value. That works in sentences and notes; in table rows the column name is usually not next to the value, so expect misses there. Checked in the user's prompt and the data, never in instructions or schemas.",
+      "termCount": "{n} term | {n} terms",
+      "terms": "Exact terms",
+      "termsHelp": "Words or phrases, one per line: code names, customer names, internal hostnames. Matched as whole words, ignoring case. Use with or instead of patterns.",
+      "termsPlaceholder": "Project Falcon\nAcme Corp",
+      "checksum": "Checksum",
+      "checksumHelp": "A match only counts when it passes this check, which drops most look-alike numbers.",
+      "checksumNone": "No checksum",
+      "contextWords": "Context words",
+      "contextWordsHelp": "Comma-separated. A match only counts when one of these words is within 60 characters of it.",
+      "contextWordsPlaceholder": "passport, passport no",
+      "checksumSummary": "Checksum: {name}",
+      "contextSummary": "Near: {words}",
+      "checksums": {
+        "luhn": "Luhn (card numbers, IMEI, Canada SIN)",
+        "iban": "IBAN (mod 97)",
+        "il_id": "Israeli ID (Teudat Zehut)",
+        "aba": "US bank routing number (ABA)"
       }
     },
     "adminPages": {
       "members": "Invite people to the workspace and manage their role, groups and access.",
       "roles": "Define what each role can see and do, then assign roles to members and groups.",
       "groups": "Organize members into groups to grant roles, quotas and data access together.",
-      "quotas": "Cap monthly AI and data usage for members, groups and roles.",
+      "quotas": "Cap daily and monthly AI and data usage for members, groups and roles.",
       "models": "Connect LLM providers and choose which models your workspace can use.",
       "identityProvider": "Sync users, groups and profile details from your identity provider.",
       "smtp": "The server that sends system emails — invites, report shares and scheduled-report results. When enabled, it overrides the server configured for this instance."
@@ -5415,6 +5524,42 @@
           "title": "Create an API token",
           "body": "In your Atlassian account go to Security > API tokens > Create API token with scopes, pick Bitbucket and grant read:repository:bitbucket. Leave Username empty. For a repository access token, set Username to x-token-auth."
         }
+      ],
+      "outlook_mail": [
+        {
+          "title": "Register an app in Microsoft Entra",
+          "body": "In the Microsoft Entra admin center go to App registrations > New registration. Choose \"Accounts in this organizational directory only\". From the app's Overview, copy the Directory (tenant) ID and the Application (client) ID into the fields below."
+        },
+        {
+          "title": "Add the redirect URI",
+          "body": "In the app go to Authentication > Add a platform > Web and paste this redirect URI."
+        },
+        {
+          "title": "Grant Microsoft Graph permissions",
+          "body": "In API permissions > Add a permission > Microsoft Graph > Delegated permissions, add Mail.Read, User.Read, offline_access, openid and profile. To let agents move, draft or send email, also add Mail.ReadWrite and Mail.Send. Then click \"Grant admin consent\" so users are not asked to approve the app. Use Delegated permissions only, not Application permissions: the connector reads only the signed-in user's mailbox."
+        },
+        {
+          "title": "Create a client secret",
+          "body": "In Certificates & secrets > New client secret, create a secret and copy its Value (not the Secret ID) into Client Secret below. You can't view the value again later."
+        }
+      ],
+      "hubspot": [
+        {
+          "title": "Create an MCP connector in HubSpot",
+          "body": "In your HubSpot account go to Development > MCP Connectors and click Create MCP connector. Give it a name."
+        },
+        {
+          "title": "Add the redirect URL",
+          "body": "Paste this URL into the connector's Redirect URL field, then click Create."
+        },
+        {
+          "title": "Copy the client ID and secret",
+          "body": "On the connector's details page, copy the Client ID and Client secret into the fields below."
+        },
+        {
+          "title": "Each user signs in",
+          "body": "You don't set scopes on the connector. Each user picks their HubSpot account and grants access when they sign in. The agent sees only what that user can see in HubSpot."
+        }
       ]
     },
     "setupGuideCopyFailed": "Copy failed — select the text",
@@ -5476,7 +5621,9 @@
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
-      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+      "unifyTablesTitle": "Unify tables across databases",
+      "unifyTablesDescription": "Join same-named tables across the matching databases into one table with a tenant_db column. Can't be changed after the connection is created."
     },
     "postgresqlMulti": {
       "databasesTitle": "Databases",
@@ -5673,7 +5820,7 @@
     "tool_permission_mode.allow_all_default_needs_switch": "Allow all can be the default only while it is turned on.",
     "tool_permission_mode.judge_model_unavailable": "Choose an enabled decision model for the Auto judge.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
-    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "connection.athena_mode_switch": "Cannot change an Athena connection between one database, several databases and unified tables. Create a new connection instead.",
     "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
@@ -5725,6 +5872,9 @@
     "license.enterprise_required": "This feature requires an enterprise license.",
     "locale.invalid": "Locale is not enabled",
     "report.not_found": "Report not found",
+    "rewind.target_not_found": "That message is no longer in this conversation",
+    "rewind.invalid_target": "You can only rewind to a prompt you sent",
+    "rewind.run_in_progress": "Wait for the current response to finish, then rewind",
     "entity.not_found": "Entity not found",
     "entity.run_failed": "The saved query failed to run. Ask its owner to check it.",
     "user.not_found": "User not found",
@@ -5869,7 +6019,8 @@
     "organization.name_taken": "An organization named “{name}” already exists.",
     "organization.signup_domains_instance_admin_required": "Only an instance administrator can assign sign-up domains to an organization.",
     "organization.signup_domain_claimed": "The domain {domain} is already assigned to another organization.",
-    "organization.member_instance_admin": "This account is an instance administrator. Only an instance administrator can add it to an organization."
+    "organization.member_instance_admin": "This account is an instance administrator. Only an instance administrator can add it to an organization.",
+    "workspace.access_required": "Your account can use the apps shared with you, but not the workspace."
   },
   "email": {
     "dashboardShare": {
@@ -7344,7 +7495,8 @@
       "windowNote": "Usage resets at the start of each month.",
       "dailyNote": "daily since the start of the month",
       "disabledTitle": "Usage tracking isn't enabled",
-      "disabledNote": "Per-user usage (tokens, queries, and data scanned) is tracked when the Usage Limits feature is enabled on your plan."
+      "disabledNote": "Per-user usage (tokens, queries, and data scanned) is tracked when the Usage Limits feature is enabled on your plan.",
+      "today": "Today: {used} / {limit}"
     },
     "appearance": {
       "title": "Appearance",
@@ -7913,7 +8065,9 @@
     "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
   },
   "quota": {
-    "resetsOn": "resets {date}"
+    "resetsOn": "resets {date}",
+    "todayLabel": "{metric} · today",
+    "resetsDailyAndMonthly": "Today resets 00:00 {tz} · month {monthly}"
   },
   "agentAutomation": {
     "nightlyTitle": "Learn overnight",
@@ -8593,7 +8747,8 @@
     "signin": {
       "working": "Signing you in…",
       "done": "Signed in. You can close this window.",
-      "invalid": "This sign-in link is incomplete. Close this window and try again."
+      "invalid": "This sign-in link is incomplete. Close this window and try again.",
+      "intentFailed": "Couldn't confirm the app you're signing in to. Nothing was sent. Try again."
     },
     "tab": {
       "title": "Embed",
@@ -8647,7 +8802,7 @@
     "audience": "Audience",
     "audienceHelp": "The aud of the ID tokens your provider issues to this application",
     "createUsers": "Create people on first sign-in",
-    "createUsersHelp": "Someone the directory knows but BOW doesn't yet joins as a member. Otherwise they must exist already (invited or provisioned).",
+    "createUsersHelp": "Someone the directory knows but BOW doesn't yet gets an account on first sign-in, with the role below. Otherwise they must exist already (invited or provisioned).",
     "createsUsers": "creates people",
     "create": "Create",
     "keyOnce": "Copy the private key now and store it in your application's backend secrets. It is shown only once; BOW keeps the public key only.",
@@ -8668,7 +8823,14 @@
     "delete": "Delete",
     "deleteConfirm": "Delete {name}? Its embeds stop working and everyone is signed out.",
     "backendExample": "Backend example",
-    "backendExampleHelp": "Sign one assertion per sign-in, for the user your application has signed in:"
+    "backendExampleHelp": "Sign one assertion per sign-in, for the user your application has signed in:",
+    "newUserRole": "New people join as",
+    "newUserRoleHelp": "For accounts created by signing in through this application. People who already have an account keep their role.",
+    "newUserRoleApp": "App user",
+    "newUserRoleAppHelp": "Can use the apps shared with them, not the workspace.",
+    "newUserRoleMember": "Member",
+    "newUserRoleMemberHelp": "Can also use the workspace: reports, agents and dashboards.",
+    "newPeopleAs": "new people join as {role}"
   },
   "connectedApps": {
     "title": "Connected applications",
@@ -8725,6 +8887,10 @@
     "shareToggleLabel": "Make available to everyone in your org",
     "shareToggleHint": "Adds “{name}” to everyone's connectors. Each person signs in with their own account — nobody sees anyone else's data.",
     "useAsAgent": "Use as agent",
+    "enableForChat": "Turn on for chat",
+    "disableForChat": "Turn off for chat",
+    "enabledHint": "On — the AI can use this in chat",
+    "disabledHint": "Off — the AI won't use this in chat",
     "movedToAgents": "{name} is now an agent"
   },
   "tablePreview": {
@@ -8831,6 +8997,13 @@
       "none": "No cap",
       "ask": "Ask",
       "auto": "Auto"
+    },
+    "pii": {
+      "title": "PII policy",
+      "hint": "Applies to every request that includes this agent, on top of the model's own policy. The strictest option for each rule wins.",
+      "disabled": "PII protection is off for this organization.",
+      "saved": "PII policy saved",
+      "saveError": "Couldn't save the PII policy"
     }
   },
   "productUpdates": {
@@ -9221,5 +9394,42 @@
       "key": "identifier",
       "set_by_admin": "set by an admin"
     }
+  },
+  "connectionlessAgent": {
+    "optional": "(optional)",
+    "createHint": "Leave empty to build the agent from instructions and files only. You can link a connection later.",
+    "badge": "No connections",
+    "landingHint": "No data connections. This agent answers from its instructions and files.",
+    "addConnection": "Add connection",
+    "unlinkLastConfirm": "Unlink the last connection? The agent is kept, with its instructions and files, but no data connection.",
+    "deleteKeepsAgents": "Agents are kept. An agent that uses only this connection will have no data connection until you link another.",
+    "impactLoadFailed": "Couldn't load what this delete affects.",
+    "deleteRemovesConnectors": "Deleted with it (connectors that use only this connection): {names}"
+  },
+  "apps": {
+    "title": "Your apps",
+    "subtitle": "Open an app to get started.",
+    "openWorkspace": "Open workspace",
+    "search": "Search apps",
+    "untitled": "Untitled app",
+    "inApplication": "In {name}",
+    "allApps": "All apps",
+    "language": "Language",
+    "account": "Account",
+    "signOut": "Sign out",
+    "loadFailed": "Couldn't load your apps.",
+    "retry": "Try again",
+    "noMatches": "No apps match “{query}”.",
+    "empty": {
+      "title": "No apps yet",
+      "body": "When someone shares an app with you, it will show up here."
+    },
+    "requestAccess": {
+      "prompt": "Need more than these apps?",
+      "button": "Request full access",
+      "sent": "Request sent. An admin will review it.",
+      "failed": "Couldn't send the request. Try again."
+    },
+    "showMore": "Show more"
   }
 }

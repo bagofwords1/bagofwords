@@ -148,6 +148,7 @@ class HostApplicationService:
             organization_id=str(organization.id), public_id=PUBLIC_ID_PREFIX + secrets.token_hex(10),
             name=payload.name, enabled=payload.enabled, allowed_origins=list(payload.allowed_origins),
             identity_mode=payload.identity_mode, identity_source=source, create_users=create_users,
+            new_user_role=payload.new_user_role,
             issuer=payload.issuer if payload.identity_mode == "assertion" else None,
             audience=payload.audience if payload.identity_mode == "idp_token" else None,
             public_key=public_pem, key_fingerprint=fingerprint, epoch=1, revision=1,
@@ -176,6 +177,9 @@ class HostApplicationService:
             host.allowed_origins = list(payload.allowed_origins)
         if payload.enabled is not None:
             host.enabled = bool(payload.enabled)
+        if payload.new_user_role is not None:
+            # Applies to users created from now on; nobody's role changes.
+            host.new_user_role = payload.new_user_role
         mode = payload.identity_mode or host.identity_mode
         source = host.identity_source if payload.identity_source is None else payload.identity_source
         issuer = host.issuer if payload.issuer is None else (payload.issuer or None)

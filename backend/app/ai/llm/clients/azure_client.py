@@ -293,6 +293,7 @@ class AzureClient(LLMClient):
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
+        require_tool: bool = False,
     ) -> AsyncIterator[LLMStreamEvent]:
         oai_messages: list[dict] = []
         if system:
@@ -311,7 +312,7 @@ class AzureClient(LLMClient):
         }
         if tools:
             request_kwargs["tools"] = self._translate_tools(tools)
-            request_kwargs["tool_choice"] = "auto"
+            request_kwargs["tool_choice"] = "required" if require_tool else "auto"
             # BOW_FORCE_PARALLEL_TOOLS relaxes single-tool mode (mirrors
             # anthropic_client) so concurrent multi-tool dispatch can run.
             if os.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):

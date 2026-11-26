@@ -10,6 +10,8 @@ Stored shape (``OrganizationSettings.config["pii_protection"]``)::
       default: {name, mode, redact_context, builtin_overrides, custom_overrides}
       <slug>:  {...}
     provider_policies: {<llm_provider_id>: <policy_id> | "exempt"}
+    agent_policies: {<data_source_id>: <policy_id> | ":none"}
+    default_agent_policy: ":none" | <policy_id>
     display_policy: default
 
 * ``builtin_overrides`` / ``custom_overrides`` map a rule id to
@@ -17,6 +19,11 @@ Stored shape (``OrganizationSettings.config["pii_protection"]``)::
   (enabled, the policy's ``mode``, the rule's own token).
 * ``exempt`` is built in: it has no rules, is never stored under ``policies``,
   and is only ever a provider assignment.
+* ``agent_policies`` / ``default_agent_policy`` (see
+  ``docs/design/pii-agent-policies.md``): an agent's policy applies to every
+  LLM call the agent takes part in, merged with the provider's policy so the
+  strictest option for each rule wins (:func:`merge_policies`). An agent with
+  no assignment uses ``default_agent_policy``; ``none`` means no agent policy.
 * ``redact_context`` (default False) also redacts instructions, schemas and the
   other platform context (see :mod:`.context`); by default only the prompt and
   the data are redacted.
@@ -37,16 +44,28 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .builtin_rules import BUILTIN_PII_RULES
-from .detectors.catalog import DEFAULT_MIN_SCORE, DETECTOR_ENTITIES, DETECTOR_PREFIX, detector_entity
+from .checks import MAX_CONTEXT_WORDS, MAX_TERM_CHARS, MAX_TERMS, VALIDATORS
+from .detectors.catalog import DETECTOR_ENTITIES, DETECTOR_PREFIX, default_min_score, detector_entity
 from .redactor import VALID_ACTIONS, VALID_MODES, DetectorRule, PiiRedactor, _resolve_rules, token_label
 
 DEFAULT_POLICY = "default"
 EXEMPT_POLICY = "exempt"
+# Agent assignment meaning "no agent policy" (only the provider's applies).
+# The leading colon keeps it apart from every policy id (POLICY_ID_RE starts
+# with a letter or digit), so an existing policy named "none" stays valid.
+NO_AGENT_POLICY = ":none"
 RESERVED_POLICY_IDS = (DEFAULT_POLICY, EXEMPT_POLICY)
+# Action strength for merging: a merged rule takes the strongest action any
+# input policy gives it. mask leaks part of the value, pseudonymize leaks
+# equality between values, replace leaks nothing, block sends nothing.
+ACTION_STRENGTH = {"mask": 1, "pseudonymize": 2, "replace": 3, "block": 4}
 POLICY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 MAX_POLICIES = 20
 RULE_OPTION_KEYS = ("enabled", "action", "replacement")
 BUILTIN_RULE_IDS = frozenset(spec["id"] for spec in BUILTIN_PII_RULES)
+# Built-in rules added later ship off, so an existing policy never starts
+# redacting more without an admin choosing it.
+BUILTIN_ON_BY_DEFAULT = {spec["id"]: spec.get("enabled_by_default", True) for spec in BUILTIN_PII_RULES}
 DETECTOR_ENTITY_IDS = frozenset(e["id"] for e in DETECTOR_ENTITIES)
 DETECTOR_ERROR_MODES = ("block", "regex_only")
 
@@ -54,6 +73,15 @@ DETECTOR_ERROR_MODES = ("block", "regex_only")
 def custom_rule_id(raw: Dict[str, Any]) -> str:
     """A custom rule's id, derived exactly as the pre-policy resolver did."""
     return str(raw.get("id") or raw.get("name") or "custom")
+
+
+def _clean_words(raw: Any, limit: int, max_chars: int) -> List[str]:
+    """A list of distinct, non-empty strings, in order, within the limits."""
+    out: List[str] = []
+    for w in raw if isinstance(raw, (list, tuple)) else []:
+        if isinstance(w, str) and w.strip() and len(w.strip()) <= max_chars and w.strip() not in out:
+            out.append(w.strip())
+    return out[:limit]
 
 
 def _clean_options(raw: Any) -> Dict[str, Any]:
@@ -150,6 +178,11 @@ def normalize(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             "name": str(r.get("name") or rid),
             "patterns": patterns,
             "replacement": r.get("replacement") if isinstance(r.get("replacement"), str) and r.get("replacement") else "[REDACTED]",
+            # Optional conditions (see checks.py): exact terms, a checksum,
+            # context words that must appear near a match.
+            "terms": _clean_words(r.get("terms"), MAX_TERMS, MAX_TERM_CHARS),
+            "checksum": r.get("checksum") if r.get("checksum") in VALIDATORS else None,
+            "context": _clean_words(r.get("context"), MAX_CONTEXT_WORDS, MAX_TERM_CHARS),
         })
         opts = {k: r[k] for k in ("enabled", "action") if k in r}
         cleaned = _clean_options(opts)
@@ -206,12 +239,26 @@ def normalize(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         prov: pol for prov, pol in provider_policies.items()
         if pol == EXEMPT_POLICY or (pol in policies and pol != DEFAULT_POLICY)
     }
+    # Agent assignments: a policy (never Exempt: agents only tighten) or
+    # ":none". An assignment to a policy that no longer exists is dropped, so
+    # the agent inherits the default agent policy again.
+    agent_policies: Dict[str, str] = {}
+    ap = raw.get("agent_policies")
+    if isinstance(ap, dict):
+        for agent_id, pid in ap.items():
+            if not isinstance(agent_id, str) or not agent_id.strip() or not isinstance(pid, str):
+                continue
+            if pid == NO_AGENT_POLICY or pid in policies:
+                agent_policies[agent_id.strip()] = pid
+    default_agent = raw.get("default_agent_policy")
     display = raw.get("display_policy")
     return {
         "enabled": bool(raw.get("enabled", False)),
         "custom_rules": custom_rules,
         "policies": policies,
         "provider_policies": provider_policies,
+        "agent_policies": agent_policies,
+        "default_agent_policy": default_agent if default_agent in policies else NO_AGENT_POLICY,
         "display_policy": display if display in policies else DEFAULT_POLICY,
     }
 
@@ -261,6 +308,10 @@ def apply_update(existing: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, 
         }
     if isinstance(update.get("display_policy"), str):
         cfg["display_policy"] = update["display_policy"]
+    if "agent_policies" in update and isinstance(update["agent_policies"], dict):
+        cfg["agent_policies"] = dict(update["agent_policies"])
+    if isinstance(update.get("default_agent_policy"), str):
+        cfg["default_agent_policy"] = update["default_agent_policy"]
 
     if is_v2(update):
         incoming = normalize({"custom_rules": update.get("custom_rules") or [], "policies": update["policies"]})
@@ -298,6 +349,9 @@ def policy_as_rule_set(cfg: Dict[str, Any], policy_id: str) -> Dict[str, Any]:
             "id": r["id"],
             "name": r["name"],
             "patterns": r["patterns"],
+            "terms": r.get("terms") or [],
+            "checksum": r.get("checksum"),
+            "context": r.get("context") or [],
             "replacement": opts.get("replacement") or r["replacement"],
             "enabled": opts.get("enabled", True),
             "action": opts.get("action"),
@@ -323,7 +377,7 @@ def _resolve_detector_rules(pol: Dict[str, Any]) -> List[DetectorRule]:
             entity=spec["id"],
             replacement=opts.get("replacement") or spec["replacement"],
             action=opts.get("action") if opts.get("action") in VALID_ACTIONS else pol["mode"],
-            min_score=opts.get("min_score", DEFAULT_MIN_SCORE),
+            min_score=opts.get("min_score", default_min_score(spec["id"])),
             label=token_label(spec["id"]),
         ))
     return rules
@@ -350,14 +404,132 @@ def compile_policy(cfg: Dict[str, Any], policy_id: str) -> Optional[PiiRedactor]
     )
 
 
+def _rule_state(overrides: Dict[str, Any], rid: str, mode: str, *, enabled_by_default: bool) -> Optional[Dict[str, Any]]:
+    """A rule's effective options in one policy, or None when it is off."""
+    ov = overrides.get(rid, {})
+    if not ov.get("enabled", enabled_by_default):
+        return None
+    action = ov.get("action") if ov.get("action") in VALID_ACTIONS else mode
+    return {"action": action, "replacement": ov.get("replacement"), "min_score": ov.get("min_score")}
+
+
+def _merge_rule(states: List[Optional[Dict[str, Any]]], *, detector: bool, default_score: float = 0.7) -> Dict[str, Any]:
+    on = [st for st in states if st is not None]
+    if not on:
+        return {"enabled": False}
+    # Strongest action; on a tie the first policy in merge order keeps its token.
+    winner = max(on, key=lambda st: ACTION_STRENGTH.get(st["action"], 0))
+    out: Dict[str, Any] = {"enabled": True, "action": winner["action"]}
+    if winner.get("replacement"):
+        out["replacement"] = winner["replacement"]
+    if detector:
+        out["min_score"] = min(
+            st["min_score"] if st.get("min_score") is not None else default_score for st in on
+        )
+    return out
+
+
+def merge_policies(cfg: Dict[str, Any], policy_ids: List[str]) -> Dict[str, Any]:
+    """One policy at least as strict as each of ``policy_ids`` (in a
+    normalized config). Per rule: on if any input turns it on, with the
+    strongest action (block > replace > pseudonymize > mask); detectors take
+    the lowest ``min_score``; ``mode``, ``on_detector_error`` and
+    ``redact_context`` take their strictest value. Every rule's options are
+    written out explicitly, so the result compiles like any stored policy."""
+    pols = [cfg["policies"][pid] for pid in policy_ids]
+    builtin = {
+        rid: _merge_rule(
+            [_rule_state(p["builtin_overrides"], rid, p["mode"], enabled_by_default=BUILTIN_ON_BY_DEFAULT[rid]) for p in pols],
+            detector=False,
+        )
+        for rid in sorted(BUILTIN_RULE_IDS)
+    }
+    custom = {
+        r["id"]: _merge_rule(
+            [_rule_state(p["custom_overrides"], r["id"], p["mode"], enabled_by_default=True) for p in pols],
+            detector=False,
+        )
+        for r in cfg["custom_rules"]
+    }
+    detectors = {}
+    for eid in sorted(DETECTOR_ENTITY_IDS):
+        merged = _merge_rule(
+            [_rule_state(p["detector_overrides"], eid, p["mode"], enabled_by_default=False) for p in pols],
+            detector=True, default_score=default_min_score(eid),
+        )
+        if merged["enabled"]:
+            detectors[eid] = merged
+    return {
+        "name": " + ".join(p["name"] for p in pols),
+        "mode": "block" if any(p["mode"] == "block" for p in pols) else "replace",
+        "redact_context": any(p["redact_context"] for p in pols),
+        "builtin_overrides": builtin,
+        "custom_overrides": custom,
+        "detector_overrides": detectors,
+        "on_detector_error": "block" if any(p["on_detector_error"] == "block" for p in pols) else "regex_only",
+    }
+
+
 @dataclass
 class CompiledPiiConfig:
-    """An org's compiled policies and provider assignments."""
+    """An org's compiled policies and provider / agent assignments."""
 
     enabled: bool
     policies: Dict[str, Optional[PiiRedactor]] = field(default_factory=dict)
     provider_policies: Dict[str, str] = field(default_factory=dict)
     display_policy: str = DEFAULT_POLICY
+    agent_policies: Dict[str, str] = field(default_factory=dict)
+    default_agent_policy: str = NO_AGENT_POLICY
+    # The normalized config, for merging policies on demand.
+    cfg: Dict[str, Any] = field(default_factory=dict)
+    # Merged redactors, by the tuple of policy ids they merge.
+    _merged: Dict[tuple, Optional[PiiRedactor]] = field(default_factory=dict)
+
+    def policy_id_for_agent(self, agent_id: str) -> str:
+        """The agent's own assignment, else the default agent policy."""
+        return self.agent_policies.get(str(agent_id), self.default_agent_policy)
+
+    def agent_policy_ids(self, agent_ids: Optional[Any]) -> List[str]:
+        """Policies the agents in scope add to a call, sorted. ``None`` is an
+        unknown scope: every policy any agent could have (fail closed)."""
+        if agent_ids is None:
+            ids = set(self.agent_policies.values()) | {self.default_agent_policy}
+        else:
+            ids = {self.policy_id_for_agent(a) for a in agent_ids}
+        return sorted(pid for pid in ids if pid != NO_AGENT_POLICY and pid in self.policies)
+
+    def policy_ids_for_call(self, provider_id: Optional[str], agent_ids: Optional[Any]) -> List[str]:
+        """Provider policy first (unless Exempt), then the agents' policies."""
+        ids: List[str] = []
+        prov = self.policy_id_for_provider(provider_id)
+        if prov != EXEMPT_POLICY:
+            ids.append(prov)
+        for pid in self.agent_policy_ids(agent_ids):
+            if pid not in ids:
+                ids.append(pid)
+        return ids
+
+    def for_call(self, provider_id: Optional[str], agent_ids: Optional[Any]) -> Optional[PiiRedactor]:
+        """The redactor for a prompt sent to ``provider_id`` on behalf of
+        ``agent_ids`` (``None``: unknown). An agent policy applies even when
+        the provider is Exempt; None = send as is."""
+        if not self.enabled:
+            return None
+        # A policy with no active rule (compiled to None) adds nothing.
+        ids = [pid for pid in self.policy_ids_for_call(provider_id, agent_ids) if self.policies.get(pid) is not None]
+        if not ids:
+            return None
+        if len(ids) == 1:
+            return self.policies.get(ids[0])
+        key = tuple(ids)
+        if key not in self._merged:
+            merged_id = "+".join(ids)
+            cfg = {**self.cfg, "policies": {**self.cfg["policies"], merged_id: merge_policies(self.cfg, ids)}}
+            merged = compile_policy(cfg, merged_id)
+            if merged is not None:
+                merged.resolve_overlaps = True
+            self._merged[key] = merged
+        return self._merged[key]
 
     def policy_id_for_provider(self, provider_id: Optional[str]) -> str:
         pol = self.provider_policies.get(str(provider_id)) if provider_id else None
@@ -390,6 +562,9 @@ def compile_config(raw: Optional[Dict[str, Any]]) -> CompiledPiiConfig:
         policies={pid: compile_policy(cfg, pid) for pid in cfg["policies"]},
         provider_policies=dict(cfg["provider_policies"]),
         display_policy=cfg["display_policy"],
+        agent_policies=dict(cfg["agent_policies"]),
+        default_agent_policy=cfg["default_agent_policy"],
+        cfg=cfg,
     )
 
 
@@ -413,7 +588,7 @@ def validate_update(update: Dict[str, Any], existing: Optional[Dict[str, Any]] =
             or any(not isinstance(x, str) or not x.strip() for x in exempt)
         ):
             raise PolicyValidationError("exempt_provider_ids must be a list of provider ids.")
-    if "policies" not in update and "provider_policies" not in update:
+    if not any(k in update for k in ("policies", "provider_policies", "agent_policies", "default_agent_policy")):
         return
     policies = update.get("policies")
     if "policies" in update:
@@ -473,6 +648,22 @@ def validate_update(update: Dict[str, Any], existing: Optional[Dict[str, Any]] =
                 continue
             if pol not in known:
                 raise PolicyValidationError(f"Unknown PII policy {pol!r} assigned to a provider.")
+    known = set(policies.keys()) if isinstance(policies, dict) else set(normalize(existing)["policies"])
+    if "agent_policies" in update:
+        ap = update.get("agent_policies")
+        if not isinstance(ap, dict):
+            raise PolicyValidationError("agent_policies must map agent ids to policy ids.")
+        for agent_id, pid in ap.items():
+            if not isinstance(agent_id, str) or not agent_id.strip() or not isinstance(pid, str):
+                raise PolicyValidationError("agent_policies must map agent ids to policy ids.")
+            if pid == EXEMPT_POLICY:
+                raise PolicyValidationError("An agent can't be assigned Exempt: agent policies only add redaction.")
+            if pid != NO_AGENT_POLICY and pid not in known:
+                raise PolicyValidationError(f"Unknown PII policy {pid!r} assigned to an agent.")
+    if "default_agent_policy" in update:
+        dap = update.get("default_agent_policy")
+        if not isinstance(dap, str) or dap == EXEMPT_POLICY or (dap != NO_AGENT_POLICY and dap not in known):
+            raise PolicyValidationError(f"default_agent_policy must be {NO_AGENT_POLICY!r} or an existing policy.")
 
 
 def diff_for_audit(old: Dict[str, Any], new: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -503,4 +694,18 @@ def diff_for_audit(old: Dict[str, Any], new: Dict[str, Any]) -> List[Dict[str, A
     ]
     if changes:
         entries.append({"action": "pii_protection.provider_policies_updated", "details": {"changes": changes}})
+    old_ag, new_ag = old.get("agent_policies") or {}, new.get("agent_policies") or {}
+    agent_changes = [
+        {"agent_id": agent_id,
+         "from": old_ag.get(agent_id, "inherit"),
+         "to": new_ag.get(agent_id, "inherit")}
+        for agent_id in sorted(set(old_ag) | set(new_ag))
+        if old_ag.get(agent_id) != new_ag.get(agent_id)
+    ]
+    if agent_changes:
+        entries.append({"action": "pii_protection.agent_policies_updated", "details": {"changes": agent_changes}})
+    old_d = old.get("default_agent_policy") or NO_AGENT_POLICY
+    new_d = new.get("default_agent_policy") or NO_AGENT_POLICY
+    if old_d != new_d:
+        entries.append({"action": "pii_protection.default_agent_policy_updated", "details": {"from": old_d, "to": new_d}})
     return entries

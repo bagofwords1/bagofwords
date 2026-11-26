@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.services.artifact_payload import row_count_fields
+from app.ai.tools.implementations._artifact_parse import ParseCheckUnavailable, parse_check_page_code
 from app.ai.tools.mcp.base import MCPTool
 from app.errors.redact import describe_for_log
 from app.ai.tools.mcp.context import build_rich_context
@@ -208,6 +209,17 @@ class CreateArtifactMCPTool(MCPTool):
 
         # Build visualization IDs list
         included_viz_ids = [v["id"] for v in visualizations]
+
+        if input_data.mode == "page":
+            try:
+                diagnostic = await parse_check_page_code(code)
+            except ParseCheckUnavailable as exc:
+                diagnostic = str(exc)
+            if diagnostic:
+                await self._finish_tracking(db, tracking, success=False, summary="Artifact JSX validation failed")
+                return MCPCreateArtifactOutput(
+                    report_id=str(report.id), success=False, error_message=diagnostic,
+                ).model_dump()
 
         # Create Artifact record
         artifact = await new_artifact(

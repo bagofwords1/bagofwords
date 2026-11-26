@@ -638,8 +638,16 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         return system
 
     # Delivery surfaces that turn a `{{cite:<id>}}` marker into something a
-    # reader can use. "" is the web report.
-    _CITATION_PLATFORMS = frozenset({"", "slack", "teams", "whatsapp", "google_chat"})
+    # reader can use. "" is the web report (clickable source chips).
+    #
+    # Chat channels split by whether the cited figure is visible there:
+    #   - Teams / Google Chat do NOT render create_data charts inline (the user
+    #     sees only text), so the "[1] <title>" footnote is their only pointer
+    #     to where a number came from — it earns its place.
+    #   - WhatsApp / Slack DO deliver the chart as an image in the same turn,
+    #     so the footnote only repeats a title the user already sees and the
+    #     "[1]" has nothing to open — pure clutter. They are left out.
+    _CITATION_PLATFORMS = frozenset({"", "teams", "google_chat"})
 
     @staticmethod
     def _citations_enabled(planner_input: PlannerInput) -> bool:
@@ -715,6 +723,22 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
                 "it returns an error (e.g. no image-generation model is enabled for the org), say "
                 "plainly that you can't generate images right now — do not describe an imaginary "
                 "picture as if you made one.\n"
+                "- attach_file delivers a document to the user over WhatsApp. When the user "
+                "wants the FILE itself — \"send me\", \"bring me\", \"get me\" the contract / "
+                "report / invoice / sheet — locate the right file (list_files / search_files, "
+                "read_file to confirm it's the correct one) and then call attach_file on it; "
+                "the attached file is sent to them. Attach ONLY the file(s) they actually want: "
+                "files you read_file while searching are NOT delivered, so never attach a "
+                "candidate you looked at and ruled out. For a question ABOUT a document (\"what "
+                "does the contract say about X\"), just read it and answer in text — don't "
+                "attach.\n"
+                "- create_doc delivers its document to the user over WhatsApp as a PDF. When "
+                "the user wants a written deliverable — \"prepare an analysis\", \"write me a "
+                "report\", \"send it as a PDF/document\" — author it with create_doc; the "
+                "document is rendered and sent to them as a PDF file. Do NOT tell the user you "
+                "can't produce or attach a PDF — creating the document IS how it reaches them. "
+                "A plain-prose answer still goes in your text; use create_doc when they asked "
+                "for a document/file, not for every reply.\n"
                 "- The chart image shows ONE series only, and puts exact values on the bars of a "
                 "bar_chart only. For a single-series bar_chart, give the one or two takeaways (the "
                 "leader, a notable gap) in 1-2 sentences, e.g. \"Revenue was $1.2M, up 8% MoM\" — "
