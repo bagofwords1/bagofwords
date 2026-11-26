@@ -41,12 +41,15 @@ async def get_permissions_registry(current_user: User = Depends(current_user)):
         PERMISSION_CATEGORIES, RESOURCE_PERMISSIONS,
         MERGED_CATEGORIES, RESOURCE_SCOPED_GROUPS,
     )
-    return {
+    from app.services.sandbox.feature import extend_role_editor_payload
+    # The sandbox permissions are offered only while agent sandboxes exist for
+    # this deployment; with the flag off the payload is what it always was.
+    return extend_role_editor_payload({
         "categories": PERMISSION_CATEGORIES,
         "resource_permissions": RESOURCE_PERMISSIONS,
         "merged_categories": MERGED_CATEGORIES,
         "resource_scoped_groups": RESOURCE_SCOPED_GROUPS,
-    }
+    })
 
 
 # ── Roles ────────────────────────────────────────────────────────────────

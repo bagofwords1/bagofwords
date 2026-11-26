@@ -130,6 +130,7 @@ from app.routes import (
     agent_lists,
     changelog,
     app_log,
+    sandbox,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -349,6 +350,10 @@ app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
 app.include_router(app_log.router, prefix="/api")
+# Agent sandboxes. Always registered so a disabled deployment answers
+# `agent_sandboxes.disabled` rather than a bare 404; the router's own
+# dependency is the gate (app/services/sandbox/feature.py).
+app.include_router(sandbox.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")
 app.include_router(metadata_resource.router, prefix="/api")
 app.include_router(bow_settings.router, prefix="/api")

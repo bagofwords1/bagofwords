@@ -136,6 +136,8 @@ class ErrorCode(str, Enum):
     SYSTEM_LOGS_INVALID_RANGE = "system_logs.invalid_range"
     SYSTEM_LOGS_DELETE_FAILED = "system_logs.delete_failed"
     SYSTEM_LOGS_DISABLED = "system_logs.disabled"
+    # Agent sandboxes (Settings → Sandbox); see app/services/sandbox/feature.py
+    AGENT_SANDBOXES_DISABLED = "agent_sandboxes.disabled"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
