@@ -309,9 +309,9 @@ async def list_backend_types(
     """The backend types this deployment offers, each with the form it needs
     (config and credentials schemas) and what it can support."""
     described = []
-    for backend_type in driver_registry.backend_types():
+    for entry in driver_registry.backend_types():
         try:
-            described.append(driver_registry.describe_type(backend_type.name))
+            described.append(driver_registry.describe_type(entry.name))
         except SandboxDriverError as exc:
             raise AppError("sandbox.invalid_request", exc.message, status_code=500)
     return described
