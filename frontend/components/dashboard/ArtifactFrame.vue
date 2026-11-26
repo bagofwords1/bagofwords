@@ -498,7 +498,7 @@
       <!-- Iframe Render Error State -->
       <div v-else-if="iframeError" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
         <Icon name="heroicons:exclamation-triangle" class="w-8 h-8 text-red-400 mb-3" />
-        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dashboard failed to render</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('artifactFrame.renderFailedTitle') }}</h3>
         <!-- A viewer missing some charts' data: the likely cause is artifact
              code that assumed those rows exist. They cannot fix it (it is not
              their dashboard), so explain instead of offering Fix Error. -->
@@ -516,7 +516,7 @@
           variant="soft"
         >
           <Icon name="heroicons:wrench-screwdriver" class="w-4 h-4" />
-          Fix Error
+          {{ t('artifactFrame.fixError') }}
         </UButton>
       </div>
 
@@ -684,6 +684,7 @@ import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, arti
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 
 import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt } from '~/utils/polishPrompt';
+import { buildFixErrorPrompt } from '~/utils/fixErrorPrompt';
 import { newestVersionOf } from '~/utils/artifactVersionLatest';
 import { artifactRowCounts } from '~/utils/artifactRowCounts';
 import { artifactFramePayload, postWithJsonFallback } from '~/utils/artifactFramePayload';
@@ -2653,15 +2654,17 @@ function generateDashboardPrompt() {
   }));
 }
 
-// Fix render error - prefill prompt with error details
+// Fix render error - send a fix request for the render error straight away.
+// Chat shows it as a FixErrorRequestCard (see utils/fixErrorPrompt.ts).
 function fixRenderError() {
-  const errorMsg = iframeError.value || 'Unknown error';
-  const artifactTitle = selectedArtifact.value?.title || 'the dashboard';
-  const artifactId = selectedArtifact.value?.id || selectedArtifactId.value || '';
-  const prompt = `The dashboard "${artifactTitle}" (artifact_id: ${artifactId}) failed to render with this error:\n\`\`\`\n${errorMsg}\n\`\`\`\nPlease fix the artifact code so it renders correctly.`;
+  const prompt = buildFixErrorPrompt({
+    title: selectedArtifact.value?.title || 'the dashboard',
+    artifactId: String(selectedArtifact.value?.id || selectedArtifactId.value || ''),
+    error: iframeError.value || 'Unknown error',
+  });
 
   window.dispatchEvent(new CustomEvent('prompt:prefill', {
-    detail: { text: prompt, autoSubmit: false }
+    detail: { text: prompt, autoSubmit: true }
   }));
 }
 
