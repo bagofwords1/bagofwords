@@ -309,7 +309,8 @@ jobs:
 
     # The artifact JSX syntax check runs the vendored Babel compiler
     # (tests/unit/test_artifact_parse.py); without these files it reports the
-    # compiler as unavailable.
+    # compiler as unavailable. The browser cases in test_artifact_precompile.py
+    # still skip here: this job has no Chromium.
     - name: Download vendored artifact libraries
       run: bash scripts/download-vendor-libs.sh frontend/public/libs
 

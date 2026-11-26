@@ -25,10 +25,12 @@ try:
 except Exception:  # pragma: no cover
     LIBS, HAVE_BABEL = None, False
 
+
 def _have_chromium() -> bool:
-    """A Chromium the compiler can launch: BOW_CHROMIUM_EXECUTABLE, else
-    Playwright's own download. The Python package alone isn't enough; CI's
-    backend jobs install it without a browser."""
+    """A Chromium executable for the compiler: BOW_CHROMIUM_EXECUTABLE, else
+    Playwright's own download (checked to exist, not launched). The Python
+    package alone isn't enough; CI's backend jobs install it without a
+    browser."""
     exe = os.environ.get("BOW_CHROMIUM_EXECUTABLE")
     if exe:
         return os.path.exists(exe)
@@ -44,7 +46,7 @@ HAVE_CHROMIUM = _have_chromium()
 
 requires_browser_babel = pytest.mark.skipif(
     not (HAVE_BABEL and HAVE_CHROMIUM),
-    reason="needs vendored babel-standalone (scripts/download-vendor-libs.sh) and a Chromium Playwright can launch",
+    reason="needs vendored babel-standalone (scripts/download-vendor-libs.sh) and a Chromium executable",
 )
 
 
