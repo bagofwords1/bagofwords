@@ -533,7 +533,10 @@ Phase 2 and later in BOW-229. Not built unless noted.
    directory and the token hash; the client enforces the limits.
 4. **Unreachable backends and tool visibility.** `choose_backend` skips a backend whose
    status is `unreachable`; `tools_offered` does not. With only an unreachable backend
-   the tools are offered and the run answers `sandbox.no_backend`.
+   the tools are offered and the run answers `sandbox.no_backend`. This is kept on
+   purpose for now: an outage is temporary, and an agent that has the tools can tell
+   the user the server is down, where an agent without them can only say it cannot
+   run code. Whether to hide the tools after a longer outage is undecided.
 5. **Images by digest.** The issue says an image is pinned by digest when saved. The
    digest is recorded after the background pull. A locally built or preloaded image
    may have none, and the sandbox is then created from the tag.
