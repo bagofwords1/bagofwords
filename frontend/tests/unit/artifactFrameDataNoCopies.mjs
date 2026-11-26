@@ -68,7 +68,7 @@ const dataWatcher = ast.statements.find((s) => ts.isExpressionStatement(s)
 assert.ok(dataWatcher, 'the frame re-sends its data when it changes (watcher)')
 
 const FUNCTIONS = ['fetchData', 'runParamQueries', 'sendDataToIframe', 'paramSubsetForQuery', 'queriesWithIdentityParams', 'replaceVisualizationsData',
-  'handleIframeMessage', 'frameContext', 'frameHasSeedData', 'postHeldParamsStatus']
+  'handleIframeMessage', 'frameContext', 'frameHasSeedData', 'postHeldParamsStatus', 'selectedLoadInFlight']
 const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'dataLoadsInFlight', 'loadSent', 'sendHeld', 'heldParamsStatus', 'builtSrcdoc', 'srcdocSeed', 'seededFrom'].filter(declaration)
 const present = FUNCTIONS.filter(fn)
 const frameCode = "'use strict';\n" + transpile([

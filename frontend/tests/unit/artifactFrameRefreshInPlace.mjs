@@ -47,6 +47,8 @@ const watchers = [
   // Whatever the frame does when its srcdoc changes (absent before this change).
   ...statement(/^watch\(\(?\)? ?=?>? ?iframeSrcdoc/),
   ...statement(/^watch\(iframeSrcdoc\b/),
+  // Another artifact selected: what was held goes to the document still shown.
+  ...statement(/^watch\(selectedArtifactId, releaseHeld\b/),
   // The theme toggle: posted to the live frame, not a srcdoc input.
   ...statement(/^watch\(\(\) => colorMode\.value/),
 ]
@@ -54,7 +56,7 @@ assert.ok(watchers.length >= 1, 'the frame re-sends its data when it changes (wa
 
 const FUNCTIONS = ['fetchData', 'runParamQueries', 'sendDataToIframe', 'paramSubsetForQuery', 'queriesWithIdentityParams', 'replaceVisualizationsData',
   'handleIframeMessage', 'frameContext', 'frameHasSeedData', 'frameIframeOptions', 'sameFrameInputs', 'frameDocument',
-  'postParamsStatus', 'postToRuntimeFrames', 'postHeldParamsStatus', 'syncParamsToUrl', 'readParamsFromUrl']
+  'postParamsStatus', 'postToRuntimeFrames', 'postHeldParamsStatus', 'selectedLoadInFlight', 'releaseHeld', 'syncParamsToUrl', 'readParamsFromUrl']
 const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'srcdocSeed', 'seededFrom', 'builtSrcdoc', 'dataLoadsInFlight', 'loadSent',
   'sendHeld', 'heldParamsStatus', 'artifactColorMode', 'iframeSrcdoc'].filter(declaration)
 const present = FUNCTIONS.filter(fn)
@@ -251,6 +253,7 @@ test('a filter run and new files after a refresh still reach the frame, once eac
   await f.own.runParamQueries({ region: 'EMEA' })
   await flush()
   assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'the filter run sends once')
+  assert.deepEqual(f.log(), AT_ONCE)
   f.clear()
   f.state.filesData.value = [{ id: 'file-1', url: 'https://files.test/1' }]
   await flush()
@@ -266,48 +269,159 @@ const deferred = () => {
 }
 const QUERIES_ART2 = '/api/queries?report_id=rep-1&artifact_id=art-2'
 const FILTERED = [{ region: 'EMEA', amount: 9 }]
+const FILTERED_AGAIN = [{ region: 'EMEA', amount: 11 }]
+
+const LOADING = 'STATUS loading=true error=null'
+const DONE = 'STATUS loading=false error=null'
+const done = (log) => log.filter((m) => m.startsWith('STATUS loading=false'))
+// A filter run with no load to wait for: its status at its end, its rows in
+// the same tick (the data watcher).
+const AT_ONCE = [LOADING, DONE, 'ARTIFACT_DATA']
+// Loads in flight, whatever artifact each loads.
+const loadsInFlight = (f) => f.own.dataLoadsInFlight.size
+
+// The viewer picks another artifact (a version is one too: each has its own
+// id). As in the app, the selection changes first; its artifact and its full
+// load follow, and the frame reloads for the new document.
+const select = (f, id) => { f.state.selectedArtifactId.value = id }
+async function loadSelected(f, id, queriesUrl) {
+  f.state.selectedArtifact.value = { ...f.state.selectedArtifact.value, id }
+  f.responses[queriesUrl] = queriesResponse()
+  await f.own.fetchData(id)
+  await flush()
+}
 
 // A load for the artifact shown before (art-1) still waits on the network when
 // the viewer switches to art-2, whose own load finishes first; a filter run
-// then lands while only the stale load is in flight, and the stale load ends last.
-async function staleLoadThenFilter(settleStale) {
+// then lands while only the stale load is in flight. Only a load of the
+// selected artifact holds a send: the stale one holds nothing.
+async function filterDuringStaleLoad() {
   const f = await opened()
   const slow = deferred()
   f.responses[QUERIES] = slow.promise
   const stale = f.own.fetchData('art-1', { inPlace: true })
   await flush()
-  f.state.selectedArtifactId.value = 'art-2'
-  f.state.selectedArtifact.value = { ...f.state.selectedArtifact.value, id: 'art-2' }
-  f.responses[QUERIES_ART2] = queriesResponse()
-  await f.own.fetchData('art-2')
-  await flush()
+  select(f, 'art-2')
+  await loadSelected(f, 'art-2', QUERIES_ART2)
   await f.ready()
   f.clear()
   f.responses[RUN_Q1] = { status: 'success', data: { rows: FILTERED, columns: [] } }
   await f.own.runParamQueries({ region: 'EMEA' })
   await flush()
-  settleStale(slow)
-  await stale
-  await flush()
-  return f
+  return { f, slow, stale }
 }
 
-test('a filter run while only a stale load is in flight reaches the frame once that load ends', async () => {
-  const f = await staleLoadThenFilter((slow) => slow.resolve(queriesResponse(REFRESHED)))
-  assert.equal(f.own.dataLoadsInFlight, 0)
-  assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'the held send is delivered, once')
+test('a filter run while only a stale load is in flight reaches the frame at once, like any filter run outside a load', async () => {
+  const { f, slow, stale } = await filterDuringStaleLoad()
+  assert.deepEqual(f.log(), AT_ONCE, 'not held by the other artifact\'s load')
   assert.deepEqual(f.pushes('main')[0].payload.visualizations[0].rows, FILTERED, 'with the filter run\'s rows')
+  f.clear()
+  slow.resolve(queriesResponse(REFRESHED))
+  await stale
+  await flush()
+  assert.deepEqual(f.log(), [], 'the stale load\'s end posts nothing')
+  assert.equal(loadsInFlight(f), 0)
 })
 
-test('a stale load that throws releases the counter and delivers the held send', async () => {
-  const f = await staleLoadThenFilter((slow) => slow.reject(new Error('network down')))
-  assert.equal(f.own.dataLoadsInFlight, 0, 'the counter is released')
-  assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'the held send is delivered, once')
-  assert.deepEqual(f.pushes('main')[0].payload.visualizations[0].rows, FILTERED)
+test('a stale load that throws posts nothing and leaves nothing in flight', async () => {
+  const { f, slow, stale } = await filterDuringStaleLoad()
+  assert.deepEqual(f.log(), AT_ONCE)
   f.clear()
+  slow.reject(new Error('network down'))
+  await stale
+  await flush()
+  assert.deepEqual(f.log(), [])
+  assert.equal(loadsInFlight(f), 0, 'the load is no longer counted')
   f.state.filesData.value = [{ id: 'file-1', url: 'https://files.test/1' }]
   await flush()
-  assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'later changes are sent at once again')
+  assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'later changes are sent at once')
+})
+
+// A filter run ended during an in-place refresh of art-1 (its rows and its
+// done status are held for the refresh's push) when the selection changes.
+async function heldThenSelectOther(next = 'art-2') {
+  const f = await opened()
+  const slow = deferred()
+  f.responses[QUERIES] = slow.promise
+  const refresh = f.own.fetchData('art-1', { inPlace: true })
+  await flush()
+  f.clear()
+  f.responses[RUN_Q1] = { status: 'success', data: { rows: FILTERED, columns: [] } }
+  await f.own.runParamQueries({ region: null })
+  await flush()
+  assert.deepEqual(f.log(), [LOADING], 'held for the refresh\'s push')
+  const loads = f.frames.main.loads
+  select(f, next)
+  // Right at the change: the frame still shows art-1's document.
+  const atChange = { log: f.log(), received: [...f.frames.main.received], reloaded: f.frames.main.loads !== loads }
+  return { f, slow, refresh, atChange }
+}
+
+test('selecting another artifact while a send and a status are held gives them to the document they belong to, at the change', async () => {
+  const { f, atChange } = await heldThenSelectOther()
+  assert.deepEqual(atChange.log, [LOADING, 'ARTIFACT_DATA', DONE], 'the held rows, then the held status')
+  assert.equal(atChange.reloaded, false, 'into the first artifact\'s document, still in the frame')
+  assert.equal(atChange.received.some((m) => m.whileLoading), false)
+  assert.deepEqual(atChange.received[1].payload.visualizations[0].rows, FILTERED)
+})
+
+test('nothing held for one artifact is posted into the next one\'s frame, and its still-running load holds nothing there', async () => {
+  const { f, slow, refresh } = await heldThenSelectOther()
+  f.clear()
+  await loadSelected(f, 'art-2', QUERIES_ART2)
+  assert.deepEqual(f.log(), [], 'nothing reaches the frame while it loads the second artifact\'s document')
+  await f.ready()
+  assert.deepEqual(f.log(), ['ARTIFACT_DATA_CURRENT'], 'its seed is its data: no stale rows, no stale status')
+  f.clear()
+  // A filter on the second artifact, the first one's load still in flight.
+  await f.own.runParamQueries({ region: null })
+  await flush()
+  assert.deepEqual(f.log(), AT_ONCE, 'delivered at once')
+  f.clear()
+  slow.resolve(queriesResponse(REFRESHED))
+  await refresh
+  await flush()
+  assert.deepEqual(f.log(), [], 'the first artifact\'s load ends quietly')
+  assert.equal(loadsInFlight(f), 0)
+})
+
+// Back to the first artifact while its old load is still in flight: for this
+// component that load is one of the selected artifact again (it will write its
+// rows and push at its end), so it holds again, and its end delivers.
+test('back on the first artifact while its old load still runs: what was given at the change is not posted again, a new filter run goes with that load\'s push', async () => {
+  const { f, slow, refresh } = await heldThenSelectOther()
+  await loadSelected(f, 'art-2', QUERIES_ART2)
+  await f.ready()
+  select(f, 'art-1')
+  f.clear()
+  await loadSelected(f, 'art-1', QUERIES)  // the selection's own full load; the old one still waits
+  assert.deepEqual(f.log(), [], 'nothing from before the switches is posted')
+  await f.ready()
+  assert.deepEqual(f.log(), ['ARTIFACT_DATA_CURRENT'])
+  f.clear()
+  const loads = f.frames.main.loads
+  f.responses[RUN_Q1] = { status: 'success', data: { rows: FILTERED_AGAIN, columns: [] } }
+  await f.own.runParamQueries({ region: null })
+  await flush()
+  assert.deepEqual(f.log(), [LOADING], 'held: a load of the selected artifact is in flight')
+  slow.resolve(queriesResponse(REFRESHED))
+  await refresh
+  await flush()
+  assert.deepEqual(f.log(), [LOADING, 'ARTIFACT_DATA', DONE], 'one push, then one done status')
+  assert.equal(f.frames.main.loads, loads, 'in place: no reload')
+  assert.equal(loadsInFlight(f), 0)
+})
+
+// The selection can also go away (the dashboard deleted): no load follows.
+test('the selection cleared while a send and a status are held: both are given at the change, nothing stays held', async () => {
+  const { f, slow, refresh, atChange } = await heldThenSelectOther(undefined)
+  assert.deepEqual(atChange.log, [LOADING, 'ARTIFACT_DATA', DONE])
+  f.clear()
+  slow.resolve(queriesResponse(REFRESHED))
+  await refresh
+  await flush()
+  assert.deepEqual(f.log(), [], 'given once, at the change')
+  assert.equal(loadsInFlight(f), 0)
 })
 
 test('a theme toggle then an in-place refresh keeps the frame\'s document; a rebuild reads the current theme', async () => {
@@ -371,10 +485,6 @@ async function filterDuringRefresh(changes, ...runResponses) {
   const runs = f.requested.filter((url) => url === RUN_Q1).length
   return { f, beforePush, afterPush: f.log().slice(beforePush.length), runs }
 }
-const LOADING = 'STATUS loading=true error=null'
-const DONE = 'STATUS loading=false error=null'
-const done = (log) => log.filter((m) => m.startsWith('STATUS loading=false'))
-const FILTERED_AGAIN = [{ region: 'EMEA', amount: 11 }]
 
 test('a filter run during an in-place refresh: the push carries the filtered rows, then one done status', async () => {
   const { f, beforePush, afterPush, runs } = await filterDuringRefresh({ region: 'EMEA' },
@@ -486,11 +596,6 @@ test('two filter runs during an in-place refresh: one done status after the push
   // The two runs, then the refresh's re-run of the URL's filter.
   assert.deepEqual(f.log(), [LOADING, LOADING, LOADING, 'ARTIFACT_DATA', DONE])
   assert.deepEqual(f.pushes('main')[0].payload.visualizations[0].rows, FILTERED)
-})
-
-test('a filter run while only a stale load is in flight reports its status after the held send', async () => {
-  const f = await staleLoadThenFilter((slow) => slow.resolve(queriesResponse(REFRESHED)))
-  assert.deepEqual(f.log(), ['STATUS loading=true error=null', 'ARTIFACT_DATA', 'STATUS loading=false error=null'])
 })
 
 test('the fullscreen frame opened after a theme toggle and a refresh gets the current theme on READY', async () => {

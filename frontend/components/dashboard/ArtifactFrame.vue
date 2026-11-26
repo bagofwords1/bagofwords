@@ -1549,7 +1549,7 @@ async function runParamQueries(
   if (myRun === paramRunCounter) {
     // During a data load its rows wait for the load's one push: so does its
     // status, or the viewer would see "done" over the old rows.
-    if (dataLoadsInFlight) heldParamsStatus = { run: myRun, error: firstError };
+    if (selectedLoadInFlight()) heldParamsStatus = { run: myRun, error: firstError };
     else postParamsStatus(false, firstError);
     syncParamsToUrl();
   }
@@ -1591,14 +1591,18 @@ const visualizationsData = shallowRef<any[]>([]);
 // send: false (a filter run's query as it lands) keeps the data watcher from
 // sending this list to the frame; the run sends once, at its end.
 let visualizationsSendDue = false;
-// A data load (fetchData) sends once, at its end: while one runs the watcher
-// holds its sends, and after it what that send carried is not sent again.
-// The hold covers the whole load, network waits included, so a filter run (or
-// files change) landing during a load reaches the frame with the load's one
-// send, not before it: a refresh stays one push. sendHeld marks a held send;
-// when the last load ends without sending (a stale one: another artifact is
-// selected now, or it threw), that end sends it.
-let dataLoadsInFlight = 0;
+// A data load (fetchData) of the selected artifact sends once, at its end:
+// while one runs the watcher holds its sends, and after it what that send
+// carried is not sent again. The hold covers the whole load, network waits
+// included, so a filter run (or files change) landing during a load reaches
+// the frame with the load's one send, not before it: a refresh stays one push.
+// Loads are counted by the artifact each loads (a version is an artifact of
+// its own): one still running for an artifact no longer selected ends without
+// sending, so it holds nothing. sendHeld marks a held send.
+const dataLoadsInFlight = new Map<string | undefined, number>();
+function selectedLoadInFlight() {
+  return dataLoadsInFlight.has(selectedArtifactId.value);
+}
 let sendHeld = false;
 // The status of a filter run that ended during a load, posted right after the
 // push carrying its rows (fetchData's finally). Only if no newer run started
@@ -1609,6 +1613,15 @@ function postHeldParamsStatus() {
   const held = heldParamsStatus;
   heldParamsStatus = null;
   if (held && held.run === paramRunCounter) postParamsStatus(false, held.error);
+}
+// Everything held is given out by the end of the load it waited for, or here
+// when the selection changes first: that load will end without sending.
+function releaseHeld() {
+  if (sendHeld) {
+    sendHeld = false;
+    sendDataToIframe();
+  }
+  postHeldParamsStatus();
 }
 let loadSent: { visualizations: any[]; files: any[] } | null = null;
 function replaceVisualizationsData(next: any[], { send = true }: { send?: boolean } = {}) {
@@ -2105,8 +2118,9 @@ async function onDashboardDeleted() {
 }
 
 // Viewer settings saved: re-render the canvas for the display-only ones that
-// show on it. The per-widget ⓘ (show_widget_info) flips window.__BOW_INFO in
-// the iframe, so updating reportData rebuilds the srcdoc live — no reload.
+// show on it. The per-widget ⓘ (show_widget_info) sets window.__BOW_INFO in
+// the frame's document, so updating reportData builds a new srcdoc: the frame
+// reloads with it (no page reload, no data fetch).
 function onSettingsSaved(settings: any) {
   if (settings && typeof settings.show_widget_info === 'boolean' && reportData.value) {
     reportData.value = { ...reportData.value, show_widget_info: settings.show_widget_info };
@@ -2930,6 +2944,11 @@ async function loadSelectedVersion(id: string) {
   }
 }
 
+// What was held during a load of the artifact selected until now goes to the
+// frame as it is at the change: still that artifact's document (sync, before
+// anything of the new selection is fetched or written), never the next one's.
+watch(selectedArtifactId, releaseHeld, { flush: 'sync' });
+
 watch(selectedArtifactId, (newId, oldId) => {
   // Mount owns the initial load, the watcher owns subsequent selections.
   if (oldId !== undefined && newId) return loadSelectedVersion(newId);
@@ -3063,7 +3082,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
     dataReady.value = false;
   }
 
-  dataLoadsInFlight++;
+  dataLoadsInFlight.set(artifactId, (dataLoadsInFlight.get(artifactId) || 0) + 1);
   try {
     // Fetch report info
     let reportDataSources: any[] = [];
@@ -3336,7 +3355,10 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
   } catch (e) {
     console.error('[ArtifactFrame] Failed to fetch data:', e);
   } finally {
-    dataLoadsInFlight--;
+    const others = (dataLoadsInFlight.get(artifactId) || 1) - 1;
+    if (others) dataLoadsInFlight.set(artifactId, others);
+    else dataLoadsInFlight.delete(artifactId);
+    // A load of an artifact no longer selected ends here: it held nothing.
     if (artifactId === selectedArtifactId.value) {
       isLoading.value = false;
       // The load's one send, to every ready frame (a frame reloading for a
@@ -3344,12 +3366,6 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       sendHeld = false;
       sendDataToIframe();
       loadSent = { visualizations: visualizationsData.value, files: toRaw(filesData.value) };
-      postHeldParamsStatus();
-    } else if (!dataLoadsInFlight) {
-      if (sendHeld) {
-        sendHeld = false;
-        sendDataToIframe();
-      }
       postHeldParamsStatus();
     }
   }
@@ -3763,8 +3779,9 @@ watch([visualizationsData, filesData], ([, files], [, prevFiles]) => {
   const due = visualizationsSendDue || files !== prevFiles;
   visualizationsSendDue = false;
   if (!due) return;
-  // Held, never dropped: the load's end sends it (fetchData's finally).
-  if (dataLoadsInFlight) { sendHeld = true; return; }
+  // Held, never dropped: the load's end sends it (fetchData's finally), or a
+  // change of selection before that (releaseHeld).
+  if (selectedLoadInFlight()) { sendHeld = true; return; }
   if (loadSent && loadSent.visualizations === visualizationsData.value && loadSent.files === toRaw(filesData.value)) return;
   if (iframeReady.value && (visualizationsData.value.length > 0 || filesData.value.length > 0)) {
     sendDataToIframe();
