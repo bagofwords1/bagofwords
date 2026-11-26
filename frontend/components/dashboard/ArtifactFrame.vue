@@ -1442,6 +1442,9 @@ function queriesWithIdentityParams(): string[] {
 }
 
 function postParamsStatus(loading: boolean, error: string | null = null) {
+  // Any status posted is newer than one held for a load's push (an undeclared
+  // param's error, a newer run starting): the held one is not posted over it.
+  heldParamsStatus = null;
   paramRunLoading.value = loading;
   verificationEvent(error ? 'error' : 'params_status', { loading, message: error });
   postToRuntimeFrames({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } });
@@ -1598,8 +1601,9 @@ let visualizationsSendDue = false;
 let dataLoadsInFlight = 0;
 let sendHeld = false;
 // The status of a filter run that ended during a load, posted right after the
-// push carrying its rows (fetchData's finally). Only if no newer run started:
-// that run owns the status line.
+// push carrying its rows (fetchData's finally). Only if no newer run started
+// (that run owns the status line) and no status was posted since
+// (postParamsStatus drops it).
 let heldParamsStatus: { run: number; error: string | null } | null = null;
 function postHeldParamsStatus() {
   const held = heldParamsStatus;

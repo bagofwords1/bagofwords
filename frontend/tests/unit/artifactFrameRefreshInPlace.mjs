@@ -54,7 +54,7 @@ assert.ok(watchers.length >= 1, 'the frame re-sends its data when it changes (wa
 
 const FUNCTIONS = ['fetchData', 'runParamQueries', 'sendDataToIframe', 'paramSubsetForQuery', 'queriesWithIdentityParams', 'replaceVisualizationsData',
   'handleIframeMessage', 'frameContext', 'frameHasSeedData', 'frameIframeOptions', 'sameFrameInputs', 'frameDocument',
-  'postParamsStatus', 'postToRuntimeFrames', 'postHeldParamsStatus']
+  'postParamsStatus', 'postToRuntimeFrames', 'postHeldParamsStatus', 'syncParamsToUrl', 'readParamsFromUrl']
 const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'srcdocSeed', 'seededFrom', 'builtSrcdoc', 'dataLoadsInFlight', 'loadSent',
   'sendHeld', 'heldParamsStatus', 'artifactColorMode', 'iframeSrcdoc'].filter(declaration)
 const present = FUNCTIONS.filter(fn)
@@ -83,14 +83,24 @@ function frame() {
   const responses = { [QUERIES]: queriesResponse(), '/api/reports/rep-1': report }
   // Each frame: what it was posted, and whether it was loading a new document then.
   const frames = {}
+  const requested = []
   const frameWindow = (name) => {
     const f = frames[name] = { received: [], loading: true, loads: 0 }
     return { postMessage(message) { f.received.push({ ...structuredClone(message), whileLoading: f.loading }) } }
   }
   const useMyFetch = async (url) => {
     if (!(url in responses)) throw new Error(`unexpected request ${url}`)
-    return { data: ref(structuredClone(await responses[url])), error: ref(null) }
+    requested.push(url)
+    // A response, a promise of one, or a function giving this request's.
+    const response = typeof responses[url] === 'function' ? responses[url]() : responses[url]
+    return { data: ref(structuredClone(await response)), error: ref(null) }
   }
+  // The page's URL: the frame's own syncParamsToUrl writes the applied filter
+  // values to it (?qp_<name>=) and its readParamsFromUrl reads them back, so a
+  // load re-runs the filters the URL carries, as in the app.
+  const paramRoute = { query: {} }
+  const paramRouter = { replace: ({ query }) => { paramRoute.query = query } }
+  const verificationEvents = []
   const state = {
     console: { ...console, log: () => {}, error: () => {} },
     computed, ref, shallowRef, toRaw, watch, nextTick,
@@ -114,7 +124,7 @@ function frame() {
     effectiveViewerContext: ref({ id: 'u-1', name: 'Viewer' }),
     verificationRequests: new Map(), verificationRevision: 0, previewConversationPolicy: null,
     paramAckSeq: 0, paramRunCounter: 0, latestParamRunForQid: {}, logActivity: null,
-    verificationEvent: () => {}, handleTableLayoutMessage: () => false, paramRunLoading: ref(false), syncParamsToUrl: () => {}, readParamsFromUrl: () => ({}),
+    verificationEvents, verificationEvent: (kind, fields) => { verificationEvents.push({ kind, ...fields }) }, handleTableLayoutMessage: () => false, paramRunLoading: ref(false), paramRoute, paramRouter,
     watchHydration: () => {}, resolveParamOptions: async () => {}, fetchArtifactFiles: async () => [],
     whenArtifactLibsSettled: async () => {}, inlineableArtifactLibs: () => [], artifactLibSources: () => ({}),
     paramsPayload: () => ({ values: {} }), artifactRuntime: () => ({ version: 11 }),
@@ -145,7 +155,7 @@ function frame() {
   const log = (name = 'main') => frames[name].received.map((m) => m.type === 'ARTIFACT_PARAMS_STATUS'
     ? `STATUS loading=${m.payload.loading} error=${m.payload.error}`
     : m.type === 'ARTIFACT_SET_COLOR_MODE' ? `COLOR ${m.mode}` : m.type)
-  return { own, state, responses, frames, shown, ready, clear, pushes, types, log }
+  return { own, state, responses, requested, paramRoute, frames, shown, ready, clear, pushes, types, log }
 }
 
 // An open dashboard: loaded, its frame rendered from the seed and READY.
@@ -205,7 +215,8 @@ test('new artifact code reloads the frame; nothing is posted to it until READY, 
   await f.ready()
   assert.deepEqual(f.types(), ['ARTIFACT_DATA'], 'READY: one push of what the seed lacks')
   assert.equal(f.pushes('main').some((m) => m.whileLoading), false)
-  assert.deepEqual(f.pushes('main')[0].payload.visualizations[0].rows, REFRESHED)
+  // The refresh re-ran the filter the URL carries: its rows, not the snapshot's.
+  assert.deepEqual(f.pushes('main')[0].payload.visualizations[0].rows, [{ region: 'EMEA', amount: 9 }])
 })
 
 test('the per-widget info toggle reloads the frame, which gets its data after READY', async () => {
@@ -338,39 +349,126 @@ test('an in-place refresh never hides the frame document on the way', async () =
   assert.equal(seen.includes(undefined), false)
 })
 
-// A filter run that ends while an in-place refresh still waits on the network:
-// its rows go out with the refresh's one push, and so does its status.
-async function filterDuringRefresh(runResponse) {
+// A filter run that ends while an in-place refresh still waits on the network.
+// Its value is in the URL by then, so the refresh, once its snapshot rows are
+// in, runs the filter again (a newer run, which owns the status line). The
+// refresh's one push carries the filtered rows, and one done status follows it.
+async function filterDuringRefresh(changes, ...runResponses) {
   const f = await opened()
   const slow = deferred()
   f.responses[QUERIES] = slow.promise
   const refresh = f.own.fetchData('art-1', { inPlace: true })
   await flush()
   f.clear()
-  f.responses[RUN_Q1] = runResponse
-  await f.own.runParamQueries({ region: 'EMEA' })
+  f.requested.length = 0
+  f.responses[RUN_Q1] = () => runResponses.shift()
+  await f.own.runParamQueries(changes)
   await flush()
   const beforePush = f.log()
   slow.resolve(queriesResponse(REFRESHED))
   await refresh
   await flush()
-  return { f, beforePush, afterPush: f.log().slice(beforePush.length) }
+  const runs = f.requested.filter((url) => url === RUN_Q1).length
+  return { f, beforePush, afterPush: f.log().slice(beforePush.length), runs }
 }
+const LOADING = 'STATUS loading=true error=null'
+const DONE = 'STATUS loading=false error=null'
+const done = (log) => log.filter((m) => m.startsWith('STATUS loading=false'))
+const FILTERED_AGAIN = [{ region: 'EMEA', amount: 11 }]
 
-test('a filter run during an in-place refresh reports done only after the refresh\'s push: rows, then status, once', async () => {
-  const { beforePush, afterPush } = await filterDuringRefresh({ status: 'success', data: { rows: FILTERED, columns: [] } })
-  assert.deepEqual(beforePush, ['STATUS loading=true error=null'], 'no done status (and no rows) before the push')
-  assert.deepEqual(afterPush, ['ARTIFACT_DATA', 'STATUS loading=false error=null'], 'rows, then the status, once')
+test('a filter run during an in-place refresh: the push carries the filtered rows, then one done status', async () => {
+  const { f, beforePush, afterPush, runs } = await filterDuringRefresh({ region: 'EMEA' },
+    { status: 'success', data: { rows: FILTERED, columns: [] } },
+    { status: 'success', data: { rows: FILTERED_AGAIN, columns: [] } })
+  assert.deepEqual(f.paramRoute.query, { qp_region: 'EMEA' }, 'the filter value is in the URL')
+  assert.equal(runs, 2, 'the viewer\'s run, and the refresh\'s re-run of the URL\'s filter')
+  assert.deepEqual(beforePush, [LOADING], 'no done status (and no rows) before the push')
+  assert.deepEqual(afterPush, [LOADING, 'ARTIFACT_DATA', DONE], 'rows, then the status')
+  assert.deepEqual(done(f.log()), [DONE], 'one done status in all')
+  assert.deepEqual(f.pushes('main')[0].payload.visualizations.map((v) => v.rows), [FILTERED_AGAIN, FILTERED_AGAIN, [{ n: 1 }]],
+    'the filtered rows of the refresh\'s re-run, not the snapshot\'s')
+  assert.equal(f.state.paramRunLoading.value, false)
 })
 
-test('a filter run that fails during an in-place refresh still reports its error, after the push', async () => {
-  const { f, beforePush, afterPush } = await filterDuringRefresh({ status: 'error', error: 'region not allowed' })
-  assert.deepEqual(beforePush, ['STATUS loading=true error=null'])
+test('a filter run that fails during an in-place refresh: the newer run\'s error is the one status after the push', async () => {
+  const { f, beforePush, afterPush, runs } = await filterDuringRefresh({ region: 'EMEA' },
+    { status: 'error', error: 'region not allowed' },
+    { status: 'error', error: 'region still not allowed' })
+  assert.equal(runs, 2)
+  assert.deepEqual(beforePush, [LOADING])
+  assert.deepEqual(afterPush, [LOADING, 'ARTIFACT_DATA', 'STATUS loading=false error=region still not allowed'])
+  assert.deepEqual(done(f.log()).length, 1, 'the superseded run\'s error is not posted too')
+  assert.equal(f.state.paramRunLoading.value, false)
+})
+
+// A cleared filter leaves no value in the URL, so the refresh does not run it
+// again: the viewer's run still owns the status line when the refresh ends.
+test('a cleared filter during an in-place refresh reports done only after the refresh\'s push, once', async () => {
+  const { f, beforePush, afterPush, runs } = await filterDuringRefresh({ region: null },
+    { status: 'success', data: { rows: FILTERED, columns: [] } })
+  assert.deepEqual(f.paramRoute.query, {})
+  assert.equal(runs, 1)
+  assert.deepEqual(beforePush, [LOADING], 'no done status before the push')
+  assert.deepEqual(afterPush, ['ARTIFACT_DATA', DONE], 'rows, then the status, once')
+})
+
+test('a cleared filter that fails during an in-place refresh still reports its error, after the push', async () => {
+  const { f, beforePush, afterPush } = await filterDuringRefresh({ region: null }, { status: 'error', error: 'region not allowed' })
+  assert.deepEqual(beforePush, [LOADING])
   assert.deepEqual(afterPush, ['ARTIFACT_DATA', 'STATUS loading=false error=region not allowed'])
   assert.equal(f.state.paramRunLoading.value, false)
 })
 
-test('two filter runs during an in-place refresh: one done status after the push, the newer run\'s', async () => {
+// A status posted directly is newer than one held for the push: the held one
+// must not be posted over it when the refresh ends.
+test('an undeclared filter name during an in-place refresh keeps its error: the held done status does not replace it', async () => {
+  const f = await opened()
+  const slow = deferred()
+  f.responses[QUERIES] = slow.promise
+  const refresh = f.own.fetchData('art-1', { inPlace: true })
+  await flush()
+  f.clear()
+  f.responses[RUN_Q1] = { status: 'success', data: { rows: FILTERED, columns: [] } }
+  await f.own.runParamQueries({ region: null })  // ends during the refresh: its done status is held
+  await f.own.runParamQueries({ genre: 'rock' })  // no query declares it: an error, posted at once
+  await flush()
+  const UNKNOWN = 'STATUS loading=false error=Unknown parameter(s): genre — declared: region. Controls must call setParam with a declared param name.'
+  assert.deepEqual(f.log(), [LOADING, UNKNOWN])
+  slow.resolve(queriesResponse(REFRESHED))
+  await refresh
+  await flush()
+  assert.deepEqual(f.log(), [LOADING, UNKNOWN, 'ARTIFACT_DATA'], 'the error is the last status the frame got')
+  assert.equal(f.state.verificationEvents.filter((e) => e.kind === 'error' || e.kind === 'params_status').at(-1).kind, 'error',
+    'and the last the host recorded')
+  assert.equal(f.state.paramRunLoading.value, false)
+})
+
+test('a filter run that starts after a held status and outlives the refresh reports its own status, once', async () => {
+  const f = await opened()
+  const slow = deferred()
+  f.responses[QUERIES] = slow.promise
+  const refresh = f.own.fetchData('art-1', { inPlace: true })
+  await flush()
+  f.clear()
+  f.responses[RUN_Q1] = { status: 'error', error: 'first run failed' }
+  await f.own.runParamQueries({ region: null })  // held
+  const late = deferred()
+  f.responses[RUN_Q1] = late.promise
+  const newer = f.own.runParamQueries({ region: null })
+  await flush()
+  slow.resolve(queriesResponse(REFRESHED))
+  await refresh
+  await flush()
+  assert.deepEqual(f.log(), [LOADING, LOADING, 'ARTIFACT_DATA'], 'the held status of the older run is dropped')
+  late.resolve({ status: 'success', data: { rows: FILTERED, columns: [] } })
+  await newer
+  await flush()
+  assert.deepEqual(done(f.log()), [DONE], 'the newer run\'s status, once')
+  assert.deepEqual(f.types(), ['ARTIFACT_DATA', 'ARTIFACT_DATA'], 'the refresh\'s push, then the newer run\'s rows')
+  assert.equal(f.state.paramRunLoading.value, false)
+})
+
+test('two filter runs during an in-place refresh: one done status after the push, the newest run\'s', async () => {
   const f = await opened()
   const slow = deferred()
   f.responses[QUERIES] = slow.promise
@@ -385,7 +483,9 @@ test('two filter runs during an in-place refresh: one done status after the push
   slow.resolve(queriesResponse(REFRESHED))
   await refresh
   await flush()
-  assert.deepEqual(f.log(), ['STATUS loading=true error=null', 'STATUS loading=true error=null', 'ARTIFACT_DATA', 'STATUS loading=false error=null'])
+  // The two runs, then the refresh's re-run of the URL's filter.
+  assert.deepEqual(f.log(), [LOADING, LOADING, LOADING, 'ARTIFACT_DATA', DONE])
+  assert.deepEqual(f.pushes('main')[0].payload.visualizations[0].rows, FILTERED)
 })
 
 test('a filter run while only a stale load is in flight reports its status after the held send', async () => {
