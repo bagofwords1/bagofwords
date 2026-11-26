@@ -90,7 +90,7 @@ class _FakeBackend:
     owner: Optional[str] = None
     sandboxes: Dict[str, _FakeSandbox] = field(default_factory=dict)
     pulled_images: List[str] = field(default_factory=list)
-    # Passwords seen by ``prepare``; lets tests assert a one-time password was used.
+    # One-time passwords used by ``enroll``; lets tests assert one was used exactly once.
     passwords_used: int = 0
 
 
@@ -202,8 +202,6 @@ class FakeDriver(SandboxDriver):
                     raise SandboxDriverError(f"Step '{result.key}' failed (configured to fail)", code="step_failed")
                 detail, status = None, "ok"
                 if result.key == "connect":
-                    if self.ctx.credentials.get("one_time_password"):
-                        backend.passwords_used += 1
                     if backend.owner and backend.owner != self.ctx.instance_id:
                         if not take_over:
                             raise SandboxDriverError(
@@ -396,6 +394,12 @@ class FakeDriver(SandboxDriver):
         if image not in backend.pulled_images:
             backend.pulled_images.append(image)
         return "sha256:" + hashlib.sha256(image.encode("utf-8")).hexdigest()
+
+    async def enroll(self, transient) -> None:
+        self._require_reachable()
+        if transient.get("one_time_password"):
+            self._backend.passwords_used += 1
+            self.ctx.driver_state["enrolled"] = True
 
     # ── test hooks (not part of the driver interface) ──
 

@@ -341,6 +341,14 @@ class SandboxDriver(abc.ABC):
         """Pre-pull an image; returns its digest when the backend can tell. Optional."""
         return None
 
+    async def enroll(self, transient: Mapping[str, Any]) -> None:
+        """Use one-time credentials (e.g. a password that installs a key) once.
+
+        ``transient`` is never stored, logged or put in a step result. Called
+        when a backend is created or edited with such credentials. Optional.
+        """
+        return None
+
     async def close(self) -> None:
         """Release connections held by this driver instance."""
         return None
