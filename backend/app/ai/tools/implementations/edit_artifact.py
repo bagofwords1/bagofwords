@@ -404,6 +404,9 @@ class EditArtifactTool(Tool):
             try:
                 html = self._create_tool._build_thumbnail_html(artifact_data, new_code, mode="page")
                 screenshot_b64, render_errors = await self._create_tool._take_preview_screenshot(html)
+                # Charts the page already got wrong don't block this edit; the
+                # ones it breaks do (no in-tool repair here: the planner fixes them).
+                render_errors, _ = await self._create_tool._drop_known_chart_errors(render_errors, artifact_data, code)
                 fatal = self._create_tool.fatal_render_errors(render_errors)
                 if fatal:
                     from app.ai.tools.implementations._artifact_refs import render_error_hint
