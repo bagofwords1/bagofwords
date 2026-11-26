@@ -13,7 +13,7 @@ sandbox tokens.
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import current_user
@@ -274,8 +274,13 @@ async def update_sandbox_settings(
     if changed:
         try:
             settings = type(settings)(**settings.model_dump())  # re-validate the whole of it
-        except ValueError as exc:
-            raise AppError("sandbox.invalid_request", str(exc), status_code=422)
+        except ValidationError as exc:
+            # One plain line per problem, not pydantic's multi-line report with its documentation link.
+            message = "; ".join(
+                f"{'.'.join(str(p) for p in e.get('loc', ()))}: {str(e.get('msg', '')).removeprefix('Value error, ')}"
+                for e in exc.errors()
+            )
+            raise AppError("sandbox.invalid_request", message, status_code=422)
         await save_settings(db, organization.id, settings)
         await audit(db, organization.id, "sandbox_settings.updated", str(current_user.id), "sandbox_settings",
                     None, {"title": "Sandbox settings", "changed": changed})

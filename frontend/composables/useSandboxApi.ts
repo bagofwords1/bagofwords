@@ -9,6 +9,7 @@ export interface SandboxBootstrapStep {
   title: string
   status: 'pending' | 'running' | 'ok' | 'warning' | 'failed' | 'skipped'
   detail?: string | null
+  code?: string | null
 }
 
 export interface SandboxBackend {

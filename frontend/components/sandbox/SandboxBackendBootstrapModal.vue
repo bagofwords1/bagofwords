@@ -120,12 +120,9 @@ const status = computed(() => current.value?.bootstrap_status || 'none')
 const steps = computed(() => current.value?.bootstrap_steps || [])
 const failedStep = computed(() => steps.value.find(step => step.status === 'failed') || null)
 
-// The API reports "owned by another BoW instance" only as the failed step's
-// text (there is no code on a step), so that text is what is matched.
-const ownedByOther = computed(() => {
-    const first = steps.value[0]
-    return !!first && first.status === 'failed' && /another BoW instance/i.test(first.detail || '')
-})
+// A failed step carries a code saying why. "owned_by_other" means the server
+// belongs to another BoW instance, which is what offers Take over.
+const ownedByOther = computed(() => failedStep.value?.code === 'owned_by_other')
 
 const banner = computed(() => {
     if (status.value === 'running') {

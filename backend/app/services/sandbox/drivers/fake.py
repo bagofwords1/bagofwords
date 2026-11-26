@@ -231,6 +231,7 @@ class FakeDriver(SandboxDriver):
                     self._host.start()
                 await report(result, status, detail)
             except SandboxDriverError as exc:
+                result.code = exc.code
                 await report(result, "failed", exc.message)
                 for rest in results[results.index(result) + 1:]:
                     rest.status = "skipped"

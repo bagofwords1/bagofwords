@@ -165,6 +165,9 @@ class StepResult:
     # pending | running | ok | warning | failed | skipped
     status: str = "pending"
     detail: Optional[str] = None
+    # Why a step failed, for callers that must act on it (e.g. "owned_by_other"
+    # offers Take over). ``detail`` is for people; this is for code.
+    code: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
@@ -174,6 +177,7 @@ class StepResult:
             "title": self.title,
             "status": self.status,
             "detail": self.detail,
+            "code": self.code,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
         }

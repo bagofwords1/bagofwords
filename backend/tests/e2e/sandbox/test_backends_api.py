@@ -275,6 +275,7 @@ def test_a_server_owned_by_another_bow_instance_is_refused_until_taken_over(worl
     refused = test_client.post(f"{BASE}/{mine['id']}/bootstrap", json={"wait": True}, headers=admin).json()
     assert refused["bootstrap_status"] == "failed"
     assert "another BoW instance" in refused["bootstrap_steps"][0]["detail"] and "Take over" in refused["bootstrap_steps"][0]["detail"]
+    assert refused["bootstrap_steps"][0]["code"] == "owned_by_other"  # what the UI offers Take over on
 
     taken = test_client.post(f"{BASE}/{mine['id']}/bootstrap", json={"wait": True, "take_over": True}, headers=admin).json()
     assert taken["bootstrap_status"] == "ready" and "Taken over" in taken["bootstrap_steps"][0]["detail"]
@@ -363,6 +364,9 @@ def test_settings_changes_are_partial_validated_and_audited(world, test_client, 
     for bad in ({"idle_timeout_seconds": 1}, {"max_running_per_user": 0}, {"registry_domains": ["https://x/y"]},
                 {"instance_id": "mine"}, {"no_such_setting": 1}):
         assert test_client.put("/api/sandbox/settings", json=bad, headers=admin).status_code == 422, bad
+    refused_domain = test_client.put("/api/sandbox/settings", json={"registry_domains": ["https://x/y"]}, headers=admin)
+    message = json.dumps(refused_domain.json())
+    assert "registry_domains" in message and "pydantic" not in message and "validation error" not in message, message
     assert test_client.put("/api/sandbox/settings", json={"default_environment_id": str(uuid.uuid4())}, headers=admin).status_code == 404
     assert test_client.get("/api/sandbox/settings", headers=admin).json()["idle_timeout_seconds"] == 600
 

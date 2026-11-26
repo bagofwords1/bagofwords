@@ -89,6 +89,7 @@ class BootstrapStep(BaseModel):
     title: str
     status: Literal["pending", "running", "ok", "warning", "failed", "skipped"] = "pending"
     detail: Optional[str] = None
+    code: Optional[str] = None  # why it failed, e.g. "owned_by_other"
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 

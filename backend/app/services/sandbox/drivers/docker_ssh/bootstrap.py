@@ -72,6 +72,7 @@ class Bootstrap:
             except _Warning as warning:
                 await self._report(result, "warning", str(warning))
             except SandboxDriverError as exc:
+                result.code = exc.code
                 await self._report(result, "failed", exc.message)
                 for rest in self.results[self.results.index(result) + 1:]:
                     rest.status = "skipped"
