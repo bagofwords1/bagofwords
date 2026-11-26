@@ -19,6 +19,21 @@
                 :disabled="!feature.editable || locked"
                 @change="emit('change')"
             />
+            <!-- Retention (days): 0 means "keep forever" and shows as an empty field. -->
+            <UInput
+                v-else-if="retention && feature.editable && !locked"
+                v-model="retentionDays"
+                type="number"
+                min="0"
+                max="3650"
+                step="1"
+                inputmode="numeric"
+                :placeholder="$t('settings.aiSettingsPage.retention.keepForever')"
+                class="w-36 shrink-0"
+                :data-testid="`retention-input-${settingKey}`"
+                @blur="emit('change')"
+                @keyup.enter="emit('change')"
+            />
             <UInput
                 v-else-if="feature.editable && !locked && typeof feature.value === 'number'"
                 v-model.number="feature.value"
@@ -63,8 +78,20 @@ const props = defineProps<{
     label: string
     description: string
     child?: boolean
+    // A retention setting in days, where 0 (off) shows as an empty field.
+    retention?: boolean
 }>()
 const emit = defineEmits<{ (e: 'change'): void }>()
 
 const locked = computed(() => props.feature.state === 'locked')
+
+const retentionDays = computed<string | number>({
+    get: () => (typeof props.feature.value === 'number' && props.feature.value > 0 ? props.feature.value : ''),
+    set: (v) => {
+        const n = v === '' || v === null || v === undefined ? 0 : Number(v)
+        // Not a whole number: keep what was typed so the server refuses it
+        // with its own message instead of us silently changing the value.
+        props.feature.value = Number.isInteger(n) ? n : v
+    },
+})
 </script>

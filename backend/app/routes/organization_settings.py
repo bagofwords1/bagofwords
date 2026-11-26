@@ -44,6 +44,25 @@ async def update_organization_settings(
     """Update organization settings"""
     return await settings_service.update_settings(db, organization, current_user, settings)
 
+@router.get("/organization/retention/preview")
+@requires_permission('manage_settings')
+async def preview_retention(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """What tonight's retention run would delete with the current settings:
+    counts of reports, artifacts and files (nothing is deleted here)."""
+    from sqlalchemy import select
+    from app.models.organization_settings import OrganizationSettings
+    from app.services.retention.jobs import preview
+
+    config = (await db.execute(
+        select(OrganizationSettings.config).where(OrganizationSettings.organization_id == str(organization.id))
+    )).scalar_one_or_none()
+    return await preview(db, str(organization.id), config or {})
+
+
 @router.post("/organization/settings/agents/{agent_name}")
 @requires_permission('manage_settings')
 async def update_agent_setting(

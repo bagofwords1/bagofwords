@@ -279,18 +279,21 @@ def _clean_rel(rel: str) -> bool:
     return not any(part in ("", ".", "..") or part.startswith(".") for part in rel.split("/"))
 
 
-def discard(path: PathLike) -> None:
+def discard(path: PathLike) -> bool:
     """Delete a durable file from the store (the caller removes the local copy).
-    Best effort: a failure is logged, never raised, like a local unlink."""
+    Best effort: a failure is logged, never raised, like a local unlink.
+    Returns False when the store refused, so a caller can retry later."""
     store = get_store()
     key = key_for(path) if store else None
     if store is None or key is None:
-        return
+        return True
     _known.pop(key, None)
     try:
         store.delete(key)
     except StorageError as e:
         logger.warning("storage: could not delete %s on %s: %s", key, store.describe(), e)
+        return False
+    return True
 
 
 def discard_tree(directory: PathLike) -> None:
@@ -333,9 +336,10 @@ async def aensure_local_tree(directory: PathLike) -> bool:
     return await asyncio.to_thread(ensure_local_tree, directory)
 
 
-async def adiscard(path: PathLike) -> None:
+async def adiscard(path: PathLike) -> bool:
     if enabled():
-        await asyncio.to_thread(discard, path)
+        return await asyncio.to_thread(discard, path)
+    return True
 
 
 async def adiscard_tree(directory: PathLike) -> None:

@@ -3570,7 +3570,11 @@
         },
         "workspace": {
           "title": "Arbetsyta",
-          "description": "Webhooks, förgreningar och datalagring"
+          "description": "Offentliga länkar, åtkomstbegäranden, webhooks och förgreningar"
+        },
+        "retention": {
+          "title": "Datalagring",
+          "description": "Radera gamla rapporter, instrumentpaneler och filer permanent"
         },
         "other": {
           "title": "Övrigt",
@@ -3783,7 +3787,15 @@
         },
         "file_retention_days": {
           "name": "Lagring av filer (dagar)",
-          "description": "Tar varje natt bort filer som är äldre än så här många dagar. Filer som används av en instrumentpanel, filer i ett agent- eller projektbibliotek och uppladdningar till en schemalagd rapport behålls. 0 behåller filer för alltid."
+          "description": "Raderar permanent, varje natt, filer som är äldre än så många dagar. Filer som en instrumentpanel använder, filer i en agents eller ett projekts bibliotek och uppladdningar som matar en schemalagd rapport behålls. Tomt behåller filer för alltid."
+        },
+        "report_retention_days": {
+          "name": "Lagring av rapporter (dagar)",
+          "description": "Raderar permanent, varje natt, rapporter som ingen har använt på så många dagar: varje meddelande, agentkörning, verktygsanrop, fråga och resultat, och filer som inget annat använder. Schemalagda, delade och publicerade rapporter, och rapporter med en aktiv instrumentpanel, behålls. Tomt behåller rapporter för alltid."
+        },
+        "artifact_retention_days": {
+          "name": "Lagring av instrumentpaneler (dagar)",
+          "description": "Raderar permanent, varje natt, instrumentpaneler och sidor som ingen har redigerat eller kört på så många dagar, med deras versioner, data och filer. Publicerade, delade, schemalagda och inbäddade instrumentpaneler behålls. Tomt behåller dem för alltid."
         },
         "enable_excel_addin": {
           "name": "Excel-tillägg",
@@ -3829,6 +3841,12 @@
           "name": "Top K kolumner per tabell",
           "description": "Hur många kolumner i en bred tabell agenten ser i sin helhet i kontexten, rankade efter kolumnanvändning, referenser i instruktioner och nycklar/tidsstämplar. Resten sammanfattas per prefix och går att söka med describe_tables. 0 = ingen gräns."
         }
+      },
+      "retention": {
+        "keepForever": "Behåll för alltid",
+        "warning": "Lagringsregler raderar permanent. Raderade rapporter, instrumentpaneler och filer kan inte återställas.",
+        "preview": "Nattens körning skulle radera {reports} rapporter, {artifacts} instrumentpaneler och {files} filer.",
+        "previewNone": "Nattens körning skulle inte radera något."
       },
       "permissionMode": {
         "title": "Behörighetsläge för verktyg",

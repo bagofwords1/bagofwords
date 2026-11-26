@@ -3993,7 +3993,11 @@
         },
         "workspace": {
           "title": "Espacio de trabajo",
-          "description": "Enlaces públicos, webhooks, bifurcaciones y retención de datos"
+          "description": "Enlaces públicos, solicitudes de acceso, webhooks y bifurcaciones"
+        },
+        "retention": {
+          "title": "Retención de datos",
+          "description": "Elimina definitivamente informes, paneles y archivos antiguos"
         },
         "other": {
           "title": "Otros",
@@ -4218,7 +4222,15 @@
         },
         "file_retention_days": {
           "name": "Retención de archivos (días)",
-          "description": "Elimina cada noche los archivos con más de estos días. Se conservan los archivos que usa un panel, los de la biblioteca de un agente o proyecto y los subidos a un informe programado. 0 los conserva para siempre."
+          "description": "Elimina definitivamente, cada noche, los archivos con más de este número de días. Se conservan los archivos que usa un panel, los de la biblioteca de un agente o proyecto y las cargas que alimentan un informe programado. Vacío conserva los archivos para siempre."
+        },
+        "report_retention_days": {
+          "name": "Retención de informes (días)",
+          "description": "Elimina definitivamente, cada noche, los informes que nadie ha usado en este número de días: cada mensaje, ejecución del agente, llamada a herramienta, consulta y resultado, y los archivos que nada más usa. Se conservan los informes programados, compartidos y publicados, y los que tienen un panel activo. Vacío conserva los informes para siempre."
+        },
+        "artifact_retention_days": {
+          "name": "Retención de paneles (días)",
+          "description": "Elimina definitivamente, cada noche, los paneles y páginas que nadie ha editado ni ejecutado en este número de días, con sus versiones, datos y archivos. Se conservan los paneles publicados, compartidos, programados e incrustados. Vacío los conserva para siempre."
         },
         "enable_excel_addin": {
           "name": "Complemento de Excel",
@@ -4332,6 +4344,12 @@
           "name": "Top K de columnas por tabla",
           "description": "Cuántas columnas de una tabla ancha ve el agente completas en su contexto, ordenadas por uso de columnas, referencias en instrucciones y claves/marcas de tiempo. El resto se resume por prefijo y se puede buscar con describe_tables. 0 = sin límite."
         }
+      },
+      "retention": {
+        "keepForever": "Conservar siempre",
+        "warning": "La retención elimina de forma definitiva. Los informes, paneles y archivos eliminados no se pueden recuperar.",
+        "preview": "La ejecución de esta noche eliminaría {reports} informes, {artifacts} paneles y {files} archivos.",
+        "previewNone": "La ejecución de esta noche no eliminaría nada."
       },
       "permissionMode": {
         "title": "Modo de permisos de herramientas",

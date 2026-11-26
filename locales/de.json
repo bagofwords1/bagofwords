@@ -3570,7 +3570,11 @@
         },
         "workspace": {
           "title": "Arbeitsbereich",
-          "description": "Webhooks, Forks und Datenaufbewahrung"
+          "description": "Öffentliche Links, Zugriffsanfragen, Webhooks und Forks"
+        },
+        "retention": {
+          "title": "Datenaufbewahrung",
+          "description": "Alte Berichte, Dashboards und Dateien endgültig löschen"
         },
         "other": {
           "title": "Sonstiges",
@@ -3783,7 +3787,15 @@
         },
         "file_retention_days": {
           "name": "Aufbewahrung von Dateien (Tage)",
-          "description": "Löscht jede Nacht Dateien, die älter als diese Anzahl Tage sind. Dateien eines Dashboards, Dateien in einer Agenten- oder Projektbibliothek und Uploads für einen geplanten Bericht bleiben erhalten. 0 bewahrt Dateien unbegrenzt auf."
+          "description": "Löscht jede Nacht endgültig Dateien, die älter als so viele Tage sind. Dateien, die ein Dashboard verwendet, Dateien in der Bibliothek eines Agenten oder Projekts und Uploads für einen geplanten Bericht bleiben erhalten. Leer behält Dateien für immer."
+        },
+        "report_retention_days": {
+          "name": "Aufbewahrung von Berichten (Tage)",
+          "description": "Löscht jede Nacht endgültig Berichte, die so viele Tage niemand verwendet hat: jede Nachricht, jeden Agentenlauf, jeden Tool-Aufruf, jede Abfrage und jedes Ergebnis sowie Dateien, die nichts anderes verwendet. Geplante, geteilte und veröffentlichte Berichte und Berichte mit einem aktiven Dashboard bleiben erhalten. Leer behält Berichte für immer."
+        },
+        "artifact_retention_days": {
+          "name": "Aufbewahrung von Dashboards (Tage)",
+          "description": "Löscht jede Nacht endgültig Dashboards und Seiten, die so viele Tage niemand bearbeitet oder ausgeführt hat, mit ihren Versionen, Daten und Dateien. Veröffentlichte, geteilte, geplante und eingebettete Dashboards bleiben erhalten. Leer behält sie für immer."
         },
         "enable_excel_addin": {
           "name": "Excel-Add-in",
@@ -3829,6 +3841,12 @@
           "name": "Top-K-Spalten pro Tabelle",
           "description": "Wie viele Spalten einer breiten Tabelle der Agent vollständig im Kontext sieht, gerankt nach Spaltennutzung, Verweisen in Anweisungen und Schlüsseln/Zeitstempeln. Der Rest wird nach Präfix zusammengefasst und bleibt mit describe_tables durchsuchbar. 0 = kein Limit."
         }
+      },
+      "retention": {
+        "keepForever": "Für immer behalten",
+        "warning": "Aufbewahrung löscht endgültig. Gelöschte Berichte, Dashboards und Dateien können nicht wiederhergestellt werden.",
+        "preview": "Der Lauf heute Nacht würde {reports} Berichte, {artifacts} Dashboards und {files} Dateien löschen.",
+        "previewNone": "Der Lauf heute Nacht würde nichts löschen."
       },
       "permissionMode": {
         "title": "Tool-Berechtigungsmodus",
