@@ -1,6 +1,6 @@
 """File retention: delete files older than the org's ``file_retention_days``.
 
-Off by default (0 keeps files forever). When set, a nightly job deletes files
+Off by default (empty or 0 keeps files forever). When set, a nightly job deletes files
 created more than that many days ago, the same way a user's own delete does
 (``file_service.purge_files``): every link to the file, its tags and schemas,
 the row, then the bytes.
@@ -34,22 +34,18 @@ from app.models.organization_settings import OrganizationSettings
 from app.models.project import project_file_association
 from app.models.report import Report
 from app.models.scheduled_prompt import ScheduledPrompt
+from app.services.retention.settings import MAX_RETENTION_DAYS, days_from_config  # noqa: F401 (re-exported)
 
 logger = logging.getLogger(__name__)
 
 SETTING_KEY = "file_retention_days"
-MAX_RETENTION_DAYS = 3650
 # Files deleted per transaction; the job loops until nothing is left.
 BATCH_SIZE = 500
 
 
 def retention_days_from_config(config: Optional[dict]) -> int:
     """The org's retention in days, or 0 (keep forever) when unset/invalid."""
-    raw = (config or {}).get(SETTING_KEY)
-    value = raw.get("value") if isinstance(raw, dict) else raw
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        return 0
-    return min(value, MAX_RETENTION_DAYS)
+    return days_from_config(config, SETTING_KEY)
 
 
 def _expirable_files(organization_id: str, cutoff: datetime):
