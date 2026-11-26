@@ -3105,6 +3105,13 @@ function _dtDetectDir(cols, rows) {
 
   window.__bowCharts = { buildTrend: _buildTrend, buildRank: _buildRank, parseTime: _chParseTime, number: _chNumber };
 
+  // "RankChart needs …" → "RankChart (Sales by rep) needs …": the viz title,
+  // else its id. Not the position on the page, which an edit shifts.
+  function _chWarnName(error, viz) {
+    var name = viz ? (viz.title || (viz.id != null ? String(viz.id) : '')) : '';
+    return name ? error.replace(/^(TrendChart|RankChart)/, function(m) { return m + ' (' + name + ')'; }) : error;
+  }
+
   function _chartComponent(kind) {
     return function(props) {
       props = props || {};
@@ -3130,10 +3137,16 @@ function _dtDetectDir(cols, rows) {
       try { built = kind === 'rank' ? _buildRank(props, theme, lang, rtl) : _buildTrend(props, theme, lang); }
       catch (e) { built = { error: (kind === 'rank' ? 'RankChart' : 'TrendChart') + ' could not draw: ' + (e && e.message ? e.message : String(e)) }; }
       builtRef.current = built;
+      // One console warning per chart while its props can't draw, named by
+      // its viz so the page check tells two broken charts apart (an effect:
+      // re-renders don't repeat it). The box below shows the message alone.
+      var warning = built.error ? '[bow-chart] ' + _chWarnName(built.error, props.viz) : null;
+      React.useEffect(function() {
+        if (warning && typeof console !== 'undefined') console.warn(warning);
+      }, [warning]);
       var height = built.height || props.height || 300;
       var body;
       if (built.error) {
-        if (typeof console !== 'undefined') console.warn('[bow-chart] ' + built.error);
         body = h('div', { key: 'err', role: 'alert', dir: 'auto', className: 'rounded-chip border border-warning/40 bg-warning/10 text-sm text-ink-2 p-3' }, built.error);
       } else if (built.empty) {
         body = h('div', { key: 'empty', className: 'flex items-center justify-center text-sm text-ink-3', style: { height: Math.min(height, 160) } }, built.noData);

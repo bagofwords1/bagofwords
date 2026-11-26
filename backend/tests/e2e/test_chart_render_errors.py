@@ -123,7 +123,7 @@ async def _seed_viz(report_id: str) -> str:
         return str(viz.id)
 
 
-async def _seed_page(report_id: str, viz_id: str, app: str) -> str:
+async def _seed_page(report_id: str, viz_id: str, app: str, **version_fields) -> str:
     """A page saved before chart errors were render-checked (no API makes one
     now: a broken chart either gets fixed or is saved with a warning)."""
     async with async_session_maker() as db:
@@ -131,6 +131,7 @@ async def _seed_page(report_id: str, viz_id: str, app: str) -> str:
         version = await seed_artifact(
             db, report_id=report_id, user_id=str(report.user_id), organization_id=str(report.organization_id),
             content={"code": _script(app), "visualization_ids": [viz_id], "runtime_version": 11},
+            **version_fields,
         )
         await db.commit()
         return str(version.id)
@@ -174,6 +175,33 @@ def _legacy_edit(report_id, artifact_id, model):
     return _run(_tool_end(EditArtifactTool, report_id, {
         "artifact_id": artifact_id, "edit_prompt": "Change the page",
     }, model))
+
+
+def _stored_render_errors(report_id, version_id) -> list:
+    """The render errors read_artifact reports for a saved version."""
+    from app.ai.tools.implementations.read_artifact import ReadArtifactTool
+    payload = _run(_tool_end(ReadArtifactTool, report_id, {"artifact_id": version_id, "load_screenshot": True}))
+    return list(payload["observation"].get("render_errors") or [])
+
+
+@pytest.fixture
+def browser(monkeypatch):
+    """The real headless render, counted; ``fail_when`` makes it fail (no
+    screenshot, as when Chromium crashes) for a page containing that text."""
+    from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+
+    real = CreateArtifactTool._take_preview_screenshot
+    state = SimpleNamespace(renders=0, fail_when=None, drop_screenshot=False)
+
+    async def render(self, html):
+        state.renders += 1
+        if state.fail_when and state.fail_when in html:
+            return None, []
+        shot, errors = await real(self, html)
+        return (None if state.drop_screenshot else shot), errors
+
+    monkeypatch.setattr(CreateArtifactTool, "_take_preview_screenshot", render)
+    return state
 
 
 async def _stored(version_id: str) -> dict:
@@ -278,6 +306,29 @@ def test_a_chart_the_planners_code_gets_wrong_is_saved_with_a_warning(
     # Actionable: the chart's own message, its fields, and the tool to fix it with.
     assert all(f in obs["chart_errors"][0] for f in fields), obs["chart_errors"]
     assert chart in obs["summary"] and "edit_artifact" in obs["summary"], obs["summary"]
+    if viz_ids:
+        # Named by its viz, so the planner knows which chart to fix.
+        assert "Albums" in obs["chart_errors"][0] and "Albums" in obs["summary"], obs["chart_errors"]
+
+
+def test_a_throw_after_many_broken_charts_still_fails_create(
+    create_report, create_user, login_user, whoami, test_client
+):
+    # Ten charts each broken a different way, then a thrown error: the chart
+    # warnings must not crowd the thrown error out of the render check.
+    charts = "".join(f'<TrendChart rows={{ROWS}} x="missing{i}" y="revenue" />' for i in range(10))
+    app = ROWS + (
+        "function App() {\n"
+        "  React.useEffect(() => { throw new Error('albums failed to load'); }, []);\n"
+        f"  return (<div><h1>Revenue</h1>{charts}</div>);\n"
+        "}\n"
+    )
+    report = _make_report(create_report, create_user, login_user, whoami)
+
+    payload = _create(report["id"], [], app)
+
+    assert payload["output"].get("success") is False, payload["observation"].get("summary")
+    assert any("albums failed to load" in e for e in _render_errors(payload)), _render_errors(payload)
 
 
 def test_a_thrown_error_beside_a_broken_chart_still_fails_create(
@@ -325,12 +376,38 @@ def test_a_chart_the_repair_cant_fix_is_saved_with_a_warning(
     assert "TrendChart" in payload["observation"]["chart_errors"][0]
 
 
+def test_a_chart_warning_survives_a_render_without_screenshot(
+    browser, create_report, create_user, login_user, whoami, test_client
+):
+    report = _make_report(create_report, create_user, login_user, whoami)
+    browser.drop_screenshot = True
+
+    payload = _create(report["id"], [], NO_VIZ_NO_ROWS)
+
+    summary = payload["observation"]["summary"]
+    assert "TrendChart" in summary and "edit_artifact" in summary, summary
+
+
 # -- edit: only the chart errors an edit adds count ---------------------------
 
-def _page_with_a_broken_trend(viz_id):
+STAMP = "stamp-before-edit-7f3a"
+OLD_TREND_ERROR = "[bow-chart] TrendChart (Albums) needs x and y. Available fields: artist, albums."
+
+
+def _page_with_a_broken_trend(viz_id, extra=""):
     # The TrendChart has no x: the page already draws one warning box.
     return _ranked(viz_id, '<RankChart viz={albums} label="artist" value="albums" />'
-                           '<TrendChart viz={albums} y="albums" />')
+                           '<TrendChart viz={albums} y="albums" />' + extra,
+                   before=f"  const stamp = '{STAMP}';\n")
+
+
+def _assert_old_chart_kept_as_a_note(report_id, edited):
+    obs = edited["observation"]
+    known = obs.get("known_chart_errors") or []
+    assert len(known) == 1 and "TrendChart" in known[0], obs
+    assert "already broken" in obs["summary"], obs["summary"]
+    stored = _stored_render_errors(report_id, edited["output"]["artifact_id"])
+    assert any("TrendChart" in e for e in stored), stored
 
 
 def test_an_edit_beside_a_chart_the_page_already_got_wrong_is_applied(
@@ -343,6 +420,66 @@ def test_an_edit_beside_a_chart_the_page_already_got_wrong_is_applied(
     edited = _edit(report["id"], artifact_id, "<h1>Albums</h1>", "<h1>Albums per artist</h1>")
 
     assert edited["output"].get("success") is True, edited["observation"]
+    _assert_old_chart_kept_as_a_note(report["id"], edited)
+
+
+def test_an_edit_that_breaks_a_second_chart_the_same_way_is_rejected(
+    create_report, create_user, login_user, whoami, test_client
+):
+    report = _make_report(create_report, create_user, login_user, whoami)
+    viz_id = _run(_seed_viz(report["id"]))
+    artifact_id = _run(_seed_page(report["id"], viz_id, _page_with_a_broken_trend(viz_id)))
+
+    # A second TrendChart on the same viz, broken exactly like the old one.
+    old = '<TrendChart viz={albums} y="albums" />'
+    edited = _edit(report["id"], artifact_id, old, old + old)
+
+    assert edited["output"].get("success") is False, edited["observation"].get("summary")
+    assert any("TrendChart" in e for e in _chart_errors(edited)), edited["observation"]
+
+
+def test_an_edit_whose_previous_version_cant_render_uses_the_stored_errors(
+    browser, create_report, create_user, login_user, whoami, test_client
+):
+    report = _make_report(create_report, create_user, login_user, whoami)
+    viz_id = _run(_seed_viz(report["id"]))
+    artifact_id = _run(_seed_page(report["id"], viz_id, _page_with_a_broken_trend(viz_id),
+                                  render_errors=[OLD_TREND_ERROR]))
+    browser.fail_when = STAMP
+
+    edited = _edit(report["id"], artifact_id, STAMP, "stamp-after-edit")
+
+    assert edited["output"].get("success") is True, edited["observation"]
+    assert "TrendChart" in edited["observation"]["known_chart_errors"][0]
+
+
+def test_an_edit_with_no_way_to_compare_says_the_chart_may_be_old(
+    browser, create_report, create_user, login_user, whoami, test_client
+):
+    report = _make_report(create_report, create_user, login_user, whoami)
+    viz_id = _run(_seed_viz(report["id"]))
+    artifact_id = _run(_seed_page(report["id"], viz_id, _page_with_a_broken_trend(viz_id)))
+    browser.fail_when = STAMP
+
+    edited = _edit(report["id"], artifact_id, STAMP, "stamp-after-edit")
+
+    assert edited["output"].get("success") is False, edited["observation"]
+    assert "TrendChart" in edited["observation"]["error"]["message"]
+    assert "before this edit" in edited["observation"]["error"]["message"], edited["observation"]["error"]
+
+
+def test_an_edit_that_throws_skips_the_previous_version_render(
+    browser, create_report, create_user, login_user, whoami, test_client
+):
+    report = _make_report(create_report, create_user, login_user, whoami)
+    viz_id = _run(_seed_viz(report["id"]))
+    artifact_id = _run(_seed_page(report["id"], viz_id, _page_with_a_broken_trend(viz_id)))
+
+    edited = _edit(report["id"], artifact_id, f"  const stamp = '{STAMP}';\n",
+                   "  React.useEffect(() => { throw new Error('albums failed to load'); }, []);\n")
+
+    assert edited["output"].get("success") is False, edited["observation"]
+    assert browser.renders == 1, "the thrown error rejects the edit; no comparison render is needed"
 
 
 def test_an_edit_that_breaks_another_chart_is_rejected_for_that_chart(
@@ -355,8 +492,9 @@ def test_an_edit_that_breaks_another_chart_is_rejected_for_that_chart(
     edited = _edit(report["id"], artifact_id, 'label="artist" ', "")
 
     assert edited["output"].get("success") is False, edited["observation"].get("summary")
-    errors = _chart_errors(edited)
-    assert errors and all("RankChart" in e for e in errors), errors
+    # Rejected for the chart it broke; the old one rides along in render_errors.
+    message = edited["observation"]["error"]["message"]
+    assert "RankChart" in message and "TrendChart" not in message, message
 
 
 def test_an_edit_that_breaks_a_chart_is_rejected_with_its_message(
@@ -392,6 +530,7 @@ def test_a_legacy_edit_beside_a_chart_the_page_already_got_wrong_is_applied_with
     assert provider.prompts("create_artifact_fix") == [], "the old chart error drove a repair"
     assert edited["output"].get("success") is not False, edited["observation"]
     assert "chart_errors" not in edited["observation"]
+    _assert_old_chart_kept_as_a_note(report["id"], edited)
 
 
 def test_a_legacy_edit_that_breaks_a_chart_is_repaired_then_saved_with_a_warning(
