@@ -1,9 +1,10 @@
 <template>
-  <!-- The app launcher: the apps (published artifacts a host application may
-       show) this member can open. It is the whole of BOW for an app user (a
-       member without access_workspace, see composables/useWorkspaceAccess)
-       and an "Apps" page for everyone else, who also get a link back to the
-       workspace. Its own shell on purpose: no sidebar, nothing to hide. -->
+  <!-- The app launcher, "Shared with you": every published artifact this
+       member can open -- apps (a host application may show them), dashboards
+       and docs -- filterable by kind. It is the whole of BOW for an app user
+       (a member without access_workspace, see composables/useWorkspaceAccess);
+       anyone else who opens it also gets a link back to the workspace. Its own
+       shell on purpose: no sidebar, nothing to hide. -->
   <div class="min-h-dvh bg-surface-subtle text-ink" data-testid="app-launcher" :data-state="state">
     <UNotifications />
 
@@ -49,6 +50,17 @@
                 class="ms-auto w-full sm:w-64" :placeholder="t('apps.search')" data-testid="app-launcher-search" />
       </div>
 
+      <!-- What kind to show. Hidden only while nothing at all is shared. -->
+      <div v-if="state === 'ready' && (apps.length || searched || kind)" role="group" :aria-label="t('apps.filter.label')"
+           class="mt-6 flex flex-wrap gap-1.5" data-testid="app-launcher-kinds">
+        <button v-for="option in kindOptions" :key="option.value" type="button" :aria-pressed="kind === option.value"
+                class="rounded-full px-3 py-1 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                :class="kind === option.value ? 'bg-ink text-ink-inverted' : 'bg-surface text-ink-2 ring-1 ring-black/5 hover:bg-surface-muted dark:ring-white/10'"
+                :data-testid="`app-launcher-kind-${option.value || 'all'}`" @click="kind = option.value">
+          {{ option.label }}
+        </button>
+      </div>
+
       <!-- Loading -->
       <div v-if="state === 'loading'" class="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         <div v-for="n in 3" :key="n" class="overflow-hidden rounded-xl bg-surface">
@@ -64,7 +76,7 @@
       </div>
 
       <!-- Nothing shared yet -->
-      <div v-else-if="!apps.length && !searched" class="mt-16 flex flex-col items-center text-center" data-testid="app-launcher-empty">
+      <div v-else-if="!apps.length && !searched && !kind" class="mt-16 flex flex-col items-center text-center" data-testid="app-launcher-empty">
         <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-muted">
           <UIcon name="i-heroicons-squares-2x2" class="h-7 w-7 text-ink-muted" aria-hidden="true" />
         </div>
@@ -73,12 +85,15 @@
       </div>
 
       <template v-else>
-        <p v-if="!apps.length" class="mt-16 text-center text-sm text-ink-muted" data-testid="app-launcher-no-matches">
+        <p v-if="!apps.length && searched" class="mt-16 text-center text-sm text-ink-muted" data-testid="app-launcher-no-matches">
           {{ t('apps.noMatches', { query: searched }) }}
+        </p>
+        <p v-else-if="!apps.length" class="mt-16 text-center text-sm text-ink-muted" data-testid="app-launcher-empty-kind">
+          {{ emptyKindText }}
         </p>
         <ul v-else class="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3" data-testid="app-launcher-grid">
           <li v-for="app in apps" :key="app.id">
-            <NuxtLink :to="`/d/${app.ref}`" data-testid="app-card" :data-app-id="app.id"
+            <NuxtLink :to="withBack(`/d/${app.ref}`, 'apps')" data-testid="app-card" :data-app-id="app.id" :data-kind="app.kind"
                       class="group block overflow-hidden rounded-xl bg-surface shadow-sm ring-1 ring-black/5 transition hover:-translate-y-0.5 hover:shadow-md dark:ring-white/10">
               <div class="relative aspect-[16/10] overflow-hidden" :class="thumbnailOf(app) ? 'bg-surface-muted' : tileOf(app).bg">
                 <DashboardThumbnail v-if="thumbnailOf(app)" :url="app.thumbnail_url!" :alt="titleOf(app)"
@@ -90,14 +105,18 @@
                 </div>
               </div>
               <div class="p-4 text-start">
-                <h2 class="truncate text-sm font-medium text-ink" data-testid="app-card-title">{{ titleOf(app) }}</h2>
+                <div class="flex items-center gap-2">
+                  <h2 class="min-w-0 flex-1 truncate text-sm font-medium text-ink" data-testid="app-card-title">{{ titleOf(app) }}</h2>
+                  <span v-if="app.kind" class="shrink-0 rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-ink-muted"
+                        data-testid="app-card-kind">{{ kindLabel(app.kind) }}</span>
+                </div>
                 <p class="mt-0.5 truncate text-xs text-ink-muted">{{ app.description || applicationsOf(app) }}</p>
               </div>
             </NuxtLink>
           </li>
         </ul>
-        <!-- The list is paged on the server: every app the reader may open is
-             reachable, by this button or by searching. -->
+        <!-- The list is paged on the server: everything the reader may open is
+             reachable, by this button or by searching, in each kind too. -->
         <div v-if="nextAfter !== null" class="mt-8 flex justify-center">
           <UButton color="white" size="sm" :loading="loadingMore" data-testid="app-launcher-more" @click="loadMore">
             {{ t('apps.showMore') }}
@@ -128,8 +147,12 @@
 
 <script setup lang="ts">
 import DashboardThumbnail from '~/components/dashboards/DashboardThumbnail.vue'
+import { withBack } from '~/utils/dashboardBack'
 
 definePageMeta({ layout: false })
+
+type Kind = 'app' | 'dashboard' | 'doc'
+const KINDS: Kind[] = ['app', 'dashboard', 'doc']
 
 interface AppCard {
   id: string
@@ -137,6 +160,7 @@ interface AppCard {
   title: string | null
   description: string | null
   mode: string | null
+  kind: Kind | null
   thumbnail_url: string | null
   applications: string[]
 }
@@ -150,6 +174,8 @@ const { data: session, signOut } = useAuth()
 const { organization, ensureOrganization, setOrganization } = useOrganization()
 const toast = useToast()
 const nuxtApp = useNuxtApp() as any
+const route = useRoute()
+const router = useRouter()
 
 useHead(() => ({ title: t('apps.title') }))
 
@@ -194,6 +220,23 @@ function tileOf(app: AppCard) {
   return TILES[hash % TILES.length]!
 }
 
+// The kind filter: in the URL (?kind=), so back from a dashboard and a
+// reload return to the same view. '' is everything.
+const kindOf = (raw: unknown): Kind | '' => (KINDS.includes(raw as Kind) ? raw as Kind : '')
+const kind = ref<Kind | ''>(kindOf(route.query.kind))
+const kindOptions = computed(() => [
+  { value: '' as const, label: t('apps.filter.all') },
+  { value: 'app' as const, label: t('apps.filter.apps') },
+  { value: 'dashboard' as const, label: t('apps.filter.dashboards') },
+  { value: 'doc' as const, label: t('apps.filter.docs') },
+])
+function kindLabel(value: Kind) {
+  return { app: t('apps.kind.app'), dashboard: t('apps.kind.dashboard'), doc: t('apps.kind.doc') }[value]
+}
+const emptyKindText = computed(() => kind.value
+  ? { app: t('apps.emptyKind.app'), dashboard: t('apps.emptyKind.dashboard'), doc: t('apps.emptyKind.doc') }[kind.value]
+  : '')
+
 // The search runs on the server (titles and descriptions), so it finds an
 // app on a page not loaded yet. `searched` is the query the list answers.
 const searched = ref('')
@@ -205,7 +248,9 @@ let request = 0
 
 async function fetchPage(after: number) {
   const q = search.value.trim()
-  const { data, error } = await useMyFetch('/apps', { query: { ...(q ? { q } : {}), ...(after ? { after } : {}) } })
+  const { data, error } = await useMyFetch('/apps', {
+    query: { ...(q ? { q } : {}), ...(kind.value ? { kind: kind.value } : {}), ...(after ? { after } : {}) },
+  })
   if (error.value || !data.value) throw error.value || new Error('empty')
   return { body: data.value as any, q }
 }
@@ -257,6 +302,14 @@ watch(search, () => {
   searchTimer = setTimeout(() => { load(false) }, 250)
 })
 onBeforeUnmount(() => { if (searchTimer) clearTimeout(searchTimer) })
+
+watch(kind, (value) => {
+  router.replace({ query: { ...route.query, kind: value || undefined } })
+  // As for the search: what is in flight answers another filter.
+  ++request
+  loadingMore.value = false
+  load(false)
+})
 
 async function requestAccess() {
   requesting.value = true

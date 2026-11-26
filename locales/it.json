@@ -7714,7 +7714,8 @@
       "deniedTitle": "Accesso negato",
       "deniedBody": "Non hai accesso a questa pagina. Chiedi al proprietario di condividerla con te.",
       "goHome": "Vai alla home",
-      "backToApp": "Torna all'app"
+      "backToDashboards": "Torna alle dashboard",
+      "backToHome": "Torna alla home"
     },
     "accessRequest": {
       "noAccessTitle": "Non hai accesso",
@@ -8410,30 +8411,47 @@
     }
   },
   "apps": {
-    "title": "Le tue app",
-    "subtitle": "Apri un'app per iniziare.",
+    "title": "Condivisi con te",
+    "subtitle": "App, dashboard e documenti che puoi aprire.",
     "openWorkspace": "Apri l'area di lavoro",
-    "search": "Cerca app",
-    "untitled": "App senza titolo",
+    "search": "Cerca",
+    "untitled": "Senza titolo",
     "inApplication": "In {name}",
-    "allApps": "Tutte le app",
+    "backToLauncher": "Torna a Condivisi con te",
     "language": "Lingua",
     "account": "Account",
     "signOut": "Esci",
-    "loadFailed": "Impossibile caricare le tue app.",
+    "loadFailed": "Impossibile caricare questo elenco.",
     "retry": "Riprova",
-    "noMatches": "Nessuna app corrisponde a “{query}”.",
+    "noMatches": "Nessun risultato per “{query}”.",
     "empty": {
-      "title": "Ancora nessuna app",
-      "body": "Quando qualcuno condividerà un'app con te, comparirà qui."
+      "title": "Ancora niente condiviso con te",
+      "body": "Quando qualcuno condividerà con te un'app, una dashboard o un documento, comparirà qui."
     },
     "requestAccess": {
-      "prompt": "Ti serve più di queste app?",
+      "prompt": "Ti serve più di ciò che è condiviso con te?",
       "button": "Richiedi accesso completo",
       "sent": "Richiesta inviata. Un amministratore la esaminerà.",
       "failed": "Impossibile inviare la richiesta. Riprova."
     },
-    "showMore": "Mostra altro"
+    "showMore": "Mostra altro",
+    "filter": {
+      "label": "Filtra per tipo",
+      "all": "Tutti",
+      "apps": "App",
+      "dashboards": "Dashboard",
+      "docs": "Documenti"
+    },
+    "kind": {
+      "app": "App",
+      "dashboard": "Dashboard",
+      "doc": "Documento"
+    },
+    "emptyKind": {
+      "app": "Nessuna app condivisa con te finora.",
+      "dashboard": "Nessuna dashboard condivisa con te finora.",
+      "doc": "Nessun documento condiviso con te finora."
+    }
   },
   "hostApps": {
     "newUserRole": "Le nuove persone entrano come",

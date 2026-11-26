@@ -7714,7 +7714,8 @@
       "deniedTitle": "Åtkomst nekad",
       "deniedBody": "Du har inte åtkomst till den här sidan. Be ägaren att dela den med dig.",
       "goHome": "Till startsidan",
-      "backToApp": "Tillbaka till appen"
+      "backToDashboards": "Tillbaka till instrumentpanelerna",
+      "backToHome": "Tillbaka till startsidan"
     },
     "accessRequest": {
       "noAccessTitle": "Du har inte åtkomst",
@@ -8410,30 +8411,47 @@
     }
   },
   "apps": {
-    "title": "Dina appar",
-    "subtitle": "Öppna en app för att komma igång.",
+    "title": "Delat med dig",
+    "subtitle": "Appar, instrumentpaneler och dokument som du kan öppna.",
     "openWorkspace": "Öppna arbetsytan",
-    "search": "Sök appar",
-    "untitled": "Namnlös app",
+    "search": "Sök",
+    "untitled": "Namnlös",
     "inApplication": "I {name}",
-    "allApps": "Alla appar",
+    "backToLauncher": "Tillbaka till Delat med dig",
     "language": "Språk",
     "account": "Konto",
     "signOut": "Logga ut",
-    "loadFailed": "Det gick inte att läsa in dina appar.",
+    "loadFailed": "Det gick inte att läsa in listan.",
     "retry": "Försök igen",
-    "noMatches": "Inga appar matchar ”{query}”.",
+    "noMatches": "Inget matchar ”{query}”.",
     "empty": {
-      "title": "Inga appar ännu",
-      "body": "När någon delar en app med dig visas den här."
+      "title": "Inget har delats med dig än",
+      "body": "När någon delar en app, en instrumentpanel eller ett dokument med dig visas det här."
     },
     "requestAccess": {
-      "prompt": "Behöver du mer än de här apparna?",
+      "prompt": "Behöver du mer än det som delats med dig?",
       "button": "Begär full åtkomst",
       "sent": "Begäran skickad. En administratör granskar den.",
       "failed": "Det gick inte att skicka begäran. Försök igen."
     },
-    "showMore": "Visa fler"
+    "showMore": "Visa fler",
+    "filter": {
+      "label": "Filtrera efter typ",
+      "all": "Alla",
+      "apps": "Appar",
+      "dashboards": "Instrumentpaneler",
+      "docs": "Dokument"
+    },
+    "kind": {
+      "app": "App",
+      "dashboard": "Instrumentpanel",
+      "doc": "Dokument"
+    },
+    "emptyKind": {
+      "app": "Inga appar har delats med dig än.",
+      "dashboard": "Inga instrumentpaneler har delats med dig än.",
+      "doc": "Inga dokument har delats med dig än."
+    }
   },
   "hostApps": {
     "newUserRole": "Nya personer går med som",

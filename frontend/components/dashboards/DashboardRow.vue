@@ -135,6 +135,7 @@ import ReportStatusDot from '~/components/ReportStatusDot.vue'
 import TruncatedLabel from '~/components/TruncatedLabel.vue'
 import { NuxtLink } from '#components'
 import { isolate, refreshLine, statusPill, type DashboardCardData } from '~/utils/dashboardList'
+import { withBack } from '~/utils/dashboardBack'
 
 const props = defineProps<{
     dashboard: DashboardCardData
@@ -152,7 +153,8 @@ const { t } = useI18n()
 const { relativeTime } = useRelativeTime()
 const { formatDate, formatDateTime } = useFormatDate()
 
-const link = computed(() => `/d/${props.dashboard.slug || props.dashboard.id}`)
+// The dashboard's /d page; its back arrow returns here.
+const link = computed(() => withBack(`/d/${props.dashboard.slug || props.dashboard.id}`, 'dashboards'))
 const title = computed(() => props.dashboard.title || t('dashboardCollab.page.untitled'))
 const shared = computed(() => props.tab === 'shared')
 const editable = computed(() => props.dashboard.role === 'owner' || props.dashboard.role === 'edit')
