@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.639 (November 26, 2026)
-- Added agent sandboxes: containers on your own Linux servers where a report's agent runs code and saves the files it writes to the report — off until `BOW_AGENT_SANDBOXES_ENABLED` is set, then set up in Settings → Sandbox
+- Added agent sandboxes: containers on your own Linux servers where a report's agent runs code and saves the files it writes to the report (#1941) — off until `BOW_AGENT_SANDBOXES_ENABLED` is set, then set up in Settings → Sandbox
 
 ## Version 0.0.638 (November 25, 2026)
 - Added a Microsoft Learn connector for searching and reading Microsoft and Azure documentation, with no sign-in needed (#1929)
