@@ -3141,15 +3141,18 @@ function _dtDetectDir(cols, rows) {
       // check counts the warning boxes on screen by data-bow-chart-warning
       // (a remount or StrictMode can repeat the console warning, never the
       // box); the console warning is for the live preview and as fallback.
-      // The box itself shows the message alone.
+      // The box itself shows the message alone. Titles repeat across vizzes,
+      // so the viz id rides along (data-bow-chart-viz, and in the console
+      // warning in the same "[viz <id>]" form the render check writes).
       var named = built.error ? _chWarnName(built.error, props.viz) : null;
+      var warning = named ? named + (vizId ? ' [viz ' + vizId + ']' : '') : null;
       React.useEffect(function() {
-        if (named && typeof console !== 'undefined') console.warn('[bow-chart] ' + named);
-      }, [named]);
+        if (warning && typeof console !== 'undefined') console.warn('[bow-chart] ' + warning);
+      }, [warning]);
       var height = built.height || props.height || 300;
       var body;
       if (built.error) {
-        body = h('div', { key: 'err', role: 'alert', dir: 'auto', 'data-bow-chart-warning': named, className: 'rounded-chip border border-warning/40 bg-warning/10 text-sm text-ink-2 p-3' }, built.error);
+        body = h('div', { key: 'err', role: 'alert', dir: 'auto', 'data-bow-chart-warning': named, 'data-bow-chart-viz': vizId || undefined, className: 'rounded-chip border border-warning/40 bg-warning/10 text-sm text-ink-2 p-3' }, built.error);
       } else if (built.empty) {
         body = h('div', { key: 'empty', className: 'flex items-center justify-center text-sm text-ink-3', style: { height: Math.min(height, 160) } }, built.noData);
       } else {

@@ -193,25 +193,36 @@ class CreateArtifactTool(Tool):
                     page_url["url"] = f"file://{tmp.name}"
                     await page.goto(page_url["url"], wait_until="networkidle")
 
-                    # Wait for React to mount and charts to render (short timeout)
+                    # Wait for React to mount and charts to render (short timeout).
+                    # A page whose JS thread is blocked (a busy loop) can keep
+                    # Playwright's own timeout from firing, so each step on the
+                    # page also gets a hard bound a little above its own.
                     try:
-                        await page.wait_for_function(
+                        await asyncio.wait_for(page.wait_for_function(
                             "window.__ARTIFACT_RENDER_COMPLETE__ === true",
                             timeout=8000,
-                        )
+                        ), timeout=10)
                     except Exception:
                         pass  # Take screenshot anyway — partial render is still useful
 
                     await asyncio.sleep(0.3)
+                    # One query of the DOM: it answers at once unless the
+                    # page's JS thread is blocked (a busy loop), which no wait
+                    # cures. 2 s, a quarter of the readiness wait above, so a
+                    # hung page falls back to the console warnings it logged.
                     try:
-                        boxes = await page.evaluate(
+                        boxes = await asyncio.wait_for(page.evaluate(
                             "() => Array.from(document.querySelectorAll('[data-bow-chart-warning]'),"
-                            " e => e.getAttribute('data-bow-chart-warning'))"
-                        )
-                        chart_boxes[0] = [CHART_ERROR_PREFIX + str(b) for b in boxes if b][:20]
+                            " e => [e.getAttribute('data-bow-chart-warning'), e.getAttribute('data-bow-chart-viz')])"
+                        ), timeout=2)
+                        # Same form as the console warning: "[viz <id>]" keeps two
+                        # vizzes with one title apart.
+                        chart_boxes[0] = [CHART_ERROR_PREFIX + str(m) + (f" [viz {v}]" if v else "")
+                                          for m, v in boxes if m][:20]
                     except Exception as e:
-                        logger.warning(f"Reading the chart warning boxes failed; using console warnings: {e}")
-                    screenshot_bytes = await page.screenshot(type="png", full_page=False)
+                        logger.warning(f"Reading the chart warning boxes failed; using console warnings: {e!r}")
+                    screenshot_bytes = await asyncio.wait_for(
+                        page.screenshot(type="png", full_page=False, timeout=30000), timeout=35)
                     await browser.close()
                     return base64.b64encode(screenshot_bytes).decode("utf-8"), _collected()
                 finally:

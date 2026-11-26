@@ -123,14 +123,15 @@ async def _seed_viz(report_id: str) -> str:
         return str(viz.id)
 
 
-async def _seed_page(report_id: str, viz_id: str, app: str, **version_fields) -> str:
+async def _seed_page(report_id: str, viz_id, app: str, **version_fields) -> str:
     """A page saved before chart errors were render-checked (no API makes one
     now: a broken chart either gets fixed or is saved with a warning)."""
     async with async_session_maker() as db:
         report = await db.get(Report, report_id)
         version = await seed_artifact(
             db, report_id=report_id, user_id=str(report.user_id), organization_id=str(report.organization_id),
-            content={"code": _script(app), "visualization_ids": [viz_id], "runtime_version": 11},
+            content={"code": _script(app), "visualization_ids": viz_id if isinstance(viz_id, list) else [viz_id],
+                     "runtime_version": 11},
             **version_fields,
         )
         await db.commit()
@@ -163,11 +164,11 @@ def _create(report_id, viz_ids, app=None, model=None, mount=MOUNT):
     return _run(_tool_end(CreateArtifactTool, report_id, tool_input, model))
 
 
-def _edit(report_id, artifact_id, find, replace):
+def _edit(report_id, artifact_id, find, replace, *more):
+    """edit_artifact with one find/replace, or several: (find, replace) pairs in ``more``."""
     from app.ai.tools.implementations.edit_artifact import EditArtifactTool
-    return _run(_tool_end(EditArtifactTool, report_id, {
-        "artifact_id": artifact_id, "edits": [{"find": find, "replace": replace}],
-    }))
+    edits = [{"find": find, "replace": replace}] + [{"find": f, "replace": r} for f, r in more]
+    return _run(_tool_end(EditArtifactTool, report_id, {"artifact_id": artifact_id, "edits": edits}))
 
 
 def _legacy_edit(report_id, artifact_id, model):
@@ -186,21 +187,60 @@ def _stored_render_errors(report_id, version_id) -> list:
 
 @pytest.fixture
 def browser(monkeypatch):
-    """The real headless render, counted; ``fail_when`` makes it fail (no
-    screenshot, as when Chromium crashes) for a page containing that text."""
-    from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+    """Real Chromium, wrapped at the Playwright boundary: page renders are
+    counted, and ``page.screenshot()`` fails the way a crashed renderer does
+    for every page (``drop_screenshot``) or for a page whose HTML contains
+    ``fail_when``. The app's render check and its fallbacks run for real."""
+    import playwright.async_api as pw
 
-    real = CreateArtifactTool._take_preview_screenshot
+    real = pw.async_playwright
     state = SimpleNamespace(renders=0, fail_when=None, drop_screenshot=False)
 
-    async def render(self, html):
-        state.renders += 1
-        if state.fail_when and state.fail_when in html:
-            return None, []
-        shot, errors = await real(self, html)
-        return (None if state.drop_screenshot else shot), errors
+    class _Wrap:
+        def __init__(self, inner):
+            self._inner = inner
 
-    monkeypatch.setattr(CreateArtifactTool, "_take_preview_screenshot", render)
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    class _Page(_Wrap):
+        html = ""
+
+        async def goto(self, url, **kwargs):
+            if url.startswith("file://"):
+                state.renders += 1
+                self.html = Path(url[len("file://"):]).read_text(encoding="utf-8")
+            return await self._inner.goto(url, **kwargs)
+
+        async def screenshot(self, **kwargs):
+            if state.drop_screenshot or (state.fail_when and state.fail_when in self.html):
+                raise RuntimeError("Page.screenshot: Target crashed")
+            return await self._inner.screenshot(**kwargs)
+
+    class _Browser(_Wrap):
+        async def new_page(self, **kwargs):
+            return _Page(await self._inner.new_page(**kwargs))
+
+    class _Chromium(_Wrap):
+        async def launch(self, **kwargs):
+            return _Browser(await self._inner.launch(**kwargs))
+
+    class _Playwright(_Wrap):
+        @property
+        def chromium(self):
+            return _Chromium(self._inner.chromium)
+
+    class _Manager:
+        def __init__(self):
+            self._inner = real()
+
+        async def __aenter__(self):
+            return _Playwright(await self._inner.__aenter__())
+
+        async def __aexit__(self, *exc):
+            return await self._inner.__aexit__(*exc)
+
+    monkeypatch.setattr(pw, "async_playwright", lambda: _Manager())
     return state
 
 
@@ -343,6 +383,27 @@ def test_one_broken_chart_is_one_chart_error_however_often_it_mounts(
     assert len(_chart_errors(payload)) == 1, _render_errors(payload)
 
 
+def test_a_page_that_hangs_after_its_charts_warned_still_returns(
+    create_report, create_user, login_user, whoami, test_client
+):
+    # A delayed effect busy-loops forever: the page's JS thread never answers
+    # again. The render check must still come back, with the chart warning
+    # the page logged before it hung.
+    app = NO_VIZ_NO_ROWS.replace(
+        "  return", "  React.useEffect(() => { setTimeout(() => { for (;;) {} }, 300); }, []);\n  return")
+    report = _make_report(create_report, create_user, login_user, whoami)
+
+    async def bounded():
+        from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+        return await asyncio.wait_for(_tool_end(CreateArtifactTool, report["id"], {
+            "prompt": "revenue", "title": "Revenue", "mode": "page", "visualization_ids": [],
+            "code": _script(app)}), timeout=120)
+
+    payload = _run(bounded())
+
+    assert any("TrendChart" in e for e in payload["observation"].get("chart_errors") or []), payload["observation"]
+
+
 def test_a_throw_after_many_broken_charts_still_fails_create(
     create_report, create_user, login_user, whoami, test_client
 ):
@@ -424,7 +485,9 @@ def test_a_chart_warning_survives_a_render_without_screenshot(
 # -- edit: only the chart errors an edit adds count ---------------------------
 
 STAMP = "stamp-before-edit-7f3a"
-OLD_TREND_ERROR = "[bow-chart] TrendChart (Albums) needs x and y. Available fields: artist, albums."
+def _old_trend_error(viz_id):
+    # Literal: the message the stored render errors of such a page carry.
+    return f"[bow-chart] TrendChart (Albums) needs x and y. Available fields: artist, albums. [viz {viz_id}]"
 
 
 def _page_with_a_broken_trend(viz_id, extra=""):
@@ -471,13 +534,38 @@ def test_an_edit_that_breaks_a_second_chart_the_same_way_is_rejected(
     assert any("TrendChart" in e for e in _chart_errors(edited)), edited["observation"]
 
 
+def test_an_edit_that_moves_a_broken_chart_to_another_viz_with_the_same_title_is_rejected(
+    create_report, create_user, login_user, whoami, test_client
+):
+    # Two vizzes titled "Albums" with the same columns: the same message for
+    # either chart. The edit fixes the chart on one and breaks the other.
+    report = _make_report(create_report, create_user, login_user, whoami)
+    first, second = _run(_seed_viz(report["id"])), _run(_seed_viz(report["id"]))
+    app = (
+        "function App() {\n"
+        f"  const a = vizById('{first}');\n"
+        f"  const b = vizById('{second}');\n"
+        "  return (<div><h1>Albums</h1><p>Albums by artist</p>"
+        '<RankChart viz={a} value="albums" /><RankChart viz={b} label="artist" value="albums" /></div>);\n'
+        "}\n"
+    )
+    artifact_id = _run(_seed_page(report["id"], [first, second], app))
+
+    edited = _edit(report["id"], artifact_id,
+                   '<RankChart viz={a} value="albums" />', '<RankChart viz={a} label="artist" value="albums" />',
+                   ('<RankChart viz={b} label="artist" value="albums" />', '<RankChart viz={b} value="albums" />'))
+
+    assert edited["output"].get("success") is False, edited["observation"].get("summary")
+    assert "RankChart (Albums)" in edited["observation"]["error"]["message"], edited["observation"]["error"]
+
+
 def test_an_edit_whose_previous_version_cant_render_uses_the_stored_errors(
     browser, create_report, create_user, login_user, whoami, test_client
 ):
     report = _make_report(create_report, create_user, login_user, whoami)
     viz_id = _run(_seed_viz(report["id"]))
     artifact_id = _run(_seed_page(report["id"], viz_id, _page_with_a_broken_trend(viz_id),
-                                  render_errors=[OLD_TREND_ERROR]))
+                                  render_errors=[_old_trend_error(viz_id)]))
     browser.fail_when = STAMP
 
     edited = _edit(report["id"], artifact_id, STAMP, "stamp-after-edit")

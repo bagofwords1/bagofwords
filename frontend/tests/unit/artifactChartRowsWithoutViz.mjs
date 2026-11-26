@@ -82,7 +82,7 @@ try{
   return {trend:at('trend'),rank:at('rank'),nullviz:at('nullviz'),he:at('he'),nothing:at('nothing'),withviz:at('withviz'),
    heDir:document.querySelector('#he [data-bow-chart]').getAttribute('dir'),
    // The page check reads each warning box's named message from the DOM.
-   warnings:Array.from(document.querySelectorAll('[data-bow-chart-warning]')).map(e=>[e.closest('[id]').id,e.getAttribute('data-bow-chart-warning'),e.textContent])};
+   warnings:Array.from(document.querySelectorAll('[data-bow-chart-warning]')).map(e=>[e.closest('[id]').id,e.getAttribute('data-bow-chart-warning'),e.textContent,e.getAttribute('data-bow-chart-viz')])};
  });
  assert.deepEqual(dom.trend,{canvas:1,alert:null,info:0},'TrendChart with rows and no viz: a chart, no ⓘ');
  assert.deepEqual(dom.rank,{canvas:1,alert:null,info:0},'RankChart with rows and no viz: a chart, no ⓘ');
@@ -95,5 +95,6 @@ try{
  assert.match(dom.warnings[0][1],/^TrendChart needs viz=\{vizById\("…"\)\} or rows/,'a chart with no viz: its message');
  assert.match(dom.warnings[1][1],/^RankChart \(Revenue\) needs label and value/,'a chart with a viz is named by its title');
  assert.match(dom.warnings[1][2],/^RankChart needs label and value/,'the box viewers see keeps the plain message');
+ assert.deepEqual(dom.warnings.map(w=>w[3]),[null,VIZ],'the viz id rides along: titles repeat across vizzes');
  console.log('PASS: TrendChart/RankChart draw from rows without a viz; the error stays only without both');
 }finally{await browser.close()}
