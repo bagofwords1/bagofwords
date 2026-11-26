@@ -8,6 +8,7 @@ can be checked in unit tests.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
@@ -16,6 +17,9 @@ from app.services.sandbox.drivers.base import (
 )
 from app.services.sandbox.drivers.docker_ssh import layout
 from app.services.sandbox.drivers.docker_ssh.layout import Addresses
+
+_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,499}$")
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 # Destinations the egress proxy never connects to, whatever the policy: a
 # domain that resolves into one of these is refused as well.
@@ -84,6 +88,12 @@ def sandbox_run(spec: SandboxSpec, *, ip: str, runtime: str, instance_id: str, e
     """``docker run`` for one sandbox. The runtime is always named, so nothing
     depends on Docker's default runtime."""
     name = layout.sandbox_container(spec.sandbox_id)
+    for label, value in (("image", spec.image), ("sandbox id", spec.sandbox_id)):
+        # Quoting keeps a value one argument; this keeps it from being read as an option.
+        if not _REFERENCE.match(str(value)):
+            raise SandboxDriverError(f"The {label} is not valid: it must start with a letter or digit.", code="invalid_config")
+    if not _HEX64.match(spec.token_sha256):
+        raise SandboxDriverError("The sandbox token hash is malformed", code="invalid_config")
     resolv = layout.RESOLV_FULL if spec.network_policy == POLICY_FULL else layout.RESOLV_NONE
     memory = f"{int(spec.memory_mb)}m"
     return [

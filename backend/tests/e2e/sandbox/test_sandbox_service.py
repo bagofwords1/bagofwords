@@ -573,3 +573,44 @@ def test_every_state_change_writes_an_event(world, report):
     assert "stopped" in states and states.count("busy") == 2
     for previous, following in zip(states, states[1:]):
         assert following in TRANSITIONS[previous] | {"failed", "deleted"}, f"{previous} -> {following}"
+
+
+# ── a sandbox that dies during a run ─────────────────────────────────────
+
+
+@pytest.mark.parametrize("fate, state_after, next_run", [
+    ("stopped", "stopped", "resumed"),   # e.g. out of memory under a sandboxed kernel
+    ("removed", "failed", "recreated"),  # really gone from its backend
+])
+def test_a_sandbox_that_dies_mid_run_is_resumed_if_it_only_stopped(world, report, monkeypatch, fate, state_after, next_run):
+    from app.services.sandbox.runtime_client import SandboxRuntimeClient, SandboxRuntimeError
+
+    rep = report()
+    world.run_code(rep, world.admin_id, _python("open('kept.txt','w').write('x')"))
+    sandbox = world.sandbox_of(rep)
+    stub_id = sandbox.driver_ref["stub_id"]
+    real_run = SandboxRuntimeClient.run
+
+    async def dies(self, command, **kwargs):
+        if fate == "stopped":
+            get_stub_host().set_running(stub_id, False)
+        else:
+            get_stub_host().remove_sandbox(stub_id)
+        raise SandboxRuntimeError("The sandbox stopped answering while the command was running.", code="unreachable")
+
+    monkeypatch.setattr(SandboxRuntimeClient, "run", dies)
+    with pytest.raises(SandboxError) as died:
+        world.run_code(rep, world.admin_id, _python("x = bytearray(10**12)"))
+    monkeypatch.setattr(SandboxRuntimeClient, "run", real_run)
+
+    assert died.value.code == errors.UNAVAILABLE
+    after = world.rows(Sandbox, Sandbox.id == sandbox.id)[0]
+    assert after.state == state_after
+    failed_run = sorted(world.rows(SandboxRun, SandboxRun.sandbox_id == sandbox.id), key=lambda r: r.started_at)[-1]
+    assert failed_run.status == "failed" and failed_run.finished_at is not None
+    if fate == "stopped":
+        assert "memory" in died.value.message and "keeps its files" in died.value.message
+
+    outcome = world.run_code(rep, world.admin_id, _python("import os\nprint(os.path.exists('kept.txt'))"))
+    assert getattr(outcome, next_run) is True
+    assert outcome.stdout == ("True\n" if fate == "stopped" else "False\n")

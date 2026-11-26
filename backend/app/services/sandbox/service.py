@@ -65,7 +65,9 @@ RUNNING_STATES = backend_service.RUNNING_STATES
 TRANSITIONS: Dict[str, frozenset] = {
     "provisioning": frozenset({"ready"}),
     "ready": frozenset({"busy", "idle", "stopped"}),
-    "busy": frozenset({"ready"}),
+    # A run normally ends with the sandbox ready; it ends stopped when the
+    # sandbox itself died under it (out of memory, a host reboot).
+    "busy": frozenset({"ready", "stopped"}),
     "idle": frozenset({"busy", "ready", "stopped"}),
     "stopped": frozenset({"ready"}),
     "failed": frozenset(),
@@ -698,6 +700,21 @@ class SandboxService:
         finally:
             await sink.flush()
 
+        died_stopped = False
+        if lost_reason is not None:
+            # The sandbox stopped answering mid-run. If its container merely
+            # stopped (typically: it ran out of memory), it resumes on the next
+            # run with its files; only a sandbox that is really gone is recreated.
+            died_stopped = await self._stopped_on_backend(db, sandbox)
+            if died_stopped:
+                memory = (sandbox.limits or {}).get("memory_mb")
+                error = SandboxError(
+                    errors.UNAVAILABLE,
+                    "The sandbox stopped while the code was running, most likely because it used more memory "
+                    f"than its limit{f' ({memory} MB)' if memory else ''}. It restarts on the next run and "
+                    "keeps its files; use less memory or process the data in smaller pieces.", status=503,
+                )
+
         outcome.duration_seconds = round(time.monotonic() - started, 3)
         run.status = outcome.status if error is None else "failed"
         run.exit_code = outcome.exit_code
@@ -715,7 +732,9 @@ class SandboxService:
             "files_produced": [a.name for a in outcome.artifacts][:MAX_ARTIFACTS_PER_RUN],
             "input_file_ids": list(run.input_file_ids or []),
         }, outcome="success" if (error is None and run.status == "succeeded") else "failure")
-        if lost_reason is not None:
+        if died_stopped:
+            await self._set_state(db, sandbox, "stopped", None, details={"reason": "stopped during a run"})
+        elif lost_reason is not None:
             sandbox.error = lost_reason[:1000]
             await self._set_state(db, sandbox, "failed", None, details={"reason": lost_reason[:500]})
         else:
@@ -725,6 +744,17 @@ class SandboxService:
         if error is not None:
             raise error
         return outcome
+
+    async def _stopped_on_backend(self, db: AsyncSession, sandbox: Sandbox) -> bool:
+        """Whether the sandbox still exists on its backend but is not running."""
+        try:
+            _, driver = await self._driver(db, sandbox)
+            try:
+                return (await driver.status(self._handle(sandbox))).state == STATUS_STOPPED
+            finally:
+                await driver.close()
+        except (SandboxDriverError, SandboxError):
+            return False
 
     async def _upload(self, db: AsyncSession, runtime, report: ReportRef, sandbox: Sandbox, actor_id: Optional[str],
                       request: RunRequest, plan: "_Plan", run_id: str) -> None:

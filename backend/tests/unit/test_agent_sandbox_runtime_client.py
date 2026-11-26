@@ -85,6 +85,38 @@ async def test_a_process_that_ignores_sigterm_is_killed(runtime, monkeypatch):
     assert result.exit_code == 137  # 128 + SIGKILL
 
 
+async def test_a_run_is_given_up_when_the_sandbox_stops_answering(runtime, monkeypatch):
+    """A sandbox that dies outright does not always close its stream. The run
+    must not hang until its timeout: the sandbox is asked "are you there?" as it goes."""
+    import app.services.sandbox.runtime_client as module
+
+    monkeypatch.setattr(module, "LIVENESS_INTERVAL_SECONDS", 0.1)
+
+    async def dead(self, timeout=5.0):
+        return False
+
+    monkeypatch.setattr(SandboxRuntimeClient, "health", dead)
+    started = time.monotonic()
+    with pytest.raises(SandboxRuntimeError) as gone:
+        await runtime.run(["sh", "-c", "echo started; sleep 60"], timeout=120)
+    assert gone.value.code == "unreachable"
+    assert time.monotonic() - started < 10
+
+
+async def test_a_run_whose_stream_never_ends_after_the_kill_is_still_reported_as_timed_out(runtime, monkeypatch):
+    import app.services.sandbox.runtime_client as module
+
+    monkeypatch.setattr(module, "TERMINATE_GRACE_SECONDS", 0.2)
+    monkeypatch.setattr(module, "KILL_WAIT_SECONDS", 0.2)
+
+    async def ignored(self, process_id, signal_name="SIGTERM"):
+        return None  # as if the signal never reached the process
+
+    monkeypatch.setattr(SandboxRuntimeClient, "send_signal", ignored)
+    result = await runtime.run(["sh", "-c", "echo started; sleep 60"], timeout=0.3)
+    assert result.status == RUN_TIMEOUT and result.stdout == b"started\n" and result.exit_code is None
+
+
 async def test_a_run_can_be_cancelled_and_cleans_up_first(runtime):
     cancel = asyncio.Event()
     asyncio.get_running_loop().call_later(0.4, cancel.set)

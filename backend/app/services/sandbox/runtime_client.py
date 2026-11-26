@@ -38,6 +38,12 @@ RUN_CANCELLED = "cancelled"  # stopped because the caller asked
 DEFAULT_OUTPUT_TAIL_BYTES = 1024 * 1024
 TERMINATE_GRACE_SECONDS = 5.0
 KILL_WAIT_SECONDS = 10.0
+# While a run streams, the sandbox is asked "are you there?" this often. A
+# sandbox that dies outright (out of memory under a sandboxed kernel, a host
+# reboot) does not always close its stream, which would otherwise hang until
+# the run timeout.
+LIVENESS_INTERVAL_SECONDS = 10.0
+LIVENESS_FAILURES = 2
 
 OutputCallback = Callable[[str, bytes], Union[None, Awaitable[None]]]
 
@@ -361,16 +367,32 @@ class SandboxRuntimeClient:
                 elif kind == "exit":
                     state["exit_code"] = event.exit.exit_code
 
+        async def watch() -> None:
+            """Returns when the sandbox has stopped answering."""
+            failures = 0
+            while failures < LIVENESS_FAILURES:
+                await asyncio.sleep(LIVENESS_INTERVAL_SECONDS)
+                failures = 0 if await self.health(timeout=5.0) else failures + 1
+
         consumer = asyncio.ensure_future(consume())
         cancel_waiter = asyncio.ensure_future(cancel.wait()) if cancel is not None else None
+        watchdog = asyncio.ensure_future(watch())
         stopped_by: Optional[str] = None
         try:
-            waiting = {consumer} | ({cancel_waiter} if cancel_waiter else set())
+            waiting = {consumer, watchdog} | ({cancel_waiter} if cancel_waiter else set())
             done, _ = await asyncio.wait(waiting, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            if consumer not in done and watchdog in done:
+                # The sandbox is gone: there is nothing left to signal or wait for.
+                call.cancel()
+                consumer.cancel()
+                raise SandboxRuntimeError(
+                    "The sandbox stopped answering while the command was running.", code="unreachable",
+                )
             if consumer not in done:
                 stopped_by = RUN_CANCELLED if (cancel_waiter is not None and cancel_waiter in done) else RUN_TIMEOUT
                 await self._terminate(state, consumer)
-            await consumer  # re-raises a stream error
+            if not consumer.cancelled():  # cancelled: the stream was given up on after the kill
+                await consumer  # re-raises a stream error
         except grpc.aio.AioRpcError as exc:
             if stopped_by is None and not state["events"] and self._status_was_lost(exc):
                 raise await self._explain_lost_status() from exc
@@ -382,6 +404,7 @@ class SandboxRuntimeClient:
             consumer.cancel()
             raise
         finally:
+            watchdog.cancel()
             if cancel_waiter is not None:
                 cancel_waiter.cancel()
 

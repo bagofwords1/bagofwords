@@ -27,6 +27,18 @@ MAX_RUN_TIMEOUT_SECONDS = 3600
 DEFAULT_BACKEND_CAPACITY = 20
 
 _ENV_NAME = r"^[A-Za-z_][A-Za-z0-9_]*$"
+# An image reference: registry/path:tag or registry/path@sha256:digest. It must
+# start with a letter or digit, so it can never be read as a command option.
+IMAGE_REFERENCE = r"^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,499}$"
+
+
+def valid_image(value: str) -> str:
+    import re
+
+    value = str(value).strip()
+    if not re.match(IMAGE_REFERENCE, value):
+        raise ValueError("is not a valid image reference (for example registry.example.com/team/image:tag)")
+    return value
 
 
 def _clean_labels(value: Optional[List[str]]) -> List[str]:
@@ -205,6 +217,8 @@ class SandboxEnvironmentCreate(_EnvironmentFields):
     def _secret_names(cls, value):
         return _EnvironmentFields._env_names(value)
 
+    _image = field_validator("image")(valid_image)
+
 
 class SandboxEnvironmentUpdate(_EnvironmentFields):
     model_config = ConfigDict(extra="forbid")
@@ -228,6 +242,11 @@ class SandboxEnvironmentUpdate(_EnvironmentFields):
     @classmethod
     def _secret_names(cls, value):
         return _EnvironmentFields._env_names(value)
+
+    @field_validator("image")
+    @classmethod
+    def _image(cls, value):
+        return None if value is None else valid_image(value)
 
 
 class SandboxEnvironmentSchema(BaseModel):
