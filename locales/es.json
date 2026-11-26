@@ -8543,7 +8543,8 @@
       "deniedTitle": "Acceso denegado",
       "deniedBody": "No tienes acceso a esta página. Pide a su propietario que la comparta contigo.",
       "goHome": "Ir al inicio",
-      "backToApp": "Volver a la app"
+      "backToDashboards": "Volver a los paneles",
+      "backToHome": "Volver al inicio"
     },
     "accessRequest": {
       "noAccessTitle": "No tienes acceso",
@@ -9375,29 +9376,46 @@
     "deleteRemovesConnectors": "Se eliminan con ella (conectores que solo usan esta conexión): {names}"
   },
   "apps": {
-    "title": "Tus aplicaciones",
-    "subtitle": "Abre una aplicación para empezar.",
+    "title": "Compartido contigo",
+    "subtitle": "Aplicaciones, paneles y documentos que puedes abrir.",
     "openWorkspace": "Abrir el espacio de trabajo",
-    "search": "Buscar aplicaciones",
-    "untitled": "Aplicación sin título",
+    "search": "Buscar",
+    "untitled": "Sin título",
     "inApplication": "En {name}",
-    "allApps": "Todas las aplicaciones",
+    "backToLauncher": "Volver a Compartido contigo",
     "language": "Idioma",
     "account": "Cuenta",
     "signOut": "Cerrar sesión",
-    "loadFailed": "No se pudieron cargar tus aplicaciones.",
+    "loadFailed": "No se pudo cargar esta lista.",
     "retry": "Reintentar",
-    "noMatches": "Ninguna aplicación coincide con «{query}».",
+    "noMatches": "Nada coincide con “{query}”.",
     "empty": {
-      "title": "Aún no hay aplicaciones",
-      "body": "Cuando alguien comparta una aplicación contigo, aparecerá aquí."
+      "title": "Aún no se ha compartido nada contigo",
+      "body": "Cuando alguien comparta contigo una aplicación, un panel o un documento, aparecerá aquí."
     },
     "requestAccess": {
-      "prompt": "¿Necesitas algo más que estas aplicaciones?",
+      "prompt": "¿Necesitas algo más que lo que se ha compartido contigo?",
       "button": "Solicitar acceso completo",
       "sent": "Solicitud enviada. Un administrador la revisará.",
       "failed": "No se pudo enviar la solicitud. Inténtalo de nuevo."
     },
-    "showMore": "Mostrar más"
+    "showMore": "Mostrar más",
+    "filter": {
+      "label": "Filtrar por tipo",
+      "all": "Todo",
+      "apps": "Aplicaciones",
+      "dashboards": "Paneles",
+      "docs": "Documentos"
+    },
+    "kind": {
+      "app": "Aplicación",
+      "dashboard": "Panel",
+      "doc": "Documento"
+    },
+    "emptyKind": {
+      "app": "Aún no se han compartido aplicaciones contigo.",
+      "dashboard": "Aún no se han compartido paneles contigo.",
+      "doc": "Aún no se han compartido documentos contigo."
+    }
   }
 }
