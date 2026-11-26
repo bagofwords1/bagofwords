@@ -174,7 +174,11 @@ def test_relationships_stay_with_their_model_across_collision_and_subset_refresh
 
 
 def test_colliding_tables_route_queries_by_exact_name_and_reject_ambiguous_aliases():
-    c = client(Tenant([("ws-a", "ds-a", ["a"]), ("ws-b", "ds-b", ["b"])]))
+    # execute_query takes GUID ids only, as Power BI issues them.
+    c = client(Tenant([
+        ("aaaaaaaa-0000-4000-8000-00000000000a", "dddddddd-0000-4000-8000-00000000000a", ["a"]),
+        ("bbbbbbbb-0000-4000-8000-00000000000b", "dddddddd-0000-4000-8000-00000000000b", ["b"]),
+    ]))
     tables = c.get_schemas()
     with pytest.raises(ValueError):
         c.get_schema("Orders")

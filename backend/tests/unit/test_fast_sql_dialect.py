@@ -121,6 +121,8 @@ class FakeConn:
     def __init__(self, replies):
         self.replies = list(replies)
         self.sent = []
+        # (statement, execution options) for every driver-level call.
+        self.driver_calls = []
 
     def _next(self):
         return self.replies.pop(0) if self.replies else FakeResult()
@@ -129,12 +131,32 @@ class FakeConn:
         self.sent.append((str(stmt), params))
         return self._next()
 
-    def exec_driver_sql(self, stmt):
+    def exec_driver_sql(self, stmt, parameters=None, execution_options=None):
         self.sent.append((str(stmt), None))
+        self.driver_calls.append((str(stmt), dict(execution_options or {})))
         return self._next()
 
     def commit(self):
         pass
+
+
+# A query whose text a parameter pass would change (`:name`, `%`).
+MARKED_QUERY = "SELECT ':x' AS a, '%' AS b FROM orders"
+
+
+@pytest.mark.parametrize("explain,replies", [
+    (sql_dialect.explain_postgresql, [FakeResult(scalar=[{"Plan": {"Plan Rows": 1, "Plan Width": 1}}])]),
+    (sql_dialect.explain_mysql, [FakeResult(mappings=[{"rows": 1}])]),
+    (sql_dialect.explain_mssql, [FakeResult(), FakeResult(scalar=None), FakeResult()]),
+    (sql_dialect.explain_oracle, [FakeResult(), FakeResult(first=None), FakeResult()]),
+    (sql_dialect.explain_snowflake, [FakeResult(scalar="{}")]),
+])
+def test_every_explain_helper_sends_the_query_text_without_parameter_processing(explain, replies):
+    conn = FakeConn(replies)
+    explain(conn, MARKED_QUERY)
+    carrying = [options for statement, options in conn.driver_calls if MARKED_QUERY in statement]
+    assert carrying, "the query text reaches the driver"
+    assert all(options.get("no_parameters") is True for options in carrying)
 
 
 def test_postgresql_reads_rows_and_width_from_the_json_plan():
@@ -202,7 +224,7 @@ def test_sql_server_always_turns_showplan_back_off():
 
 def test_sql_server_turns_showplan_off_even_when_the_query_fails():
     class Failing(FakeConn):
-        def exec_driver_sql(self, stmt):
+        def exec_driver_sql(self, stmt, parameters=None, execution_options=None):
             self.sent.append((str(stmt), None))
             if stmt.startswith("SELECT"):
                 raise RuntimeError("invalid object name")
@@ -345,6 +367,11 @@ class RecordingConn:
         self.sent.append(str(stmt))
         return self
 
+    def exec_driver_sql(self, stmt, parameters=None, execution_options=None):
+        self.sent.append(stmt)
+        self.options.update(execution_options or {})
+        return self
+
     def keys(self):
         return list(self.colnames)
 
@@ -438,6 +465,74 @@ def test_preview_does_not_cancel_a_query_it_read_to_the_end(monkeypatch):
     assert conn.invalidated is False
 
 
+# --------------------------------------------------------------------------
+# Postgres: the checked text, under the read-only floor
+# --------------------------------------------------------------------------
+
+BS = chr(92)
+# A comment and an E-string; the guard sends neither as written.
+PG_DEFINITION = "SELECT a /* why */ FROM t WHERE b = E'it" + BS + "'s'"
+PG_CHECKED = "SELECT a   FROM t WHERE b = 'it''s'"
+
+
+def _pg_session(conn):
+    """What psycopg2 reports for a session that reads standard strings."""
+    from types import SimpleNamespace
+
+    status = {"standard_conforming_strings": "on", "server_version": "15.4"}
+    conn.connection = SimpleNamespace(dbapi_connection=SimpleNamespace(
+        get_parameter_status=status.get, server_version=150004))
+    conn.info = {}
+    conn.invalidated = getattr(conn, "invalidated", False)
+    return conn
+
+
+def _recording_postgres(conn):
+    """The real Postgres client type over a recording connection."""
+    from contextlib import contextmanager
+
+    from app.data_sources.clients.postgresql_client import PostgresqlClient
+
+    class RecordingPostgres(PostgresqlClient):
+        pg_uri = "postgresql://u:p@h/d"
+
+        def __init__(self):
+            self.read_only = []
+
+        def connect(self, *, read_only=False):
+            self.read_only.append(read_only)
+
+            @contextmanager
+            def cm():
+                yield conn
+
+            return cm()
+
+    return RecordingPostgres()
+
+
+def test_a_postgres_preview_sends_the_checked_text_on_a_read_only_connection():
+    from app.data_sources.fast import extractor
+
+    conn = _pg_session(RecordingConn([("x",)]))
+    client = _recording_postgres(conn)
+    extractor.preview(client, PG_DEFINITION, limit=5)
+    assert conn.sent == [PG_CHECKED]
+    assert conn.options.get("no_parameters") is True
+    assert client.read_only == [True]
+
+
+def test_a_postgres_estimate_explains_the_checked_text_on_a_read_only_connection():
+    from app.data_sources.fast import extractor
+
+    conn = _pg_session(FakeConn([FakeResult(scalar=[{"Plan": {"Plan Rows": 7, "Plan Width": 8}}])]))
+    client = _recording_postgres(conn)
+    est = extractor.estimate(client, PG_DEFINITION)
+    assert est.rows == 7
+    assert [sql for sql, _ in conn.sent] == ["EXPLAIN (FORMAT JSON) " + PG_CHECKED]
+    assert client.read_only == [True]
+
+
 def test_preview_falls_back_to_sql_bounding_only_without_a_dialect():
     """Non-streaming clients have no fetch to bound, so there the SQL wrap is
     the only tool — with the caveats it carries."""
@@ -525,13 +620,17 @@ def test_sql_server_is_accelerable_under_its_registry_casing():
 def test_every_connector_that_can_run_a_query_can_be_cached_and_only_those():
     """Caching is not a list of blessed types: a connector that answers
     `execute_query` can be cached through it. One that has no query to run —
-    files, mail, tools — cannot, and neither can a type that does not exist."""
+    files, mail, tools — cannot, and neither can a type that does not exist,
+    nor one whose statements the query checks neither check nor exempt."""
+    from app.ai.code_execution.client_profiles import classify_type
     from app.data_sources.clients.base import Capability
     from app.schemas.data_source_registry import REGISTRY, resolve_client_class
     from app.services.custom_query_service import is_accelerable_type, supports_incremental
 
     for conn_type in REGISTRY:
-        queryable = Capability.QUERY in (getattr(resolve_client_class(conn_type), "capabilities", None) or ())
+        cls = resolve_client_class(conn_type)
+        queryable = (Capability.QUERY in (getattr(cls, "capabilities", None) or ())
+                     and classify_type(cls) != "unknown")
         assert is_accelerable_type(conn_type) is queryable, conn_type
         assert supports_incremental(conn_type) is queryable, conn_type
     for conn_type in ("mongodb", "salesforce", "powerbi", "posthog", "aria_operations", "MSSQL"):

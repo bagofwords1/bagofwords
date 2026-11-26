@@ -339,6 +339,13 @@ class TestExecuteQuery:
             OpenSearchClient(host="h").execute_query(
                 '{"index": "orders", "size": 9000, "from": 2000}')
 
+    def test_unknown_envelope_keys_are_refused(self, transport):
+        fake = transport({("POST", "/orders/_search"): {"hits": {"hits": []}}})
+        with pytest.raises(ValueError, match="collection, explain_me"):
+            OpenSearchClient(host="h").execute_query(
+                '{"index": "orders", "collection": "x", "explain_me": true}')
+        assert fake.calls == []
+
     def test_non_search_keys_rejected_before_request(self, transport):
         fake = transport({})
         with pytest.raises(ValueError, match="explain_me"):

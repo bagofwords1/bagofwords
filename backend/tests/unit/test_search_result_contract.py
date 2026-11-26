@@ -143,6 +143,10 @@ def test_source_collisions_and_metric_metadata(search):
 @pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
 def test_generated_missing_summary_column_fails_with_actual_schema(monkeypatch, access, mode):
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        # In-process mode is refused outside development; CI runs with
+        # ENVIRONMENT=production, so the test names the environment itself.
+        monkeypatch.setenv("ENVIRONMENT", "development")
     from app.ai.code_execution.code_execution import StreamingCodeExecutor
 
     client = ElasticsearchClient(host="localhost")
@@ -189,6 +193,10 @@ def test_bad_total_cast_supplies_schema_to_retry(monkeypatch, mode):
     from app.ai.code_execution.code_execution import StreamingCodeExecutor
 
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        # In-process mode is refused outside development; CI runs with
+        # ENVIRONMENT=production, so the test names the environment itself.
+        monkeypatch.setenv("ENVIRONMENT", "development")
     client = ElasticsearchClient(host="localhost")
     monkeypatch.setattr(client, "_request", lambda *args, **kwargs: {
         "hits": {"hits": [], "total": {"value": 0, "relation": "eq"}}})

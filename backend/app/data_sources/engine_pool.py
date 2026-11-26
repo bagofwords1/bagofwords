@@ -38,6 +38,11 @@ Correctness notes:
   * Health probes must not keep pools warm (that's what stopped quiet pools
     from ever draining) — ``ephemeral()`` gives them throwaway NullPool
     engines that leave nothing behind.
+  * A Postgres (psycopg2) connection goes back to the session default on
+    checkin: after a ``postgresql_readonly`` read SQLAlchemy leaves psycopg2's
+    ``readonly`` at ``False``, and the next plain transaction would start with
+    ``BEGIN READ WRITE`` — refused on a hot standby, and overriding a database
+    whose default is read-only.
 """
 
 import logging
@@ -146,6 +151,45 @@ def ephemeral() -> Iterator[None]:
                 pass
 
 
+def _reset_readonly_on_checkin(dbapi_connection: Any, connection_record: Any) -> None:
+    """Pool ``checkin`` listener: return a psycopg2 connection's ``readonly``
+    to ``None``, the session default, for whoever checks it out next.
+
+    SQLAlchemy 2.0's ``_ConnectionRecord.checkin`` runs the characteristic
+    reset (``set_readonly(False)``) from ``finalize_callback`` before
+    ``dispatch.checkin``, so this listener has the last word. With autocommit
+    off psycopg2 only changes the flag locally and sends nothing.
+
+    It must never raise: a raise here skips ``pool._return_conn`` and the
+    pool loses the slot for good. On failure the connection is dropped.
+    """
+    try:
+        if dbapi_connection is not None and not dbapi_connection.closed and dbapi_connection.readonly is not None:
+            dbapi_connection.readonly = None
+    except Exception as e:
+        # The type only, like the other connection warnings.
+        logger.warning("engine_pool.readonly_reset_failed; the connection is dropped error=%s", type(e).__name__)
+        connection_record.invalidate(e)
+
+
+def _is_psycopg2_postgres(uri: "Union[str, sqlalchemy.engine.URL]") -> bool:
+    """`postgresql://` (psycopg2 is SQLAlchemy's default driver) or
+    `postgresql+psycopg2://`, resolved the way SQLAlchemy resolves them
+    (a URL object is read as it is)."""
+    url = sqlalchemy.engine.make_url(uri)
+    return url.get_backend_name() == "postgresql" and url.get_driver_name() == "psycopg2"
+
+
+def _attach_listeners(eng: sqlalchemy.engine.Engine, uri: "Union[str, sqlalchemy.engine.URL]",
+                      on_connect: Optional[Callable[[Any, Any], None]]) -> None:
+    """Before the engine is published, so no connection can be opened or
+    returned without them."""
+    if on_connect is not None:
+        sqlalchemy.event.listen(eng, "connect", on_connect)
+    if _is_psycopg2_postgres(uri):
+        sqlalchemy.event.listen(eng, "checkin", _reset_readonly_on_checkin)
+
+
 def _key(uri: str, connect_args: Optional[Dict[str, Any]], key_extra: Optional[str]) -> Tuple:
     # connect_args can hold unhashable values (ssl_context); identify by repr,
     # which is stable enough for cache identity and never used for anything else.
@@ -174,6 +218,9 @@ def get_engine(
     is built and is NOT part of the cache key: a caller whose hook can vary
     must put what varies into ``key_extra``, or it gets an engine built with
     somebody else's hook.
+
+    A Postgres engine on psycopg2 also gets a ``checkin`` listener that
+    returns each connection to the session default (``readonly=None``).
     """
     # A client may pass a URL object so no field is re-parsed out of a string
     # (see clients/_sa_url.py). The engine is built from the object; the
@@ -191,8 +238,7 @@ def get_engine(
         if connect_args:
             kwargs["connect_args"] = connect_args
         eng = sqlalchemy.create_engine(url, **kwargs)
-        if on_connect is not None:
-            sqlalchemy.event.listen(eng, "connect", on_connect)
+        _attach_listeners(eng, url, on_connect)
         bucket.append(eng)
         return eng
 
@@ -222,10 +268,7 @@ def get_engine(
     if connect_args:
         kwargs["connect_args"] = connect_args
     eng = sqlalchemy.create_engine(url, **kwargs)
-    if on_connect is not None:
-        # Before the engine is published, so no connection can be opened
-        # without it.
-        sqlalchemy.event.listen(eng, "connect", on_connect)
+    _attach_listeners(eng, url, on_connect)
 
     evicted = None
     with _lock:

@@ -2387,7 +2387,8 @@
     "saveFailed": "Entität konnte nicht gespeichert werden",
     "stepRequired": "Schritt zum Speichern erforderlich",
     "publishedToast": "Abfrage im Katalog veröffentlicht",
-    "suggestedToast": "Vorschlag zur Prüfung eingereicht"
+    "suggestedToast": "Vorschlag zur Prüfung eingereicht",
+    "savedRunFailed": "Gespeichert, aber die Abfrage konnte nicht ausgeführt werden"
   },
   "mentionInput": {
     "placeholder": "Geben Sie {'@'} ein, um zu erwähnen ...",
@@ -5119,6 +5120,7 @@
     "locale.invalid": "Sprache ist nicht aktiviert",
     "report.not_found": "Bericht nicht gefunden",
     "entity.not_found": "Entität nicht gefunden",
+    "entity.run_failed": "Die gespeicherte Abfrage konnte nicht ausgeführt werden. Bitten Sie ihren Eigentümer, sie zu prüfen.",
     "user.not_found": "Benutzer nicht gefunden",
     "membership.not_found": "Mitgliedschaft nicht gefunden",
     "role.not_found": "Rolle nicht gefunden",
@@ -5137,7 +5139,8 @@
     "resource.duplicate": "Doppelte Ressource",
     "setting.update_failed": "Einstellung konnte nicht aktualisiert werden",
     "query": {
-      "failed_silently": "Eine Abfrage ist fehlgeschlagen, aber der generierte Code hat ein leeres Ergebnis zurückgegeben, statt das zu melden"
+      "failed_silently": "Eine Abfrage ist fehlgeschlagen, aber der generierte Code hat ein leeres Ergebnis zurückgegeben, statt das zu melden: {query_errors}",
+      "timeout": "Die Abfrage hat länger als {timeout_seconds} Sekunden gedauert und wurde abgebrochen. Grenzen Sie sie mit Filtern, einem Zeilenlimit oder einer Aggregation ein, oder teilen Sie sie in kleinere Abfragen auf."
     },
     "llm": {
       "model_id_required": "Die Modell-ID darf nicht leer sein",

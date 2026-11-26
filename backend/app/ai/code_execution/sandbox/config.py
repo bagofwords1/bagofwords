@@ -5,7 +5,11 @@ what the host can enforce, which is a deployment property.
 
     BOW_CODE_SANDBOX              subprocess (default) | inprocess
                                   `inprocess` is the pre-sandbox behavior
-                                  (exec() inside the API worker). Debug only.
+                                  (exec() inside the API worker), for local
+                                  development only: refused unless
+                                  ENVIRONMENT names a development
+                                  environment (development, dev, test,
+                                  testing); unset means development.
     BOW_SANDBOX_TIMEOUT_SECONDS   wall-clock budget per execution; the child
                                   is SIGKILLed when it is exceeded. Default 600.
     BOW_SANDBOX_MEMORY_MB         RLIMIT_AS for the child. 0 disables.
@@ -13,7 +17,7 @@ what the host can enforce, which is a deployment property.
     BOW_SANDBOX_CPU_SECONDS       RLIMIT_CPU for the child. 0 disables.
                                   Default = timeout.
     BOW_SANDBOX_REQUIRE_LANDLOCK  1 → require filesystem and TCP confinement.
-                                  Defaults to 1 in production, 0 in development.
+                                  Defaults to 0 in development, 1 elsewhere.
     BOW_SANDBOX_MAX_RESULT_MB     Maximum child result sent to the API worker.
                                   Default 128 MB.
     BOW_SANDBOX_MAX_RESULT_CELLS  Maximum values (rows x columns, nested values
@@ -26,6 +30,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+
+from app.settings.environments import DEVELOPMENT_ENVIRONMENTS
 
 
 MODE_SUBPROCESS = "subprocess"
@@ -46,9 +52,33 @@ def _int_env(name: str, default: int, *, minimum: int = 0) -> int:
         return default
 
 
+def _is_production() -> bool:
+    """Fail closed: any ENVIRONMENT other than a development name counts as
+    production (" production", "prod", "staging", "" included). Unset is
+    development."""
+    return os.environ.get("ENVIRONMENT", "development").strip().lower() not in DEVELOPMENT_ENVIRONMENTS
+
+
 def sandbox_mode() -> str:
     raw = (os.environ.get("BOW_CODE_SANDBOX") or MODE_SUBPROCESS).strip().lower()
     return MODE_INPROCESS if raw == MODE_INPROCESS else MODE_SUBPROCESS
+
+
+def inprocess_refusal_reason() -> str:
+    """Why code must not run in process here, or "" when it may.
+
+    In process, generated code shares the API worker with every credential
+    and client object, so none of the sandbox's guarantees hold; that mode is
+    for local development only."""
+    if sandbox_mode() != MODE_INPROCESS:
+        return ""
+    if not _is_production():
+        return ""
+    return (
+        "BOW_CODE_SANDBOX=inprocess runs generated code inside the API worker, "
+        "without the sandbox, and is refused outside development "
+        "(ENVIRONMENT is not development, dev, test or testing)"
+    )
 
 
 @dataclass(frozen=True)
@@ -73,7 +103,7 @@ class SandboxLimits:
             cpu_seconds=_int_env("BOW_SANDBOX_CPU_SECONDS", timeout),
             require_landlock=os.environ.get(
                 "BOW_SANDBOX_REQUIRE_LANDLOCK",
-                "1" if os.environ.get("ENVIRONMENT", "development").lower() == "production" else "0",
+                "1" if _is_production() else "0",
             ).strip() == "1",
             max_result_mb=_int_env("BOW_SANDBOX_MAX_RESULT_MB", DEFAULT_MAX_RESULT_MB, minimum=1),
             max_result_cells=_int_env("BOW_SANDBOX_MAX_RESULT_CELLS", 0),

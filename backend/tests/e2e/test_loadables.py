@@ -555,6 +555,53 @@ def test_stream_v2_miss_feeds_retry_loop():
     _run(go())
 
 
+def test_stream_v2_ends_the_run_when_resolving_loses_the_callers_transaction():
+    """Resolving a load_entity() cost the caller its transaction: the code is
+    never executed or regenerated, and the run reports the fixed message."""
+    from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+    from app.services.entity_service import CallerTransactionLost
+
+    code = (
+        "def generate_df(ds_clients, excel_files, load_entity):\n"
+        "    return load_entity('Monthly Revenue Model')\n"
+    )
+    coder_calls = []
+    executed = []
+
+    async def coder(**kwargs):
+        coder_calls.append(1)
+        return code
+
+    async def resolver(step_refs, entity_refs):
+        raise CallerTransactionLost()
+
+    async def go():
+        executor = StreamingCodeExecutor()
+
+        async def never(*args, **kwargs):
+            executed.append(kwargs)
+            raise AssertionError("the code ran after the caller's transaction was lost")
+
+        executor.execute_code_async = never
+        done = None
+        async for ev in executor.generate_and_execute_stream_v2(
+            request=CodeGenRequest(context=CodeGenContext(user_prompt="x", schemas_excerpt=""), retries=3),
+            ds_clients={},
+            excel_files=[],
+            code_generator_fn=coder,
+            loadable_resolver_fn=resolver,
+        ):
+            if ev["type"] == "done":
+                done = ev["payload"]
+        return done
+
+    done = _run(go())
+    assert executed == [] and coder_calls == [1], (executed, coder_calls)
+    assert done is not None and done["df"] is None, done
+    assert [e for _, e in done["errors"]] == [
+        "Loadable resolution error: The run's result could not be saved."], done["errors"]
+
+
 def test_execute_code_end_to_end_load_step_and_entity():
     ids = _run(_seed())
 

@@ -1,6 +1,7 @@
 from typing import Optional, List, Tuple
 from types import SimpleNamespace
 import copy
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import lazyload, selectinload
@@ -25,7 +26,30 @@ from app.ai.code_execution.query_params import (
 )
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
+from app.errors.redact import describe_for_log
 from app.services.row_owner import query_report_id, step_report_id
+
+logger = logging.getLogger(__name__)
+
+
+async def flush_usage(usage_context: Optional[UsageLimitContext]) -> None:
+    """Persist a run's buffered data-plane metering (queries/bytes are
+    enqueued by the execute_query wrapper, not written synchronously).
+
+    Called from a `finally`: a failure is logged with the run's usage source
+    and the error's type and frames, never raised, so it cannot mask the run's
+    own result or error. Never the error's text: a failed insert quotes the
+    usage event's bound values, and its metadata carries the rendered SQL."""
+    if usage_context is None:
+        return
+    try:
+        await usage_context.flush()
+    except Exception as e:
+        logger.warning(
+            "Usage metering for source %s was not persisted: %s",
+            getattr(usage_context, "source", None), describe_for_log(e),
+        )
+
 
 def _report_execution_loads():
     """Loader options for the report graph a code run needs, eagerly.
@@ -680,13 +704,7 @@ class QueryService:
             db.add(step)
             await db.commit()
             await db.refresh(step)
-            # Persist buffered data-plane metering (queries/bytes are enqueued
-            # by the execute_query wrapper, not written synchronously).
-            if usage_context is not None:
-                try:
-                    await usage_context.flush()
-                except Exception:
-                    pass
+            await flush_usage(usage_context)
 
         # If this save originated from a tool execution, update it to point to the latest step
         try:
@@ -965,11 +983,7 @@ class QueryService:
             elif needs_credentials(e):
                 status_reason = CREDENTIALS_REQUIRED_REASON
         finally:
-            if usage_context is not None:
-                try:
-                    await usage_context.flush()
-                except Exception:
-                    pass
+            await flush_usage(usage_context)
 
         # Upsert the per-viewer cached result. Errors are not cached — a
         # failed run must not pin a viewer to an error until force_refresh.
@@ -1302,13 +1316,7 @@ class QueryService:
             # Surface error to client for preview display
             return {"preview": None, "error": str(e)}
         finally:
-            # Persist buffered data-plane metering (queries/bytes are enqueued
-            # by the execute_query wrapper, not written synchronously).
-            if usage_context is not None:
-                try:
-                    await usage_context.flush()
-                except Exception:
-                    pass
+            await flush_usage(usage_context)
 
     def _usage_context(
         self,

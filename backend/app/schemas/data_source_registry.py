@@ -336,6 +336,7 @@ from app.schemas.data_sources.configs import (
 )
 
 from app.settings.config import settings
+from app.settings.environments import DEVELOPMENT_ENVIRONMENTS
 
 
 class AuthVariant(BaseModel):
@@ -574,9 +575,6 @@ class McpPreset(BaseModel):
     setup_guide: list[SetupStep] | None = None
 
 
-_DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
-
-
 def _is_dev_environment() -> bool:
     try:
         if getattr(settings, "TESTING", False):
@@ -584,7 +582,7 @@ def _is_dev_environment() -> bool:
         env = (settings.ENVIRONMENT or "").lower()
     except Exception:
         return False
-    return env in _DEV_ENVIRONMENTS
+    return env in DEVELOPMENT_ENVIRONMENTS
 
 
 def _entry_visible(entry: DataSourceRegistryEntry) -> bool:

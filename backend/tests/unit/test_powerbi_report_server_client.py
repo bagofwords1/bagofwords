@@ -549,6 +549,36 @@ class TestExecuteQueryRouting:
         assert list(df["Name"]) == ["Alice", "Bob"]
         assert list(df["total"]) == [12.5, 2.0]
 
+    def test_pbix_query_reads_only_the_reports_own_tables(self, tmp_path):
+        """The pbix route runs one SELECT over the report's tables: a read of
+        another file is refused with the refusal's own type, not run."""
+        import pandas as pd
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+        from app.ai.code_execution.table_scope import TableScopeViolation
+        from app.ai.prompt_formatters import Table as PFTable
+
+        orders_path = tmp_path / "orders.parquet"
+        pd.DataFrame({"OrderID": [1, 2]}).to_parquet(orders_path)
+        other = tmp_path / "other.csv"
+        other.write_text("token\nhidden\n")
+        tables = [PFTable(
+            name="pbix:Sales", description="", columns=[], pks=[], fks=[], is_active=True,
+            metadata_json={"powerbi_report_server": {
+                "report_type": "PowerBIReport", "report_id": "r1", "report_name": "Sales",
+                "modified_date": "2024-01-01T00:00:00Z",
+            }},
+        )]
+        c = self._client_with_schemas(tables)
+        c.ensure_pbix_parquets = MagicMock(return_value={"Orders": orders_path})
+
+        assert c.execute_query(table_name="pbix:Sales", query="SELECT count(*) AS n FROM Orders")["n"].tolist() == [2]
+        with pytest.raises(TableScopeViolation):
+            c.execute_query(table_name="pbix:Sales", query=f"SELECT * FROM '{other}'")
+        with pytest.raises(ReadOnlyViolation):
+            c.execute_query(table_name="pbix:Sales", query=f"SELECT * FROM read_csv_auto('{other}')")
+        with pytest.raises(ReadOnlyViolation):
+            c.execute_query(table_name="pbix:Sales", query="COPY (SELECT 1) TO 'copied.csv'")
+
     def test_pbix_query_missing_report_id(self):
         from app.ai.prompt_formatters import Table as PFTable
         tables = [PFTable(
@@ -579,6 +609,161 @@ class TestExecuteQueryRouting:
             c.execute_query()
 
 
+_REPORT_GUID = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+_DATASET_GUID = "0A1B2C3D-4E5F-4A6B-8C7D-8E9F0A1B2C3D"
+
+
+class TestExportIdsAndFormat:
+    """Report and dataset ids are GUIDs before any URL is built, and the
+    export format is one the client turns into a DataFrame (CSV)."""
+
+    @staticmethod
+    def _client():
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        session = MagicMock()
+        session.get.return_value = _mock_response(content=b"a,b\n1,2\n")
+        session.get.return_value.headers = {"Content-Type": "text/csv"}
+        session.post.return_value = _mock_response({"value": "a,b\n1,2\n"})
+        c._session = session
+        return c, session
+
+    @staticmethod
+    def _sent(session):
+        return [("GET", call.args[0]) for call in session.get.call_args_list] + \
+            [("POST", call.args[0]) for call in session.post.call_args_list]
+
+    def _refused(self, **kwargs):
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+        c, session = self._client()
+        error = None
+        try:
+            c.execute_query(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - the type is asserted below
+            error = exc
+        assert self._sent(session) == [], f"request sent: {self._sent(session)!r}"
+        assert isinstance(error, ReadOnlyViolation), f"not refused: {error!r}"
+
+    @pytest.mark.parametrize("report_id", [
+        "r1",
+        _REPORT_GUID + ")/Export/CSV?x=(",
+        _REPORT_GUID + "\n",
+        " " + _REPORT_GUID,
+        "{" + _REPORT_GUID + "}",
+        _REPORT_GUID.replace("-", ""),
+    ])
+    def test_report_id_must_be_a_guid(self, report_id):
+        self._refused(report_id=report_id)
+
+    @pytest.mark.parametrize("dataset_id", ["d1", _DATASET_GUID + ")/Model.GetData?(", ""])
+    def test_dataset_id_must_be_a_guid(self, dataset_id):
+        if dataset_id == "":
+            # An empty id is "no dataset": the routing error, not a request.
+            c, session = self._client()
+            with pytest.raises(ValueError, match="requires one of"):
+                c.execute_query(dataset_id=dataset_id)
+            assert self._sent(session) == []
+            return
+        self._refused(dataset_id=dataset_id)
+
+    @pytest.mark.parametrize("fmt", [
+        "PDF", "EXCELOPENXML", "XML", "JSON", "CSV/../../System", "CSV ", "C" + chr(0x17F) + "V", "", None,
+    ])
+    def test_export_format_outside_the_list_refused(self, fmt):
+        self._refused(report_id=_REPORT_GUID, format=fmt)
+
+    @pytest.mark.parametrize("fmt", ["CSV", "csv"])
+    def test_csv_export_sent(self, fmt):
+        c, session = self._client()
+        df = c.execute_query(report_id=_REPORT_GUID, format=fmt)
+        assert list(df.columns) == ["a", "b"]
+        assert self._sent(session) == [("GET", f"http://pbi/Reports/api/v2.0/Reports({_REPORT_GUID})/Export/CSV")]
+
+    def test_shared_dataset_sent(self):
+        c, session = self._client()
+        df = c.execute_query(dataset_id=_DATASET_GUID)
+        assert list(df.columns) == ["a", "b"]
+        assert self._sent(session) == [
+            ("POST", f"http://pbi/Reports/api/v2.0/Datasets({_DATASET_GUID})/Model.GetData")]
+
+    @staticmethod
+    def _export_client(v2_status):
+        """A session whose v2 export answers `v2_status`; the legacy URL
+        access answers CSV. Records each GET with its query parameters."""
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        sent = []
+
+        def _get(url, params=None, **_kwargs):
+            sent.append((url, dict(params) if params is not None else None))
+            if "/Export/" in url:
+                r = _mock_response(content=b"a,b\n1,2\n", status=v2_status)
+            elif url.endswith(f"/Reports({_REPORT_GUID})"):
+                r = _mock_response({"Path": "/Sales/Monthly"})
+            else:
+                r = _mock_response(content=b"a,b\n1,2\n")
+            r.headers = {"Content-Type": "text/csv"}
+            return r
+
+        session = MagicMock()
+        session.get.side_effect = _get
+        c._session = session
+        return c, sent
+
+    @pytest.mark.parametrize("v2_status", [200, 400])
+    @pytest.mark.parametrize("key", [
+        "rs:Format", "rs:Command", "RS:FORMAT", " rs:Format", "rc:Toolbar",
+        "dsu:Source", "dsp:Source", "Rc:Parameters",
+    ])
+    def test_report_server_url_access_parameter_refused(self, key, v2_status):
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+        c, sent = self._export_client(v2_status)
+        error = None
+        try:
+            c.execute_query(report_id=_REPORT_GUID, parameters={"Region": "West", key: "x"})
+        except Exception as exc:  # noqa: BLE001 - the type is asserted below
+            error = exc
+        assert sent == [], f"request sent: {sent!r}"
+        assert isinstance(error, ReadOnlyViolation), f"not refused: {error!r}"
+
+    def test_parameter_key_that_is_not_text_refused(self):
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+        c, sent = self._export_client(400)
+        with pytest.raises(ReadOnlyViolation):
+            c.execute_query(report_id=_REPORT_GUID, parameters={b"rs:Format": "PDF"})
+        assert sent == []
+
+    def test_report_parameters_reach_the_v2_export(self):
+        c, sent = self._export_client(200)
+        df = c.execute_query(report_id=_REPORT_GUID, parameters={"Region": "West", "Year": 2024})
+        assert list(df.columns) == ["a", "b"]
+        assert sent == [(f"http://pbi/Reports/api/v2.0/Reports({_REPORT_GUID})/Export/CSV",
+                         {"Region": "West", "Year": 2024})]
+
+    def test_report_parameters_reach_the_legacy_export_before_the_fixed_keys(self):
+        c, sent = self._export_client(400)
+        df = c.execute_query(report_id=_REPORT_GUID, parameters={"Region": "West", "format": "x"})
+        assert list(df.columns) == ["a", "b"]
+        legacy_url, legacy_params = sent[-1]
+        assert legacy_url == "http://pbi/ReportServer?/Sales/Monthly"
+        assert list(legacy_params.items()) == [
+            ("Region", "West"), ("format", "x"), ("rs:Format", "CSV"), ("rs:Command", "Render")]
+
+    def test_report_id_from_metadata_checked_too(self):
+        from app.ai.prompt_formatters import Table as PFTable
+
+        c, session = self._client()
+        c.get_schemas = MagicMock(return_value=[PFTable(
+            name="rdl:Sales", description="", columns=[], pks=[], fks=[], is_active=True,
+            metadata_json={"powerbi_report_server": {"report_type": "Report", "report_id": "r1"}},
+        )])
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+        with pytest.raises(ReadOnlyViolation):
+            c.execute_query(table_name="rdl:Sales")
+        assert self._sent(session) == []
+
+
 class TestEnsurePbixParquets:
     """Direct tests for the Parquet materialization + caching path."""
 
@@ -587,12 +772,12 @@ class TestEnsurePbixParquets:
         import app.data_sources.clients.powerbi_report_server_client as mod
 
         monkeypatch.setattr(mod, "_PBIX_DATA_CACHE_DIR", tmp_path)
-        cache_dir = mod._pbix_data_cache_dir("rX", "2024-01-01T00:00:00Z")
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        cache_dir = mod._pbix_data_cache_dir("rX", "2024-01-01T00:00:00Z", c._cache_scope())
         cache_dir.mkdir(parents=True)
         (cache_dir / "orders.parquet").write_bytes(b"not really a parquet")
         (cache_dir / "manifest.json").write_text(json.dumps({"Orders": "orders.parquet"}))
 
-        c = PowerBIReportServerClient("http://pbi", "u", "p")
         # download_catalog_item_content should NOT be called — raise if it is.
         c.download_catalog_item_content = MagicMock(
             side_effect=AssertionError("download should not run on cache hit")
@@ -613,6 +798,46 @@ class TestEnsurePbixParquets:
 
         with pytest.raises(RuntimeError, match="refusing to materialize"):
             c.ensure_pbix_parquets("rBig", "mdate", report_name="Huge")
+
+    def test_two_connections_never_share_a_cached_report(self, tmp_path, monkeypatch):
+        """The same report id and date on another server, or on the same
+        server for another organization, is that connection's own report."""
+        import sys
+        import types
+
+        import pandas as pd
+
+        import app.data_sources.clients.powerbi_report_server_client as mod
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+
+        class FakeModel:
+            def __init__(self, path):
+                self.content = Path(path).read_bytes().decode()
+                self.schema = pd.DataFrame({"TableName": ["Orders"]})
+
+            def get_table(self, name):
+                return pd.DataFrame({"source": [self.content]})
+
+        monkeypatch.setitem(sys.modules, "pbixray", types.SimpleNamespace(PBIXRay=FakeModel))
+        monkeypatch.setattr(mod, "_PBIX_DATA_CACHE_DIR", tmp_path)
+        org_1, org_2 = "66666666-aaaa-4aaa-8aaa-666666666666", "77777777-bbbb-4bbb-8bbb-777777777777"
+        clients = {
+            "first": bind_organization(PowerBIReportServerClient("http://pbi-one.example.test", "u", "p"), org_1),
+            "other server": bind_organization(PowerBIReportServerClient("http://pbi-two.example.test", "u", "p"), org_1),
+            "other organization": bind_organization(
+                PowerBIReportServerClient("http://pbi-one.example.test", "u", "p"), org_2),
+        }
+        for name, client in clients.items():
+            client.download_catalog_item_content = MagicMock(return_value=name.encode())
+        for name, client in clients.items():
+            paths = client.ensure_pbix_parquets("rSame", "2024-01-01T00:00:00Z", report_name="Same")
+            assert pd.read_parquet(paths["Orders"])["source"].tolist() == [name]
+            client.download_catalog_item_content.assert_called_once()
+        # The first connection's own copy is still served from its cache.
+        clients["first"].download_catalog_item_content.reset_mock()
+        paths = clients["first"].ensure_pbix_parquets("rSame", "2024-01-01T00:00:00Z", report_name="Same")
+        assert pd.read_parquet(paths["Orders"])["source"].tolist() == ["first"]
+        clients["first"].download_catalog_item_content.assert_not_called()
 
 
 class TestDiscoveryFraming:

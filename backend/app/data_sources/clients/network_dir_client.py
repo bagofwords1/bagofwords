@@ -120,13 +120,13 @@ def check_network_dir_root(
     the realpath must be inside one listed prefix; unset, system and app
     directories are refused (see ``_SYSTEM_DIRS``). An organization the
     operator gave its own roots (``security.organization_file_roots``) must
-    also stay inside those; ``organization_id`` defaults to the organization
-    of the current request."""
+    also stay inside those, and no root may hold another organization's;
+    ``organization_id`` defaults to the organization of the current request."""
     root = Path(root_path).expanduser().resolve()
     if organization_rules:
         from app.data_sources.clients._duckdb_lockdown import check_organization_roots
 
-        check_organization_roots(root, organization_id)
+        check_organization_roots(root, organization_id, contains=True)
     allowed = None
     try:
         from app.settings.config import settings
@@ -1259,20 +1259,15 @@ class NetworkDirClient(DataSourceClient):
             if self.index_file_tables:
                 # Preserve the historical file-id form, including SQL-looking names.
                 # read_file enforces the directory scope even for a matching real path.
-                import duckdb
                 try:
                     is_file = (self._root() / query).is_file()
                 except (OSError, ValueError):
                     is_file = False
                 if is_file:
                     return self.read_file(query, sheet=kwargs.get("sheet"))
-                try:
-                    statements = duckdb.extract_statements(query)
-                except duckdb.ParserException:
+                from app.data_sources.clients._network_dir_tables import query_tables, reads_as_statements
+                if not reads_as_statements(query):
                     return self.read_file(query, sheet=kwargs.get("sheet"))
-                if not statements:
-                    return self.read_file(query, sheet=kwargs.get("sheet"))
-                from app.data_sources.clients._network_dir_tables import query_tables
                 return query_tables(self, query)
             return self.read_file(query, sheet=kwargs.get("sheet"))
         raise ValueError("Provide table_name or query (file id) to read a file")

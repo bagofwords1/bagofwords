@@ -52,6 +52,7 @@ next window. One request is bounded by the connection's timeout.
 from collections.abc import Iterator
 from typing import List, Optional, Tuple
 
+from app.data_sources.clients.xmla_base import check_xmla_statement
 from app.data_sources.fast.powerbi_source import PowerBISource, window_dax
 
 # Rows / values one request asks for. Ours, not the server's: see above.
@@ -90,20 +91,27 @@ class AnalysisServicesSource(PowerBISource):
 
         return QuerySource(self.client)
 
+    # A DAX definition is held to the connector's statement check as written,
+    # as `execute_query` holds it, and so is every statement built from it
+    # (`execute_typed`). MDX goes through `execute_query` itself.
+
     def estimate(self, sql: str):
         if not is_dax(sql):
             return self._generic().estimate(sql)
+        check_xmla_statement(sql)
         return super().estimate(sql)
 
     def preview(self, sql: str, limit: int) -> Tuple[List[dict], List[list]]:
         if not is_dax(sql):
             return self._generic().preview(sql, limit)
+        check_xmla_statement(sql)
         return super().preview(sql, limit)
 
     def stream_batches(self, sql: str, batch_rows: int) -> Iterator["object"]:
         if not is_dax(sql):
             yield from self._generic().stream_batches(sql, batch_rows)
             return
+        check_xmla_statement(sql)
         yield from super().stream_batches(sql, batch_rows)
 
     # -- what one response can carry ----------------------------------------
@@ -150,6 +158,17 @@ class AnalysisServicesSource(PowerBISource):
         """
         _columns, rows = execute_typed(self.client, dax, target["catalog"])
         return rows, 0
+
+
+def _checked_catalog(client, catalog: Optional[str]) -> Optional[str]:
+    """The catalog to send `catalog`'s statement to, held to the connector's
+    rule: with a configured catalog, only that one (`check_catalog_override`)."""
+    from app.data_sources.clients.xmla_base import check_catalog_override
+
+    configured = getattr(client, "catalog", None)
+    if configured:
+        return check_catalog_override(catalog, configured)
+    return catalog
 
 
 # --------------------------------------------------------------------------
@@ -225,11 +244,16 @@ def execute_typed(client, statement: str, catalog: Optional[str]):
     The client's own `_execute_statement` returns every value as text and
     drops absent (null) columns; a table built from that would store numbers
     and dates as strings. This reads the same response with its schema.
+
+    The statement and catalog pass the checks the connector's `execute_query`
+    applies before anything is sent.
     """
     from xml.sax.saxutils import escape
 
     from app.data_sources.clients.xmla_base import XMLA_NS
 
+    check_xmla_statement(statement)
+    catalog = _checked_catalog(client, catalog)
     client.connect()
     properties = client._property_list_xml(catalog, fmt="Tabular", content="SchemaData")
     body = (

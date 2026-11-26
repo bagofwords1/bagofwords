@@ -214,9 +214,30 @@ def attach_catalog(client, selected, files):
             client._packet_schema = pa.schema([*FRAME_SCHEMA, *(pa.field(f, pa.list_(pa.string())) for f in fields)])
 
 
+def reads_as_statements(text):
+    """Whether DuckDB reads `text` as SQL statements rather than a file name.
+    It is parsed on a locked engine: DuckDB opens what some statements name
+    while it parses them. Text the locked engine refuses to parse is SQL,
+    for the query checks to refuse."""
+    from app.data_sources.fast.fast_client import lock_query_session
+
+    with duckdb.connect() as con:
+        lock_query_session(con)
+        try:
+            return bool(con.extract_statements(text))
+        except duckdb.ParserException:
+            return False
+        except duckdb.Error:
+            return True
+
+
 def query_tables(client, sql):
     from app.ai.code_execution.sql_guard import check_sql
-    from app.data_sources.fast.fast_client import assert_no_blocked_introspection, lock_query_session
+    from app.data_sources.fast.fast_client import (
+        assert_no_blocked_calls,
+        assert_no_blocked_introspection,
+        lock_query_session,
+    )
 
     allowed = getattr(client, "_network_dir_relations", frozenset())
     if not allowed:
@@ -224,9 +245,13 @@ def query_tables(client, sql):
     check_sql(sql, "duckdb")
     assert_no_blocked_introspection(sql)
     with duckdb.connect() as con:
+        # Locked before DuckDB reads the statement; the relations below are
+        # registered objects, which the lock does not stop.
+        lock_query_session(con)
         statements = con.extract_statements(sql)
         if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
             raise ValueError("Only one read-only SELECT or DESCRIBE is supported")
+        assert_no_blocked_calls(sql)
         status_rows, captures = [], []
         scan = ds.ParquetFragmentScanOptions(decryption_properties=decryption_properties())
         parquet = ds.ParquetFileFormat(default_fragment_scan_options=scan)
@@ -257,5 +282,4 @@ def query_tables(client, sql):
             con.register(
                 "packets", ds.dataset(captures, format=parquet, schema=schema) if captures else schema.empty_table()
             )
-        lock_query_session(con)
         return con.execute(sql).df()
