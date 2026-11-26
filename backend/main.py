@@ -1077,6 +1077,16 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to start Slack Socket Mode listener: {e}")
 
+    # Agent sandboxes: lifecycle, backend health and reconcile jobs. Scheduled
+    # only when the deployment flag is on; with it off nothing sandbox-related
+    # runs (a warning is logged if sandboxes were left behind).
+    if is_scheduler_leader:
+        try:
+            from app.services.sandbox.jobs import register_sandbox_jobs
+            register_sandbox_jobs(scheduler)
+        except Exception as e:
+            logger.error(f"Failed to register agent sandbox jobs: {e}")
+
     # Load the license key stored in the database (Settings → License), which
     # overrides BOW_LICENSE_KEY, before anything reads the license status.
     from app.services.license_service import load_license_at_startup, run_license_refresher

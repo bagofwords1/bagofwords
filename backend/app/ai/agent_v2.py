@@ -1369,6 +1369,14 @@ class AgentV2:
         if not _demo_gen_enabled(self.organization_settings):
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'create_demo_dataset']
 
+        # Agent sandboxes ship dark: the four tools are offered only when the
+        # deployment flag and the organization switch are both on. The user's
+        # `use_agent_sandbox` permission is checked with the other
+        # required_permissions in _apply_tool_permission_filter.
+        from app.services.sandbox.feature import SANDBOX_TOOL_NAMES as _SBX_TOOLS, sandboxes_enabled_for_org as _sbx_on
+        if not _sbx_on(self.organization_settings):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in _SBX_TOOLS]
+
         # Check-in runs (the agent following up on its own) never create
         # recurring work or re-arm themselves, and reach the user only through
         # `notify` (whose check-in guardrails send_email would bypass).
