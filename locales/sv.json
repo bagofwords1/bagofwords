@@ -1,4 +1,23 @@
 {
+  "fabricCompany": {
+    "preview": "Förhandsvisa mina rader",
+    "previewFailed": "Logga in med den konfigurerade Entra-identiteten och kontrollera mappningen.",
+    "tab": "RLS per företag",
+    "mapping": "Åtkomst per företag",
+    "scope": "Spara ett utkast för att testa mappningen. Det gäller endast förhandsvisningar av policyn.",
+    "tenant_id": "Entra-klient-ID",
+    "grants_table": "Behörighetstabell",
+    "employee_column": "Anställdkolumn",
+    "company_column": "Företagskolumn",
+    "source_column": "Källkolumn",
+    "tables": "Skyddade tabeller",
+    "table": "Källtabell",
+    "source": "Behörighetens källvärde",
+    "add": "Lägg till tabell",
+    "save": "Spara utkast",
+    "saved": "Utkast sparat",
+    "failed": "Kunde inte läsa in eller spara utkastet."
+  },
   "world": {
     "tree": "Träd",
     "usage": "Användning",

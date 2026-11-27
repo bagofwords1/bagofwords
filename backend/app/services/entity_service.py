@@ -313,6 +313,9 @@ class EntityService:
         """
         from app.services.bow_source_access import assert_read
         await assert_read(db, getattr(entity, "bow_source_access", None), user)
+        from app.services.viewer_data_policy import entity_has_company_policy
+        if await entity_has_company_policy(db, entity):
+            return None
         from app.services.identity_taint import entity_identity_scope
         has_identity, _upstream = await entity_identity_scope(db, entity)
         owner_id = str(getattr(entity, "owner_id", "") or "")
@@ -364,6 +367,9 @@ class EntityService:
 
         if user is None:
             raise ParamError("running an entity with parameters requires an authenticated user")
+        from app.services.viewer_data_policy import entity_has_company_policy
+        if await entity_has_company_policy(db, entity):
+            raise ParamError("Saved entity results unavailable on a company-filtered connection")
         entity_id = str(entity.id)
         ids = {"entity_id": entity_id, "user_id": str(user.id), "organization_id": str(entity.organization_id)}
 

@@ -68,6 +68,7 @@ class MsFabricClient(DataSourceClient):
         self.client_secret = client_secret
         self.schema = schema
         self._delegated_access_token = access_token
+        self._company_reader = None
 
         # Parse comma-separated schemas if provided
         self._schemas: List[str] = []
@@ -126,6 +127,8 @@ class MsFabricClient(DataSourceClient):
         per Fabric target, because the engine pool keys on it and two Fabric
         connections must not share one pool.
         """
+        if self._company_reader is not None:
+            raise ValueError("Extraction unavailable on a company-filtered connection")
         import sqlalchemy
 
         from app.data_sources.engine_pool import get_engine
@@ -215,6 +218,13 @@ class MsFabricClient(DataSourceClient):
     @contextmanager
     def connect(self) -> Generator:
         """Yield a connection to Microsoft Fabric SQL endpoint."""
+        if self._company_reader is not None:
+            raise ValueError("A raw connection is unavailable for a company-filtered reader")
+        with self._session() as conn:
+            yield conn
+
+    @contextmanager
+    def _session(self):
         conn = None
         try:
             conn = self._open_connection()
@@ -227,8 +237,71 @@ class MsFabricClient(DataSourceClient):
             if conn is not None:
                 conn.close()
 
+    @property
+    def company_filtered(self):
+        return self._company_reader is not None
+
+    def bind_company_reader(self, policy, employee):
+        if self.company_filtered:
+            raise ValueError("Company reader already bound")
+        self._company_reader = (policy, employee)
+
+    def validate_company_policy(self, policy):
+        """Check the exact catalog objects and comparable key types before publishing a mapping."""
+        expected = [policy.grants_table, *(rule.table for rule in policy.tables)]
+        catalog = {}
+        try:
+            with self._session() as conn:
+                cursor = conn.cursor()
+                try:
+                    for full_name in expected:
+                        schema, name = full_name.split(".")
+                        cursor.execute("""
+                            SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE
+                            FROM INFORMATION_SCHEMA.COLUMNS c JOIN INFORMATION_SCHEMA.TABLES t
+                              ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
+                            WHERE t.TABLE_TYPE = 'BASE TABLE' AND c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ?
+                        """, schema, name)
+                        catalog[full_name] = {column: dtype.lower() for s, n, column, dtype in cursor.fetchall()
+                                              if s == schema and n == name}
+                finally:
+                    cursor.close()
+            grants = catalog[policy.grants_table]
+            identifier_types = {"tinyint", "smallint", "int", "bigint", "uniqueidentifier"}
+            text_types = {"nvarchar", "varchar"}
+            if (grants.get(policy.employee_column) not in text_types
+                    or grants.get(policy.source_column) not in text_types
+                    or grants.get(policy.company_column) not in identifier_types
+                    or any(catalog[r.table].get(r.company_column) != grants[policy.company_column]
+                           for r in policy.tables)):
+                raise ValueError("Incompatible grant schema")
+        except Exception:
+            raise ValueError("The configured base tables and grant columns could not be verified") from None
+
+    def execute_company_query(self, sql, policy, employee):
+        """Host-side execution. The authenticated caller supplies the binding."""
+        from app.data_sources.fabric_company_rls import protect_query
+
+        try:
+            if self.company_filtered and (policy, employee) != self._company_reader:
+                raise ValueError("Company reader mismatch")
+            statement, bindings = protect_query(sql, policy, employee)
+            with self._session() as conn:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(statement, *bindings)
+                    columns = [desc[0] for desc in cursor.description]
+                    return pd.DataFrame.from_records(cursor.fetchall(), columns=columns)
+                finally:
+                    cursor.close()
+        except Exception:
+            # Driver and parser diagnostics may contain source values.
+            raise ValueError("Company-filtered query unavailable") from None
+
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""
+        if self.company_filtered:
+            return self.execute_company_query(sql, *self._company_reader)
         try:
             with self.connect() as conn:
                 cursor = conn.cursor()

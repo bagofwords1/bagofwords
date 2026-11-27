@@ -20,7 +20,8 @@
           @click="activeTab = tab.key"
         >{{ tab.label }}</button>
       </div>
-      <div v-if="activeTab === 'queries' && canSeeQueries" class="min-h-0 overflow-y-auto -mx-5 border-t border-gray-100 dark:border-gray-800 px-6 py-6 md:px-8 md:max-h-[70vh]" role="tabpanel">
+      <FabricCompanyPolicy v-if="activeTab === 'company' && canSeeQueries && connection.type === 'ms_fabric'" :key="connection.id" :connection-id="connection.id" />
+      <div v-else-if="activeTab === 'queries' && canSeeQueries" class="min-h-0 overflow-y-auto -mx-5 border-t border-gray-100 dark:border-gray-800 px-6 py-6 md:px-8 md:max-h-[70vh]" role="tabpanel">
         <ConnectionQueriesPanel :connection-id="connection.id" :active="open && activeTab === 'queries'" />
       </div>
       <div v-else-if="activeTab === 'tools' && canSeeQueries" class="min-h-0 overflow-y-auto -mx-5 border-t border-gray-100 dark:border-gray-800 px-6 py-6 md:px-8 md:max-h-[70vh]" role="tabpanel">
@@ -71,6 +72,7 @@
   </UModal>
 </template>
 <script setup lang="ts">
+import FabricCompanyPolicy from '~/components/datasources/FabricCompanyPolicy.vue'
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import ConnectionQueriesPanel from '~/components/datasources/ConnectionQueriesPanel.vue'
 import ConnectionToolsPanel from '~/components/datasources/ConnectionToolsPanel.vue'
@@ -85,13 +87,14 @@ const { t, locale } = useI18n()
 // The Queries tab lists every query BOW sends to this connection and lets the
 // viewer kill one: connection managers only (the API enforces the same).
 const canSeeQueries = computed(() => !!props.connection?.id && useCan('manage_connection', { type: 'connection', id: String(props.connection.id) }))
-const activeTab = ref<'settings' | 'tools' | 'queries'>('settings')
+const activeTab = ref<'settings' | 'tools' | 'queries' | 'company'>('settings')
 // Connection types whose tools an admin manages here: tool providers and
 // built-in connectors with write actions (Outlook, Teams).
 const TOOL_TYPES = ['mcp', 'custom_api', 'remote_ssh', 'remote_smb', 'outlook_mail', 'teams_messages']
 const hasTools = computed(() => TOOL_TYPES.includes(props.connection?.type))
 const tabs = computed(() => [
   { key: 'settings' as const, label: t('connectionQueries.tabSettings') },
+  ...(props.connection?.type === 'ms_fabric' ? [{ key: 'company' as const, label: t('fabricCompany.tab') }] : []),
   ...(hasTools.value ? [{ key: 'tools' as const, label: t('connectionTools.tab') }] : []),
   { key: 'queries' as const, label: t('connectionQueries.tabQueries') },
 ])

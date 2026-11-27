@@ -70,6 +70,7 @@ from app.services import custom_table_runs
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
 from app.services.table_preview_service import table_preview_service, is_previewable_table
 from app.errors import AppError, ErrorCode
+from app.services.fabric_company_policy import ConnectionCompanyPolicy, employee_for, visible_company_tables
 from app.services.member_attributes import require_attribute_admin
 from app.services.member_identity import (
     member_mapped,
@@ -1484,7 +1485,10 @@ async def get_connection_tables(
                 selected_ids = {str(r) for (r,) in rows.all()}
 
     result = []
+    visible = visible_company_tables(connection)
     for table in (connection.connection_tables or []):
+        if visible is not None and table.name not in visible:
+            continue
         # BOW custom tables are served by their own endpoint; they are not
         # introspected source tables and must not appear here. Soft-deleted
         # rows must not appear either.
@@ -2252,3 +2256,73 @@ async def kill_connection_query(
     except Exception:
         pass
     return item
+
+
+# A staged mapping can be exercised with the signed-in manager's identity.
+# Keep activation separate from authoring so saving an incomplete mapping
+# cannot advertise a security guarantee to report readers.
+
+
+async def _fabric_policy_connection(db, connection_id, organization):
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    if connection.type != "ms_fabric":
+        raise HTTPException(status_code=400, detail="A Fabric connection is required")
+    return connection
+
+
+@router.get("/{connection_id}/company-policy/draft", response_model=ConnectionCompanyPolicy | None)
+@requires_resource_permission("connection", "manage_connection")
+async def get_company_policy_draft(
+    connection_id: str, current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
+):
+    connection = await _fabric_policy_connection(db, connection_id, organization)
+    return connection.company_policy
+
+
+@router.put("/{connection_id}/company-policy/draft", response_model=ConnectionCompanyPolicy)
+@requires_resource_permission("connection", "manage_connection")
+async def save_company_policy_draft(
+    connection_id: str, payload: ConnectionCompanyPolicy, current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
+):
+    custom_query_service.ensure_rls_licensed()
+    connection = await _fabric_policy_connection(db, connection_id, organization)
+    connection.company_policy = payload.model_dump(mode="json")
+    await audit_service.log(db, organization_id=str(organization.id), user_id=str(current_user.id),
+                            action="connection.company_policy.drafted", resource_type="connection",
+                            resource_id=str(connection.id), details={"tables": len(payload.tables)}, commit=False)
+    await db.commit()
+    return payload
+
+
+@router.get("/{connection_id}/company-policy/draft/preview")
+@requires_resource_permission("connection", "manage_connection")
+async def preview_company_policy_draft(
+    connection_id: str, table: str, current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
+):
+    custom_query_service.ensure_rls_licensed()
+    connection = await _fabric_policy_connection(db, connection_id, organization)
+    if not connection.company_policy:
+        raise HTTPException(status_code=404, detail="No saved mapping")
+    policy = ConnectionCompanyPolicy.model_validate(connection.company_policy)
+    if table not in {rule.table for rule in policy.tables}:
+        raise HTTPException(status_code=404, detail="Table unavailable")
+    try:
+        employee = await employee_for(db, organization.id, current_user, policy)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Sign in with the configured Entra tenant") from None
+    client = await connection_service.construct_client(db, connection, current_user)
+    try:
+        await asyncio.to_thread(client.validate_company_policy, policy)
+        frame = await asyncio.to_thread(client.execute_company_query, f"SELECT TOP 25 * FROM {table}", policy, employee)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Company-filtered preview unavailable") from None
+    await audit_service.log(db, organization_id=str(organization.id), user_id=str(current_user.id),
+                            action="connection.company_policy.previewed", resource_type="connection",
+                            resource_id=str(connection.id), details={"table": table})
+    import json
+    from fastapi.responses import JSONResponse
+    return JSONResponse(content=json.loads(frame.to_json(orient="split", index=False, date_format="iso")),
+                        headers={"Cache-Control": "no-store"})

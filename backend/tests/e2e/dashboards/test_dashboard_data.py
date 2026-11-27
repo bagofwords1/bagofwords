@@ -289,3 +289,25 @@ def test_an_owner_who_left_the_organization_gets_a_readers_view(corpus, corpus_r
                               headers=as_(corpus, "admin")).status_code == 204
     assert _get(test_client, corpus, path, "owner").json()["snapshot_withheld"] is True
     assert _get(test_client, corpus, f"/api/d/{aid}/export/html", "owner").status_code == 409
+
+
+@pytest.mark.e2e
+def test_company_policy_withholds_an_existing_release_including_the_publishers_copy(
+        corpus, corpus_rows, test_client):
+    aid, release = _published(corpus, corpus_rows, test_client, "user_required/dash")
+    (copy,) = _copies(corpus_rows, release)
+    step = f"/api/d/{aid}/queries/{copy['id']}/step"
+    content = f"/api/d/{aid}/content"
+    assert _get(test_client, corpus, step, "owner").json()["data"]["rows"]
+    assert _get(test_client, corpus, content).status_code == 200
+    connections = _rows(corpus_rows, """
+        SELECT dc.connection_id FROM domain_connection dc
+        JOIN artifact_release_data_source_association a ON dc.data_source_id = a.data_source_id
+        WHERE a.artifact_release_id = :release
+    """, release=release)
+    assert connections
+    for row in connections:
+        corpus_rows.update("connections", row["connection_id"], active_company_policy={"tenant_id": "unresolved"})
+    for reader in ("owner", "member"):
+        for path in (step, content, f"/api/d/{aid}/queries/{copy['id']}/export"):
+            assert _get(test_client, corpus, path, reader).status_code == 404

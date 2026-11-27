@@ -124,6 +124,12 @@ async def release_creator_result_holds_owner_slice(db, row, release: ArtifactRel
     return await _any_rls_relation(db, await release_copy_data_source_ids(db, release, code))
 
 
+async def release_has_company_policy(db, release):
+    from app.services.viewer_data_policy import has_company_policy, org_has_company_policy
+    return (await org_has_company_policy(db, getattr(release, "organization_id", None))
+            and await has_company_policy(db, await release_run_data_source_ids(db, release)))
+
+
 async def resolve_release_step(db, step: Step, artifact: Artifact, release: ArtifactRelease,
                                user) -> StepDataResolution:
     """resolve_step_data for a release copy: the owner's snapshot, else the
@@ -136,6 +142,8 @@ async def resolve_release_step(db, step: Step, artifact: Artifact, release: Arti
     from app.services.identity_taint import step_identity_scope
 
     if release.bow_source_access and not await can_read(db, release.bow_source_access, user):
+        return StepDataResolution(data={}, withheld=True)
+    if await release_has_company_policy(db, release):
         return StepDataResolution(data={}, withheld=True)
     shared = step.data or {}
     if await holds_snapshot(db, artifact, release, user):

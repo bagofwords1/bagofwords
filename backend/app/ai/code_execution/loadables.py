@@ -197,6 +197,14 @@ class LoadablesResolver:
         """
         if not self.enable_load_step:
             return None
+        from app.services.dashboard_data import release_has_company_policy
+        from app.services.viewer_data_policy import report_has_company_policy
+        if self.release and await release_has_company_policy(self.db, self.release):
+            return None
+        if self.report and await report_has_company_policy(
+            self.db, self.report.id, getattr(self.report, "organization_id", None)
+        ):
+            return None
         steps = await self._report_default_steps(
             limit=limit, max_age_seconds=self.step_max_age_seconds, light=True
         )

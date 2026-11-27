@@ -3094,6 +3094,8 @@ class ConnectionService:
         logger.info(f"construct_client: Resolved ClientClass={ClientClass.__name__}")
 
         config = json.loads(connection.config) if isinstance(connection.config, str) else dict(connection.config or {})
+        if getattr(connection, "active_company_policy", None) is not None and (config_overrides or credential_overrides):
+            raise ValueError("Protected connections require saved credentials and destination")
         # Merge config overrides (non-empty values win)
         if config_overrides:
             for k, v in config_overrides.items():
@@ -3146,6 +3148,8 @@ class ConnectionService:
         await acheck_connection_params(connection.type, params)
         from app.data_sources.clients._duckdb_lockdown import bind_organization
         client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
+        from app.services.fabric_company_policy import bind_company_reader
+        await bind_company_reader(db, connection, client, current_user)
         if connection.type in ("network_dir", "postgresql_multi"):
             client._bow_connection_id = str(connection.id)
         if connection.type in ("remote_ssh", "remote_smb"):

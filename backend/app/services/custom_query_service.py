@@ -480,6 +480,8 @@ class CustomQueryService:
 
     @staticmethod
     def ensure_accelerable(connection: Connection) -> None:
+        if getattr(connection, "active_company_policy", None) is not None:
+            raise HTTPException(status_code=403, detail="Materialization unavailable on a company-filtered connection")
         reason = _unchecked_reason((connection.type or "").lower())
         if reason == "unresolved":
             raise HTTPException(

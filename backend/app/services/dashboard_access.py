@@ -270,7 +270,7 @@ async def check_visibility(db, artifact: Artifact, user) -> None:
         raise AppError.forbidden()
 
 
-async def open_published(db, ref: str, user) -> tuple[Artifact, ArtifactRelease]:
+async def open_published(db, ref: str, user, *, live_company_view=False) -> tuple[Artifact, ArtifactRelease]:
     """The dashboard and its live release, or the error `user` should get."""
     from app.services.bow_source_access import assert_read
 
@@ -285,6 +285,11 @@ async def open_published(db, ref: str, user) -> tuple[Artifact, ArtifactRelease]
     await assert_read(db, release.bow_source_access, user)
     if not editor:
         await check_visibility(db, artifact, user)
+    from app.services.dashboard_data import release_has_company_policy
+    if not live_company_view and await release_has_company_policy(db, release):
+        # The release may contain generated prose, charts, or rendered files.
+        # Until the full artifact can be rebuilt, withhold it before serialization.
+        raise _not_found()
     return artifact, release
 
 
@@ -310,6 +315,10 @@ async def open_draft(db, ref: str, user) -> Artifact:
     editing = await editing_report_ids(db, artifact)
     if not editing:
         raise _not_found()
+    from app.services.viewer_data_policy import report_has_company_policy
+    for report_id in editing:
+        if await report_has_company_policy(db, report_id, artifact.organization_id):
+            raise _not_found()
     await assert_read(db, await report_access(db, editing[0]), user)
     return artifact
 

@@ -1,3 +1,4 @@
+from app.services.fabric_company_policy import bind_company_reader
 from app.data_sources.client_parameters import merge_client_credentials, filter_client_parameters
 import asyncio
 import copy
@@ -2950,7 +2951,8 @@ class DataSourceService:
         allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(conn.type, params)
         from app.data_sources.clients._duckdb_lockdown import bind_organization
-        return bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
+        client = bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
+        return await bind_company_reader(db, conn, client, current_user)
 
     @staticmethod
     def is_execution_live(ds) -> bool:
@@ -3272,6 +3274,8 @@ class DataSourceService:
                 await _acheck_connection_destination(conn.type, params)
                 from app.data_sources.clients._duckdb_lockdown import bind_organization
                 client = bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
+                viewer = current_user if row_filter_user is SAME_AS_CURRENT_USER else row_filter_user
+                await bind_company_reader(db, conn, client, viewer)
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
                 await self._attach_table_scope(db, client, data_source, conn)
@@ -3399,6 +3403,8 @@ class DataSourceService:
         anonymous identity, which sees nothing from a protected relation. A
         background path that legitimately needs rows must name a real user.
         """
+        if getattr(connection, "active_company_policy", None) is not None:
+            return None
         from app.models.connection_table import ConnectionTable, KIND_BOW
         from app.services.custom_query_service import CustomQueryService
 
@@ -5477,7 +5483,8 @@ class DataSourceService:
         allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(connection.type, params)
         from app.data_sources.clients._duckdb_lockdown import bind_organization
-        return bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
+        return await bind_company_reader(db, connection, client, user)
 
     async def get_user_data_source_schema(
         self,

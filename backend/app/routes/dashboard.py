@@ -12,7 +12,7 @@ import contextlib
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,7 @@ from app.errors import AppError, ErrorCode
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.dashboard_schema import (
+    CompanyDashboardSchema,
     DashboardConnectionKind,
     DashboardForkRequest,
     DashboardListFacets,
@@ -73,16 +74,23 @@ async def _general(db, artifact) -> PublicGeneralSettings:
                                  icon_url=general.get("icon_url"))
 
 
-@router.get("/d/{ref}", response_model=PublishedDashboardSchema)
+@router.get("/d/{ref}", response_model=PublishedDashboardSchema | CompanyDashboardSchema)
 async def get_published_dashboard(
     ref: str,
+    response: Response,
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(viewer_optional),
 ):
     from app.services.dashboard_lifecycle import fork_eligibility
     from app.services.dashboard_runs import release_data_sources
 
-    artifact, release = await dashboard_access.open_published(db, ref, user)
+    from app.services.dashboard_data import release_has_company_policy
+    from app.services.dashboard_runs import company_view
+
+    artifact, release = await dashboard_access.open_published(db, ref, user, live_company_view=True)
+    if await release_has_company_policy(db, release):
+        response.headers["Cache-Control"] = "private, no-store"
+        return await company_view(db, artifact, release, user)
     sources = [DashboardSourceKind(connections=[
         DashboardConnectionKind(type=c.type, auth_policy=c.auth_policy) for c in (ds.connections or [])
     ]) for ds in await release_data_sources(db, release)]
@@ -364,8 +372,12 @@ async def notify_dashboard_share(
     from app.settings.config import settings as app_settings
 
     artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, dashboard_access.CAP_SHARE)
-    if await dashboard_access.published_release(db, artifact) is None:
+    release = await dashboard_access.published_release(db, artifact)
+    if release is None:
         raise AppError.conflict(ErrorCode.DASHBOARD_SHARE_REQUIRES_PUBLISH)
+    from app.services.dashboard_data import release_has_company_policy
+    if await release_has_company_policy(db, release):
+        raise AppError.forbidden(ErrorCode.ACCESS_DENIED, "Stored report delivery unavailable")
     if NotificationChannel.EMAIL in payload.channels and not await is_outbound_available(
             db, str(organization.id), purpose="system"):
         raise AppError.bad_request(ErrorCode.VALIDATION, "Email notifications are not available (SMTP not configured)")
@@ -380,7 +392,6 @@ async def notify_dashboard_share(
                                                        actor_user=current_user)
         except Exception:
             pass  # the email still goes
-    release = await dashboard_access.published_release(db, artifact)
     title = (artifact.title or "").strip() or "dashboard"
 
     made: list[str] = []

@@ -79,6 +79,15 @@ async def resolve_step_data(
     bow_access = await step_access(db, step)
     if bow_access and not await can_read(db, bow_access, requesting_user):
         return StepDataResolution(data={}, withheld=True)
+    if report is not None and await report_has_company_policy(
+        db, report.id, getattr(report, "organization_id", None)
+    ):
+        return StepDataResolution(data={}, withheld=True)
+    if report is None and step_report_id is not None:
+        from app.models.report import Report
+        org_id = await db.scalar(select(Report.organization_id).where(Report.id == str(step_report_id)))
+        if await report_has_company_policy(db, step_report_id, org_id):
+            return StepDataResolution(data={}, withheld=True)
     shared = step.data or {}
 
     owner_id = str(report.user_id) if report is not None and getattr(report, "user_id", None) else None
@@ -571,6 +580,59 @@ async def _any_user_scoped_connection(db: AsyncSession, data_source_ids: list[st
     return bool((await db.execute(stmt)).scalar() or 0)
 
 
+async def has_company_policy(db, data_source_ids) -> bool:
+    """An active live-warehouse policy makes even the owner's stored slice stale."""
+    if not data_source_ids:
+        return False
+    stmt = (select(Connection.id).join(domain_connection, Connection.id == domain_connection.c.connection_id)
+            .where(domain_connection.c.data_source_id.in_(data_source_ids),
+                   Connection.active_company_policy.is_not(None)).limit(1))
+    return (await db.scalar(stmt)) is not None
+
+
+async def org_has_company_policy(db, organization_id) -> bool:
+    if not organization_id:
+        return False
+    return (await db.scalar(select(Connection.id).where(
+        Connection.organization_id == str(organization_id),
+        Connection.active_company_policy.is_not(None)).limit(1))) is not None
+
+
+async def entity_has_company_policy(db, entity):
+    if not await org_has_company_policy(db, getattr(entity, "organization_id", None)):
+        return False
+    ids = await _entity_data_source_ids(db, str(entity.id))
+    if not ids:
+        ids = await _org_fallback_ds_ids(db, entity.organization_id, getattr(entity, "code", None))
+    return await has_company_policy(db, ids)
+
+
+async def report_has_company_policy(db, report_id, organization_id):
+    return (await org_has_company_policy(db, organization_id)
+            and await has_company_policy(db, await report_run_data_source_ids(db, report_id)))
+
+
+async def delivery_has_company_policy(db, subject_id, organization_id=None):
+    """A delivery subject can be a conversation or a published dashboard."""
+    from app.models.artifact import Artifact
+    from app.models.report import Report
+    from app.services.dashboard_access import published_release
+    from app.services.dashboard_data import release_has_company_policy
+
+    if not subject_id:
+        return False
+    if organization_id and not await org_has_company_policy(db, organization_id):
+        return False
+    report_org = await db.scalar(select(Report.organization_id).where(Report.id == str(subject_id)))
+    if report_org and await report_has_company_policy(db, subject_id, report_org):
+        return True
+    artifact = await db.scalar(select(Artifact).options(lazyload("*")).where(Artifact.id == str(subject_id)))
+    if artifact is None:
+        return False
+    release = await published_release(db, artifact)
+    return bool(release and await release_has_company_policy(db, release))
+
+
 async def _any_rls_relation(db: AsyncSession, data_source_ids: list[str]) -> bool:
     """True when any of the given data sources exposes an active bow relation
     with row-level security enabled.
@@ -581,6 +643,8 @@ async def _any_rls_relation(db: AsyncSession, data_source_ids: list[str]) -> boo
     identity-differentiation than user_required auth, and one that lives on a
     system_only connection (RLS is only permitted there today).
     """
+    if await has_company_policy(db, data_source_ids):
+        return True
     if not data_source_ids:
         return False
     from app.models.connection_table import ConnectionTable, KIND_BOW
@@ -646,6 +710,8 @@ async def entity_data_withheld(
     from app.services.bow_source_access import can_read
     bow_access = getattr(entity, "bow_source_access", None)
     if bow_access and not await can_read(db, bow_access, requesting_user):
+        return True
+    if await entity_has_company_policy(db, entity):
         return True
     owner_id = str(getattr(entity, "owner_id", "") or "")
     if requesting_user is not None and owner_id and str(requesting_user.id) == owner_id:

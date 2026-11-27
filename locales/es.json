@@ -1,4 +1,23 @@
 {
+  "fabricCompany": {
+    "preview": "Ver mis filas",
+    "previewFailed": "Inicia sesión con la identidad de Entra configurada y revisa la asignación.",
+    "tab": "RLS por empresa",
+    "mapping": "Asignación de acceso por empresa",
+    "scope": "Guarda un borrador para probar la asignación. Solo se aplica a las vistas previas de la política.",
+    "tenant_id": "ID de inquilino de Entra",
+    "grants_table": "Tabla de permisos",
+    "employee_column": "Columna de empleado",
+    "company_column": "Columna de empresa",
+    "source_column": "Columna de origen",
+    "tables": "Tablas protegidas",
+    "table": "Tabla de origen",
+    "source": "Valor de origen del permiso",
+    "add": "Añadir tabla",
+    "save": "Guardar borrador",
+    "saved": "Borrador guardado",
+    "failed": "No se pudo cargar o guardar el borrador."
+  },
   "world": {
     "tree": "Árbol",
     "usage": "Uso",

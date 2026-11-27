@@ -1,4 +1,23 @@
 {
+  "fabricCompany": {
+    "preview": "Aperçu de mes lignes",
+    "previewFailed": "Connectez-vous avec l’identité Entra configurée et vérifiez la correspondance.",
+    "tab": "RLS par entreprise",
+    "mapping": "Accès par entreprise",
+    "scope": "Enregistrez un brouillon pour tester les accès. Il s’applique uniquement aux aperçus de la règle.",
+    "tenant_id": "ID du locataire Entra",
+    "grants_table": "Table des droits",
+    "employee_column": "Colonne employé",
+    "company_column": "Colonne entreprise",
+    "source_column": "Colonne source",
+    "tables": "Tables protégées",
+    "table": "Table source",
+    "source": "Valeur source du droit",
+    "add": "Ajouter une table",
+    "save": "Enregistrer le brouillon",
+    "saved": "Brouillon enregistré",
+    "failed": "Impossible de charger ou d’enregistrer le brouillon."
+  },
   "world": {
     "tree": "Arborescence",
     "usage": "Utilisation",

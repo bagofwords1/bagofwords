@@ -90,6 +90,15 @@ class NotificationService:
         errors: list[ChannelResult] = []
         skipped: list[ChannelResult] = []
 
+        if report_id:
+            from app.dependencies import async_session_maker
+            from app.services.viewer_data_policy import delivery_has_company_policy
+            async with async_session_maker() as policy_db:
+                if await delivery_has_company_policy(policy_db, report_id, organization_id):
+                    skipped = [ChannelResult(channel=c.value, status="skipped", recipients=recipients,
+                                             error="Stored report delivery unavailable") for c in channels]
+                    return NotifyResponse(dispatched=[], errors=skipped, skipped=skipped)
+
         context = {
             "notification_type": notification_type,
             "share_url": share_url,
@@ -814,6 +823,11 @@ class NotificationService:
         # (report_bursting): each member gets their own rows, external
         # addresses are skipped. Everything else keeps the single send below.
         try:
+            from app.dependencies import async_session_maker
+            from app.services.viewer_data_policy import delivery_has_company_policy
+            async with async_session_maker() as policy_db:
+                if await delivery_has_company_policy(policy_db, report_id, organization_id):
+                    return
             if await self._burst_scheduled_results(
                 report_id=report_id, report_title=report_title, subscribers=subscribers,
                 report_url=report_url, exec_summary=exec_summary, locale=locale,

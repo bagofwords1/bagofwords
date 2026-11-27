@@ -2421,6 +2421,8 @@ class StreamingCodeExecutor:
                 helpers.begin_attempt()
             try:
                 if sandbox_mode() == MODE_INPROCESS:
+                    if any(getattr(c, "company_filtered", False) is True for c in ds_clients.values()):
+                        raise ValueError("Company-filtered queries require sandbox isolation")
                     # In-process mode is for local development only.
                     refuse_inprocess_if_not_allowed()
                     df, output_log = self._execute_inprocess(

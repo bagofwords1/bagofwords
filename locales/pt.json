@@ -1,4 +1,23 @@
 {
+  "fabricCompany": {
+    "preview": "Visualizar minhas linhas",
+    "previewFailed": "Entre com a identidade Entra configurada e verifique o mapeamento.",
+    "tab": "RLS por empresa",
+    "mapping": "Acesso por empresa",
+    "scope": "Salve um rascunho para testar o mapeamento. Ele se aplica apenas às prévias da política.",
+    "tenant_id": "ID do locatário Entra",
+    "grants_table": "Tabela de permissões",
+    "employee_column": "Coluna de funcionário",
+    "company_column": "Coluna de empresa",
+    "source_column": "Coluna de origem",
+    "tables": "Tabelas protegidas",
+    "table": "Tabela de origem",
+    "source": "Valor de origem da permissão",
+    "add": "Adicionar tabela",
+    "save": "Salvar rascunho",
+    "saved": "Rascunho salvo",
+    "failed": "Não foi possível carregar ou salvar o rascunho."
+  },
   "world": {
     "tree": "Árvore",
     "usage": "Uso",

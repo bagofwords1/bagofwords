@@ -1,4 +1,23 @@
 {
+  "fabricCompany": {
+    "preview": "Preview my rows",
+    "previewFailed": "Sign in with the configured Entra identity and verify the mapping.",
+    "tab": "Company RLS",
+    "mapping": "Company access mapping",
+    "scope": "Save a draft to test the mapping. Drafts apply only to policy previews.",
+    "tenant_id": "Entra tenant ID",
+    "grants_table": "Grant table",
+    "employee_column": "Employee column",
+    "company_column": "Company column",
+    "source_column": "Source column",
+    "tables": "Protected tables",
+    "table": "Source table",
+    "source": "Grant source value",
+    "add": "Add table",
+    "save": "Save draft",
+    "saved": "Draft saved",
+    "failed": "Could not load or save the draft."
+  },
   "world": {
     "tree": "Tree",
     "usage": "Usage",

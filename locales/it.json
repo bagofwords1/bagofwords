@@ -1,4 +1,23 @@
 {
+  "fabricCompany": {
+    "preview": "Anteprima delle mie righe",
+    "previewFailed": "Accedi con l’identità Entra configurata e verifica la mappatura.",
+    "tab": "RLS per azienda",
+    "mapping": "Accesso per azienda",
+    "scope": "Salva una bozza per verificare la mappatura. Si applica solo alle anteprime della regola.",
+    "tenant_id": "ID tenant Entra",
+    "grants_table": "Tabella autorizzazioni",
+    "employee_column": "Colonna dipendente",
+    "company_column": "Colonna azienda",
+    "source_column": "Colonna origine",
+    "tables": "Tabelle protette",
+    "table": "Tabella di origine",
+    "source": "Valore origine del permesso",
+    "add": "Aggiungi tabella",
+    "save": "Salva bozza",
+    "saved": "Bozza salvata",
+    "failed": "Impossibile caricare o salvare la bozza."
+  },
   "world": {
     "tree": "Albero",
     "usage": "Utilizzo",

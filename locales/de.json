@@ -1,4 +1,23 @@
 {
+  "fabricCompany": {
+    "preview": "Meine Zeilen anzeigen",
+    "previewFailed": "Mit der konfigurierten Entra-Identität anmelden und die Zuordnung prüfen.",
+    "tab": "Unternehmens-RLS",
+    "mapping": "Unternehmensberechtigungen",
+    "scope": "Entwurf zum Testen speichern. Er gilt nur für die Richtlinienvorschau.",
+    "tenant_id": "Entra-Mandanten-ID",
+    "grants_table": "Berechtigungstabelle",
+    "employee_column": "Mitarbeiterspalte",
+    "company_column": "Unternehmensspalte",
+    "source_column": "Quellspalte",
+    "tables": "Geschützte Tabellen",
+    "table": "Quelltabelle",
+    "source": "Quellwert der Berechtigung",
+    "add": "Tabelle hinzufügen",
+    "save": "Entwurf speichern",
+    "saved": "Entwurf gespeichert",
+    "failed": "Entwurf konnte nicht geladen oder gespeichert werden."
+  },
   "world": {
     "tree": "Baum",
     "usage": "Nutzung",

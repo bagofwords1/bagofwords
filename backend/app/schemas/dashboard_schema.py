@@ -29,6 +29,16 @@ class DashboardSourceKind(BaseModel):
     connections: list[DashboardConnectionKind] = []
 
 
+class CompanyDashboardTable(BaseModel):
+    columns: list[str]
+    rows: list[dict]
+
+
+class CompanyDashboardSchema(BaseModel):
+    company_filtered: Literal[True] = True
+    tables: list[CompanyDashboardTable]
+
+
 class PublishedDashboardSchema(BaseModel):
     """What a /d page needs about the dashboard: nothing of its settings
     beyond what it shows (who it is shared with, schedules and chat sources

@@ -296,7 +296,9 @@ class TablePreviewService:
                 )
             )
         ).scalar_one_or_none()
-        if row is None:
+        from app.services.fabric_company_policy import visible_company_tables
+        visible = visible_company_tables(connection)
+        if row is None or (visible is not None and row.name not in visible):
             raise AppError.not_found(ErrorCode.CONNECTION_TABLE_NOT_FOUND, "Table not found")
         return row
 
@@ -321,6 +323,11 @@ class TablePreviewService:
         from app.data_sources.fast.sources import source_for
 
         sql = preview_sql(conn_type, table, PREVIEW_ROW_LIMIT)
+
+        if getattr(client, "company_filtered", False) is True:
+            from app.data_sources.fast.sources import QuerySource
+            cols, rows = QuerySource(client).preview(sql, PREVIEW_ROW_LIMIT)
+            return sql, base_table_sql(conn_type, table), cols, rows, "query"
 
         src = source_for(client)
         reader = getattr(src, "sample_table", None)
@@ -409,7 +416,7 @@ class TablePreviewService:
             "rows": [[_cell(v) for v in r] for r in rows],
             "row_limit": PREVIEW_ROW_LIMIT,
             "truncated": len(rows) >= PREVIEW_ROW_LIMIT,
-            "total_rows": table.no_rows or None,
+            "total_rows": None if getattr(connection, "active_company_policy", None) is not None else table.no_rows or None,
         }
 
     async def completions(self, db: AsyncSession, connection: Connection) -> dict:
@@ -436,6 +443,10 @@ class TablePreviewService:
                 .limit(MAX_COMPLETION_TABLES)
             )
         ).scalars().all()
+        from app.services.fabric_company_policy import visible_company_tables
+        visible = visible_company_tables(connection)
+        if visible is not None:
+            rows = [row for row in rows if row.name in visible]
         return completion_catalog(connection.type, rows)
 
 

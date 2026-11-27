@@ -129,6 +129,46 @@ async def _shown_query_ids(db, release: ArtifactRelease) -> list[str]:
     return list(dict.fromkeys(str(q) for (q,) in (await db.execute(stmt)).all() if q))
 
 
+async def company_view(db, artifact, release, reader):
+    """Project the release's visible table queries into a fresh, data-only response."""
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+    from app.data_sources.fabric_company_rls import shared_query_code
+    from app.schemas.dashboard_schema import CompanyDashboardSchema, CompanyDashboardTable
+    from app.services.data_source_service import DataSourceService
+
+    if reader is None:
+        raise AppError.unauthorized()
+    if not await _is_member(db, artifact, reader):
+        raise AppError.forbidden()
+    # Explicit release sources only. Missing lineage cannot authorize a read.
+    clients = {}
+    for source in await release_data_sources(db, release):
+        if DataSourceService.is_execution_live(source):
+            clients.update(await DataSourceService().construct_clients(
+                db, source, current_user=reader, row_filter_user=reader, connection_errors=[]))
+    shown = await _shown_query_ids(db, release)
+    steps = (await db.execute(
+        select(Step.code, Query.parameters).join(Query, Query.default_step_id == Step.id)
+        .where(Query.artifact_release_id == release.id, Query.id.in_(shown), Query.deleted_at.is_(None),
+               Step.query_id == Query.id, Step.deleted_at.is_(None), Step.status == "success")
+    )).all()
+    if not shown or len(steps) != len(shown):
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+    executor = StreamingCodeExecutor()
+    tables = []
+    try:
+        for code, params in steps:
+            if params:
+                raise ValueError("Unsupported shared parameters")
+            live_code = shared_query_code(code, clients)
+            frame, _, _ = await executor.execute_code_async(code=live_code, ds_clients=clients, excel_files=[])
+            data = executor.format_df_for_widget(frame)
+            tables.append(CompanyDashboardTable(columns=[c["field"] for c in data["columns"]], rows=data["rows"]))
+    except Exception:
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND) from None
+    return CompanyDashboardSchema(tables=tables)
+
+
 async def _needed_query_ids(db, release: ArtifactRelease) -> list[str]:
     """The release's charts, then the copies they need without showing: a
     filter's option query (its options_source names the copy) and every step
