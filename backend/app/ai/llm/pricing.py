@@ -160,7 +160,8 @@ def resolve_family(provider_type: Optional[str], model_id: Optional[str] = None)
 # refreshes on Claude Fable 5.1 and Claude Mythos 5.1 are priced at 0.025x the
 # base input price. All other models use the standard 0.1x multiplier."
 _ANTHROPIC_READ_RATE_OVERRIDES = (
-    (("fable-5-1", "mythos-5-1"), 0.025),
+    # Fable/Mythos 5.2: $0.20/MTok against an $8 base — also 0.025x.
+    (("fable-5-1", "mythos-5-1", "fable-5-2", "mythos-5-2"), 0.025),
     # Claude Opus 5.5: $0.20/MTok cache reads against a $4 base. Tagged
     # "opus-5-5" so Claude Opus 5 (0.1x) is not swept in.
     (("opus-5-5",), 0.05),
