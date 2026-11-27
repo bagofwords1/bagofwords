@@ -130,6 +130,7 @@ from app.routes import (
     agent_lists,
     changelog,
     app_log,
+    sandbox,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -349,6 +350,10 @@ app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
 app.include_router(app_log.router, prefix="/api")
+# Agent sandboxes. Always registered so a disabled deployment answers
+# `agent_sandboxes.disabled` rather than a bare 404; the router's own
+# dependency is the gate (app/services/sandbox/feature.py).
+app.include_router(sandbox.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")
 app.include_router(metadata_resource.router, prefix="/api")
 app.include_router(bow_settings.router, prefix="/api")
@@ -1071,6 +1076,17 @@ async def startup_event():
             logger.info("Started Slack Socket Mode listener")
         except Exception as e:
             logger.error(f"Failed to start Slack Socket Mode listener: {e}")
+
+    # Agent sandboxes: lifecycle, backend health and reconcile jobs. Scheduled
+    # only when the deployment flag is on; with it off nothing sandbox-related
+    # runs (a warning is logged if sandboxes were left behind).
+    if is_scheduler_leader:
+        try:
+            from app.services.sandbox.jobs import register_sandbox_jobs, warn_if_sandboxes_exist_while_disabled
+            register_sandbox_jobs(scheduler)
+            await warn_if_sandboxes_exist_while_disabled()
+        except Exception as e:
+            logger.error(f"Failed to register agent sandbox jobs: {e}")
 
     # Load the license key stored in the database (Settings → License), which
     # overrides BOW_LICENSE_KEY, before anything reads the license status.

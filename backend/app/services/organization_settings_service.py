@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 # so it stays behind its full_admin_access endpoint.
 PROTECTED_CONFIG_KEYS = frozenset({
     "signup_policy", "default_member_role", "entra_profile_sync", "google_profile_sync", "smtp",
+    # Settings → Sandbox: written only by the sandbox routes (manage_sandboxes).
+    "agent_sandboxes",
 })
 
 

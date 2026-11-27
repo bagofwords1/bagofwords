@@ -704,6 +704,24 @@ class AuditConfig(BaseModel):
     platform_stream: AuditPlatformStream = AuditPlatformStream()
 
 
+class AgentSandboxesConfig(BaseModel):
+    """Agent sandboxes: containers on operator-provided servers where a
+    report's agent can run code (``create_sandbox`` / ``run_in_sandbox``).
+
+    Level 1 of three gates, all off by default. Off here means the feature
+    does not exist for this deployment: no Sandbox admin section, every
+    sandbox route answers ``agent_sandboxes.disabled``, the agent and the MCP
+    server list no sandbox tools, the two sandbox permissions are not offered
+    in the role editor and no sandbox job is scheduled. Read it through
+    ``app.services.sandbox.feature.sandbox_feature_enabled()``, never directly.
+    See docs/design/agent-sandboxes.md.
+    """
+    # Env: BOW_AGENT_SANDBOXES_ENABLED.
+    enabled: bool = Field(
+        default_factory=lambda: os.getenv("BOW_AGENT_SANDBOXES_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on"),
+    )
+
+
 class SystemLogsConfig(BaseModel):
     """Settings → System logs: the server's own log lines, kept as files.
 
@@ -915,6 +933,7 @@ class BowConfig(BaseModel):
     security: SecurityConfig = SecurityConfig()
     audit: AuditConfig = AuditConfig()
     system_logs: SystemLogsConfig = Field(default_factory=SystemLogsConfig)
+    agent_sandboxes: AgentSandboxesConfig = Field(default_factory=AgentSandboxesConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     mcp_apps: McpAppsConfig = Field(default_factory=McpAppsConfig)
     pii: PiiConfig = Field(default_factory=PiiConfig)

@@ -433,6 +433,19 @@ wheels = [
 ]
 
 [[package]]
+name = "asyncssh"
+version = "2.24.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0f/c5/41a0d5477865c48cee65050586092dc3ba3fc1c52e29b47fba08d3a44581/asyncssh-2.24.1.tar.gz", hash = "sha256:efcd36e9b35f79873535b06444a7c9b0a3c61d97081b208c7fdd3fd8a40f1eca", size = 558085, upload-time = "2026-10-04T02:48:24.913Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/e5/8bc721f04ff545c5a84c9c23fbf788fbb56960bb57a86c6366bc35be0f66/asyncssh-2.24.1-py3-none-any.whl", hash = "sha256:fc560b4f43be0f0c602d184783e5e3876f5d24d933a25359d86e5a50a5f46fe5", size = 382514, upload-time = "2026-10-04T02:48:23.676Z" },
+]
+
+[[package]]
 name = "atpublic"
 version = "7.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -565,6 +578,7 @@ dependencies = [
     { name = "apscheduler" },
     { name = "argon2-cffi" },
     { name = "asyncpg" },
+    { name = "asyncssh" },
     { name = "awswrangler" },
     { name = "azure-cosmos" },
     { name = "azure-identity" },
@@ -593,6 +607,7 @@ dependencies = [
     { name = "google-cloud-storage" },
     { name = "google-genai" },
     { name = "google-generativeai" },
+    { name = "grpcio" },
     { name = "httpx" },
     { name = "httpx-oauth" },
     { name = "ibm-db", marker = "platform_machine != 'aarch64'" },
@@ -713,6 +728,7 @@ requires-dist = [
     { name = "apscheduler", specifier = ">=3.11.2,<3.12" },
     { name = "argon2-cffi", specifier = ">=23.1.0,<23.2" },
     { name = "asyncpg", specifier = ">=0.30.0,<0.32" },
+    { name = "asyncssh", specifier = ">=2.21.0,<3" },
     { name = "awswrangler", specifier = ">=3.16.1,<3.17" },
     { name = "azure-cosmos", specifier = ">=4.9,<5" },
     { name = "azure-identity", specifier = ">=1.25.3,<1.26" },
@@ -742,6 +758,7 @@ requires-dist = [
     { name = "google-cloud-storage", specifier = ">=3.4,<4" },
     { name = "google-genai", specifier = ">=1.75.0,<1.76" },
     { name = "google-generativeai", specifier = ">=0.8.6,<0.9" },
+    { name = "grpcio", specifier = ">=1.71.0,<2" },
     { name = "gssapi", marker = "extra == 'kerberos'", specifier = ">=1.8.3,<2" },
     { name = "httpx", specifier = ">=0.28.1,<0.29" },
     { name = "httpx-oauth", specifier = ">=0.16.1,<0.17" },

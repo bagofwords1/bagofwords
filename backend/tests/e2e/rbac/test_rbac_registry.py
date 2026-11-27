@@ -175,6 +175,9 @@ def test_permission_categories_match_all_permissions():
         union.update(perms)
     for perms in registry.HIDDEN_PERMISSION_CATEGORIES.values():
         union.update(perms)
+    # Feature-gated permissions: valid always, offered only with their flag on.
+    for perms in registry.AGENT_SANDBOX_PERMISSION_CATEGORIES.values():
+        union.update(perms)
     assert union == registry.ALL_PERMISSIONS, (
         f"PERMISSION_CATEGORIES ∪ HIDDEN_PERMISSION_CATEGORIES != ALL_PERMISSIONS\n"
         f"  missing: {sorted(registry.ALL_PERMISSIONS - union)}\n"

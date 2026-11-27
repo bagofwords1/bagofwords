@@ -68,6 +68,21 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   // `manage_llm` org-wide, or as the manager of at least one LLM provider.
   { name: 'models', label: 'settings.llm', icon: 'i-heroicons-cpu-chip', permission: 'manage_llm', resourceType: 'llm_provider', description: 'settings.adminPages.models', width: 'wide' },
   { name: 'ai_settings', label: 'settings.aiSettings', icon: 'i-heroicons-adjustments-horizontal', permission: 'manage_settings', description: 'settings.aiSettingsPage.subtitle', width: 'narrow' },
+  // Agent sandboxes: offered only when the deployment turns the feature on
+  // (GET /api/settings → agent_sandboxes.enabled). `manage_sandboxes` is its
+  // own permission, separate from `manage_settings`.
+  {
+    name: 'sandbox',
+    label: 'settings.sandboxTab',
+    icon: 'i-heroicons-cube-transparent',
+    permission: 'manage_sandboxes',
+    enabledBySetting: 'agent_sandboxes',
+    children: [
+      { key: 'backends', label: 'settings.sandboxTabs.backends', icon: 'i-heroicons-server-stack', description: 'settings.adminPages.sandboxBackends', width: 'wide' },
+      { key: 'environments', label: 'settings.sandboxTabs.environments', icon: 'i-heroicons-cube', description: 'settings.adminPages.sandboxEnvironments', width: 'wide' },
+      { key: 'settings', label: 'settings.sandboxTabs.settings', icon: 'i-heroicons-cog-6-tooth', description: 'settings.adminPages.sandboxSettings', width: 'narrow' },
+    ],
+  },
   { name: 'pii', label: 'settings.piiTab', icon: 'i-heroicons-eye-slash', permission: 'manage_settings', feature: 'pii_protection', description: 'settings.pii.subtitle', width: 'narrow' },
   { name: 'general', label: 'settings.general', icon: 'i-heroicons-building-office', permission: 'manage_settings', description: 'settings.subtitle', width: 'narrow' },
   { name: 'integrations', label: 'settings.integrations.title', icon: 'i-heroicons-chat-bubble-left-right', permission: 'manage_settings', description: 'settings.integrations.subtitle', width: 'wide' },
@@ -132,6 +147,10 @@ export function useAdminNav() {
     // itself carries none).
     const sub = items.find(item => item.name === 'members')?.children?.find(child => child.permission)
     if (sub) return `/settings/members?tab=${sub.key}`
+    // A page made only of sub-tabs (Sandbox) for someone whose one admin
+    // permission is that page's.
+    const tabbed = items.find(item => item.name !== 'members')
+    if (tabbed) return `/settings/${tabbed.name}`
     return `/settings/${items[0].name}`
   })
 
