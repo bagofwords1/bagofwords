@@ -163,6 +163,8 @@ class CustomQueryCapability(BaseModel):
     id: str
     name: str
     type: Optional[str] = None
+    # 'user_required' means a table created here is cached once per person.
+    auth_policy: Optional[str] = None
 
 
 class CustomQueryProgress(BaseModel):

@@ -727,7 +727,7 @@ async def get_domain_connections(
             "allowed_user_auth_modes": conn.allowed_user_auth_modes,
             "user_status": await _user_status(conn),
             # Whether this connection can host BOW custom tables (accelerable
-            # connector type + shared credentials). Drives the "Add Custom"
+            # connector type; per-user connections cache per person). Drives the "Add Custom"
             # affordance in the tables selector.
             "custom_queries_supported": (
                 is_accelerable_type(conn.type)

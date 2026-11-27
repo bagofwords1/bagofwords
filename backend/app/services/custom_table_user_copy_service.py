@@ -55,6 +55,13 @@ RETRY_FAILED_AFTER = timedelta(minutes=5)
 INTERRUPTED_AFTER = timedelta(minutes=45)
 # `last_used_at` is for deciding what is idle, in days. Written at most this often.
 TOUCH_EVERY = timedelta(minutes=10)
+# How long the file a rebuild replaced is kept when it was still being served.
+# A chat that started before the rebuild holds that file's path for the rest
+# of its run; deleting it at once would take the relation away mid-answer.
+# (Found live: a sign-in asked for a rebuild, the next question was served the
+# old copy, and the rebuild deleted it five seconds into the run.) If the
+# process stops first, the daily orphan sweep removes the file.
+RETIRE_REPLACED_AFTER_SECONDS = 3600
 
 
 @dataclass
@@ -137,6 +144,7 @@ class CustomTableUserCopyService:
         self._started: dict = {}
         self._semaphores: dict = {}
         self._guard = threading.Lock()
+        self.retire_replaced_after = RETIRE_REPLACED_AFTER_SECONDS
 
     # -- settings -----------------------------------------------------------
 
@@ -300,6 +308,10 @@ class CustomTableUserCopyService:
             task, started = await self._ensure_build(
                 connection=connection, cq=cq, snap=snap, user_id=user_id, org_id=org_id,
                 fingerprint=fingerprint, limits=limits, fast=fast, client_factory=client_factory,
+                # Only a copy this call is handing out may outlive its
+                # replacement. One that was refused (another login's rows, an
+                # older query) is deleted the moment the new one lands.
+                keep_replaced=state.servable,
             )
             if task is not None and not state.servable:
                 waiting.append((snap.table_id, task, started))
@@ -371,7 +383,8 @@ class CustomTableUserCopyService:
             return sem
 
     async def _ensure_build(self, *, connection, cq, snap: _Snapshot, user_id: str, org_id: str,
-                            fingerprint: str, limits, fast, client_factory) -> tuple:
+                            fingerprint: str, limits, fast, client_factory,
+                            keep_replaced: bool = False) -> tuple:
         """The build task for (table, user) on this loop, started if needed.
 
         Returns `(task, started_monotonic)`; `(None, 0)` when the client for
@@ -405,6 +418,7 @@ class CustomTableUserCopyService:
             task = loop.create_task(self._build(
                 connection_id=connection_id, org_id=org_id, snap=snap, user_id=user_id,
                 fingerprint=fingerprint, limits=limits, fast=fast, client=client,
+                keep_replaced=keep_replaced,
             ))
             self._tasks[key] = task
             self._started[key] = started
@@ -421,7 +435,7 @@ class CustomTableUserCopyService:
         return task, started
 
     async def _build(self, *, connection_id: str, org_id: str, snap: _Snapshot, user_id: str,
-                     fingerprint: str, limits, fast, client) -> None:
+                     fingerprint: str, limits, fast, client, keep_replaced: bool = False) -> None:
         async with self._semaphore(connection_id, limits.concurrency):
             with artifacts.try_user_copy_lock(connection_id, snap.table_id, user_id) as acquired:
                 if not acquired:
@@ -431,7 +445,8 @@ class CustomTableUserCopyService:
                     return
                 await self._build_locked(
                     connection_id=connection_id, org_id=org_id, snap=snap, user_id=user_id,
-                    fingerprint=fingerprint, limits=limits, fast=fast, client=client)
+                    fingerprint=fingerprint, limits=limits, fast=fast, client=client,
+                    keep_replaced=keep_replaced)
 
     async def _await_other_builder(self, table_id: str, user_id: str, seconds: int) -> None:
         deadline = time.monotonic() + max(0, int(seconds))
@@ -482,8 +497,21 @@ class CustomTableUserCopyService:
 
         return await _write(work)
 
+    def _retire(self, path: str, keep: bool) -> None:
+        """Delete the file a rebuild replaced: now, or after the grace period
+        when a running chat may still be reading it."""
+        delay = self.retire_replaced_after if keep else 0
+        if delay <= 0:
+            artifacts.delete_artifact(path)
+            return
+        try:
+            asyncio.get_running_loop().call_later(delay, artifacts.delete_artifact, path)
+        except RuntimeError:
+            artifacts.delete_artifact(path)
+
     async def _build_locked(self, *, connection_id: str, org_id: str, snap: _Snapshot,
-                            user_id: str, fingerprint: str, limits, fast, client) -> None:
+                            user_id: str, fingerprint: str, limits, fast, client,
+                            keep_replaced: bool = False) -> None:
         started_at = datetime.utcnow()
         t0 = time.monotonic()
         try:
@@ -540,7 +568,7 @@ class CustomTableUserCopyService:
                 artifacts.delete_artifact(res.artifact_path)
             return
         if previous_path and previous_path != res.artifact_path:
-            artifacts.delete_artifact(previous_path)
+            self._retire(previous_path, keep_replaced)
         logger.info("user_copy.build.ok", extra={
             "table": snap.name, "user": user_id, "rows": res.row_count,
             "bytes": res.artifact_bytes, "ms": elapsed_ms,

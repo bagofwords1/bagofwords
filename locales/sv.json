@@ -3740,6 +3740,26 @@
           "name": "Gräns för antal anrop för anpassad tabell",
           "description": "Flest anrop en uppdatering får göra till en källa som läses sida för sida (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Höj den tillsammans med radgränsen: Power BI returnerar högst 100 000 rader per anrop och tillåter cirka 120 anrop per minut. 16 till 10 000."
         },
+        "custom_table_user_copy_max_age_hours": {
+          "name": "Högsta ålder för kopia per person (timmar)",
+          "description": "På en anslutning där varje person loggar in med sina egna inloggningsuppgifter cachas en anpassad tabell separat för varje person. En kopia som är äldre än så skapas om med den personens inloggningsuppgifter innan den används igen, så att en ändring av personens åtkomst i källan börjar gälla inom den här tiden. 1 till 720."
+        },
+        "custom_table_user_copy_idle_days": {
+          "name": "Inaktiva dagar för kopia per person",
+          "description": "En persons kopia som inte har använts på så här många dagar tas bort. Den skapas om nästa gång personen frågar. 1 till 365."
+        },
+        "custom_table_user_copy_wait_seconds": {
+          "name": "Väntetid för kopia per person (sekunder)",
+          "description": "Hur länge en fråga väntar på att en persons kopia skapas första gången. Om det tar längre tid fortsätter det i bakgrunden och frågan besvaras från källan direkt. 0 till 600."
+        },
+        "custom_table_user_copies_max_gb": {
+          "name": "Lagringsgräns för kopior per person (GB)",
+          "description": "Mest diskutrymme som alla kopior per person i den här organisationen får ta tillsammans. När gränsen överskrids tas de kopior som användes för längst sedan bort först. 1 till 2 048."
+        },
+        "custom_table_user_copy_concurrency": {
+          "name": "Samtidiga skapanden av kopior per person",
+          "description": "Hur många kopior per person som får skapas samtidigt mot en anslutning. Sänk värdet för att skydda en källa som inte klarar belastningen. 1 till 32."
+        },
         "enable_agent_notes": {
           "name": "Agentanteckningar",
           "description": "Låter agenten föra arbetsanteckningar per rapport (ett kladdblock) som den skriver och läser medan den svarar — planer, iakttagelser och att göra-punkter. Anteckningarna visas i rapporten men är inte delad kunskap. När det är avstängt döljs anteckningsverktygen och anteckningarna läggs inte in i kontexten."
@@ -7284,6 +7304,7 @@
     "cache": "Cache",
     "cached": "Cachad",
     "notCached": "Inte cachad",
+    "cachedPerPerson": "Cachad per person",
     "searchTables": "Sök tabeller…",
     "suggested": "Föreslagen",
     "suggestedHint": "Föreslagen utifrån nyckelnamn · ej verifierad",
@@ -8408,6 +8429,57 @@
       "key": "identifierare",
       "set_by_admin": "angiven av en administratör"
     }
+  },
+  "customTableCopies": {
+    "subtitle": "Lagras lokalt för varje person, så att agenter svarar utifrån den personens cachade kopia i stället för att fråga {connection} varje gång.",
+    "noticeTitle": "Cachas separat för varje person",
+    "notice": "Varje person loggar in på {connection} med sina egna inloggningsuppgifter, så den här tabellen cachas separat för varje person. En persons kopia skapas med personens egna inloggningsuppgifter första gången hen ställer en fråga. Förhandsvisningen körs med dina inloggningsuppgifter.",
+    "settingsIntro": "Hur gammal en persons kopia får bli. En äldre kopia skapas om med den personens inloggningsuppgifter nästa gång hen ställer en fråga.",
+    "ruleInterval": "Skapa om en persons kopia när den är äldre än {age}",
+    "ruleTime": "Skapa om en persons kopia när den är äldre än senaste klockslaget {time}",
+    "age15m": "15 minuter",
+    "age30m": "30 minuter",
+    "age1h": "1 timme",
+    "age6h": "6 timmar",
+    "age12h": "12 timmar",
+    "age24h": "24 timmar",
+    "statusChecked": "Frågan kontrollerades senast: {when}",
+    "statusNever": "aldrig",
+    "statusPeople": "Personer med en kopia: {count}",
+    "statusSize": "Total storlek på disk: {size}",
+    "statusError": "Senaste fel: {error}",
+    "deleteTableHint": "Borttagning tar bort varje persons kopia och tar tabellen från {count} agent(er) som använder den just nu. Källdata påverkas inte.",
+    "tab": "Kopior",
+    "intro": "En kopia för varje person som har ställt en fråga som använder den här tabellen, skapad med personens egna inloggningsuppgifter.",
+    "reload": "Ladda om",
+    "loadError": "Det gick inte att läsa in kopiorna",
+    "empty": "Ingen har en kopia ännu. En persons kopia skapas första gången hen ställer en fråga som använder den här tabellen.",
+    "person": "Person",
+    "status": "Status",
+    "rows": "Rader",
+    "size": "Storlek",
+    "built": "Skapad",
+    "lastUsed": "Senast använd",
+    "stateBuilding": "Skapas",
+    "stateOk": "Klar",
+    "stateError": "Misslyckades",
+    "stateEvicted": "Borttagen",
+    "deleteCopy": "Ta bort kopia",
+    "deleteAll": "Ta bort alla kopior",
+    "confirmOne": "Ta bort kopian för {name}? Den skapas om med personens inloggningsuppgifter nästa gång hen frågar.",
+    "confirmAll": "Ta bort allas kopior av den här tabellen? Varje kopia skapas om med den personens inloggningsuppgifter nästa gång hen frågar.",
+    "deleted": "Kopian togs bort",
+    "deletedAll": "Alla kopior togs bort",
+    "deletedDetail": "{size} frigjordes",
+    "deleteFailed": "Det gick inte att ta bort kopian",
+    "rebuildAll": "Skapa om allas kopior",
+    "rebuildAllHint": "Varje persons kopia skapas om med personens egna inloggningsuppgifter nästa gång hen frågar.",
+    "rebuildQueued": "Allas kopior kommer att skapas om",
+    "rebuildFailed": "Det gick inte att skapa om kopiorna",
+    "create": "Skapa",
+    "created": "Anpassad tabell skapad",
+    "updated": "Anpassad tabell uppdaterad",
+    "savedDetail": "{name}: varje persons kopia skapas första gången hen frågar."
   },
   "apps": {
     "title": "Dina appar",

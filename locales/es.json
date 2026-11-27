@@ -4175,6 +4175,26 @@
           "name": "Límite de solicitudes de tabla personalizada",
           "description": "Máximo de solicitudes que una actualización puede hacer a un origen que se lee página a página (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Auméntelo junto con el límite de filas: Power BI devuelve como máximo 100.000 filas por solicitud y permite unas 120 solicitudes por minuto. De 16 a 10.000."
         },
+        "custom_table_user_copy_max_age_hours": {
+          "name": "Antigüedad máxima de la copia por persona (horas)",
+          "description": "En una conexión donde cada persona inicia sesión con sus propias credenciales, una tabla personalizada se guarda en caché por separado para cada persona. Una copia más antigua que esto se vuelve a crear con las credenciales de esa persona antes de usarse de nuevo, de modo que un cambio en su acceso en el origen surte efecto dentro de este plazo. De 1 a 720."
+        },
+        "custom_table_user_copy_idle_days": {
+          "name": "Días de inactividad de la copia por persona",
+          "description": "La copia de una persona que no se ha usado durante esta cantidad de días se elimina. Se vuelve a crear la próxima vez que pregunte. De 1 a 365."
+        },
+        "custom_table_user_copy_wait_seconds": {
+          "name": "Espera de la copia por persona (segundos)",
+          "description": "Cuánto espera una pregunta a que se cree por primera vez la copia de una persona. Si la creación tarda más, continúa en segundo plano y esa pregunta se responde desde el origen en vivo. De 0 a 600."
+        },
+        "custom_table_user_copies_max_gb": {
+          "name": "Límite de almacenamiento de las copias por persona (GB)",
+          "description": "Máximo espacio en disco que pueden ocupar en conjunto todas las copias por persona de esta organización. Cuando se supera, se eliminan primero las copias usadas hace más tiempo. De 1 a 2048."
+        },
+        "custom_table_user_copy_concurrency": {
+          "name": "Creaciones simultáneas de copias por persona",
+          "description": "Cuántas copias por persona pueden crearse al mismo tiempo contra una conexión. Redúcelo para proteger un origen que no soporta la carga. De 1 a 32."
+        },
         "enable_agent_notes": {
           "name": "Notas del agente",
           "description": "Permite al agente mantener notas de trabajo por informe (un cuaderno) que escribe y lee mientras responde: planes, hallazgos y tareas pendientes. Las notas se muestran en el informe pero no son conocimiento compartido. Cuando está desactivado, las herramientas de notas se ocultan y las notas no se inyectan en el contexto."
@@ -7970,6 +7990,7 @@
     "cache": "Caché",
     "cached": "En caché",
     "notCached": "Sin caché",
+    "cachedPerPerson": "En caché por persona",
     "searchTables": "Buscar tablas…",
     "suggested": "Sugerida",
     "suggestedHint": "Sugerida por nombres de claves · sin verificar",
@@ -9362,6 +9383,57 @@
       "key": "identificador",
       "set_by_admin": "definida por un administrador"
     }
+  },
+  "customTableCopies": {
+    "subtitle": "Se guarda localmente para cada persona, de modo que los agentes responden con la copia en caché de esa persona en lugar de consultar {connection} cada vez.",
+    "noticeTitle": "En caché por separado para cada persona",
+    "notice": "Cada persona inicia sesión en {connection} con sus propias credenciales, por lo que esta tabla se guarda en caché por separado para cada persona. La copia de una persona se crea con sus propias credenciales la primera vez que hace una pregunta. La vista previa se ejecuta con tus credenciales.",
+    "settingsIntro": "Cuánto puede envejecer la copia de una persona. Una copia más antigua se vuelve a crear con las credenciales de esa persona la próxima vez que haga una pregunta.",
+    "ruleInterval": "Volver a crear la copia de una persona cuando tenga más de {age}",
+    "ruleTime": "Volver a crear la copia de una persona cuando sea anterior a las últimas {time}",
+    "age15m": "15 minutos",
+    "age30m": "30 minutos",
+    "age1h": "1 hora",
+    "age6h": "6 horas",
+    "age12h": "12 horas",
+    "age24h": "24 horas",
+    "statusChecked": "Última comprobación de la consulta: {when}",
+    "statusNever": "nunca",
+    "statusPeople": "Personas con una copia: {count}",
+    "statusSize": "Tamaño total en disco: {size}",
+    "statusError": "Último error: {error}",
+    "deleteTableHint": "Al eliminarla se borra la copia de cada persona y esta tabla se retira de {count} agente(s) que la usan actualmente. Los datos de origen no se tocan.",
+    "tab": "Copias",
+    "intro": "Una copia por cada persona que ha hecho una pregunta que usa esta tabla, creada con sus propias credenciales.",
+    "reload": "Recargar",
+    "loadError": "No se pudieron cargar las copias",
+    "empty": "Nadie tiene una copia todavía. La copia de una persona se crea la primera vez que hace una pregunta que usa esta tabla.",
+    "person": "Persona",
+    "status": "Estado",
+    "rows": "Filas",
+    "size": "Tamaño",
+    "built": "Creada",
+    "lastUsed": "Último uso",
+    "stateBuilding": "Creándose",
+    "stateOk": "Lista",
+    "stateError": "Con error",
+    "stateEvicted": "Eliminada",
+    "deleteCopy": "Eliminar copia",
+    "deleteAll": "Eliminar todas las copias",
+    "confirmOne": "¿Eliminar la copia de {name}? Se vuelve a crear con sus credenciales la próxima vez que pregunte.",
+    "confirmAll": "¿Eliminar las copias de todas las personas de esta tabla? Cada copia se vuelve a crear con las credenciales de esa persona la próxima vez que pregunte.",
+    "deleted": "Copia eliminada",
+    "deletedAll": "Todas las copias eliminadas",
+    "deletedDetail": "{size} liberados",
+    "deleteFailed": "No se pudo eliminar la copia",
+    "rebuildAll": "Volver a crear las copias de todos",
+    "rebuildAllHint": "La copia de cada persona se vuelve a crear con sus propias credenciales la próxima vez que pregunte.",
+    "rebuildQueued": "Las copias de todos se volverán a crear",
+    "rebuildFailed": "No se pudieron volver a crear las copias",
+    "create": "Crear",
+    "created": "Tabla personalizada creada",
+    "updated": "Tabla personalizada actualizada",
+    "savedDetail": "{name}: la copia de cada persona se crea la primera vez que pregunta."
   },
   "connectionlessAgent": {
     "optional": "(opcional)",

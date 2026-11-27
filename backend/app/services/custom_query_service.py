@@ -1057,7 +1057,8 @@ class CustomQueryService:
             except HTTPException:
                 supported = False
         return {"supported": supported, "id": str(connection.id), "name": connection.name,
-                "type": connection.type}
+                "type": connection.type,
+                "auth_policy": getattr(connection, "auth_policy", None) or "system_only"}
 
     async def progress_of(self, db: AsyncSession, connection_id: str, name: str) -> dict:
         """One custom table's load state, by name: whether it exists, how its

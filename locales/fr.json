@@ -3740,6 +3740,26 @@
           "name": "Limite de requêtes d'une table personnalisée",
           "description": "Nombre maximal de requêtes qu'une actualisation peut envoyer à une source lue page par page (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Augmentez-la avec la limite de lignes : Power BI renvoie au plus 100 000 lignes par requête et autorise environ 120 requêtes par minute. De 16 à 10 000."
         },
+        "custom_table_user_copy_max_age_hours": {
+          "name": "Âge maximal d'une copie par personne (heures)",
+          "description": "Sur une connexion où chaque personne se connecte avec ses propres identifiants, une table personnalisée est mise en cache séparément pour chaque personne. Une copie plus ancienne que cette durée est recréée avec les identifiants de cette personne avant d'être réutilisée, de sorte qu'un changement de ses accès à la source prend effet dans ce délai. De 1 à 720."
+        },
+        "custom_table_user_copy_idle_days": {
+          "name": "Jours d'inactivité d'une copie par personne",
+          "description": "La copie d'une personne qui n'a pas été utilisée pendant ce nombre de jours est supprimée. Elle est recréée à sa prochaine question. De 1 à 365."
+        },
+        "custom_table_user_copy_wait_seconds": {
+          "name": "Attente d'une copie par personne (secondes)",
+          "description": "Durée pendant laquelle une question attend la première création de la copie d'une personne. Si la création prend plus de temps, elle se poursuit en arrière-plan et la question reçoit sa réponse depuis la source en direct. De 0 à 600."
+        },
+        "custom_table_user_copies_max_gb": {
+          "name": "Limite de stockage des copies par personne (Go)",
+          "description": "Espace disque maximal que toutes les copies par personne de cette organisation peuvent occuper ensemble. En cas de dépassement, les copies utilisées le moins récemment sont supprimées en premier. De 1 à 2 048."
+        },
+        "custom_table_user_copy_concurrency": {
+          "name": "Créations simultanées de copies par personne",
+          "description": "Nombre de copies par personne pouvant être créées en même temps sur une connexion. Réduisez-le pour protéger une source qui ne supporte pas la charge. De 1 à 32."
+        },
         "enable_agent_notes": {
           "name": "Notes de l'agent",
           "description": "Permet à l'agent de tenir des notes de travail par rapport (un bloc-notes) qu'il écrit et relit pendant qu'il répond : plans, constats et tâches. Les notes sont affichées dans le rapport mais ne constituent pas une connaissance partagée. Lorsque l'option est désactivée, les outils de notes sont masqués et les notes ne sont pas injectées dans le contexte."
@@ -7284,6 +7304,7 @@
     "cache": "Cache",
     "cached": "En cache",
     "notCached": "Non mis en cache",
+    "cachedPerPerson": "En cache par personne",
     "searchTables": "Rechercher des tables…",
     "suggested": "Suggérée",
     "suggestedHint": "Suggérée par les noms de clés · non vérifiée",
@@ -8408,6 +8429,57 @@
       "key": "identifiant",
       "set_by_admin": "définie par un administrateur"
     }
+  },
+  "customTableCopies": {
+    "subtitle": "Stockée localement pour chaque personne, afin que les agents répondent à partir de la copie en cache de cette personne au lieu d'interroger {connection} à chaque fois.",
+    "noticeTitle": "Mise en cache séparément pour chaque personne",
+    "notice": "Chaque personne se connecte à {connection} avec ses propres identifiants, donc cette table est mise en cache séparément pour chaque personne. La copie d'une personne est créée avec ses propres identifiants la première fois qu'elle pose une question. L'aperçu s'exécute avec vos identifiants.",
+    "settingsIntro": "L'âge maximal de la copie d'une personne. Une copie plus ancienne est recréée avec les identifiants de cette personne la prochaine fois qu'elle pose une question.",
+    "ruleInterval": "Recréer la copie d'une personne lorsqu'elle date de plus de {age}",
+    "ruleTime": "Recréer la copie d'une personne lorsqu'elle est antérieure au dernier passage à {time}",
+    "age15m": "15 minutes",
+    "age30m": "30 minutes",
+    "age1h": "1 heure",
+    "age6h": "6 heures",
+    "age12h": "12 heures",
+    "age24h": "24 heures",
+    "statusChecked": "Dernière vérification de la requête : {when}",
+    "statusNever": "jamais",
+    "statusPeople": "Personnes ayant une copie : {count}",
+    "statusSize": "Taille totale sur le disque : {size}",
+    "statusError": "Dernière erreur : {error}",
+    "deleteTableHint": "La suppression retire la copie de chaque personne et enlève cette table à {count} agent(s) qui l'utilisent actuellement. Les données sources ne sont pas modifiées.",
+    "tab": "Copies",
+    "intro": "Une copie pour chaque personne ayant posé une question qui utilise cette table, créée avec ses propres identifiants.",
+    "reload": "Actualiser",
+    "loadError": "Impossible de charger les copies",
+    "empty": "Personne n'a encore de copie. La copie d'une personne est créée la première fois qu'elle pose une question qui utilise cette table.",
+    "person": "Personne",
+    "status": "Statut",
+    "rows": "Lignes",
+    "size": "Taille",
+    "built": "Créée",
+    "lastUsed": "Dernière utilisation",
+    "stateBuilding": "En cours de création",
+    "stateOk": "Prête",
+    "stateError": "Échec",
+    "stateEvicted": "Retirée",
+    "deleteCopy": "Supprimer la copie",
+    "deleteAll": "Supprimer toutes les copies",
+    "confirmOne": "Supprimer la copie de {name} ? Elle sera recréée avec ses identifiants à sa prochaine question.",
+    "confirmAll": "Supprimer les copies de tout le monde pour cette table ? Chaque copie sera recréée avec les identifiants de la personne concernée à sa prochaine question.",
+    "deleted": "Copie supprimée",
+    "deletedAll": "Toutes les copies supprimées",
+    "deletedDetail": "{size} libérés",
+    "deleteFailed": "Impossible de supprimer la copie",
+    "rebuildAll": "Recréer les copies de tout le monde",
+    "rebuildAllHint": "La copie de chaque personne est recréée avec ses propres identifiants à sa prochaine question.",
+    "rebuildQueued": "Les copies de tout le monde seront recréées",
+    "rebuildFailed": "Impossible de recréer les copies",
+    "create": "Créer",
+    "created": "Table personnalisée créée",
+    "updated": "Table personnalisée mise à jour",
+    "savedDetail": "{name} : la copie de chaque personne est créée à sa première question."
   },
   "apps": {
     "title": "Vos applications",

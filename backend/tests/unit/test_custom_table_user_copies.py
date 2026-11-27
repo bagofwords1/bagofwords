@@ -273,6 +273,39 @@ async def test_the_cached_session_holds_a_persons_copy_and_never_a_shared_one(sa
         assert CustomQueryService.build_fast_client([table], "Source", user_copies_by_table={}) is None
 
 
+async def test_a_persons_cached_session_cannot_reach_another_persons_copy(sandbox):
+    """The model writes arbitrary SQL against the cached session. Whatever it
+    writes, bob's file is not something alice's session can open: it is not
+    attached, attaching is switched off, and its key is not alice's."""
+    import duckdb
+
+    alice = await sandbox.ask(sandbox.alice)
+    bob = await sandbox.ask(sandbox.bob)
+    bob_file = bob[sandbox.table_id].artifact_path
+    async with async_session_maker() as db:
+        table = await db.get(ConnectionTable, sandbox.table_id)
+        client = CustomQueryService.build_fast_client([table], "Source", user_copies_by_table=alice)
+
+    assert sorted(client.execute_query("SELECT value FROM orders_copy")["value"]) == [1, 2, 3]
+    hostile = [
+        f"ATTACH '{bob_file}' AS other (READ_ONLY)",
+        f"ATTACH '{bob_file}' AS other (ENCRYPTION_KEY '{alice[sandbox.table_id].artifact_key}', READ_ONLY)",
+        f"SELECT * FROM '{bob_file}'",
+        f"SELECT * FROM read_parquet('{bob_file}')",
+        f"SELECT * FROM read_csv_auto('{bob_file}')",
+        "SET enable_external_access = true",
+        f"COPY (SELECT 1) TO '{sandbox.tmp}/out.csv'",
+    ]
+    for sql in hostile:
+        with pytest.raises((duckdb.Error, ValueError, PermissionError, RuntimeError)):
+            client.execute_query(sql)
+    # Nothing the session can list holds bob's rows.
+    every_value = client.execute_query(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema')")
+    assert set(every_value["table_name"]) <= {"orders_copy"}
+    assert sorted(client.execute_query("SELECT value FROM orders_copy")["value"]) == [1, 2, 3]
+
+
 # -- what a copy is tied to ----------------------------------------------------
 
 async def test_editing_the_query_stops_the_old_copy_and_builds_the_new_one(sandbox):
@@ -327,7 +360,26 @@ async def test_a_copy_past_the_tables_schedule_is_served_while_it_is_rebuilt(san
         release.set()
     await sandbox.settle()
     assert await sandbox.rows(sandbox.alice) == [1, 2, 3, 4]
-    assert len(sandbox.files()) == 1
+
+
+async def test_a_chat_already_reading_a_copy_keeps_it_while_the_rebuild_replaces_it(sandbox):
+    """A question is handed a copy's file; a rebuild started by that very
+    question finishes while the answer is still being worked out. The file
+    must still open — and must not be kept forever either."""
+    await sandbox.rows(sandbox.alice)
+    await sandbox.set_copy(sandbox.alice, refreshed_at=datetime.utcnow() - timedelta(hours=2))
+    held = await sandbox.ask(sandbox.alice)          # served the stale copy; rebuild started
+    await sandbox.settle()                           # ... and has now replaced it
+    replacement = await sandbox.ask(sandbox.alice)
+    assert held[sandbox.table_id].artifact_path != replacement[sandbox.table_id].artifact_path
+    assert sandbox.read(held) == [1, 2, 3], "the file a running chat holds was deleted under it"
+
+    # With no grace period the replaced file goes as soon as the rebuild lands.
+    sandbox.service.retire_replaced_after = 0
+    await sandbox.set_copy(sandbox.alice, refreshed_at=datetime.utcnow() - timedelta(hours=2))
+    stale = await sandbox.ask(sandbox.alice)
+    await sandbox.settle()
+    assert not Path(stale[sandbox.table_id].artifact_path).exists()
 
 
 async def test_a_sign_in_keeps_serving_the_copy_and_rebuilds_it_behind(sandbox):
@@ -542,6 +594,33 @@ async def test_the_orphan_sweep_never_deletes_a_file_a_copy_points_at(sandbox):
     await purge_orphaned_fast_artifacts()
     assert served.exists() and not debris.exists()
     assert await sandbox.rows(sandbox.alice) == [1, 2, 3]
+
+
+# -- no clock ------------------------------------------------------------------
+
+async def test_no_refresh_is_scheduled_for_a_table_cached_per_person(sandbox):
+    """Nobody is signed in at 3am: a tick has no credentials to use. A shared
+    table gets a job; a per-person one must not, and a tick left over from a
+    change of auth policy removes itself."""
+    from app.core.scheduler import scheduler
+    from app.services.custom_query_service import job_id_for
+
+    service = CustomQueryService()
+    async with async_session_maker() as db:
+        table = await db.get(ConnectionTable, sandbox.table_id)
+        job = job_id_for(table.id)
+        try:
+            service._schedule(sandbox.connection_id, table, per_user=False)
+            assert scheduler.get_job(job) is not None
+            service._schedule(sandbox.connection_id, table, per_user=True)
+            assert scheduler.get_job(job) is None
+            # A job from before the connection became per-user fires once more.
+            service._schedule(sandbox.connection_id, table, per_user=False)
+            await service.scheduled_refresh(sandbox.connection_id, str(table.id))
+            assert scheduler.get_job(job) is None
+        finally:
+            service._unschedule(table.id)
+    assert sandbox.files() == set(), "a tick must not build anything"
 
 
 # -- what the admin sees --------------------------------------------------------

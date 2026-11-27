@@ -3740,6 +3740,26 @@
           "name": "Limite de solicitações da tabela personalizada",
           "description": "Máximo de solicitações que uma atualização pode fazer a uma origem lida página a página (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Aumente-o junto com o limite de linhas: o Power BI devolve no máximo 100.000 linhas por solicitação e permite cerca de 120 solicitações por minuto. De 16 a 10.000."
         },
+        "custom_table_user_copy_max_age_hours": {
+          "name": "Idade máxima da cópia por pessoa (horas)",
+          "description": "Em uma conexão em que cada pessoa entra com as próprias credenciais, uma tabela personalizada é armazenada em cache separadamente para cada pessoa. Uma cópia mais antiga do que isso é recriada com as credenciais dessa pessoa antes de ser usada novamente, de modo que uma mudança no acesso dela na origem passa a valer dentro desse tempo. De 1 a 720."
+        },
+        "custom_table_user_copy_idle_days": {
+          "name": "Dias de inatividade da cópia por pessoa",
+          "description": "A cópia de uma pessoa que não é usada por esse número de dias é excluída. Ela é recriada na próxima pergunta dessa pessoa. De 1 a 365."
+        },
+        "custom_table_user_copy_wait_seconds": {
+          "name": "Espera pela cópia por pessoa (segundos)",
+          "description": "Quanto tempo uma pergunta espera a cópia de uma pessoa ser criada pela primeira vez. Se a criação demorar mais, ela continua em segundo plano e a pergunta é respondida pela origem ao vivo. De 0 a 600."
+        },
+        "custom_table_user_copies_max_gb": {
+          "name": "Limite de armazenamento das cópias por pessoa (GB)",
+          "description": "Maior espaço em disco que todas as cópias por pessoa desta organização podem ocupar juntas. Quando ele é ultrapassado, as cópias usadas há mais tempo são excluídas primeiro. De 1 a 2.048."
+        },
+        "custom_table_user_copy_concurrency": {
+          "name": "Criações simultâneas de cópias por pessoa",
+          "description": "Quantas cópias por pessoa podem ser criadas ao mesmo tempo em uma conexão. Reduza para proteger uma origem que não aguenta a carga. De 1 a 32."
+        },
         "enable_agent_notes": {
           "name": "Notas do agente",
           "description": "Permite que o agente mantenha notas de trabalho por relatório (um rascunho) que ele escreve e lê enquanto responde: planos, achados e tarefas. As notas aparecem no relatório, mas não são conhecimento compartilhado. Quando desativado, as ferramentas de notas ficam ocultas e as notas não são inseridas no contexto."
@@ -7284,6 +7304,7 @@
     "cache": "Cache",
     "cached": "Em cache",
     "notCached": "Sem cache",
+    "cachedPerPerson": "Em cache por pessoa",
     "searchTables": "Pesquisar tabelas…",
     "suggested": "Sugerida",
     "suggestedHint": "Sugerida por nomes de chaves · não verificada",
@@ -8408,6 +8429,57 @@
       "key": "identificador",
       "set_by_admin": "definida por um administrador"
     }
+  },
+  "customTableCopies": {
+    "subtitle": "Armazenada localmente para cada pessoa, de modo que os agentes respondem a partir da cópia em cache dessa pessoa em vez de consultar {connection} toda vez.",
+    "noticeTitle": "Em cache separadamente para cada pessoa",
+    "notice": "Cada pessoa entra em {connection} com as próprias credenciais, então esta tabela é armazenada em cache separadamente para cada pessoa. A cópia de uma pessoa é criada com as credenciais dela na primeira vez que ela faz uma pergunta. A prévia é executada com as suas credenciais.",
+    "settingsIntro": "Quão antiga a cópia de uma pessoa pode ficar. Uma cópia mais antiga é recriada com as credenciais dessa pessoa na próxima vez que ela fizer uma pergunta.",
+    "ruleInterval": "Recriar a cópia de uma pessoa quando ela tiver mais de {age}",
+    "ruleTime": "Recriar a cópia de uma pessoa quando ela for anterior às últimas {time}",
+    "age15m": "15 minutos",
+    "age30m": "30 minutos",
+    "age1h": "1 hora",
+    "age6h": "6 horas",
+    "age12h": "12 horas",
+    "age24h": "24 horas",
+    "statusChecked": "Última verificação da consulta: {when}",
+    "statusNever": "nunca",
+    "statusPeople": "Pessoas com uma cópia: {count}",
+    "statusSize": "Tamanho total em disco: {size}",
+    "statusError": "Último erro: {error}",
+    "deleteTableHint": "A exclusão remove a cópia de cada pessoa e retira esta tabela de {count} agente(s) que a usam no momento. Os dados de origem não são alterados.",
+    "tab": "Cópias",
+    "intro": "Uma cópia para cada pessoa que fez uma pergunta que usa esta tabela, criada com as credenciais dela.",
+    "reload": "Recarregar",
+    "loadError": "Não foi possível carregar as cópias",
+    "empty": "Ninguém tem uma cópia ainda. A cópia de uma pessoa é criada na primeira vez que ela faz uma pergunta que usa esta tabela.",
+    "person": "Pessoa",
+    "status": "Status",
+    "rows": "Linhas",
+    "size": "Tamanho",
+    "built": "Criada",
+    "lastUsed": "Último uso",
+    "stateBuilding": "Sendo criada",
+    "stateOk": "Pronta",
+    "stateError": "Falhou",
+    "stateEvicted": "Removida",
+    "deleteCopy": "Excluir cópia",
+    "deleteAll": "Excluir todas as cópias",
+    "confirmOne": "Excluir a cópia de {name}? Ela será recriada com as credenciais dessa pessoa na próxima pergunta.",
+    "confirmAll": "Excluir as cópias de todos para esta tabela? Cada cópia será recriada com as credenciais da pessoa na próxima pergunta dela.",
+    "deleted": "Cópia excluída",
+    "deletedAll": "Todas as cópias excluídas",
+    "deletedDetail": "{size} liberados",
+    "deleteFailed": "Não foi possível excluir a cópia",
+    "rebuildAll": "Recriar as cópias de todos",
+    "rebuildAllHint": "A cópia de cada pessoa é recriada com as credenciais dela na próxima pergunta.",
+    "rebuildQueued": "As cópias de todos serão recriadas",
+    "rebuildFailed": "Não foi possível recriar as cópias",
+    "create": "Criar",
+    "created": "Tabela personalizada criada",
+    "updated": "Tabela personalizada atualizada",
+    "savedDetail": "{name}: a cópia de cada pessoa é criada na primeira pergunta dela."
   },
   "apps": {
     "title": "Seus aplicativos",
