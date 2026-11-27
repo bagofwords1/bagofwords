@@ -430,7 +430,10 @@ def test_pointing_a_server_backend_at_another_address_forgets_what_was_learned_a
     assert moved["info"]["host_key_pinned"] is False, "the old server's host key is not the new server's"
     assert world.rows(SandboxBackend, SandboxBackend.id == backend["id"])[0].driver_state == {}
     assert test_client.put(f"{BASE}/{backend['id']}", json={"enabled": True}, headers=admin).status_code == 409
-    assert "server" in _audit(world, "sandbox_backend.updated", backend["id"])[-1].details["changed"]
+    # Rows come back unordered (Postgres keeps no insertion order): of the
+    # three updates, only the move to another address records "server".
+    changes = [a.details["changed"] for a in _audit(world, "sandbox_backend.updated", backend["id"])]
+    assert sum("server" in c for c in changes) == 1, changes
 
 
 def test_only_the_address_and_port_make_it_another_server():
