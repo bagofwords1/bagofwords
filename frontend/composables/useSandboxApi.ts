@@ -86,6 +86,66 @@ export interface SandboxEnvironment {
 // A role, group or user an environment can be granted to.
 export interface SandboxPrincipalOption { id: string; label: string; hint?: string }
 
+// Live usage of one sandbox, where its server can report it.
+export interface SandboxUsage {
+  cpu_percent?: number | null
+  memory_bytes?: number | null
+  memory_limit_bytes?: number | null
+  disk_bytes?: number | null
+  disk_limit_bytes?: number | null
+}
+
+export type SandboxState = 'provisioning' | 'ready' | 'busy' | 'idle' | 'stopped' | 'failed'
+
+// One row of the admin's Sandboxes list (GET /sandbox/sandboxes).
+export interface SandboxFleetRow {
+  id: string
+  report_id: string
+  report_title?: string | null
+  user_name?: string | null
+  backend_name?: string | null
+  environment_name?: string | null
+  image_digest?: string | null
+  state: SandboxState | string
+  limits: Record<string, any>
+  created_at?: string | null
+  last_used_at?: string | null
+  stopped_at?: string | null
+  expires_at?: string | null
+  error?: string | null
+  // The run in progress, if any.
+  running_run_id?: string | null
+  running_since?: string | null
+  usage?: SandboxUsage | null
+}
+
+export interface SandboxRun {
+  id: string
+  status: string
+  exit_code?: number | null
+  language?: string | null
+  // All four are null for a viewer without `view_code`.
+  code?: string | null
+  command?: string[] | null
+  stdout?: string | null
+  stderr?: string | null
+  artifact_file_ids: string[]
+  started_at?: string | null
+  finished_at?: string | null
+}
+
+export interface SandboxEvent {
+  id: string
+  type: string
+  details: Record<string, any>
+  created_at?: string | null
+}
+
+export interface SandboxDetail extends SandboxFleetRow {
+  runs: SandboxRun[]
+  events: SandboxEvent[]
+}
+
 export function useSandboxApi() {
   async function call<T = any>(path: string, opts: Record<string, any> = {}): Promise<T> {
     const { data, error } = await useMyFetch(`/sandbox${path}`, opts as any)
@@ -100,4 +160,9 @@ export function useSandboxApi() {
 export function sandboxFieldType(prop: SandboxSchemaProperty): string {
   if (prop.type) return prop.type
   return prop.anyOf?.find(option => option.type && option.type !== 'null')?.type || 'string'
+}
+
+// The API's timestamps are UTC without a zone suffix.
+export function parseSandboxDate(value: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`)
 }

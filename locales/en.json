@@ -3848,6 +3848,7 @@
       "signup": "Signup"
     },
     "sandboxTabs": {
+      "sandboxes": "Sandboxes",
       "backends": "Backends",
       "environments": "Environments",
       "settings": "Settings"
@@ -4964,6 +4965,7 @@
       "models": "Connect LLM providers and choose which models your workspace can use.",
       "identityProvider": "Sync users, groups and profile details from your identity provider.",
       "smtp": "The server that sends system emails — invites, report shares and scheduled-report results. When enabled, it overrides the server configured for this instance.",
+      "sandboxSandboxes": "Every sandbox that exists right now: what it is running, what it uses, and the switches to stop it.",
       "sandboxBackends": "The places agent sandboxes run. Add a backend, test the connection, bootstrap it, then enable it.",
       "sandboxEnvironments": "Templates a sandbox starts from: image, resources, network policy and who may use it.",
       "sandboxSettings": "Turn agent sandboxes on for this organization and set their limits and lifetimes."
@@ -5087,6 +5089,132 @@
       "registriesHint": "Only the domains listed under Allowed outbound connections in the Sandbox settings can be reached. By default these are the pip, npm and Go package registries, so runs can install packages.",
       "allowlistHint": "Only the domains listed on this environment can be reached.",
       "fullHint": "Code in the sandbox can reach any address on the internet."
+    },
+    "sandboxes": {
+      "refresh": "Refresh",
+      "updated": "Updated {when}",
+      "loadFailed": "The sandboxes could not be loaded.",
+      "emptyTitle": "No sandboxes right now",
+      "emptyHint": "A sandbox is created the first time an agent runs code in a report. It is listed here until it is deleted or it expires.",
+      "untitledReport": "Untitled report",
+      "noUser": "No user",
+      "col": {
+        "report": "Report",
+        "environment": "Environment",
+        "runsOn": "Runs on",
+        "state": "State",
+        "lastUsed": "Last used",
+        "usage": "Usage",
+        "actions": "Actions"
+      },
+      "state": {
+        "provisioning": "Starting",
+        "ready": "Ready",
+        "busy": "Running",
+        "idle": "Idle",
+        "stopped": "Stopped",
+        "failed": "Failed"
+      },
+      "activity": {
+        "running": "Running for {duration}",
+        "working": "Working",
+        "ready": "Waiting for the next run",
+        "idle": "Not used for a while",
+        "provisioning": "Being created",
+        "stopped": "Stopped {when}",
+        "stoppedPlain": "Stopped"
+      },
+      "expires": "Expires {when}",
+      "usage": {
+        "cpu": "CPU",
+        "memory": "Memory",
+        "disk": "Disk",
+        "of": "{used} / {limit}"
+      },
+      "stopRun": "Stop run",
+      "stop": "Stop",
+      "stopHint": "Stops the sandbox and keeps its files. It starts again on the next run.",
+      "details": "Details",
+      "toast": {
+        "stopped": "Sandbox stopped",
+        "notStopped": "The sandbox was not stopped",
+        "stopBusy": "This sandbox is running something. Stop the run first.",
+        "stopFailed": "The sandbox could not be stopped.",
+        "runStopped": "Run stopped",
+        "runStopping": "The run is being stopped",
+        "stopRunFailed": "The run could not be stopped.",
+        "deleted": "Sandbox deleted",
+        "deleteFailed": "The sandbox could not be deleted."
+      },
+      "delete": {
+        "title": "Delete this sandbox?",
+        "filesLost": "Every file in the sandbox is lost, along with the packages installed in it.",
+        "filesKept": "Files already saved to the report are kept.",
+        "runStopped": "A run in progress is stopped first.",
+        "runInProgress": "A run is in progress right now. Deleting the sandbox stops it.",
+        "confirm": "Delete sandbox"
+      },
+      "detail": {
+        "hint": "What this sandbox is, what it ran recently and what happened to it.",
+        "loadFailed": "The sandbox details could not be loaded.",
+        "runs": "Recent runs",
+        "runsHint": "The last 20 runs, newest first.",
+        "noRuns": "Nothing has run in this sandbox yet.",
+        "codeHidden": "Code and output are hidden because you do not have the permission to view code.",
+        "exitCode": "exit code {code}",
+        "filesSaved": "{count} file saved to the report | {count} files saved to the report",
+        "nothingRecorded": "This run recorded no code or output.",
+        "timeline": "Timeline",
+        "noEvents": "Nothing recorded yet.",
+        "cpus": "CPUs: {count}",
+        "memory": "Memory: {mb} MB",
+        "disk": "Disk: {mb} MB",
+        "fact": {
+          "report": "Report",
+          "user": "User",
+          "environment": "Environment",
+          "network": "Network",
+          "runsOn": "Runs on",
+          "running": "Running for",
+          "created": "Created",
+          "lastUsed": "Last used",
+          "stopped": "Stopped",
+          "expires": "Expires",
+          "limits": "Limits",
+          "runTimeout": "Run time limit",
+          "image": "Image",
+          "id": "Sandbox ID"
+        },
+        "block": {
+          "code": "Code",
+          "command": "Command",
+          "stdout": "Output",
+          "stderr": "Errors"
+        }
+      },
+      "runStatus": {
+        "running": "Running",
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "timeout": "Timed out",
+        "cancelled": "Stopped"
+      },
+      "event": {
+        "created": "Sandbox created",
+        "resumed": "Started again",
+        "ready": "Ready",
+        "busy": "Busy",
+        "idle": "Marked idle",
+        "stopped": "Stopped",
+        "failed": "Failed",
+        "deleted": "Deleted",
+        "run_started": "Run started",
+        "process_started": "Program started",
+        "run_finished": "Run finished",
+        "run_killed": "Stop of the run requested",
+        "setup_script": "Setup script ran",
+        "packages_installed": "Packages installed"
+      }
     },
     "backends": {
       "add": "Add backend",

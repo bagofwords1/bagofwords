@@ -3747,6 +3747,7 @@
       "serviceAccounts": "Cuentas de servicio"
     },
     "sandboxTabs": {
+      "sandboxes": "Sandboxes",
       "backends": "Backends",
       "environments": "Entornos",
       "settings": "Configuración"
@@ -4887,6 +4888,7 @@
       "models": "Conecta proveedores de LLM y elige qué modelos puede usar tu espacio de trabajo.",
       "identityProvider": "Sincroniza usuarios, grupos y datos de perfil desde tu proveedor de identidad.",
       "smtp": "El servidor que envía los correos del sistema: invitaciones, informes compartidos y resultados de informes programados. Si está activado, reemplaza al servidor configurado para esta instancia.",
+      "sandboxSandboxes": "Todos los sandboxes que existen ahora mismo: qué ejecutan, cuánto consumen y los controles para detenerlos.",
       "sandboxBackends": "Los lugares donde se ejecutan los sandboxes de los agentes. Añade un backend, prueba la conexión, prepáralo y actívalo.",
       "sandboxEnvironments": "Plantillas desde las que arranca un sandbox: imagen, recursos, política de red y quién puede usarlo.",
       "sandboxSettings": "Activa los sandboxes de agentes para esta organización y define sus límites y su duración."
@@ -5010,6 +5012,132 @@
       "registriesHint": "Solo se puede acceder a los dominios indicados en Conexiones salientes permitidas, en la configuración de Sandbox. De forma predeterminada son los registros de paquetes de pip, npm y Go, para que las ejecuciones puedan instalar paquetes.",
       "allowlistHint": "Solo se puede acceder a los dominios indicados en este entorno.",
       "fullHint": "El código del sandbox puede acceder a cualquier dirección de internet."
+    },
+    "sandboxes": {
+      "refresh": "Actualizar",
+      "updated": "Actualizado {when}",
+      "loadFailed": "No se pudieron cargar los sandboxes.",
+      "emptyTitle": "Ahora mismo no hay sandboxes",
+      "emptyHint": "Un sandbox se crea la primera vez que un agente ejecuta código en un informe. Aparece aquí hasta que se elimina o caduca.",
+      "untitledReport": "Informe sin título",
+      "noUser": "Sin usuario",
+      "col": {
+        "report": "Informe",
+        "environment": "Entorno",
+        "runsOn": "Se ejecuta en",
+        "state": "Estado",
+        "lastUsed": "Último uso",
+        "usage": "Consumo",
+        "actions": "Acciones"
+      },
+      "state": {
+        "provisioning": "Iniciando",
+        "ready": "Listo",
+        "busy": "En ejecución",
+        "idle": "Inactivo",
+        "stopped": "Detenido",
+        "failed": "Con error"
+      },
+      "activity": {
+        "running": "En ejecución desde hace {duration}",
+        "working": "Trabajando",
+        "ready": "A la espera de la próxima ejecución",
+        "idle": "Sin uso desde hace un rato",
+        "provisioning": "Se está creando",
+        "stopped": "Detenido {when}",
+        "stoppedPlain": "Detenido"
+      },
+      "expires": "Caduca {when}",
+      "usage": {
+        "cpu": "CPU",
+        "memory": "Memoria",
+        "disk": "Disco",
+        "of": "{used} / {limit}"
+      },
+      "stopRun": "Detener ejecución",
+      "stop": "Detener",
+      "stopHint": "Detiene el sandbox y conserva sus archivos. Vuelve a iniciarse en la próxima ejecución.",
+      "details": "Detalles",
+      "toast": {
+        "stopped": "Sandbox detenido",
+        "notStopped": "El sandbox no se detuvo",
+        "stopBusy": "Este sandbox está ejecutando algo. Detén primero la ejecución.",
+        "stopFailed": "No se pudo detener el sandbox.",
+        "runStopped": "Ejecución detenida",
+        "runStopping": "La ejecución se está deteniendo",
+        "stopRunFailed": "No se pudo detener la ejecución.",
+        "deleted": "Sandbox eliminado",
+        "deleteFailed": "No se pudo eliminar el sandbox."
+      },
+      "delete": {
+        "title": "¿Eliminar este sandbox?",
+        "filesLost": "Se pierden todos los archivos del sandbox y los paquetes instalados en él.",
+        "filesKept": "Los archivos ya guardados en el informe se conservan.",
+        "runStopped": "Si hay una ejecución en curso, se detiene antes.",
+        "runInProgress": "Hay una ejecución en curso ahora mismo. Al eliminar el sandbox se detiene.",
+        "confirm": "Eliminar sandbox"
+      },
+      "detail": {
+        "hint": "Qué es este sandbox, qué ha ejecutado últimamente y qué le ha ocurrido.",
+        "loadFailed": "No se pudieron cargar los detalles del sandbox.",
+        "runs": "Ejecuciones recientes",
+        "runsHint": "Las últimas 20 ejecuciones, de la más reciente a la más antigua.",
+        "noRuns": "Todavía no se ha ejecutado nada en este sandbox.",
+        "codeHidden": "El código y la salida están ocultos porque no tienes permiso para ver código.",
+        "exitCode": "código de salida {code}",
+        "filesSaved": "{count} archivo guardado en el informe | {count} archivos guardados en el informe",
+        "nothingRecorded": "Esta ejecución no registró código ni salida.",
+        "timeline": "Cronología",
+        "noEvents": "Todavía no hay nada registrado.",
+        "cpus": "CPU: {count}",
+        "memory": "Memoria: {mb} MB",
+        "disk": "Disco: {mb} MB",
+        "fact": {
+          "report": "Informe",
+          "user": "Usuario",
+          "environment": "Entorno",
+          "network": "Red",
+          "runsOn": "Se ejecuta en",
+          "running": "En ejecución desde hace",
+          "created": "Creado",
+          "lastUsed": "Último uso",
+          "stopped": "Detenido",
+          "expires": "Caduca",
+          "limits": "Límites",
+          "runTimeout": "Tiempo máximo por ejecución",
+          "image": "Imagen",
+          "id": "ID del sandbox"
+        },
+        "block": {
+          "code": "Código",
+          "command": "Comando",
+          "stdout": "Salida",
+          "stderr": "Errores"
+        }
+      },
+      "runStatus": {
+        "running": "En ejecución",
+        "succeeded": "Correcta",
+        "failed": "Fallida",
+        "timeout": "Tiempo agotado",
+        "cancelled": "Detenida"
+      },
+      "event": {
+        "created": "Sandbox creado",
+        "resumed": "Iniciado de nuevo",
+        "ready": "Listo",
+        "busy": "Ocupado",
+        "idle": "Marcado como inactivo",
+        "stopped": "Detenido",
+        "failed": "Con error",
+        "deleted": "Eliminado",
+        "run_started": "Ejecución iniciada",
+        "process_started": "Programa iniciado",
+        "run_finished": "Ejecución terminada",
+        "run_killed": "Se pidió detener la ejecución",
+        "setup_script": "Script de preparación ejecutado",
+        "packages_installed": "Paquetes instalados"
+      }
     },
     "backends": {
       "add": "Añadir backend",
