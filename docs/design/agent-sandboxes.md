@@ -503,6 +503,9 @@ call is the real product. A run with a real model has not been done.
 
 ## Deferred
 
+Corporate proxies, internal hosts and custom CAs are parked with their open questions in
+`docs/design/agent-sandboxes-proxy-and-network.md`.
+
 Phase 2 and later in BOW-229. Not built unless noted.
 
 - **MCP server tools.** No sandbox tool is in `ai/tools/mcp/`.
