@@ -1,5 +1,7 @@
 from typing import Union, Any, List, Optional
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -262,13 +264,20 @@ class CustomQuerySchema(BaseModel):
     # "trigger"}. `source_rows` is None until the source has been counted.
     # Set by the list route only; absent when nothing is running.
     refresh_progress: Optional[dict] = None
+    # The connection has each person sign in with their own credentials, so
+    # this table is cached once per person: there is no shared copy, no
+    # schedule, and `no_rows` / `artifact_bytes` describe nothing.
+    per_user: bool = False
+    # Per-user tables only: {"copies": people holding a copy, "bytes": on disk}.
+    user_copies: Optional[dict] = None
 
     class Config:
         from_attributes = True
 
     @classmethod
     def from_model(cls, cq, active_agent_count: int = 0, next_run_at=None,
-                   refresh_progress: Optional[dict] = None) -> "CustomQuerySchema":
+                   refresh_progress: Optional[dict] = None, per_user: bool = False,
+                   user_copies: Optional[dict] = None) -> "CustomQuerySchema":
         meta = cq.metadata_json if isinstance(getattr(cq, "metadata_json", None), dict) else {}
         target = meta.get("target") if isinstance(meta.get("target"), dict) else None
         state = getattr(cq, "refresh_state", None)
@@ -318,7 +327,25 @@ class CustomQuerySchema(BaseModel):
             last_full_refresh_at=state.get("last_full_refresh_at"),
             load_progress=progress,
             refresh_progress=refresh_progress,
+            per_user=per_user,
+            user_copies=user_copies,
         )
+
+
+class CustomTableUserCopySchema(BaseModel):
+    """One person's cached copy of a custom table, as its admin sees it."""
+    id: str
+    user_id: str
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+    # building | ok | error | evicted
+    status: str
+    error: Optional[str] = None
+    row_count: Optional[int] = None
+    artifact_bytes: Optional[int] = None
+    refreshed_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+    build_ms: Optional[int] = None
 
 
 class CustomTableRunSummary(BaseModel):

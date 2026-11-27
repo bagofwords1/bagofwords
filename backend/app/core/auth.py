@@ -215,6 +215,8 @@ class UserManager(BaseUserManager[User, str]):
                 await session.commit()
         except Exception:
             pass
+        from app.services.custom_table_user_copy_service import refresh_on_sign_in
+        await refresh_on_sign_in(str(user.id))
 
         # Instance administrators follow BOW_SUPERUSER_EMAILS at each sign-in.
         from app.core.instance_admin import apply_superuser_policy

@@ -177,3 +177,4 @@ class ConnectionTable(BaseSchema):
 
 
 from app.models import custom_table_run  # noqa: E402,F401
+from app.models import custom_table_user_copy  # noqa: E402,F401

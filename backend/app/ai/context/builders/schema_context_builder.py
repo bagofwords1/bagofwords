@@ -702,7 +702,41 @@ class SchemaContextBuilder:
             # overlay branch above rather than instead of it — that either/or is
             # exactly what dropped a mixed agent's warehouse tables the moment
             # the caller had their own token on its Power BI connection.
-            _canonical_rows = [t for t in ds_tables if _row_is_open(t)]
+            #
+            # A custom table on a per-user connection is the exception to
+            # "open or overlay": what the agent can query is this user's own
+            # copy of it, whichever way the connection is classified. It is
+            # shown exactly when the DuckDB session will hold it (the clients
+            # are built, and the copy with them, before this context is), so
+            # the prompt never names a cached relation that is not there.
+            from app.data_sources.fast.user_copies import is_per_user_connection
+            from app.models.connection_table import KIND_BOW as _KIND_BOW
+
+            def _per_user_table(t):
+                ct = getattr(t, 'connection_table', None)
+                if ct is None or getattr(ct, 'kind', None) != _KIND_BOW:
+                    return None
+                conn = getattr(ct, 'connection', None)
+                return ct if conn is not None and is_per_user_connection(conn) else None
+
+            _per_user_cts = [ct for ct in (_per_user_table(t) for t in ds_tables) if ct is not None]
+            _user_copies: Dict[str, Any] = {}
+            if _per_user_cts and self.user is not None:
+                try:
+                    from app.services.custom_table_user_copy_service import user_copy_service
+                    _user_copies = await user_copy_service.servable(
+                        self.db, str(self.user.id), _per_user_cts)
+                except Exception:
+                    logger.warning("schema context: per-user copies lookup failed", exc_info=True)
+                    _user_copies = {}
+
+            def _row_is_served(t):
+                ct = _per_user_table(t)
+                if ct is not None:
+                    return str(ct.id) in _user_copies
+                return _row_is_open(t)
+
+            _canonical_rows = [t for t in ds_tables if _row_is_served(t)]
             if _canonical_rows:
                 for t in _canonical_rows:
                     table_is_active = bool(getattr(t, 'is_active', False))
@@ -725,6 +759,13 @@ class SchemaContextBuilder:
                         ct = t.connection_table
                         (is_cached, cached_as_of, cached_next_refresh,
                          cached_description) = _cached_meta_for(ct)
+                        _copy = _user_copies.get(str(ct.id))
+                        if _copy is not None:
+                            # This user's own copy: its age is the copy's, and
+                            # no clock refreshes it.
+                            _at = getattr(_copy, 'refreshed_at', None)
+                            cached_as_of = _at.isoformat(timespec="minutes") if _at else None
+                            cached_next_refresh = None
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
                             conn_name, conn_type = _connection_identity_for(ct, ct.connection)

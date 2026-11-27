@@ -6,10 +6,16 @@ file shared by every agent that activates it — if it were per-agent, N agents
 would extract the same data N times on N schedules, multiplying exactly the
 source load the feature exists to remove.
 
-Gated on `manage_connection` (same class of action as reindex) and on
-`auth_policy == 'system_only'`: with per-user credentials, one shared copy would
-collapse every user's row visibility into whoever ran the refresh. RLS lands in
-phase 2 and is what will unlock `user_required`.
+Gated on `manage_connection` (same class of action as reindex).
+
+**Per-user connections.** On `auth_policy == 'user_required'` one shared copy
+would collapse every user's row visibility into whoever ran the refresh. There
+the definition is still one connection-level object, but nothing is
+materialized on the row: each user gets a copy of their own, extracted with
+their own credentials the first time they need it
+(`custom_table_user_copy_service`, `fast/user_copies.py`). No schedule runs
+for such a table — nobody is signed in at 3am — and its refresh settings say
+how old a person's copy may get before it is rebuilt.
 """
 
 import asyncio
@@ -30,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduler import scheduler
 from app.core.telemetry import telemetry
-from app.data_sources.fast import artifacts, extractor, incremental, loader, rls
+from app.data_sources.fast import artifacts, extractor, incremental, loader, rls, user_copies
 from app.data_sources.fast import column_metadata, lineage
 from app.data_sources.fast import events as table_events
 from app.data_sources.fast import limits as fast_limits
@@ -455,14 +461,23 @@ class CustomQueryService:
                     f"connections yet."
                 ),
             )
-        if getattr(connection, "auth_policy", "system_only") != "system_only":
+
+    @staticmethod
+    def is_per_user(connection: Connection) -> bool:
+        """Whether this connection's custom tables are cached once per user."""
+        return user_copies.is_per_user_connection(connection)
+
+    @staticmethod
+    def ensure_per_user_settings(connection: Connection, config: incremental.RefreshConfig) -> None:
+        """A per-user copy is always a full load: there is no single
+        checkpoint to advance when every user holds different rows."""
+        if user_copies.is_per_user_connection(connection) and config.incremental:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Custom tables require a connection with shared (system) "
-                    "credentials. On a per-user connection, one materialized copy "
-                    "cannot represent each user's row visibility — row-level "
-                    "security support is planned."
+                    "Incremental refresh is not available on a connection where each "
+                    "person signs in with their own credentials. Each person's copy is "
+                    "rebuilt in full; choose full refresh."
                 ),
             )
 
@@ -1108,6 +1123,7 @@ class CustomQueryService:
         # refreshing exactly as they did.
         refresh_config.setdefault("row_drop_guard_pct", incremental.DEFAULT_ROW_DROP_GUARD_PCT)
         config = self.refresh_settings(refresh_mode, refresh_config, definition_sql, connection.type)
+        self.ensure_per_user_settings(connection, config)
 
         cq = ConnectionTable(
             name=name,
@@ -1142,7 +1158,8 @@ class CustomQueryService:
         await self._activate_for_agents(
             db, connection, cq, activate_for_datasource_id=activate_for_datasource_id
         )
-        self._schedule(connection.id, cq, timezone=await self._org_timezone(db, organization))
+        self._schedule(connection.id, cq, timezone=await self._org_timezone(db, organization),
+                       per_user=self.is_per_user(connection))
 
         try:
             await telemetry.capture(
@@ -1269,6 +1286,7 @@ class CustomQueryService:
             merged = {**before.to_dict(), **(refresh_config or {})}
             config = self.refresh_settings(refresh_mode or before.mode, merged, cq.definition_sql,
                                            connection.type)
+            self.ensure_per_user_settings(connection, config)
             cq.refresh_mode, cq.refresh_config = config.mode, config.to_dict()
         else:
             config = self.refresh_settings(before.mode, before.to_dict(), cq.definition_sql, connection.type)
@@ -1298,7 +1316,8 @@ class CustomQueryService:
         # volume; scheduled_refresh is the backstop and unschedules a deleted
         # table on its first tick.
         cq = await self.get_custom_query(db, connection.id, cq.id)
-        self._schedule(connection.id, cq, timezone=organization_timezone or "UTC")
+        self._schedule(connection.id, cq, timezone=organization_timezone or "UTC",
+                       per_user=self.is_per_user(connection))
         return cq
 
     async def delete(
@@ -1336,6 +1355,13 @@ class CustomQueryService:
         cq.refresh_state = None
         await db.commit()
         artifacts.delete_artifact(old_path)
+        # Every user's copy goes with the table. A build still running sees
+        # the table gone when it tries to publish and discards its file.
+        from app.services.custom_table_user_copy_service import user_copy_service
+        try:
+            await user_copy_service.purge(db, table_id=str(cq.id), forget=True)
+        except Exception:
+            logger.exception("custom_query.delete.user_copies_failed")
         # A first load still in progress notices the deletion at its next
         # window; if none is running, its file would otherwise wait for GC.
         with artifacts.try_refresh_lock(connection.id) as free:
@@ -1377,7 +1403,12 @@ class CustomQueryService:
 
         `full` rebuilds an incremental table from scratch instead of reading
         only what is new (it changes nothing for a table that is always full).
+
+        On a per-user connection there is no shared artifact to bring up to
+        date; see `_refresh_per_user`.
         """
+        if self.is_per_user(connection):
+            return await self._refresh_per_user(db, connection, cq, current_user, trigger=trigger)
         run = _Run(
             db=db, connection=connection, cq=cq, trigger=trigger, force_full=full,
             user_id=str(current_user.id) if current_user is not None else None,
@@ -1409,6 +1440,114 @@ class CustomQueryService:
                                       events=run.take_events())
                 raise
         return cq
+
+    async def _refresh_per_user(
+        self, db: AsyncSession, connection: Connection, cq: ConnectionTable,
+        current_user: User = None, *, trigger: str = TRIGGER_MANUAL,
+    ) -> ConnectionTable:
+        """What "refresh" means when every user holds their own copy.
+
+        Nothing is extracted into the row. The query is run bounded, with the
+        caller's own credentials, only to learn its columns — the schema the
+        agent is shown has to exist before anyone's copy does. Then every
+        existing copy is invalidated, so each person's next question rebuilds
+        theirs: an admin pressing Refresh, or editing the query, must not
+        leave anyone answering from the old data.
+
+        A scheduled tick does nothing: there is no one whose credentials it
+        could use, and a copy's age is checked when it is served.
+        """
+        from app.services.custom_table_user_copy_service import user_copy_service
+
+        await db.refresh(cq)
+        if cq.deleted_at is not None or trigger in (TRIGGER_SCHEDULE, TRIGGER_RESUME):
+            return cq
+        if cq.artifact_path:
+            # Left over from when this connection used shared credentials. It
+            # holds rows read with those; it must not outlive the switch.
+            old_path, cq.artifact_path, cq.artifact_key_enc = cq.artifact_path, None, None
+            cq.artifact_bytes, cq.refresh_state = None, None
+            await db.commit()
+            artifacts.delete_artifact(old_path)
+        try:
+            client = await self.connection_service.construct_client(db, connection, current_user)
+            await self._prepare_client(db, connection, client, self.target_of(cq))
+            sql = cq.definition_sql or ""
+
+            def _shape():
+                extractor.estimate(client, sql)
+                return extractor.preview(client, sql, extractor.PREVIEW_ROW_LIMIT)
+
+            cols, _rows = await asyncio.to_thread(_shape)
+        except HTTPException as e:
+            await self._per_user_failed(db, cq, e.detail)
+            raise
+        except _PASS_THROUGH as e:
+            await self._per_user_failed(db, cq, str(e))
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            await self._per_user_failed(db, cq, str(e))
+            raise HTTPException(status_code=400, detail=f"Query failed: {e}")
+
+        await db.refresh(cq)
+        enriched = await self.describe_columns(
+            db, connection, definition=cq.definition_sql or "", target=self.target_of(cq),
+            columns=cols, previous=cq.columns, overrides=self.overrides_of(cq),
+        )
+        cq.columns = enriched.columns
+        cq.metadata_json = self._described(cq, connection, enriched, cq.metadata_json)
+        cq.last_refresh_status = "ok"
+        cq.last_refresh_error = None
+        cq.last_refreshed_at = datetime.utcnow()
+        # No row count of its own: every user's copy has a different one.
+        cq.no_rows = 0
+        await db.commit()
+        await db.refresh(cq)
+        await self._sync_activations(db, cq)
+        await user_copy_service.invalidate(db, table_id=str(cq.id))
+        return cq
+
+    @staticmethod
+    async def _per_user_failed(db: AsyncSession, cq: ConnectionTable, message) -> None:
+        with suppress(Exception):
+            await db.rollback()
+            cq.last_refresh_status = "error"
+            cq.last_refresh_error = str(message)[:2000]
+            await db.commit()
+
+    async def on_auth_policy_changed(self, db: AsyncSession, connection: Connection) -> None:
+        """Bring a connection's custom tables in line with its new auth policy.
+
+        Shared → per-user: the shared artifacts hold rows read with the
+        system credentials and stop being served at once (the client is built
+        from users' copies only); remove them and their schedules. Per-user →
+        shared: users' copies are no longer what is served; remove them and
+        put the tables back on their schedules, to be built on the next tick
+        or an admin's Refresh.
+        """
+        from app.services.custom_table_user_copy_service import user_copy_service
+
+        rows = (await db.execute(
+            select(ConnectionTable).where(
+                ConnectionTable.connection_id == str(connection.id),
+                ConnectionTable.kind == KIND_BOW,
+                ConnectionTable.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        per_user = self.is_per_user(connection)
+        for cq in rows:
+            if per_user:
+                self._unschedule(cq.id)
+                self._unschedule_resume(cq.id)
+                if cq.artifact_path:
+                    old_path, cq.artifact_path, cq.artifact_key_enc = cq.artifact_path, None, None
+                    cq.artifact_bytes, cq.refresh_state, cq.no_rows = None, None, 0
+                    await db.commit()
+                    artifacts.delete_artifact(old_path)
+            else:
+                self._schedule(str(connection.id), cq)
+        if rows and not per_user:
+            await user_copy_service.purge(db, connection_id=str(connection.id), forget=True)
 
     @staticmethod
     async def _drain(coro) -> None:
@@ -2134,7 +2273,9 @@ class CustomQueryService:
                     )
                 )
             ).scalar_one_or_none()
-            if not conn or not cq:
+            if not conn or not cq or self.is_per_user(conn):
+                # A per-user table has no shared artifact for a tick to
+                # refresh; a job for one was left by a change of auth policy.
                 self._unschedule(cq_id)
                 return
             try:
@@ -2177,8 +2318,13 @@ class CustomQueryService:
         except (JobLookupError, Exception):
             pass
 
-    def _schedule(self, connection_id: str, cq: ConnectionTable, timezone: str = "UTC") -> None:
+    def _schedule(self, connection_id: str, cq: ConnectionTable, timezone: str = "UTC",
+                  per_user: bool = False) -> None:
         self._unschedule(cq.id)
+        if per_user:
+            # Nothing to run on a clock: a copy is rebuilt when its user next
+            # needs it and it is older than these settings allow.
+            return
         try:
             if cq.refresh_schedule_mode == "time" and cq.refresh_at_time:
                 hh, mm = cq.refresh_at_time.split(":")
@@ -2229,6 +2375,7 @@ class CustomQueryService:
         rows: list[ConnectionTable],
         connection_name: str = "",
         identity: Optional[rls.Identity] = None,
+        user_copies_by_table: Optional[dict] = None,
     ) -> Optional[FastQueryClient]:
         """Assemble a FastQueryClient from ACTIVATED custom tables.
 
@@ -2242,10 +2389,34 @@ class CustomQueryService:
         from any relation with `rls_enabled`. That has to be the default,
         because the alternative (None means trusted) turns every background
         path that forgot to thread a user into a full-table leak.
+
+        `user_copies_by_table` switches to per-user serving: when it is not
+        None (an empty dict included), a relation is attached only from the
+        asking user's own copy in it, and the row's shared artifact — if a
+        change of auth policy left one behind — is never used. A table with
+        no copy there is simply not in the session.
         """
         who = identity or rls.ANONYMOUS
         relations = []
         for r in rows:
+            if user_copies_by_table is not None:
+                ref = user_copies_by_table.get(str(r.id))
+                if ref is None:
+                    continue
+                relations.append(
+                    FastRelation(
+                        name=r.name,
+                        artifact_path=ref.artifact_path,
+                        artifact_key=ref.artifact_key,
+                        columns=ref.columns or r.columns or [],
+                        as_of=ref.refreshed_at.isoformat(timespec="minutes")
+                        if ref.refreshed_at else None,
+                        row_count=ref.row_count or 0,
+                        description=r.description,
+                        rls_filter=CustomQueryService.compile_rls(r, who),
+                    )
+                )
+                continue
             if not r.artifact_path or not r.artifact_key_enc:
                 continue
             try:

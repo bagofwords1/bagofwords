@@ -661,6 +661,22 @@ async def startup_event():
             )
         except Exception:
             logger.exception("Failed to schedule custom-table artifact cleanup")
+        # Per-user copies of custom tables: idle, expired and orphaned ones go
+        # hourly, so a departed user's data does not wait for the nightly sweep.
+        try:
+            from app.services.custom_table_user_copy_service import scheduled_cleanup_user_copies
+            scheduler.add_job(
+                scheduled_cleanup_user_copies,
+                trigger="cron",
+                minute=25,
+                id="cleanup_custom_table_user_copies",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=1800,
+            )
+        except Exception:
+            logger.exception("Failed to schedule per-user custom-table copy cleanup")
         try:
             scheduler.add_job(
                 purge_step_payloads_keep_latest_per_query,

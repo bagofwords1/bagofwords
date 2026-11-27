@@ -969,6 +969,7 @@ class ConnectionService:
         _reject_unsafe_oauth_urls(updates.get("config"), updates.get("credentials"))
         _reject_unsafe_google_keys(updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
+        previous_auth_policy = connection.auth_policy
         _validate_connection_config(connection.type, updates.get("config"))
         _reject_athena_mode_switch(connection, updates.get("config"))
 
@@ -1198,6 +1199,16 @@ class ConnectionService:
 
         try:
             await db.commit()
+
+            if connection.auth_policy != previous_auth_policy:
+                # Custom tables are cached per connection under shared
+                # credentials and per user otherwise; data read under the old
+                # policy must not be served under the new one.
+                try:
+                    from app.services.custom_query_service import custom_query_service
+                    await custom_query_service.on_auth_policy_changed(db, connection)
+                except Exception:
+                    logger.exception("update_connection: custom tables not realigned to auth policy")
 
             # Refresh tables/tools if connection changed.
             # Schema refresh is backgrounded; tool refresh stays synchronous.
@@ -2240,6 +2251,14 @@ class ConnectionService:
         )
 
         await db.commit()
+        # Their cached copies of this connection's custom tables hold rows read
+        # with the credentials just removed.
+        try:
+            from app.services.custom_table_user_copy_service import user_copy_service
+            await user_copy_service.purge(
+                db, user_id=str(current_user.id), connection_id=str(connection.id))
+        except Exception:
+            logger.exception("delete_user_credentials: cached copies not purged")
         return {"deleted": len(rows)}
 
     async def _user_visible_table_names(

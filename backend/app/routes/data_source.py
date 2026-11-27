@@ -731,7 +731,6 @@ async def get_domain_connections(
             # affordance in the tables selector.
             "custom_queries_supported": (
                 is_accelerable_type(conn.type)
-                and (conn.auth_policy or "system_only") == "system_only"
             ),
         }
         for conn in connections
