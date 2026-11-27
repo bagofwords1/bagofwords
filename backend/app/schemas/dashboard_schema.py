@@ -81,6 +81,10 @@ class DraftDashboardSchema(BaseModel):
     theme_overrides: dict | None = None
     show_widget_info: bool = False  # the per-widget ⓘ provenance popover (phase 8)
     allow_popups: bool = False  # relax the draft iframe sandbox (popups/modals)
+    # The reader chat toggle, so the editor can PREVIEW the bubble in the draft
+    # before publishing. The draft never serves a live chat (no release yet):
+    # the bubble renders in a preview-only state. See SharedDashboardView.
+    chat_enabled: bool = False
     general: PublicGeneralSettings | None = None  # the page's credit and analyst name (phase 8)
     # An editor (owner, project) -- not the organization's admin, who reads it.
     can_edit: bool = False
