@@ -8576,7 +8576,8 @@
       "deniedTitle": "Access denied",
       "deniedBody": "You don't have access to this page. Ask its owner to share it with you.",
       "goHome": "Go home",
-      "backToApp": "Back to app"
+      "backToDashboards": "Back to dashboards",
+      "backToHome": "Back to home"
     },
     "accessRequest": {
       "noAccessTitle": "You don't have access",
@@ -9408,29 +9409,46 @@
     "deleteRemovesConnectors": "Deleted with it (connectors that use only this connection): {names}"
   },
   "apps": {
-    "title": "Your apps",
-    "subtitle": "Open an app to get started.",
+    "title": "Shared with you",
+    "subtitle": "Apps, dashboards and docs you can open.",
     "openWorkspace": "Open workspace",
-    "search": "Search apps",
-    "untitled": "Untitled app",
+    "search": "Search",
+    "untitled": "Untitled",
     "inApplication": "In {name}",
-    "allApps": "All apps",
+    "backToLauncher": "Back to Shared with you",
     "language": "Language",
     "account": "Account",
     "signOut": "Sign out",
-    "loadFailed": "Couldn't load your apps.",
+    "loadFailed": "Couldn't load this list.",
     "retry": "Try again",
-    "noMatches": "No apps match “{query}”.",
+    "noMatches": "Nothing matches “{query}”.",
     "empty": {
-      "title": "No apps yet",
-      "body": "When someone shares an app with you, it will show up here."
+      "title": "Nothing shared with you yet",
+      "body": "When someone shares an app, dashboard or doc with you, it will show up here."
     },
     "requestAccess": {
-      "prompt": "Need more than these apps?",
+      "prompt": "Need more than what's shared with you?",
       "button": "Request full access",
       "sent": "Request sent. An admin will review it.",
       "failed": "Couldn't send the request. Try again."
     },
-    "showMore": "Show more"
+    "showMore": "Show more",
+    "filter": {
+      "label": "Filter by type",
+      "all": "All",
+      "apps": "Apps",
+      "dashboards": "Dashboards",
+      "docs": "Docs"
+    },
+    "kind": {
+      "app": "App",
+      "dashboard": "Dashboard",
+      "doc": "Doc"
+    },
+    "emptyKind": {
+      "app": "No apps shared with you yet.",
+      "dashboard": "No dashboards shared with you yet.",
+      "doc": "No docs shared with you yet."
+    }
   }
 }

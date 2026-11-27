@@ -77,7 +77,7 @@
             </div>
 
             <!-- Fallback (not eligible / state unknown). -->
-            <UButton v-else :to="homePath" color="white" class="mt-2" data-testid="access-go-home">{{ isAppUser ? t('apps.allApps') : t('dashboardCollab.access.goHome') }}</UButton>
+            <UButton v-else :to="backPath" color="white" class="mt-2" data-testid="access-go-home">{{ backTo.origin === 'home' ? t('dashboardCollab.access.goHome') : backLabel }}</UButton>
         </div>
     </div>
 
@@ -96,12 +96,13 @@
     </div>
 
     <div v-else class="h-dvh w-screen relative bg-gray-50 dark:bg-gray-900 flex flex-col overflow-hidden">
-        <!-- Back to app: a dedicated arrow at the opposite corner, so the most
-             used navigation isn't buried in the ⋮. (Flips automatically in RTL.) -->
+        <!-- Back: a dedicated arrow at the opposite corner, so the most used
+             navigation isn't buried in the ⋮. (Flips automatically in RTL.) -->
         <div v-if="showTopBar && reportLoaded" class="absolute top-3 start-3 z-dropdown">
-            <!-- An app user's "app" is the launcher: BOW's home is closed to them. -->
+            <!-- To the list the dashboard was opened from (utils/dashboardBack);
+                 an app user's is the launcher: BOW's home is closed to them. -->
             <UTooltip :text="backLabel">
-                <UButton :to="homePath" color="gray" variant="soft" icon="i-heroicons-arrow-left"
+                <UButton :to="backPath" color="gray" variant="soft" icon="i-heroicons-arrow-left"
                     :ui="{ rounded: 'rounded-full' }"
                     :aria-label="backLabel" data-testid="app-back" />
             </UTooltip>
@@ -354,6 +355,7 @@ import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { artifactRowCounts } from '~/utils/artifactRowCounts';
 import { artifactFramePayload, postWithJsonFallback } from '~/utils/artifactFramePayload';
 import { artifactSandbox } from '~/utils/artifactSandbox';
+import { BACK_PARAM, backHref, backTarget, keepBack } from '~/utils/dashboardBack';
 import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
@@ -556,12 +558,22 @@ const chatPreview = computed(() => props.source === 'draft');
 const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
 const unavailable = ref(false);
 // Top bar state
-// Where "back" leads: the workspace, or the app launcher for an app user (a
-// member without access_workspace, whom every workspace page turns away).
+// Where "back" leads: the list the dashboard was opened from (`?back=`,
+// utils/dashboardBack), else home -- and always the app launcher for an app
+// user (a member without access_workspace, whom every workspace page turns away).
 const workspaceAccess = useWorkspaceAccess();
 const isAppUser = computed(() => workspaceAccess.value === false);
-const homePath = computed(() => (isAppUser.value ? '/apps' : '/'));
-const backLabel = computed(() => (isAppUser.value ? t('apps.allApps') : t('dashboardCollab.access.backToApp')));
+const backTo = computed(() => backTarget(route.query[BACK_PARAM], isAppUser.value));
+// The page the router came from (history.state.back), read once in the
+// browser: when it is that list, back restores its filters and search.
+const previousPath = ref<string | null>(null);
+onMounted(() => { previousPath.value = (window.history.state as any)?.back ?? null; });
+const backPath = computed(() => backHref(backTo.value, previousPath.value));
+const backLabel = computed(() => ({
+    apps: t('apps.backToLauncher'),
+    dashboards: t('dashboardCollab.access.backToDashboards'),
+    home: t('dashboardCollab.access.backToHome'),
+})[backTo.value.origin]);
 const showTopBar = ref(!embedded && !inHostApplication.value && (typeof window === 'undefined' || window.self === window.top));
 const showVersionDetails = ref(false);
 const identityResolved = ref(false);
@@ -1110,7 +1122,7 @@ async function loadReport() {
             const fromDraft = route.query.from === 'draft';
             if (props.source === 'dashboard' && !fromDraft
                 && (fetchError.value as any)?.data?.error_code === 'dashboard.not_published') {
-                navigateTo(`/d/${props.id}/draft`, { replace: true });
+                navigateTo(keepBack(`/d/${props.id}/draft`, route.query[BACK_PARAM]), { replace: true });
                 return;
             }
             // The draft is its editors' only (or its conversation is gone):
@@ -1118,10 +1130,10 @@ async function loadReport() {
             if (props.source === 'draft' && status === 404) {
                 // A version or draft that is gone: the plain draft first.
                 if (draftQuery) {
-                    navigateTo(`/d/${props.id}/draft`, { replace: true });
+                    navigateTo(keepBack(`/d/${props.id}/draft`, route.query[BACK_PARAM]), { replace: true });
                     return;
                 }
-                navigateTo(`/d/${props.id}?from=draft`, { replace: true });
+                navigateTo(keepBack(`/d/${props.id}?from=draft`, route.query[BACK_PARAM]), { replace: true });
                 return;
             }
             if (status === 401) {

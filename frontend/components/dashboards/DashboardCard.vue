@@ -5,9 +5,10 @@
         class="group relative bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg hover:border-blue-300 transition"
         data-testid="dashboard-card"
     >
-        <!-- One card per dashboard: it opens the dashboard's /d page. -->
+        <!-- One card per dashboard: it opens the dashboard's /d page, whose
+             back arrow returns here. -->
         <NuxtLink
-            :to="`/d/${dashboard.slug || dashboard.id}`"
+            :to="withBack(`/d/${dashboard.slug || dashboard.id}`, 'dashboards')"
             class="block rounded-xl"
         >
             <div class="aspect-[4/3] relative overflow-hidden rounded-t-[11px]" :class="showThumbnail ? '' : modeStyle.cardBg">
@@ -155,6 +156,7 @@
 <script setup lang="ts">
 import DashboardAccessLabel from '~/components/dashboards/DashboardAccessLabel.vue'
 import DashboardThumbnail from '~/components/dashboards/DashboardThumbnail.vue'
+import { withBack } from '~/utils/dashboardBack'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ReportStatusDot from '~/components/ReportStatusDot.vue'
 import TruncatedLabel from '~/components/TruncatedLabel.vue'

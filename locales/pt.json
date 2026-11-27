@@ -7718,7 +7718,8 @@
       "deniedTitle": "Acesso negado",
       "deniedBody": "Você não tem acesso a esta página. Peça ao proprietário para compartilhá-la com você.",
       "goHome": "Ir para o início",
-      "backToApp": "Voltar ao app"
+      "backToDashboards": "Voltar aos painéis",
+      "backToHome": "Voltar ao início"
     },
     "accessRequest": {
       "noAccessTitle": "Você não tem acesso",
@@ -8414,30 +8415,47 @@
     }
   },
   "apps": {
-    "title": "Seus aplicativos",
-    "subtitle": "Abra um aplicativo para começar.",
+    "title": "Compartilhado com você",
+    "subtitle": "Aplicativos, painéis e documentos que você pode abrir.",
     "openWorkspace": "Abrir o espaço de trabalho",
-    "search": "Buscar aplicativos",
-    "untitled": "Aplicativo sem título",
+    "search": "Pesquisar",
+    "untitled": "Sem título",
     "inApplication": "Em {name}",
-    "allApps": "Todos os aplicativos",
+    "backToLauncher": "Voltar para Compartilhado com você",
     "language": "Idioma",
     "account": "Conta",
     "signOut": "Sair",
-    "loadFailed": "Não foi possível carregar seus aplicativos.",
+    "loadFailed": "Não foi possível carregar esta lista.",
     "retry": "Tentar novamente",
-    "noMatches": "Nenhum aplicativo corresponde a “{query}”.",
+    "noMatches": "Nada corresponde a “{query}”.",
     "empty": {
-      "title": "Ainda não há aplicativos",
-      "body": "Quando alguém compartilhar um aplicativo com você, ele aparecerá aqui."
+      "title": "Nada foi compartilhado com você ainda",
+      "body": "Quando alguém compartilhar um aplicativo, painel ou documento com você, ele aparecerá aqui."
     },
     "requestAccess": {
-      "prompt": "Precisa de mais do que estes aplicativos?",
+      "prompt": "Precisa de mais do que o que foi compartilhado com você?",
       "button": "Solicitar acesso completo",
       "sent": "Solicitação enviada. Um administrador irá analisá-la.",
       "failed": "Não foi possível enviar a solicitação. Tente novamente."
     },
-    "showMore": "Mostrar mais"
+    "showMore": "Mostrar mais",
+    "filter": {
+      "label": "Filtrar por tipo",
+      "all": "Todos",
+      "apps": "Aplicativos",
+      "dashboards": "Painéis",
+      "docs": "Documentos"
+    },
+    "kind": {
+      "app": "Aplicativo",
+      "dashboard": "Painel",
+      "doc": "Documento"
+    },
+    "emptyKind": {
+      "app": "Nenhum aplicativo foi compartilhado com você ainda.",
+      "dashboard": "Nenhum painel foi compartilhado com você ainda.",
+      "doc": "Nenhum documento foi compartilhado com você ainda."
+    }
   },
   "hostApps": {
     "newUserRole": "Novas pessoas entram como",

@@ -7718,7 +7718,8 @@
       "deniedTitle": "Accès refusé",
       "deniedBody": "Vous n'avez pas accès à cette page. Demandez à son propriétaire de la partager avec vous.",
       "goHome": "Accueil",
-      "backToApp": "Retour à l'application"
+      "backToDashboards": "Retour aux tableaux de bord",
+      "backToHome": "Retour à l'accueil"
     },
     "accessRequest": {
       "noAccessTitle": "Vous n'avez pas accès",
@@ -8414,30 +8415,47 @@
     }
   },
   "apps": {
-    "title": "Vos applications",
-    "subtitle": "Ouvrez une application pour commencer.",
+    "title": "Partagé avec vous",
+    "subtitle": "Applications, tableaux de bord et documents que vous pouvez ouvrir.",
     "openWorkspace": "Ouvrir l'espace de travail",
-    "search": "Rechercher des applications",
-    "untitled": "Application sans titre",
+    "search": "Rechercher",
+    "untitled": "Sans titre",
     "inApplication": "Dans {name}",
-    "allApps": "Toutes les applications",
+    "backToLauncher": "Retour à Partagé avec vous",
     "language": "Langue",
     "account": "Compte",
     "signOut": "Se déconnecter",
-    "loadFailed": "Impossible de charger vos applications.",
+    "loadFailed": "Impossible de charger cette liste.",
     "retry": "Réessayer",
-    "noMatches": "Aucune application ne correspond à « {query} ».",
+    "noMatches": "Aucun résultat pour « {query} ».",
     "empty": {
-      "title": "Pas encore d'applications",
-      "body": "Lorsqu'une application sera partagée avec vous, elle apparaîtra ici."
+      "title": "Rien n'a encore été partagé avec vous",
+      "body": "Lorsqu'une application, un tableau de bord ou un document sera partagé avec vous, il apparaîtra ici."
     },
     "requestAccess": {
-      "prompt": "Besoin de plus que ces applications ?",
+      "prompt": "Besoin de plus que ce qui est partagé avec vous ?",
       "button": "Demander un accès complet",
       "sent": "Demande envoyée. Un administrateur l'examinera.",
       "failed": "Impossible d'envoyer la demande. Réessayez."
     },
-    "showMore": "Afficher plus"
+    "showMore": "Afficher plus",
+    "filter": {
+      "label": "Filtrer par type",
+      "all": "Tout",
+      "apps": "Applications",
+      "dashboards": "Tableaux de bord",
+      "docs": "Documents"
+    },
+    "kind": {
+      "app": "Application",
+      "dashboard": "Tableau de bord",
+      "doc": "Document"
+    },
+    "emptyKind": {
+      "app": "Aucune application n'a encore été partagée avec vous.",
+      "dashboard": "Aucun tableau de bord n'a encore été partagé avec vous.",
+      "doc": "Aucun document n'a encore été partagé avec vous."
+    }
   },
   "hostApps": {
     "newUserRole": "Les nouvelles personnes rejoignent en tant que",

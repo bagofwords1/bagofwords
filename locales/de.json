@@ -7718,7 +7718,8 @@
       "deniedTitle": "Zugriff verweigert",
       "deniedBody": "Sie haben keinen Zugriff auf diese Seite. Bitten Sie den Eigentümer, sie mit Ihnen zu teilen.",
       "goHome": "Zur Startseite",
-      "backToApp": "Zurück zur App"
+      "backToDashboards": "Zurück zu den Dashboards",
+      "backToHome": "Zurück zur Startseite"
     },
     "accessRequest": {
       "noAccessTitle": "Du hast keinen Zugriff",
@@ -8414,30 +8415,47 @@
     }
   },
   "apps": {
-    "title": "Ihre Apps",
-    "subtitle": "Öffnen Sie eine App, um loszulegen.",
+    "title": "Mit Ihnen geteilt",
+    "subtitle": "Apps, Dashboards und Dokumente, die Sie öffnen können.",
     "openWorkspace": "Arbeitsbereich öffnen",
-    "search": "Apps durchsuchen",
-    "untitled": "Unbenannte App",
+    "search": "Suchen",
+    "untitled": "Ohne Titel",
     "inApplication": "In {name}",
-    "allApps": "Alle Apps",
+    "backToLauncher": "Zurück zu „Mit Ihnen geteilt“",
     "language": "Sprache",
     "account": "Konto",
     "signOut": "Abmelden",
-    "loadFailed": "Ihre Apps konnten nicht geladen werden.",
+    "loadFailed": "Diese Liste konnte nicht geladen werden.",
     "retry": "Erneut versuchen",
-    "noMatches": "Keine App passt zu „{query}“.",
+    "noMatches": "Keine Treffer für „{query}“.",
     "empty": {
-      "title": "Noch keine Apps",
-      "body": "Sobald jemand eine App mit Ihnen teilt, erscheint sie hier."
+      "title": "Noch nichts mit Ihnen geteilt",
+      "body": "Sobald jemand eine App, ein Dashboard oder ein Dokument mit Ihnen teilt, erscheint es hier."
     },
     "requestAccess": {
-      "prompt": "Brauchen Sie mehr als diese Apps?",
+      "prompt": "Brauchen Sie mehr als das, was mit Ihnen geteilt wurde?",
       "button": "Vollzugriff anfordern",
       "sent": "Anfrage gesendet. Ein Administrator prüft sie.",
       "failed": "Die Anfrage konnte nicht gesendet werden. Versuchen Sie es erneut."
     },
-    "showMore": "Mehr anzeigen"
+    "showMore": "Mehr anzeigen",
+    "filter": {
+      "label": "Nach Typ filtern",
+      "all": "Alle",
+      "apps": "Apps",
+      "dashboards": "Dashboards",
+      "docs": "Dokumente"
+    },
+    "kind": {
+      "app": "App",
+      "dashboard": "Dashboard",
+      "doc": "Dokument"
+    },
+    "emptyKind": {
+      "app": "Noch keine Apps mit Ihnen geteilt.",
+      "dashboard": "Noch keine Dashboards mit Ihnen geteilt.",
+      "doc": "Noch keine Dokumente mit Ihnen geteilt."
+    }
   },
   "hostApps": {
     "newUserRole": "Neue Personen treten bei als",

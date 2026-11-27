@@ -33,7 +33,7 @@ const out = process.argv[2]
   await hp.locator('[data-testid="app-card"]').first().waitFor(); await hp.waitForTimeout(2000)
   check('Hebrew: the page is right-to-left', await hp.evaluate(() => document.documentElement.dir) === 'rtl')
   const body = await hp.locator('[data-testid="app-launcher"]').innerText()
-  check('Hebrew: translated, no raw keys', /האפליקציות שלך/.test(body) && !/apps\.[a-zA-Z]+/.test(body), body.slice(0, 120).replace(/\s+/g, ' '))
+  check('Hebrew: translated, no raw keys', /משותף איתך/.test(body) && !/apps\.[a-zA-Z]+/.test(body), body.slice(0, 120).replace(/\s+/g, ' '))
   check('Hebrew: no i18n warnings on the launcher', warns.length === 0, warns.join(' | '))
   await hp.screenshot({ path: `${out}/50-launcher-hebrew.png` })
   await hp.locator('[data-testid="app-card"]').first().click(); await hp.waitForURL(/\/d\//); await hp.getByTestId('app-back').waitFor(); await hp.waitForTimeout(3000)

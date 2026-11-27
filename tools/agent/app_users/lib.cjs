@@ -6,7 +6,8 @@ try { ({ chromium } = require('playwright')) } catch { ({ chromium } = require('
 const fs = require('fs')
 const BOW = process.env.BOW_URL || 'http://localhost:3000'
 async function open(opts = {}) {
-  const browser = await chromium.launch()
+  // PW_CHANNEL=chrome drives the installed Chrome (where Playwright's own download is blocked).
+  const browser = await chromium.launch(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {})
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, ...opts })
   return { browser, context }
 }

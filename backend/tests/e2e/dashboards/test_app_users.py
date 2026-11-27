@@ -16,9 +16,10 @@ The contract, through the HTTP surface:
   account, or who was invited, keeps the role they have; opening more apps
   never changes it. Giving or taking the workspace is a role change, effective
   on the next request.
-* The launcher lists exactly the published artifacts the reader can open that
-  an enabled host application may show, and an app user can ask the people
-  who manage members for the workspace.
+* The launcher ("Shared with you") lists exactly the published artifacts the
+  reader can open -- apps, dashboards and docs, each marked with its kind and
+  filterable by it -- and an app user can ask the people who manage members
+  for the workspace.
 """
 from __future__ import annotations
 
@@ -39,6 +40,8 @@ pytestmark = pytest.mark.e2e
 DASH = "conv_three_dash/dash_sales"
 DECK = "conv_three_dash/deck"
 ONE = "conv_one_dash/dash"
+DOC = "doc_only/doc"
+OTHER_DOC = "doc_after_page/doc"
 ERP = "https://erp.example.com"
 REFUSED = "workspace.access_required"
 
@@ -120,11 +123,11 @@ def _allow(client, corpus, artifact_id, *hosts, by="owner"):
     assert r.status_code == 200, r.text
 
 
-def _app(client, corpus, corpus_rows, key, host, visibility="internal", users=None):
-    """A corpus dashboard, published, shared and allowed in ``host``."""
+def _app(client, corpus, corpus_rows, key, host, visibility="internal", users=None, groups=None):
+    """A corpus artifact, published, shared and (with a ``host``) allowed in it."""
     aid = own(corpus_rows, corpus, key)
     publish(aid)
-    assert share(client, corpus, aid, visibility, users=users).status_code == 200
+    assert share(client, corpus, aid, visibility, users=users, groups=groups).status_code == 200
     if host is not None:
         _allow(client, corpus, aid, host)
     return aid
@@ -588,34 +591,80 @@ def test_more_apps_never_change_the_role(people, app_user, test_client, corpus, 
 
 # ── the launcher ──────────────────────────────────────────────────────────
 
+def _cards(client, headers, **query):
+    return {a["id"]: a for a in _all_apps(client, headers, **query)}
+
+
 @pytest.mark.parametrize("as_app_user", [True, False])
-def test_the_launcher_lists_the_apps_the_reader_can_open(people, test_client, corpus, corpus_rows, as_app_user):
+def test_the_launcher_lists_everything_the_reader_can_open(people, test_client, corpus, corpus_rows, as_app_user):
+    """Apps, dashboards and docs alike: shared by name, by group or with the
+    whole organization. Each card opens, and what is not listed would not."""
     host = _host_app(test_client, corpus)
     retired = _host_app(test_client, corpus, enabled=False)
-    mine = _app(test_client, corpus, corpus_rows, DASH, host, "shared", users=["member"])
+    app = _app(test_client, corpus, corpus_rows, DASH, host, "shared", users=["member"])
+    dashboard = _app(test_client, corpus, corpus_rows, ONE, None, "internal")
+    doc = _app(test_client, corpus, corpus_rows, DOC, None, "shared", users=["member"])
     someone_elses = _app(test_client, corpus, corpus_rows, DECK, host, "shared", users=["direct_share"])
-    not_an_app = _app(test_client, corpus, corpus_rows, ONE, None, "internal")
+    unpublished = own(corpus_rows, corpus, OTHER_DOC)  # its conversation is shared with the organization
     if as_app_user:
         people.set_role("member", "app_user")
     reader = as_(corpus, "member")
 
     listing = _apps(test_client, reader)
     assert listing["workspace_access"] is (not as_app_user)
-    assert [a["id"] for a in listing["apps"]] == [mine]
-    card = listing["apps"][0]
-    assert card["ref"] and card["applications"] == [host["name"]]
-    # Each card opens; what is not listed is either not theirs or not an app.
-    assert test_client.get(f"/api/d/{card['ref']}", headers=reader).status_code == 200
-    assert test_client.get(f"/api/d/{someone_elses}", headers=reader).status_code in (403, 404)
-    assert test_client.get(f"/api/d/{not_an_app}", headers=reader).status_code == 200
+    cards = _cards(test_client, reader)
+    assert {app, dashboard, doc} <= set(cards)
+    assert not {someone_elses, unpublished} & set(cards)
+    assert {cards[app]["kind"], cards[dashboard]["kind"], cards[doc]["kind"]} == {"app", "dashboard", "doc"}
+    assert cards[app]["kind"] == "app" and cards[app]["applications"] == [host["name"]]
+    assert cards[dashboard]["kind"] == "dashboard" and cards[dashboard]["applications"] == []
+    assert cards[doc]["kind"] == "doc"
+    # Every card opens; what is left out would be refused.
+    for card in cards.values():
+        assert test_client.get(f"/api/d/{card['ref']}", headers=reader).status_code == 200, card
+    for refused in (someone_elses, unpublished):
+        assert test_client.get(f"/api/d/{refused}", headers=reader).status_code in (403, 404)
 
-    # Only an enabled host application makes an artifact an app.
-    _allow(test_client, corpus, not_an_app, retired)
-    assert [a["id"] for a in _apps(test_client, reader)["apps"]] == [mine]
-    _allow(test_client, corpus, not_an_app, host)
-    assert {a["id"] for a in _apps(test_client, reader)["apps"]} == {mine, not_an_app}
-    # The publisher and an admin see their own list, by the same rule.
-    assert {a["id"] for a in _apps(test_client, as_(corpus, "owner"))["apps"]} == {mine, someone_elses, not_an_app}
+    # Only an enabled host application makes an artifact an app, whatever its mode.
+    _allow(test_client, corpus, dashboard, retired)
+    assert _cards(test_client, reader)[dashboard]["kind"] == "dashboard"
+    _allow(test_client, corpus, doc, host)
+    assert _cards(test_client, reader)[doc]["kind"] == "app"
+    # The publisher sees their own list, by the same rule.
+    assert {app, dashboard, doc, someone_elses} <= set(_cards(test_client, as_(corpus, "owner")))
+
+
+def test_a_group_share_reaches_an_app_users_launcher(people, test_client, corpus, corpus_rows):
+    doc = _app(test_client, corpus, corpus_rows, DOC, None, "shared", groups=["analysts"])
+    people.set_role("group_share", "app_user")
+    reader = as_(corpus, "group_share")
+    assert _apps(test_client, reader)["workspace_access"] is False
+    assert _cards(test_client, reader)[doc]["kind"] == "doc"
+    assert doc not in _cards(test_client, as_(corpus, "direct_share"))
+
+
+def test_the_launcher_filters_by_kind(people, app_user, test_client, corpus, corpus_rows):
+    host = _host_app(test_client, corpus)
+    made = {
+        "app": _app(test_client, corpus, corpus_rows, DASH, host, "shared", users=["member"]),
+        "dashboard": _app(test_client, corpus, corpus_rows, ONE, None, "shared", users=["member"]),
+        "doc": _app(test_client, corpus, corpus_rows, DOC, None, "internal"),
+    }
+    # A doc some host application may show is an app, and only that.
+    doc_app = _app(test_client, corpus, corpus_rows, OTHER_DOC, host, "shared", users=["member"])
+    everything = _cards(test_client, app_user)
+    by_kind = {}
+    for kind, aid in made.items():
+        cards = _cards(test_client, app_user, kind=kind)
+        assert aid in cards and all(card["kind"] == kind for card in cards.values()), (kind, cards)
+        by_kind[kind] = set(cards)
+    assert doc_app in by_kind["app"] and doc_app not in by_kind["doc"]
+    # The filters split the whole list: nothing in two, nothing in none.
+    assert set().union(*by_kind.values()) == set(everything)
+    assert sum(len(ids) for ids in by_kind.values()) == len(everything)
+    found = _cards(test_client, app_user, kind="doc", q=everything[made["doc"]]["title"])
+    assert made["doc"] in found and made["app"] not in found
+    assert test_client.get("/api/apps", headers=app_user, params={"kind": "report"}).status_code == 422
 
 
 def test_an_unpublished_or_unshared_app_leaves_the_launcher(people, app_user, test_client, corpus, corpus_rows):
@@ -723,14 +772,14 @@ def test_an_app_user_reads_what_is_published_not_the_draft_of_what_they_own(peop
 
 def test_the_launcher_pages_and_searches_past_what_the_reader_may_not_open(people, app_user, test_client, corpus,
                                                                            corpus_rows):
-    """Three apps sort before the reader's, and are not theirs. A page of one
-    still finds theirs, the pages add up to the whole list, and search runs
-    over all of it."""
+    """Three artifacts of mixed kinds sort before the reader's (an app and a
+    doc), and are not theirs. A page of one still finds theirs, the pages add
+    up to the whole list, in each kind too, and search runs over all of it."""
     host = _host_app(test_client, corpus)
-    theirs = [_app(test_client, corpus, corpus_rows, key, host, "shared", users=["member"])
-              for key in (DASH, ONE)]
-    others = [_app(test_client, corpus, corpus_rows, key, host, "shared", users=["direct_share"])
-              for key in (DECK, "thumbnail/dash", "conv_three_dash/dash_stock")]
+    theirs = [_app(test_client, corpus, corpus_rows, DASH, host, "shared", users=["member"]),
+              _app(test_client, corpus, corpus_rows, DOC, None, "shared", users=["member"])]
+    others = [_app(test_client, corpus, corpus_rows, key, host if index else None, "shared", users=["direct_share"])
+              for index, key in enumerate((OTHER_DOC, "thumbnail/dash", "conv_three_dash/dash_stock"))]
     for index, aid in enumerate(others):
         corpus_rows.update("artifacts", aid, title=f"AAA {index}")
     corpus_rows.update("artifacts", theirs[0], title="Zebra crossing")
@@ -740,6 +789,8 @@ def test_the_launcher_pages_and_searches_past_what_the_reader_may_not_open(peopl
     assert [a["title"] for a in first["apps"]] == ["Yak shaving"] and first["next"] is not None
     assert [a["title"] for a in _all_apps(test_client, app_user, limit=1)] == ["Yak shaving", "Zebra crossing"]
     assert test_client.get("/api/apps", headers=app_user).json()["next"] is None
+    assert [a["title"] for a in _all_apps(test_client, app_user, kind="doc", limit=1)] == ["Yak shaving"]
+    assert [a["title"] for a in _all_apps(test_client, app_user, kind="app", limit=1)] == ["Zebra crossing"]
 
     found = test_client.get("/api/apps", headers=app_user, params={"q": "zebra", "limit": 1}).json()
     assert [a["id"] for a in found["apps"]] == [theirs[0]] and found["next"] is None
