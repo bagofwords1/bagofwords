@@ -5186,7 +5186,9 @@
       "delete": {
         "title": "¿Eliminar {name}?",
         "hint": "Los informes que usan este entorno ya no podrán iniciar un sandbox desde él. No se puede deshacer.",
-        "confirm": "Eliminar entorno"
+        "confirm": "Eliminar entorno",
+        "inUseHint": "Puedes eliminar sus sandboxes junto con el entorno. Se perderá todo lo que contengan.",
+        "withSandboxes": "Eliminar también sus sandboxes"
       },
       "toast": {
         "created": "Entorno creado",
@@ -6208,7 +6210,18 @@
     "sandbox.bootstrap_running": "Este backend ya se está preparando.",
     "sandbox.backend_not_found": "Este backend ya no existe.",
     "sandbox.environment_not_found": "Este entorno ya no existe.",
-    "agent_sandboxes.disabled": "Los sandboxes de agentes están desactivados en este servidor. Para activarlos, define BOW_AGENT_SANDBOXES_ENABLED=true y reinicia el servidor."
+    "agent_sandboxes.disabled": "Los sandboxes de agentes están desactivados en este servidor. Para activarlos, define BOW_AGENT_SANDBOXES_ENABLED=true y reinicia el servidor.",
+    "sandbox.disabled": "Los sandboxes están desactivados para esta organización.",
+    "sandbox.forbidden": "No tienes permiso para usar sandboxes aquí.",
+    "sandbox.no_environment": "No hay ningún entorno de sandbox que puedas usar. Pide a un administrador que te dé acceso a uno.",
+    "sandbox.environment_not_allowed": "No puedes usar este entorno de sandbox.",
+    "sandbox.environment_in_use": "Aún existen sandboxes creados a partir de este entorno y conservan su política de red.",
+    "sandbox.quota_user": "Has alcanzado el límite de sandboxes en ejecución. Espera a que uno se detenga o elimina uno.",
+    "sandbox.quota_total": "La organización ha alcanzado su límite de sandboxes en ejecución. Inténtalo más tarde.",
+    "sandbox.busy": "El sandbox de este informe ya está ejecutando algo. Espera a que termine.",
+    "sandbox.not_found": "Este sandbox ya no existe.",
+    "sandbox.packages_need_network": "Este sandbox no tiene acceso a internet, por lo que no puede instalar paquetes.",
+    "sandbox.input_not_allowed": "Solo se pueden pasar al sandbox archivos de este informe."
   },
   "email": {
     "dashboardShare": {

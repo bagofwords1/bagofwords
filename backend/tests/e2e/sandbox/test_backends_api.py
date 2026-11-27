@@ -393,3 +393,76 @@ def test_the_switch_on_the_settings_tab_is_what_turns_sandboxes_on(sandbox_cast,
         assert test_client.get("/api/sandbox/settings", headers=admin).json()["running_sandboxes"] == 1
     finally:
         fake_driver.reset_fake_backends()
+
+
+# ── review fixes: a changed address, and two bootstraps at once ──────────
+
+
+def test_pointing_a_server_backend_at_another_address_forgets_what_was_learned_about_the_old_one(world, test_client, admin):
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.models.sandbox import SandboxBackend
+
+    backend = test_client.post(BASE, json={"name": "sbx-linux", "type": "docker-ssh", "config": {
+        "address": "old.example.com", "ssh_user": "ubuntu"}}, headers=admin).json()
+
+    import asyncssh
+    old_host_key = asyncssh.generate_private_key("ssh-ed25519").export_public_key().decode().strip()
+
+    async def as_if_bootstrapped(db):
+        row = await db.get(SandboxBackend, backend["id"])
+        row.driver_state = {"ssh_host_key": old_host_key, "prepared": True,
+                            "ca_cert": "-----BEGIN CERTIFICATE-----old"}
+        flag_modified(row, "driver_state")
+        row.bootstrap_status, row.enabled, row.status = "ready", True, "healthy"
+        await db.commit()
+    world.call(as_if_bootstrapped)
+
+    # Something that is not the server's address keeps everything.
+    same = test_client.put(f"{BASE}/{backend['id']}", json={"config": {"address": "old.example.com", "ssh_user": "deploy"}}, headers=admin).json()
+    assert (same["enabled"], same["bootstrap_status"], same["info"]["host_key_pinned"]) == (True, "ready", True)
+
+    moved = test_client.put(f"{BASE}/{backend['id']}", json={"config": {"address": "new.example.com", "ssh_user": "deploy"}}, headers=admin)
+    assert moved.status_code == 200, moved.text
+    moved = moved.json()
+    assert moved["config"]["address"] == "new.example.com"
+    assert (moved["enabled"], moved["bootstrap_status"], moved["bootstrap_steps"], moved["status"]) == (False, "none", [], "unknown")
+    assert moved["info"]["host_key_pinned"] is False, "the old server's host key is not the new server's"
+    assert world.rows(SandboxBackend, SandboxBackend.id == backend["id"])[0].driver_state == {}
+    assert test_client.put(f"{BASE}/{backend['id']}", json={"enabled": True}, headers=admin).status_code == 409
+    assert "server" in _audit(world, "sandbox_backend.updated", backend["id"])[-1].details["changed"]
+
+
+def test_only_the_address_and_port_make_it_another_server():
+    from app.services.sandbox.drivers import registry
+
+    base = {"address": "a.example.com", "ssh_port": 22, "ssh_user": "root", "sandbox_port": 8443}
+    assert registry.is_another_backend("docker-ssh", base, {**base, "address": "b.example.com"}) is True
+    assert registry.is_another_backend("docker-ssh", base, {**base, "ssh_port": 2222}) is True
+    assert registry.is_another_backend("docker-ssh", base, {**base, "ssh_user": "ubuntu", "sandbox_port": 9443}) is False
+    assert registry.is_another_backend("fake", {"x": 1}, {"x": 2}) is False
+
+
+def test_two_bootstrap_requests_at_the_same_moment_cannot_both_start(world, test_client, admin):
+    from datetime import datetime, timedelta
+
+    from app.models.sandbox import SandboxBackend
+    from app.services.sandbox import backends as backend_service
+
+    backend = _create(test_client, admin).json()
+
+    async def both_claim():
+        # Each request has its own session and read the backend before the other committed.
+        async with world.session() as one, world.session() as two:
+            first, second = await one.get(SandboxBackend, backend["id"]), await two.get(SandboxBackend, backend["id"])
+            assert first.bootstrap_status == second.bootstrap_status == "none"
+            return (await backend_service.claim_bootstrap(one, first, stale_seconds=1800),
+                    await backend_service.claim_bootstrap(two, second, stale_seconds=1800))
+    assert world.call(lambda db: both_claim()) == (True, False)
+
+    async def claim_after_the_worker_died(db):
+        row = await db.get(SandboxBackend, backend["id"])
+        row.updated_at = datetime.utcnow() - timedelta(hours=1)
+        await db.commit()
+        return await backend_service.claim_bootstrap(db, row, stale_seconds=1800)
+    assert world.call(claim_after_the_worker_died) is True, "a claim nobody is working on is taken over"

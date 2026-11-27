@@ -162,6 +162,14 @@ def prepare_credentials(name: str, config: Dict[str, Any], credentials: Dict[str
     return hook(config, credentials)
 
 
+def is_another_backend(name: str, previous_config: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    """Whether a settings change points the backend at a different machine or
+    cluster, so that what the driver learned about the old one (pinned
+    identity, certificates, "prepared") must be forgotten."""
+    hook = getattr(driver_class(name), "is_another_backend", None)
+    return bool(hook(previous_config, config)) if hook is not None else False
+
+
 def describe_type(name: str) -> Dict[str, Any]:
     """What the admin form needs for one type: its schemas and what it can offer."""
     backend_type = get_backend_type(name)

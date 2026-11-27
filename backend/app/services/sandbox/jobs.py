@@ -23,10 +23,11 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.models.sandbox import Sandbox, SandboxBackend, SandboxRun
 from app.services.sandbox import backends as backend_service
+from app.services.sandbox import errors
 from app.services.sandbox.drivers.base import (
     CAP_STOP_RESUME, STATUS_MISSING, STATUS_STOPPED, SandboxDriverError, SandboxHandle,
 )
@@ -113,9 +114,21 @@ async def _lifecycle_one(db, service: SandboxService, sandbox: Sandbox, settings
     if sandbox.state == "busy":
         limit = int((sandbox.limits or {}).get("run_timeout_seconds") or 3600) + STUCK_RUN_SLACK_SECONDS
         if (age(used) or 0) > limit:
+            # Only if nothing touched it since this pass read it: a run that
+            # finished and another that started would look the same by state alone.
+            released = await db.execute(
+                update(Sandbox).where(
+                    Sandbox.id == sandbox.id, Sandbox.state == "busy", Sandbox.last_used_at == sandbox.last_used_at,
+                ).values(state="ready")
+            )
+            if released.rowcount != 1:
+                await db.rollback()
+                return None
             await _fail_running_runs(db, sandbox.id, now)
-            await service._set_state(db, sandbox, "ready", None, details={"reason": "the run was abandoned"})
+            await service._event(db, sandbox.id, "ready", None,
+                                 {"from": "busy", "to": "ready", "reason": "the run was abandoned"})
             await db.commit()
+            await db.refresh(sandbox)
             return "recovered"
         return None
     if sandbox.state == "provisioning":
@@ -149,12 +162,15 @@ async def _lifecycle_one(db, service: SandboxService, sandbox: Sandbox, settings
             backend = await db.get(SandboxBackend, sandbox.backend_id) if sandbox.backend_id else None
             if backend is not None and CAP_STOP_RESUME not in (backend.capabilities or []):
                 return None  # this backend cannot stop; the maximum lifetime still applies
-            await service.stop(db, sandbox, None, reason="idle")
+            try:
+                await service.stop(db, sandbox, None, reason="idle")
+            except SandboxError as exc:
+                if exc.code == errors.BUSY:
+                    return None  # a run claimed it since this pass read it
+                raise
             return "stopped"
         if sandbox.state == "ready" and unused >= settings.mark_idle_after_seconds:
-            await service._set_state(db, sandbox, "idle", None)
-            await db.commit()
-            return "idle"
+            return "idle" if await service.mark_idle(db, sandbox) else None
     return None
 
 

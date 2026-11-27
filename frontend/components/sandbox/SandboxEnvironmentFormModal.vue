@@ -276,9 +276,15 @@ const grantsPayload = (): SandboxAccessGrant[] =>
 const grantKey = (grants: SandboxAccessGrant[]) =>
     grants.map(grant => `${grant.principal_type}:${grant.principal_id}`).sort().join('|')
 
+// Set once this dialog has created the environment. If a later step of the
+// same save fails (the access list), a retry updates this environment instead
+// of creating a second one with the same name.
+const createdId = ref<string | null>(null)
+
 watch(() => props.modelValue, (isOpen) => {
     if (!isOpen) return
     errorMessage.value = ''
+    createdId.value = null
     const env = props.environment
     Object.assign(form, DEFAULTS, env ? {
         name: env.name, description: env.description || '', image: env.image,
@@ -310,9 +316,11 @@ async function save() {
     }
     let saved: SandboxEnvironment | null = null
     try {
-        saved = props.environment
-            ? await call<SandboxEnvironment>(`/environments/${props.environment.id}`, { method: 'PUT', body })
+        const existingId = props.environment?.id || createdId.value
+        saved = existingId
+            ? await call<SandboxEnvironment>(`/environments/${existingId}`, { method: 'PUT', body })
             : await call<SandboxEnvironment>('/environments', { method: 'POST', body })
+        if (!props.environment) createdId.value = saved.id
         const grants = grantsPayload()
         if (grantKey(grants) !== grantKey(saved.access || [])) {
             saved = {

@@ -8,10 +8,10 @@ backend's config or driver state.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -242,6 +242,25 @@ async def update_backend(db: AsyncSession, organization_id: str, actor_id: Optio
         merged.update(stored)
         config, merged = _complete(backend.type, config, merged, previous_config=previous_config)
         if config != previous_config:
+            if registry.is_another_backend(backend.type, previous_config, config):
+                # It now points at a different server. Nothing learned about the
+                # old one holds: not its pinned identity, not its certificate,
+                # not "bootstrapped". Start over, disabled, so no sandbox is
+                # placed there before the admin has confirmed and bootstrapped it.
+                remaining = await live_sandbox_count(db, backend.id)
+                if remaining:
+                    raise SandboxError(
+                        errors.BACKEND_IN_USE,
+                        f"This backend still has {remaining} sandbox(es) on the current server. Delete them "
+                        "before pointing it at another one.", status=409,
+                    )
+                backend.driver_state = {}
+                flag_modified(backend, "driver_state")
+                backend.bootstrap_status, backend.bootstrap_steps = "none", []
+                flag_modified(backend, "bootstrap_steps")
+                backend.enabled = False
+                backend.status, backend.last_error, backend.last_checked_at = "unknown", None, None
+                changed.append("server")
             backend.config = config
             flag_modified(backend, "config")
             changed.append("config")
@@ -306,6 +325,26 @@ async def check_backend(db: AsyncSession, organization_id: str, backend: Sandbox
     await store_driver_state(db, backend, driver)
     await db.commit()
     return health
+
+
+async def claim_bootstrap(db: AsyncSession, backend: SandboxBackend, *, stale_seconds: int) -> bool:
+    """Take the right to bootstrap this backend, atomically: two requests at the
+    same moment cannot both get it. A claim older than ``stale_seconds`` is
+    taken over (its worker died)."""
+    now = _now()
+    claimed = await db.execute(
+        update(SandboxBackend).where(
+            SandboxBackend.id == backend.id,
+            or_(
+                SandboxBackend.bootstrap_status != "running",
+                SandboxBackend.updated_at.is_(None),
+                SandboxBackend.updated_at < now - timedelta(seconds=stale_seconds),
+            ),
+        ).values(bootstrap_status="running", updated_at=now)
+    )
+    await db.commit()
+    await db.refresh(backend)
+    return claimed.rowcount == 1
 
 
 async def mark_bootstrap_started(db: AsyncSession, backend: SandboxBackend, driver: Optional[SandboxDriver] = None) -> List[dict]:

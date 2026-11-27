@@ -34,11 +34,19 @@ INVALID_STATE = "sandbox.invalid_state"
 BACKEND_NOT_FOUND = "sandbox.backend_not_found"
 BACKEND_IN_USE = "sandbox.backend_in_use"
 BACKEND_NOT_READY = "sandbox.backend_not_ready"
+ENVIRONMENT_IN_USE = "sandbox.environment_in_use"
 NAME_TAKEN = "sandbox.name_taken"
 
 
 def disabled() -> SandboxError:
     return SandboxError(DISABLED, "Agent sandboxes are not enabled for this organization.", status=403)
+
+
+def starting() -> SandboxError:
+    return SandboxError(
+        BUSY, "This report's sandbox is still being created by another run. Try again in a moment.",
+        status=409,
+    )
 
 
 def busy() -> SandboxError:

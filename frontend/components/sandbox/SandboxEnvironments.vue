@@ -119,10 +119,11 @@
                 <h3 class="text-lg font-semibold text-ink">{{ $t('sandbox.environments.delete.title', { name: confirmDelete?.name || '' }) }}</h3>
                 <p class="mt-1 text-sm text-ink-muted leading-relaxed">{{ $t('sandbox.environments.delete.hint') }}</p>
                 <p v-if="deleteError" class="mt-3 text-sm text-red-600 dark:text-red-400 break-words" role="alert">{{ deleteError }}</p>
+                <p v-if="deleteInUse" class="mt-1 text-xs text-ink-muted leading-relaxed" data-testid="sandbox-delete-environment-in-use">{{ $t('sandbox.environments.delete.inUseHint') }}</p>
                 <div class="flex justify-end gap-2 pt-5">
                     <UButton variant="ghost" color="gray" :disabled="deleting" @click="confirmDelete = null">{{ $t('common.cancel') }}</UButton>
-                    <UButton color="red" :loading="deleting" data-testid="sandbox-delete-environment-confirm" @click="remove">
-                        {{ $t('sandbox.environments.delete.confirm') }}
+                    <UButton color="red" :loading="deleting" data-testid="sandbox-delete-environment-confirm" @click="remove(deleteInUse)">
+                        {{ deleteInUse ? $t('sandbox.environments.delete.withSandboxes') : $t('sandbox.environments.delete.confirm') }}
                     </UButton>
                 </div>
             </div>
@@ -139,7 +140,7 @@ import SandboxEnvironmentFormModal from '~/components/sandbox/SandboxEnvironment
 const { t, locale } = useI18n()
 const toast = useToast()
 const { call } = useSandboxApi()
-const { getErrorMessage } = useErrorMessage()
+const { getErrorMessage, getErrorCode } = useErrorMessage()
 const { organization } = useOrganization()
 
 const environments = ref<SandboxEnvironment[]>([])
@@ -154,6 +155,8 @@ const editing = ref<SandboxEnvironment | null>(null)
 const confirmDelete = ref<SandboxEnvironment | null>(null)
 const deleting = ref(false)
 const deleteError = ref('')
+// The environment still has sandboxes: the next confirm deletes them with it.
+const deleteInUse = ref(false)
 const togglingId = ref<string | null>(null)
 
 async function load() {
@@ -220,23 +223,27 @@ async function setEnabled(environment: SandboxEnvironment, enabled: boolean) {
     }
 }
 
-async function remove() {
+async function remove(withSandboxes = false) {
     const environment = confirmDelete.value
     if (!environment || deleting.value) return
     deleting.value = true
     deleteError.value = ''
     try {
-        await call(`/environments/${environment.id}`, { method: 'DELETE' })
+        await call(`/environments/${environment.id}`, {
+            method: 'DELETE',
+            query: withSandboxes ? { delete_sandboxes: 'true' } : undefined,
+        })
         environments.value = environments.value.filter(item => item.id !== environment.id)
         toast.add({ title: t('sandbox.environments.toast.deleted'), color: 'green' })
         confirmDelete.value = null
     } catch (error) {
         deleteError.value = getErrorMessage(error, t('sandbox.environments.toast.deleteFailed'))
+        deleteInUse.value = getErrorCode(error) === 'sandbox.environment_in_use' && !withSandboxes
     } finally {
         deleting.value = false
     }
 }
-watch(confirmDelete, () => { deleteError.value = '' })
+watch(confirmDelete, () => { deleteError.value = ''; deleteInUse.value = false })
 
 const NETWORK_COLORS: Record<string, string> = { none: 'gray', registries: 'blue', allowlist: 'blue', full: 'amber' }
 const networkColor = (policy: string) => (NETWORK_COLORS[policy] || 'gray') as any

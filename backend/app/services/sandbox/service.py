@@ -287,6 +287,18 @@ class SandboxService:
         payload.update(details or {})
         await self._event(db, sandbox.id, event or state, actor_id, payload)
 
+    async def mark_idle(self, db: AsyncSession, sandbox: Sandbox) -> bool:
+        """ready → idle, only if it is still ready: a run may have claimed it
+        since the caller read it. Returns whether it was marked."""
+        marked = await db.execute(
+            update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state == "ready").values(state="idle")
+        )
+        if marked.rowcount == 1:
+            await self._event(db, sandbox.id, "idle", None, {"from": "ready", "to": "idle"})
+        await db.commit()
+        await db.refresh(sandbox)
+        return marked.rowcount == 1
+
     async def _driver(self, db: AsyncSession, sandbox: Sandbox) -> tuple:
         backend = await db.get(SandboxBackend, sandbox.backend_id) if sandbox.backend_id else None
         if backend is None:
@@ -527,6 +539,15 @@ class SandboxService:
                               actor_id: Optional[str]) -> bool:
         """Make sure the sandbox answers; resume it if it was stopped. Returns
         whether it was resumed. Raises ``_Lost`` when it is gone from its backend."""
+        # Another call may be creating this sandbox or running in it right now
+        # (parallel tool calls, another worker). Its daemon may not answer yet,
+        # or answer slowly under load: that is not "lost", and nothing here may
+        # touch it. Only a sandbox at rest is health-checked, resumed or recreated.
+        await db.refresh(sandbox)
+        if sandbox.state == "provisioning":
+            raise errors.starting()
+        if sandbox.state == "busy":
+            raise errors.busy()
         backend, driver = await self._driver(db, sandbox)
         handle = self._handle(sandbox)
         resumed = False
@@ -537,6 +558,10 @@ class SandboxService:
                         sandbox.last_seen_at = _now()
                         return False
                 status = await driver.status(handle)
+                # Re-read: a run may have claimed it while the checks above were in flight.
+                await db.refresh(sandbox)
+                if sandbox.state == "busy":
+                    raise errors.busy()
                 if status.state == STATUS_MISSING:
                     raise _Lost("it is no longer on its backend")
                 if status.state != STATUS_STOPPED:
@@ -649,6 +674,48 @@ class SandboxService:
             environment=(sandbox.limits or {}).get("environment"), network_policy=policy,
             created=flags["created"], resumed=resumed, recreated=flags["recreated"],
         )
+        try:
+            return await self._run_claimed(
+                db, report, actor_id, request, plan, sandbox, run, outcome, policy, timeout,
+                progress=progress, on_output=on_output, cancel=cancel, save_artifact=save_artifact,
+            )
+        except asyncio.CancelledError:
+            # The caller's task was cancelled (the turn was torn down, the client
+            # went away). Nothing after this point in the cancelled task runs, so
+            # put the sandbox back in a fresh session, shielded from the same
+            # cancellation; otherwise it stays busy until the lifecycle job
+            # recovers it, and every run on the report is refused meanwhile.
+            await asyncio.shield(self._release_cancelled(sandbox.id, run.id, actor_id))
+            raise
+
+    async def _release_cancelled(self, sandbox_id: str, run_id: str, actor_id: Optional[str]) -> None:
+        try:
+            async with self._sessions()() as db:
+                now = _now()
+                finished = await db.execute(
+                    update(SandboxRun).where(SandboxRun.id == run_id, SandboxRun.status == "running")
+                    .values(status="cancelled", finished_at=now)
+                )
+                released = await db.execute(
+                    update(Sandbox).where(Sandbox.id == sandbox_id, Sandbox.state == "busy")
+                    .values(state="ready", last_used_at=now)
+                )
+                if finished.rowcount:
+                    await self._event(db, sandbox_id, "run_finished", actor_id, {
+                        "run_id": run_id, "status": "cancelled", "error": "the run was cancelled",
+                    })
+                if released.rowcount:
+                    await self._event(db, sandbox_id, "ready", actor_id, {
+                        "from": "busy", "to": "ready", "reason": "the run was cancelled",
+                    })
+                await db.commit()
+        except Exception:  # noqa: BLE001 - the lifecycle job recovers an abandoned run as a last resort
+            logger.exception("could not release sandbox %s after a cancelled run", sandbox_id)
+
+    async def _run_claimed(self, db: AsyncSession, report: ReportRef, actor_id: Optional[str], request: RunRequest,
+                           plan: "_Plan", sandbox: Sandbox, run: SandboxRun, outcome: RunOutcome, policy: str,
+                           timeout: int, *, progress, on_output, cancel, save_artifact) -> RunOutcome:
+        """The part of a run that happens while the sandbox is claimed (busy)."""
         started = time.monotonic()
         sink = _OutputSink(self._sessions(), run.id)
         error: Optional[SandboxError] = None
@@ -662,6 +729,7 @@ class SandboxService:
                         await progress("installing_packages")
                         await self._install_packages(db, runtime, sandbox, actor_id, request, plan, policy)
                     before = await _snapshot(runtime)
+                    run_began = await _sandbox_clock(runtime)
 
                     async def forward(kind: str, chunk: bytes) -> None:
                         await sink.add(kind, chunk)
@@ -678,7 +746,7 @@ class SandboxService:
                     outcome.stdout_truncated = result.stdout_bytes > MODEL_OUTPUT_TAIL_BYTES
                     outcome.stderr_truncated = result.stderr_bytes > MODEL_OUTPUT_TAIL_BYTES
                     await progress("collecting_artifacts")
-                    await self._collect_artifacts(runtime, before, outcome, save_artifact)
+                    await self._collect_artifacts(runtime, before, outcome, save_artifact, run_began)
             finally:
                 await driver.close()
         except SandboxError as exc:
@@ -793,10 +861,19 @@ class SandboxService:
             )
 
     async def _collect_artifacts(self, runtime, before: Dict[str, tuple], outcome: RunOutcome,
-                                 save_artifact: Optional[ArtifactSaver]) -> None:
-        """Save what the run wrote under outputs/: new files and changed ones."""
+                                 save_artifact: Optional[ArtifactSaver], run_began: Optional[str] = None) -> None:
+        """Save what the run wrote under outputs/: new files and changed ones.
+
+        A file counts as changed when its size or modification time differs,
+        or when it was modified at or after the moment the run began by the
+        sandbox's own clock. The second test catches a file rewritten to the
+        same length within the timestamp's precision (a whole second on some
+        filesystems), which the first would miss."""
         after = await _snapshot(runtime)
-        changed = sorted(name for name, stamp in after.items() if before.get(name) != stamp)
+        changed = sorted(
+            name for name, stamp in after.items()
+            if before.get(name) != stamp or _not_before(stamp[1], run_began)
+        )
         total = 0
         for name in changed:
             size = after[name][0]
@@ -839,15 +916,43 @@ class SandboxService:
         try:
             if CAP_STOP_RESUME not in driver.capabilities():
                 raise SandboxError(errors.INVALID_STATE, "This backend cannot stop and resume sandboxes", status=409)
-            await driver.stop(self._handle(sandbox))
-        except SandboxNotFound:
-            await self._fail(db, sandbox, None, "lost: it is no longer on its backend")
-            return sandbox
+            # The state above was read earlier (the lifecycle job reads a whole
+            # batch first). Claim the sandbox the way a run does, so a run that
+            # started in between is never stopped under its feet, and no run can
+            # start while the container is being stopped.
+            # last_used_at moves with the claim so the lifecycle job's "abandoned
+            # run" recovery does not take a long-idle sandbox for one; it is put back after.
+            previous, previous_used = sandbox.state, sandbox.last_used_at
+            claimed = await db.execute(
+                update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state.in_(("ready", "idle")))
+                .values(state="busy", last_used_at=_now())
+            )
+            await db.commit()
+            await db.refresh(sandbox)
+            if claimed.rowcount != 1:
+                if sandbox.state == "stopped":
+                    return sandbox
+                raise errors.busy()
+            try:
+                await driver.stop(self._handle(sandbox))
+            except SandboxNotFound:
+                await self._fail(db, sandbox, None, "lost: it is no longer on its backend")
+                return sandbox
+            except BaseException:
+                # Not stopped: give the sandbox back as it was.
+                await db.execute(
+                    update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state == "busy")
+                    .values(state=previous, last_used_at=previous_used)
+                )
+                await db.commit()
+                await db.refresh(sandbox)
+                raise
         except SandboxDriverError as exc:
             raise SandboxError(errors.UNAVAILABLE, f"The sandbox could not be stopped: {exc.message}", status=503) from exc
         finally:
             await driver.close()
-        await self._set_state(db, sandbox, "stopped", actor_id, details={"reason": reason})
+        sandbox.last_used_at = previous_used
+        await self._set_state(db, sandbox, "stopped", actor_id, details={"reason": reason, "from": previous})
         await audit(db, sandbox.organization_id, "sandbox.stopped", actor_id, "sandbox", sandbox.id,
                     {"title": await self._title(db, sandbox, title), "report_id": sandbox.report_id, "reason": reason})
         await db.commit()
@@ -855,18 +960,24 @@ class SandboxService:
 
     async def _remove(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], *, reason: str,
                       title: Optional[str] = None) -> None:
-        if sandbox.backend_id and sandbox.driver_ref:
+        backend = await db.get(SandboxBackend, sandbox.backend_id) if sandbox.backend_id else None
+        # Only a backend that is really gone means there is nothing to remove.
+        # A backend that exists but whose driver cannot be built (or reached)
+        # still holds the container: marking the row deleted would orphan it.
+        if backend is not None and backend.deleted_at is None and sandbox.driver_ref:
             try:
-                _, driver = await self._driver(db, sandbox)
+                driver = await backend_service.build_driver(db, backend)
                 try:
                     await driver.delete(self._handle(sandbox))
                 finally:
                     await driver.close()
-            except SandboxDriverError as exc:
+            except (SandboxDriverError, SandboxError) as exc:
+                # "recreated" goes on: the report needs a working sandbox now,
+                # and reconcile removes the old container once the backend answers.
                 if reason not in ("recreated",):
-                    raise SandboxError(errors.UNAVAILABLE, f"The sandbox could not be deleted: {exc.message}", status=503) from exc
-            except SandboxError:
-                pass  # its backend is gone: nothing left to remove
+                    raise SandboxError(
+                        errors.UNAVAILABLE, f"The sandbox could not be deleted: {exc.message}", status=503,
+                    ) from exc
         await self._set_state(db, sandbox, "deleted", actor_id, details={"reason": reason})
         await audit(db, sandbox.organization_id, "sandbox.deleted", actor_id, "sandbox", sandbox.id,
                     {"title": await self._title(db, sandbox, title), "report_id": sandbox.report_id, "reason": reason})
@@ -961,6 +1072,35 @@ async def _snapshot(runtime) -> Dict[str, tuple]:
     """{file name under outputs/: (size, modified)} for every file there."""
     entries = await runtime.list_dir(WORKSPACE_OUTPUTS, recursive=True)
     return {e.name: (e.size, e.modified_at) for e in entries if e.is_file}
+
+
+async def _sandbox_clock(runtime) -> Optional[str]:
+    """Now, by the sandbox's clock, in the format its file listing uses: the
+    modification time of a file written this instant. None if it cannot be read."""
+    try:
+        await runtime.write_file(f"{RUN_DIRECTORY}/.clock", b"")
+        for entry in await runtime.list_dir(RUN_DIRECTORY):
+            if entry.is_file and entry.name.rsplit("/", 1)[-1] == ".clock":
+                return entry.modified_at
+    except Exception:  # noqa: BLE001 - only sharpens change detection; size and time still apply
+        logger.debug("could not read the sandbox clock", exc_info=True)
+    return None
+
+
+def _not_before(modified_at: Optional[str], moment: Optional[str]) -> bool:
+    """Whether a file stamped ``modified_at`` may have been written at or after
+    ``moment``, when the stamp alone cannot tell. Both are the sandbox's own
+    timestamps (same clock, same format).
+
+    Only whole-second stamps need this: with a fraction, a rewrite already
+    changes the stamp. Anything that cannot be compared counts as "no"."""
+    if not modified_at or not moment or len(modified_at) < 19 or len(moment) < 19:
+        return False
+    if modified_at[19:20] == ".":
+        return False  # sub-second precision: the stamp itself changes on a rewrite
+    if modified_at[19:].lstrip(".0123456789") != moment[19:].lstrip(".0123456789"):
+        return False  # different zone notation: not comparable as text
+    return modified_at[:19] >= moment[:19]
 
 
 def _reason(exc: Exception) -> str:

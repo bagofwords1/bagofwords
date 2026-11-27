@@ -145,11 +145,21 @@ async def update_environment(
 @requires_permission("manage_sandboxes")
 async def delete_environment(
     environment_id: str,
+    delete_sandboxes: bool = False,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    """Delete an environment. Refused while sandboxes created from it exist
+    (they keep its network policy) unless ``delete_sandboxes`` is set."""
+    from app.services.sandbox.service import SandboxService
+
     try:
+        if delete_sandboxes:
+            await environment_service.get_environment(db, organization.id, environment_id)
+            service = SandboxService()
+            for sandbox in await environment_service.live_sandboxes(db, environment_id):
+                await service.delete(db, sandbox, str(current_user.id), reason="environment deleted")
         await environment_service.delete_environment(db, organization.id, str(current_user.id), environment_id)
     except SandboxError as exc:
         raise _http(exc)
@@ -468,16 +478,21 @@ async def bootstrap_backend(
         backend = await backend_service.get_backend(db, organization.id, backend_id)
     except SandboxError as exc:
         raise _http(exc)
-    if backend.bootstrap_status == "running":
-        age = (datetime.utcnow() - (backend.updated_at or datetime.utcnow())).total_seconds()
-        if age < BOOTSTRAP_STALE_SECONDS:
-            raise AppError("sandbox.bootstrap_running", "This backend is being bootstrapped already.", status_code=409)
-    if data.wait:
-        await backend_service.bootstrap_backend(db, organization.id, str(current_user.id), backend, take_over=data.take_over)
-    else:
-        steps = await backend_service.mark_bootstrap_started(db, backend)
-        spawn(_bootstrap_in_background(str(organization.id), str(current_user.id), backend.id, data.take_over))
-        assert steps is not None
+    previous_status = backend.bootstrap_status if backend.bootstrap_status != "running" else "failed"
+    # Claimed atomically: a double click or two admins cannot both start one.
+    if not await backend_service.claim_bootstrap(db, backend, stale_seconds=BOOTSTRAP_STALE_SECONDS):
+        raise AppError("sandbox.bootstrap_running", "This backend is being bootstrapped already.", status_code=409)
+    try:
+        if data.wait:
+            await backend_service.bootstrap_backend(db, organization.id, str(current_user.id), backend, take_over=data.take_over)
+        else:
+            await backend_service.mark_bootstrap_started(db, backend)
+            spawn(_bootstrap_in_background(str(organization.id), str(current_user.id), backend.id, data.take_over))
+    except SandboxError as exc:
+        # Nothing was started (the driver could not even be built): give the claim back.
+        backend.bootstrap_status = previous_status
+        await db.commit()
+        raise _http(exc)
     return await _backend_response(db, organization.id, backend)
 
 

@@ -592,3 +592,32 @@ Not finished:
   exist in a registry. Set `BOW_SANDBOX_IMAGE`, `BOW_SANDBOX_CADDY_IMAGE`,
   `BOW_SANDBOX_FIREWALL_IMAGE` and `BOW_SANDBOX_TOOLS_IMAGE`, or preload the images
   (`deploy/sandbox/README.md`, which also lists the pinned versions).
+
+### Concurrency rules added in review
+
+These came out of the first code review and are now covered by tests in
+`tests/e2e/sandbox/`.
+
+- **Only a sandbox at rest is touched.** `_ensure_running` refuses with
+  `sandbox.busy` when the sandbox is `provisioning` or `busy`. It never
+  health-checks, and so never recreates, a sandbox another call is creating or
+  running in.
+- **Every state change made on a stale read is conditional.** The run claim, the
+  idle marking (`mark_idle`), the stop (`stop` claims the sandbox as `busy` while
+  the container is being stopped) and the abandoned-run recovery are
+  `UPDATE ... WHERE state = ...` and are skipped when no row changes.
+- **A cancelled run gives the sandbox back.** `run` catches `CancelledError`,
+  marks the run `cancelled` and the sandbox `ready` in a fresh, shielded
+  session, then re-raises.
+- **A sandbox is marked deleted only when its container is gone** or its backend
+  is. A backend that exists but cannot be reached refuses the delete, so it can
+  be retried.
+- **A backend pointed at another address starts over**: unpinned, not
+  bootstrapped, disabled. The driver decides what counts as "another"
+  (`is_another_backend`). It is refused while the backend has sandboxes.
+- **Bootstrap is claimed atomically** (`claim_bootstrap`), so two requests
+  cannot both start one.
+- **Deleting an environment** removes its grants and is refused while sandboxes
+  created from it exist, unless they are deleted with it.
+- **Changed outputs.** A file also counts as changed when its whole-second
+  timestamp is not before the moment the run began, by the sandbox's own clock.

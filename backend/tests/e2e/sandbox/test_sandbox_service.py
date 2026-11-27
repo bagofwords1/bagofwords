@@ -614,3 +614,154 @@ def test_a_sandbox_that_dies_mid_run_is_resumed_if_it_only_stopped(world, report
     outcome = world.run_code(rep, world.admin_id, _python("import os\nprint(os.path.exists('kept.txt'))"))
     assert getattr(outcome, next_run) is True
     assert outcome.stdout == ("True\n" if fate == "stopped" else "False\n")
+
+
+# ── races between runs, cancellation and the lifecycle job ───────────────
+
+
+def _set_state(world, sandbox_id, state):
+    async def _go(db):
+        sandbox = await db.get(Sandbox, sandbox_id)
+        sandbox.state = state
+        await db.commit()
+    world.call(_go)
+
+
+@pytest.mark.parametrize("state", ["provisioning", "busy"])
+def test_a_run_never_destroys_a_sandbox_another_call_is_creating_or_running_in(world, report, monkeypatch, state):
+    rep = report()
+    first = world.run_code(rep, world.admin_id, _python("open('keep.txt','w').write('kept')"))
+    _set_state(world, first.sandbox_id, state)  # as another call would have it right now
+
+    async def no_answer(self):
+        return False  # its daemon is not up yet, or is slow under load
+    from app.services.sandbox import runtime_client
+    monkeypatch.setattr(runtime_client.SandboxRuntimeClient, "health", no_answer)
+
+    with pytest.raises(SandboxError) as refused:
+        world.run_code(rep, world.admin_id, _python("print('second')"))
+    assert refused.value.code == errors.BUSY
+    sandbox = world.sandbox_of(rep)
+    assert (sandbox.id, sandbox.state) == (first.sandbox_id, state), "left exactly as the other call has it"
+    assert "failed" not in _events(world, first.sandbox_id)
+
+    monkeypatch.undo()
+    _set_state(world, first.sandbox_id, "ready")
+    after = world.run_code(rep, world.admin_id, _python("print(open('keep.txt').read())"))
+    assert (after.sandbox_id, after.recreated, after.stdout) == (first.sandbox_id, False, "kept\n")
+
+
+def test_a_cancelled_run_gives_the_sandbox_back_at_once(world, report):
+    rep = report()
+    world.run_code(rep, world.admin_id, _python("print('warm')"))
+
+    async def cancelled_mid_run():
+        started = asyncio.Event()
+
+        async def long_run():
+            async with world.session() as db:
+                return await world.service.run(db, world.report_ref(rep), world.admin_id, _python(
+                    "import time\nprint('go', flush=True)\ntime.sleep(60)"),
+                    on_output=lambda kind, chunk: started.set())
+
+        task = asyncio.ensure_future(long_run())
+        await asyncio.wait_for(started.wait(), 30)
+        task.cancel()  # the turn was torn down: no cancel event, the task itself is cancelled
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    run(cancelled_mid_run())
+    sandbox = world.sandbox_of(rep)
+    assert sandbox.state == "ready"
+    runs = sorted(world.rows(SandboxRun, SandboxRun.sandbox_id == sandbox.id), key=lambda r: r.started_at)
+    assert runs[-1].status == "cancelled" and runs[-1].finished_at is not None
+    assert world.run_code(rep, world.admin_id, _python("print('after')")).stdout == "after\n"
+
+
+def test_stop_and_idle_marking_leave_a_sandbox_alone_once_a_run_has_claimed_it(world, report):
+    """The lifecycle job reads its sandboxes first and acts later. A run that
+    claims one in between must not be stopped or relabelled."""
+    rep = report()
+    outcome = world.run_code(rep, world.admin_id, _python("print('warm')"))
+
+    async def stale_then_act(db):
+        stale = await db.get(Sandbox, outcome.sandbox_id)  # read as ready
+        assert stale.state == "ready"
+        async with world.session() as other:  # a run on another worker claims it
+            claimed = await other.get(Sandbox, outcome.sandbox_id)
+            claimed.state = "busy"
+            await other.commit()
+        assert await world.service.mark_idle(db, stale) is False
+        with pytest.raises(SandboxError) as refused:
+            await world.service.stop(db, stale, None, reason="idle")
+        return refused.value.code
+
+    assert world.call(stale_then_act) == errors.BUSY
+    assert world.sandbox_of(rep).state == "busy"
+    assert not {"idle", "stopped"} & set(_events(world, outcome.sandbox_id))
+    assert get_stub_host().get(f"sbx-{outcome.sandbox_id}").running is True, "the container was never stopped"
+
+
+def test_deleting_is_refused_while_the_backend_exists_but_cannot_be_used(world, report, monkeypatch):
+    rep = report()
+    outcome = world.run_code(rep, world.admin_id, _python("print('warm')"))
+    from app.services.sandbox import backends as backend_service
+
+    real = backend_service.build_driver
+
+    async def cannot_build(db, backend, **kwargs):
+        raise SandboxError(errors.BACKEND_NOT_READY, "The backend's settings are not valid")
+    monkeypatch.setattr(backend_service, "build_driver", cannot_build)
+
+    async def delete(db):
+        await world.service.delete(db, await db.get(Sandbox, outcome.sandbox_id), world.admin_id)
+    with pytest.raises(SandboxError) as refused:
+        world.call(delete)
+    assert refused.value.code == errors.UNAVAILABLE
+    assert world.sandbox_of(rep).state == "ready", "still known, so the delete can be retried"
+
+    # A backend that is really gone has nothing left to remove.
+    async def drop_backend(db):
+        from datetime import datetime
+
+        from app.models.sandbox import SandboxBackend
+        (await db.get(SandboxBackend, world.backend_id)).deleted_at = datetime.utcnow()
+        await db.commit()
+    world.call(drop_backend)
+    world.call(delete)
+    assert world.sandbox_of(rep) is None
+    monkeypatch.setattr(backend_service, "build_driver", real)
+
+
+def test_a_file_rewritten_to_the_same_size_within_the_same_second_is_still_returned(world, report, monkeypatch):
+    """Some filesystems stamp files to the second. Size and time then look
+    unchanged after a quick rewrite; the sandbox's own clock settles it."""
+    real_snapshot, real_clock = service_module._snapshot, service_module._sandbox_clock
+
+    def to_the_second(stamp):
+        return stamp[:19] + "Z" if stamp else stamp
+
+    async def coarse_snapshot(runtime):
+        return {name: (size, to_the_second(modified)) for name, (size, modified) in (await real_snapshot(runtime)).items()}
+
+    async def coarse_clock(runtime):
+        return to_the_second(await real_clock(runtime))
+    monkeypatch.setattr(service_module, "_snapshot", coarse_snapshot)
+    monkeypatch.setattr(service_module, "_sandbox_clock", coarse_clock)
+
+    rep = report()
+    world.run_code(rep, world.admin_id, _python("open('outputs/report.csv','w').write('aaa')"))
+    again = world.run_code(rep, world.admin_id, _python("open('outputs/report.csv','w').write('bbb')"))
+    assert [a.name for a in again.artifacts] == ["report.csv"]
+
+
+@pytest.mark.parametrize("modified, began, expected", [
+    ("2026-11-27T10:00:05Z", "2026-11-27T10:00:05Z", True),    # same second: may be this run's
+    ("2026-11-27T10:00:06Z", "2026-11-27T10:00:05Z", True),
+    ("2026-11-27T10:00:04Z", "2026-11-27T10:00:05Z", False),   # written before the run began
+    ("2026-11-27T10:00:05.123456Z", "2026-11-27T10:00:05Z", False),  # precise stamps need no help
+    ("2026-11-27T10:00:05+02:00", "2026-11-27T10:00:05Z", False),    # not comparable as text
+    (None, "2026-11-27T10:00:05Z", False), ("2026-11-27T10:00:05Z", None, False),
+])
+def test_the_same_second_rule_only_applies_to_whole_second_stamps(modified, began, expected):
+    assert service_module._not_before(modified, began) is expected

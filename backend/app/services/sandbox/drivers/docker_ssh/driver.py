@@ -76,6 +76,12 @@ class DockerSSHDriver(SandboxDriver):
     # ── registry hooks ──
 
     @staticmethod
+    def is_another_backend(previous_config: Dict[str, Any], config: Dict[str, Any]) -> bool:
+        """A different address or SSH port is a different server: its host key,
+        its router's certificate and "bootstrapped" are not this one's."""
+        return any(previous_config.get(key) != config.get(key) for key in ("address", "ssh_port"))
+
+    @staticmethod
     def prepare_credentials(config: Dict[str, Any], credentials: Dict[str, Any]) -> tuple:
         """Before a backend is stored: generate a key pair when none was pasted,
         and keep the public key with the (non-secret) config so it can be shown."""

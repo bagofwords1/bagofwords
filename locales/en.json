@@ -5263,7 +5263,9 @@
       "delete": {
         "title": "Delete {name}?",
         "hint": "Reports that use this environment will no longer be able to start a sandbox from it. This cannot be undone.",
-        "confirm": "Delete environment"
+        "confirm": "Delete environment",
+        "inUseHint": "You can delete its sandboxes together with the environment. Anything in them is lost.",
+        "withSandboxes": "Delete its sandboxes too"
       },
       "toast": {
         "created": "Environment created",
@@ -6283,7 +6285,18 @@
     "sandbox.bootstrap_running": "This backend is being bootstrapped already.",
     "sandbox.backend_not_found": "This backend no longer exists.",
     "sandbox.environment_not_found": "This environment no longer exists.",
-    "agent_sandboxes.disabled": "Agent sandboxes are turned off on this server. To turn them on, set BOW_AGENT_SANDBOXES_ENABLED=true and restart the server."
+    "agent_sandboxes.disabled": "Agent sandboxes are turned off on this server. To turn them on, set BOW_AGENT_SANDBOXES_ENABLED=true and restart the server.",
+    "sandbox.disabled": "Sandboxes are turned off for this organization.",
+    "sandbox.forbidden": "You do not have permission to use sandboxes here.",
+    "sandbox.no_environment": "There is no sandbox environment you may use. Ask an admin to grant you one.",
+    "sandbox.environment_not_allowed": "You may not use this sandbox environment.",
+    "sandbox.environment_in_use": "Sandboxes created from this environment still exist and keep its network policy.",
+    "sandbox.quota_user": "You have reached the limit of running sandboxes. Wait for one to stop, or delete one.",
+    "sandbox.quota_total": "The organization has reached its limit of running sandboxes. Try again later.",
+    "sandbox.busy": "This report's sandbox is already running something. Wait for it to finish.",
+    "sandbox.not_found": "This sandbox no longer exists.",
+    "sandbox.packages_need_network": "This sandbox has no internet access, so it cannot install packages.",
+    "sandbox.input_not_allowed": "Only files of this report can be passed to its sandbox."
   },
   "email": {
     "dashboardShare": {

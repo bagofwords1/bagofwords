@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.models.sandbox import SandboxAgentDefault, SandboxBackend, SandboxEnvironment
+from app.models.sandbox import Sandbox, SandboxAgentDefault, SandboxBackend, SandboxEnvironment
 from app.schemas.sandbox_schema import SandboxEnvironmentCreate, SandboxEnvironmentUpdate
 from app.services.sandbox import errors
 from app.services.sandbox.audit import audit
@@ -241,8 +241,32 @@ async def update_environment(db: AsyncSession, organization_id: str, actor_id: O
     return env
 
 
+async def live_sandboxes(db: AsyncSession, environment_id: str) -> List[Sandbox]:
+    """Sandboxes created from this environment that still exist. They keep the
+    network policy and limits they were created with."""
+    rows = await db.execute(
+        select(Sandbox).where(Sandbox.environment_id == str(environment_id), Sandbox.deleted_at.is_(None),
+                              Sandbox.state != "deleted")
+    )
+    return list(rows.scalars().all())
+
+
 async def delete_environment(db: AsyncSession, organization_id: str, actor_id: Optional[str], environment_id: str) -> None:
+    """Delete an environment and everything that hangs off it: who may use it
+    and the agent defaults pointing at it. Refused while sandboxes created from
+    it still exist, because they keep running with its network policy; the
+    caller deletes those first (the route does, when asked to)."""
+    from app.services.sandbox import access as access_module
+
     env = await get_environment(db, organization_id, environment_id)
+    remaining = len(await live_sandboxes(db, env.id))
+    if remaining:
+        raise SandboxError(
+            errors.ENVIRONMENT_IN_USE,
+            f"{remaining} sandbox(es) created from this environment still exist and keep its network "
+            "policy. Delete them too, or wait until they expire.", status=409,
+        )
+    await access_module.set_environment_grants(db, organization_id, actor_id, env, [])
     env.deleted_at = datetime.utcnow()
     env.is_default = False
     env.secrets = None

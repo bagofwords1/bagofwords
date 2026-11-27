@@ -284,3 +284,26 @@ def test_deleting_an_environment_removes_it_as_a_default_everywhere(world, test_
     assert world.call(lambda db: load_settings(db, world.org_id)).default_environment_id is None
     audit = _audited(world, "sandbox_environment.deleted", env["id"])
     assert len(audit) == 1 and audit[0].details["title"] == "Going away"
+
+
+def test_deleting_an_environment_removes_its_grants_and_is_refused_while_its_sandboxes_exist(world, test_client, admin, create_report, create_role):
+    from app.models.sandbox import Sandbox
+    from app.services.sandbox import access as access_module
+    from app.services.sandbox.service import RunRequest
+
+    world.add_backend("fake-1")
+    env = _create(test_client, admin, name="Internet", network_policy="full", is_default=True, image="fake-image").json()
+    role = create_role(name="Analysts", permissions=["use_agent_sandbox"], user_token=world.cast["admin"]["token"], org_id=world.org_id)
+    role = role if isinstance(role, dict) else role.json()
+    granted = test_client.put(f"{BASE}/{env['id']}/access", json={"grants": [{"principal_type": "role", "principal_id": role["id"]}]}, headers=admin)
+    assert granted.status_code == 200 and len(granted.json()) == 1, granted.text
+    rep = create_report(title="r", user_token=world.cast["admin"]["token"], org_id=world.org_id)
+    sandbox_id = world.run_code(rep, world.admin_id, RunRequest(language="python", code="print('x')")).sandbox_id
+
+    refused = test_client.delete(f"{BASE}/{env['id']}", headers=admin)
+    assert refused.status_code == 409 and refused.json()["error_code"] == "sandbox.environment_in_use"
+    assert test_client.get(f"{BASE}/{env['id']}", headers=admin).status_code == 200, "nothing was deleted"
+
+    assert test_client.delete(f"{BASE}/{env['id']}", params={"delete_sandboxes": "true"}, headers=admin).json() == {"deleted": True}
+    assert world.rows(Sandbox, Sandbox.id == sandbox_id)[0].state == "deleted", "it no longer runs with the deleted environment's network policy"
+    assert world.call(lambda db: access_module.list_environment_grants(db, world.org_id, env["id"])) == []
