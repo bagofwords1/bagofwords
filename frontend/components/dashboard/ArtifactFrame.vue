@@ -1443,6 +1443,9 @@ function queriesWithIdentityParams(): string[] {
 }
 
 function postParamsStatus(loading: boolean, error: string | null = null) {
+  // Any status posted is newer than one held for a load's push (an undeclared
+  // param's error, a newer run starting): the held one is not posted over it.
+  heldParamsStatus = null;
   paramRunLoading.value = loading;
   verificationEvent(error ? 'error' : 'params_status', { loading, message: error });
   postToRuntimeFrames({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } });
@@ -1545,7 +1548,10 @@ async function runParamQueries(
   // A fully superseded run stays quiet: the newer run owns the status line
   // and will push its own (fresher) data.
   if (myRun === paramRunCounter) {
-    postParamsStatus(false, firstError);
+    // During a data load its rows wait for the load's one push: so does its
+    // status, or the viewer would see "done" over the old rows.
+    if (selectedLoadInFlight()) heldParamsStatus = { run: myRun, error: firstError };
+    else postParamsStatus(false, firstError);
     syncParamsToUrl();
   }
 }
@@ -1586,6 +1592,39 @@ const visualizationsData = shallowRef<any[]>([]);
 // send: false (a filter run's query as it lands) keeps the data watcher from
 // sending this list to the frame; the run sends once, at its end.
 let visualizationsSendDue = false;
+// A data load (fetchData) of the selected artifact sends once, at its end:
+// while one runs the watcher holds its sends, and after it what that send
+// carried is not sent again. The hold covers the whole load, network waits
+// included, so a filter run (or files change) landing during a load reaches
+// the frame with the load's one send, not before it: a refresh stays one push.
+// Loads are counted by the artifact each loads (a version is an artifact of
+// its own): one still running for an artifact no longer selected ends without
+// sending, so it holds nothing. sendHeld marks a held send.
+const dataLoadsInFlight = new Map<string | undefined, number>();
+function selectedLoadInFlight() {
+  return dataLoadsInFlight.has(selectedArtifactId.value);
+}
+let sendHeld = false;
+// The status of a filter run that ended during a load, posted right after the
+// push carrying its rows (fetchData's finally). Only if no newer run started
+// (that run owns the status line) and no status was posted since
+// (postParamsStatus drops it).
+let heldParamsStatus: { run: number; error: string | null } | null = null;
+function postHeldParamsStatus() {
+  const held = heldParamsStatus;
+  heldParamsStatus = null;
+  if (held && held.run === paramRunCounter) postParamsStatus(false, held.error);
+}
+// Everything held is given out by the end of the load it waited for, or here
+// when the selection changes first: that load will end without sending.
+function releaseHeld() {
+  if (sendHeld) {
+    sendHeld = false;
+    sendDataToIframe();
+  }
+  postHeldParamsStatus();
+}
+let loadSent: { visualizations: any[]; files: any[] } | null = null;
 function replaceVisualizationsData(next: any[], { send = true }: { send?: boolean } = {}) {
   if (send) visualizationsSendDue = true;
   visualizationsData.value = next;
@@ -2080,8 +2119,9 @@ async function onDashboardDeleted() {
 }
 
 // Viewer settings saved: re-render the canvas for the display-only ones that
-// show on it. The per-widget ⓘ (show_widget_info) flips window.__BOW_INFO in
-// the iframe, so updating reportData rebuilds the srcdoc live — no reload.
+// show on it. The per-widget ⓘ (show_widget_info) sets window.__BOW_INFO in
+// the frame's document, so updating reportData builds a new srcdoc: the frame
+// reloads with it (no page reload, no data fetch).
 function onSettingsSaved(settings: any) {
   if (settings && typeof settings.show_widget_info === 'boolean' && reportData.value) {
     reportData.value = { ...reportData.value, show_widget_info: settings.show_widget_info };
@@ -2907,6 +2947,11 @@ async function loadSelectedVersion(id: string) {
   }
 }
 
+// What was held during a load of the artifact selected until now goes to the
+// frame as it is at the change: still that artifact's document (sync, before
+// anything of the new selection is fetched or written), never the next one's.
+watch(selectedArtifactId, releaseHeld, { flush: 'sync' });
+
 watch(selectedArtifactId, (newId, oldId) => {
   // Mount owns the initial load, the watcher owns subsequent selections.
   if (oldId !== undefined && newId) return loadSelectedVersion(newId);
@@ -2930,6 +2975,12 @@ function handleIframeMessage(event: MessageEvent) {
   if (event.data?.type === 'ARTIFACT_DATA_RECEIVED') {
     verificationEvent('data_received', { data_revision: event.data.revision });
     return;
+  }
+  // A frame booted from a document built in another theme (the fullscreen one
+  // opened after a toggle, or one that was loading when the toggle was posted)
+  // gets the current theme first; one built in it gets nothing (no re-render).
+  if (event.data?.type === 'ARTIFACT_READY' && builtSrcdoc && builtSrcdoc.colorMode !== artifactColorMode) {
+    (event.source as Window | null)?.postMessage({ type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode }, '*');
   }
   if (event.data?.type === 'ARTIFACT_READY' && event.source === fullscreenRuntimeFrame.value?.contentWindow) {
     fullscreenReady.value = true;
@@ -3034,6 +3085,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
     dataReady.value = false;
   }
 
+  dataLoadsInFlight.set(artifactId, (dataLoadsInFlight.get(artifactId) || 0) + 1);
   try {
     // Fetch report info
     let reportDataSources: any[] = [];
@@ -3306,9 +3358,18 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
   } catch (e) {
     console.error('[ArtifactFrame] Failed to fetch data:', e);
   } finally {
+    const others = (dataLoadsInFlight.get(artifactId) || 1) - 1;
+    if (others) dataLoadsInFlight.set(artifactId, others);
+    else dataLoadsInFlight.delete(artifactId);
+    // A load of an artifact no longer selected ends here: it held nothing.
     if (artifactId === selectedArtifactId.value) {
       isLoading.value = false;
-      if (iframeReady.value) sendDataToIframe();
+      // The load's one send, to every ready frame (a frame reloading for a
+      // new srcdoc is not ready: its ARTIFACT_READY sends what it lacks).
+      sendHeld = false;
+      sendDataToIframe();
+      loadSent = { visualizations: visualizationsData.value, files: toRaw(filesData.value) };
+      postHeldParamsStatus();
     }
   }
 }
@@ -3606,9 +3667,24 @@ ${SC}
 `;
 });
 
+// The last frame document built and what it was built from.
+// colorMode: the theme it was built in (a later toggle reaches only live frames).
+let builtSrcdoc: { inputs: Record<string, any>; html: string; colorMode: string } | null = null;
+
+// The frame's document. One that goes away (doc mode, a full load, the viewer
+// gate, libraries pending) is not kept: the next one is built anew — a new
+// string, so the frame really reloads and reports ARTIFACT_READY — and the old
+// multi-MB string is let go. An in-place refresh never hides the document
+// (it leaves dataReady, the code and the libraries as they are).
+const iframeSrcdoc = computed(() => {
+  const html = frameDocument();
+  if (html === undefined) builtSrcdoc = null;
+  return html;
+});
+
 // Build the full iframe srcdoc with embedded data
 // Guard: only compute once ALL data is ready to prevent iframe loading with empty data
-const iframeSrcdoc = computed(() => {
+function frameDocument(): string | undefined {
   // Docs render in DocViewer, never in the sandbox iframe
   if (isDocMode.value) return undefined;
 
@@ -3649,8 +3725,37 @@ const iframeSrcdoc = computed(() => {
   // Wait for the host-fetched libraries (failed ones fall back to <script src>).
   const inlineLibs = artifactLibSources(inlineableArtifactLibs(opts));
   if (inlineLibs === null) return undefined;
-  return buildArtifactIframeHtml({ ...opts, inlineLibs });
-});
+  // Every build carries a new runtime nonce, so rebuilding from the same inputs
+  // would still reload the frame (an in-place refresh writes reportData anew).
+  const inputs = { ...opts, inlineLibs };
+  // The theme is not part of what decides a rebuild: a toggle reaches the live
+  // frame by postMessage (artifactColorMode), and a rebuild for any other
+  // reason reads the current theme.
+  const builtFrom = { ...inputs, colorMode: undefined };
+  if (!builtSrcdoc || !sameFrameInputs(builtSrcdoc.inputs, builtFrom)) {
+    builtSrcdoc = { inputs: builtFrom, html: buildArtifactIframeHtml(inputs), colorMode: inputs.colorMode };
+  }
+  return builtSrcdoc.html;
+}
+
+// Same frame options: each value the same, or a plain object (the seed, the
+// precompiled code, the inline libraries) whose own values are the same.
+function sameFrameInputs(a: Record<string, any>, b: Record<string, any>) {
+  const plain = (v: any) => !!v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
+  const same = (x: any, y: any) => Object.is(x, y) || (plain(x) && plain(y)
+    && Object.keys(x).length === Object.keys(y).length
+    && Object.keys(x).every((k) => Object.prototype.hasOwnProperty.call(y, k) && Object.is(x[k], y[k])));
+  return Object.keys(a).length === Object.keys(b).length
+    && Object.keys(a).every((k) => Object.prototype.hasOwnProperty.call(b, k) && same(a[k], b[k]));
+}
+
+// A new srcdoc is a new document in each frame showing it: until that document
+// reports ARTIFACT_READY nothing is posted to it (its READY sends what it
+// lacks). Sync, so a send right after the change cannot reach it.
+watch(iframeSrcdoc, () => {
+  iframeReady.value = false;
+  fullscreenReady.value = false;
+}, { flush: 'sync' });
 
 function frameIframeOptions(seed: any, artifactCode: string) {
   return {
@@ -3674,9 +3779,17 @@ function frameIframeOptions(seed: any, artifactCode: string) {
 // Re-send data when it changes (not for a list written with send: false alone).
 // Not when the frame turns ready: its ARTIFACT_READY handler sends (or not) itself.
 watch([visualizationsData, filesData], ([, files], [, prevFiles]) => {
+  // The marker only dedupes the run that follows a load's own send; read it
+  // once and drop it, so it never keeps rows that newer data replaced.
+  const sentByLoad = loadSent;
+  loadSent = null;
   const due = visualizationsSendDue || files !== prevFiles;
   visualizationsSendDue = false;
   if (!due) return;
+  // Held, never dropped: the load's end sends it (fetchData's finally), or a
+  // change of selection before that (releaseHeld).
+  if (selectedLoadInFlight()) { sendHeld = true; return; }
+  if (sentByLoad && sentByLoad.visualizations === visualizationsData.value && sentByLoad.files === toRaw(filesData.value)) return;
   if (iframeReady.value && (visualizationsData.value.length > 0 || filesData.value.length > 0)) {
     sendDataToIframe();
   }
