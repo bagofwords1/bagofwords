@@ -449,3 +449,30 @@ class SandboxEgressSchema(BaseModel):
     @classmethod
     def from_model(cls, row) -> "SandboxEgressSchema":
         return cls(domain=row.domain, decision=row.decision, count=row.count, first_at=row.first_at, last_at=row.last_at)
+
+
+class SandboxUsage(BaseModel):
+    """Live usage of one sandbox, where the backend can report it."""
+    cpu_percent: Optional[float] = None
+    memory_bytes: Optional[int] = None
+    memory_limit_bytes: Optional[int] = None
+    disk_bytes: Optional[int] = None
+    disk_limit_bytes: Optional[int] = None
+
+
+class SandboxFleetRow(SandboxSchema):
+    """One sandbox as the admin's Sandboxes list shows it: the row itself plus
+    the names an admin recognises it by, and what it is doing right now."""
+    report_title: Optional[str] = None
+    user_name: Optional[str] = None
+    backend_name: Optional[str] = None
+    environment_name: Optional[str] = None
+    # The run in progress, if any (never its code or output).
+    running_run_id: Optional[str] = None
+    running_since: Optional[datetime] = None
+    usage: Optional[SandboxUsage] = None
+
+
+class SandboxDetail(SandboxFleetRow):
+    runs: List[SandboxRunSchema] = []
+    events: List[SandboxEventSchema] = []

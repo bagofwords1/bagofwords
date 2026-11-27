@@ -534,3 +534,178 @@ async def delete_backend(
     except SandboxError as exc:
         raise _http(exc)
     return {"deleted": True}
+
+
+# ── Sandboxes: what exists right now, and the switches to stop it ────────
+
+from app.schemas.sandbox_schema import (  # noqa: E402
+    SandboxDetail,
+    SandboxEventSchema,
+    SandboxFleetRow,
+    SandboxRunSchema,
+    SandboxSchema,
+    SandboxUsage,
+)
+
+
+async def _fleet_rows(db: AsyncSession, service, sandboxes, *, with_usage: bool) -> List[SandboxFleetRow]:
+    from sqlalchemy import select
+
+    from app.models.report import Report
+    from app.models.sandbox import SandboxBackend, SandboxEnvironment, SandboxRun
+    from app.models.user import User as UserModel
+
+    async def names(model, column, ids):
+        ids = {i for i in ids if i}
+        if not ids:
+            return {}
+        rows = await db.execute(select(model.id, column).where(model.id.in_(ids)))
+        return {str(row[0]): row[1] for row in rows.all()}
+
+    reports = await names(Report, Report.title, [s.report_id for s in sandboxes])
+    users = await names(UserModel, UserModel.name, [s.user_id for s in sandboxes])
+    backends = await names(SandboxBackend, SandboxBackend.name, [s.backend_id for s in sandboxes])
+    environments = await names(SandboxEnvironment, SandboxEnvironment.name, [s.environment_id for s in sandboxes])
+    running = {}
+    busy = [s.id for s in sandboxes if s.state == "busy"]
+    if busy:
+        rows = await db.execute(
+            select(SandboxRun.sandbox_id, SandboxRun.id, SandboxRun.started_at)
+            .where(SandboxRun.sandbox_id.in_(busy), SandboxRun.status == "running")
+            .order_by(SandboxRun.started_at)
+        )
+        running = {row[0]: (row[1], row[2]) for row in rows.all()}
+    usage = await service.stats(db, sandboxes) if with_usage else {}
+
+    out = []
+    for sandbox in sandboxes:
+        run_id, since = running.get(sandbox.id, (None, None))
+        stats = usage.get(sandbox.id)
+        out.append(SandboxFleetRow(
+            **SandboxSchema.from_model(sandbox).model_dump(),
+            report_title=reports.get(sandbox.report_id), user_name=users.get(sandbox.user_id or ""),
+            backend_name=backends.get(sandbox.backend_id or ""),
+            environment_name=environments.get(sandbox.environment_id or "") or (sandbox.limits or {}).get("environment"),
+            running_run_id=run_id, running_since=since,
+            usage=SandboxUsage(**{k: getattr(stats, k, None) for k in SandboxUsage.model_fields}) if stats else None,
+        ))
+    return out
+
+
+@router.get("/sandboxes", response_model=List[SandboxFleetRow])
+@requires_permission("manage_sandboxes")
+async def list_sandboxes(
+    usage: bool = False,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Every sandbox that exists in the organization. ``usage=true`` adds live
+    CPU, memory and disk, which costs one call to each backend."""
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    return await _fleet_rows(db, service, await service.list_live(db, organization.id), with_usage=usage)
+
+
+@router.get("/sandboxes/{sandbox_id}", response_model=SandboxDetail)
+@requires_permission("manage_sandboxes")
+async def get_sandbox(
+    sandbox_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """One sandbox with its recent runs and its timeline. Code and commands
+    are left out for a viewer without ``view_code``."""
+    from sqlalchemy import select
+
+    from app.core.code_visibility import can_view_code
+    from app.core.permission_resolver import resolve_permissions
+    from app.models.sandbox import SandboxEvent
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    try:
+        sandbox = await service.get(db, organization.id, sandbox_id)
+    except SandboxError as exc:
+        raise _http(exc)
+    row = (await _fleet_rows(db, service, [sandbox], with_usage=True))[0]
+    include_code = can_view_code(await resolve_permissions(db, str(current_user.id), str(organization.id)))
+    events = await db.execute(
+        select(SandboxEvent).where(SandboxEvent.sandbox_id == sandbox.id).order_by(SandboxEvent.created_at.desc()).limit(200)
+    )
+    return SandboxDetail(
+        **row.model_dump(),
+        runs=[SandboxRunSchema.from_model(r, include_code=include_code, include_output=include_code)
+              for r in await service.recent_runs(db, sandbox.id, limit=20)],
+        events=[SandboxEventSchema.from_model(e) for e in events.scalars().all()],
+    )
+
+
+@router.post("/sandboxes/{sandbox_id}/stop", response_model=SandboxFleetRow)
+@requires_permission("manage_sandboxes")
+async def stop_sandbox(
+    sandbox_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Stop one sandbox, keeping its files. Refused while it is running
+    something: stop the run first."""
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    try:
+        sandbox = await service.get(db, organization.id, sandbox_id)
+        await service.stop(db, sandbox, str(current_user.id), reason="stopped by an admin")
+    except SandboxError as exc:
+        raise _http(exc)
+    return (await _fleet_rows(db, service, [sandbox], with_usage=False))[0]
+
+
+@router.post("/sandboxes/{sandbox_id}/kill-run", response_model=SandboxFleetRow)
+@requires_permission("manage_sandboxes")
+async def kill_sandbox_run(
+    sandbox_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Stop the run in progress in one sandbox. The sandbox and its files stay."""
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    try:
+        sandbox = await service.get(db, organization.id, sandbox_id)
+        await service.kill_run(db, sandbox, str(current_user.id))
+    except SandboxError as exc:
+        raise _http(exc)
+    await db.refresh(sandbox)
+    return (await _fleet_rows(db, service, [sandbox], with_usage=False))[0]
+
+
+@router.delete("/sandboxes/{sandbox_id}")
+@requires_permission("manage_sandboxes")
+async def delete_sandbox(
+    sandbox_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Delete one sandbox and everything in it. A run in progress is stopped
+    first. Files already saved to the report are kept."""
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    try:
+        sandbox = await service.get(db, organization.id, sandbox_id)
+        if sandbox.state == "busy":
+            try:
+                await service.kill_run(db, sandbox, str(current_user.id))
+            except SandboxError:
+                pass  # nothing to signal yet, or it just ended: delete it either way
+        await service.delete(db, sandbox, str(current_user.id), reason="deleted by an admin")
+    except SandboxError as exc:
+        raise _http(exc)
+    return {"deleted": True}

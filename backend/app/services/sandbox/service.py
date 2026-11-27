@@ -74,6 +74,8 @@ TRANSITIONS: Dict[str, frozenset] = {
     "deleted": frozenset(),
 }
 
+KILL_GRACE_SECONDS = 5  # between SIGTERM and SIGKILL when an admin stops a run
+
 WORKSPACE_OUTPUTS = "outputs"
 WORKSPACE_INPUTS = "inputs"
 RUN_DIRECTORY = ".bow/runs"
@@ -738,8 +740,17 @@ class SandboxService:
                             if asyncio.iscoroutine(result):
                                 await result
 
+                    async def started_process(process_id: int) -> None:
+                        # Recorded so that an admin's "stop this run" works from any
+                        # worker: the process is addressed by its id in the sandbox.
+                        async with self._sessions()() as side:
+                            await self._event(side, sandbox.id, "process_started", actor_id,
+                                              {"run_id": run.id, "process_id": int(process_id)})
+                            await side.commit()
+
                     await progress("running")
-                    result = await runtime.run(plan.command, timeout=timeout, on_output=forward, cancel=cancel)
+                    result = await runtime.run(plan.command, timeout=timeout, on_output=forward, cancel=cancel,
+                                               on_started=started_process)
                     await sink.flush()
                     outcome.status, outcome.exit_code = result.status, result.exit_code
                     outcome.stdout, outcome.stderr = _tail(result.stdout), _tail(result.stderr)
@@ -783,8 +794,12 @@ class SandboxService:
                     "keeps its files; use less memory or process the data in smaller pieces.", status=503,
                 )
 
+        killed_by_admin = await self._was_killed(db, sandbox.id, run.id)
+        if killed_by_admin and not died_stopped and lost_reason is None:
+            outcome.status = "cancelled"
+            error = SandboxError(errors.INVALID_STATE, "The run was stopped by an admin.", status=409)
         outcome.duration_seconds = round(time.monotonic() - started, 3)
-        run.status = outcome.status if error is None else "failed"
+        run.status = "cancelled" if killed_by_admin else (outcome.status if error is None else "failed")
         run.exit_code = outcome.exit_code
         run.finished_at = _now()
         run.artifact_file_ids = [a.file_id for a in outcome.artifacts if a.file_id]
@@ -800,6 +815,14 @@ class SandboxService:
             "files_produced": [a.name for a in outcome.artifacts][:MAX_ARTIFACTS_PER_RUN],
             "input_file_ids": list(run.input_file_ids or []),
         }, outcome="success" if (error is None and run.status == "succeeded") else "failure")
+        await db.refresh(sandbox, attribute_names=["state"])
+        if sandbox.state != "busy":
+            # An admin deleted it while the run was ending: the record of the
+            # run is kept, the sandbox is left as it now is.
+            await db.commit()
+            if error is not None:
+                raise error
+            return outcome
         if died_stopped:
             await self._set_state(db, sandbox, "stopped", None, details={"reason": "stopped during a run"})
         elif lost_reason is not None:
@@ -812,6 +835,100 @@ class SandboxService:
         if error is not None:
             raise error
         return outcome
+
+    @staticmethod
+    async def _was_killed(db: AsyncSession, sandbox_id: str, run_id: str) -> bool:
+        rows = await db.execute(
+            select(SandboxEvent).where(SandboxEvent.sandbox_id == sandbox_id, SandboxEvent.type == "run_killed")
+        )
+        return any((e.details or {}).get("run_id") == run_id for e in rows.scalars().all())
+
+    # ── what an admin can do to one sandbox ──
+
+    async def list_live(self, db: AsyncSession, organization_id: str) -> List[Sandbox]:
+        """Every sandbox of the organization that still exists, newest first."""
+        rows = await db.execute(
+            select(Sandbox).where(Sandbox.organization_id == str(organization_id), Sandbox.deleted_at.is_(None),
+                                  Sandbox.state != "deleted")
+            .order_by(Sandbox.created_at.desc())
+        )
+        return list(rows.scalars().all())
+
+    async def running_run(self, db: AsyncSession, sandbox_id: str) -> Optional[SandboxRun]:
+        rows = await db.execute(
+            select(SandboxRun).where(SandboxRun.sandbox_id == sandbox_id, SandboxRun.status == "running")
+            .order_by(SandboxRun.started_at.desc())
+        )
+        return rows.scalars().first()
+
+    async def kill_run(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], *,
+                       title: Optional[str] = None) -> SandboxRun:
+        """Stop the run in progress: SIGTERM, then SIGKILL after a grace period.
+
+        Works from any worker. The worker that started the run sees its process
+        end, records the run as cancelled and gives the sandbox back; nothing
+        here touches the sandbox's state."""
+        run = await self.running_run(db, sandbox.id)
+        if run is None or sandbox.state != "busy":
+            raise SandboxError(errors.INVALID_STATE, "This sandbox is not running anything.", status=409)
+        events = await db.execute(
+            select(SandboxEvent).where(SandboxEvent.sandbox_id == sandbox.id, SandboxEvent.type == "process_started")
+        )
+        process_id = next(
+            ((e.details or {}).get("process_id") for e in events.scalars().all()
+             if (e.details or {}).get("run_id") == run.id), None,
+        )
+        if process_id is None:
+            raise SandboxError(
+                errors.INVALID_STATE,
+                "The run has not started its program yet (it is uploading files or installing packages). "
+                "Try again in a moment.", status=409,
+            )
+        # Recorded first: the worker running it reads this to call the run cancelled.
+        await self._event(db, sandbox.id, "run_killed", actor_id, {"run_id": run.id})
+        await audit(db, sandbox.organization_id, "sandbox.run_killed", actor_id, "sandbox", sandbox.id,
+                    {"title": await self._title(db, sandbox, title), "report_id": sandbox.report_id, "run_id": run.id})
+        await db.commit()
+        _, driver = await self._driver(db, sandbox)
+        try:
+            async with self._runtime(driver, sandbox) as runtime:
+                await runtime.send_signal(int(process_id), "SIGTERM")
+                for _ in range(int(KILL_GRACE_SECONDS * 2)):
+                    await asyncio.sleep(0.5)
+                    await db.refresh(run)
+                    if run.status != "running":
+                        return run
+                await runtime.send_signal(int(process_id), "SIGKILL")
+        except SandboxDriverError as exc:
+            raise SandboxError(errors.UNAVAILABLE, f"The sandbox could not be reached: {exc.message}", status=503) from exc
+        except Exception as exc:  # noqa: BLE001 - runtime client errors
+            raise SandboxError(errors.UNAVAILABLE, f"The run could not be stopped: {_reason(exc)}", status=503) from exc
+        finally:
+            await driver.close()
+        return run
+
+    async def stats(self, db: AsyncSession, sandboxes: Sequence[Sandbox]) -> Dict[str, Any]:
+        """Live CPU, memory and disk per sandbox id, for the ones that are
+        running on a reachable backend that can report it. Best effort: a
+        backend that does not answer simply contributes nothing."""
+        out: Dict[str, Any] = {}
+        by_backend: Dict[str, List[Sandbox]] = {}
+        for sandbox in sandboxes:
+            if sandbox.backend_id and sandbox.driver_ref and sandbox.state in ("ready", "busy", "idle"):
+                by_backend.setdefault(sandbox.backend_id, []).append(sandbox)
+        for backend_id, group in by_backend.items():
+            try:
+                backend = await db.get(SandboxBackend, backend_id)
+                if backend is None or backend.deleted_at is not None or backend.status == "unreachable":
+                    continue
+                driver = await backend_service.build_driver(db, backend)
+                try:
+                    out.update(await driver.stats([self._handle(s) for s in group]))
+                finally:
+                    await driver.close()
+            except Exception:  # noqa: BLE001 - usage numbers are optional
+                logger.debug("could not read sandbox stats from backend %s", backend_id, exc_info=True)
+        return out
 
     async def _stopped_on_backend(self, db: AsyncSession, sandbox: Sandbox) -> bool:
         """Whether the sandbox still exists on its backend but is not running."""
