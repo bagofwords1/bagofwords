@@ -211,7 +211,8 @@ class Bootstrap:
         wanted = [layout.caddy_image(), layout.firewall_image(), *self.images]
         outcomes = [await self._ensure_image(image) for image in wanted]
         verb = "present" if self.config.images_preloaded else "pulled"
-        return f"{len(outcomes)} image(s) {verb}: the router, the firewall helper and {len(self.images)} environment image(s)."
+        extra = f" and {len(self.images)} more" if self.images else ""
+        return f"{len(outcomes)} image(s) {verb}: the router and the firewall helper{extra}."
 
     # ── 6 and 7. the router and the egress proxy ──
 

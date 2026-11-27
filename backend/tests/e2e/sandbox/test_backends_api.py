@@ -466,3 +466,38 @@ def test_two_bootstrap_requests_at_the_same_moment_cannot_both_start(world, test
         await db.commit()
         return await backend_service.claim_bootstrap(db, row, stale_seconds=1800)
     assert world.call(claim_after_the_worker_died) is True, "a claim nobody is working on is taken over"
+
+
+# ── bootstrap does not depend on the environments ────────────────────────
+
+
+def test_bootstrap_is_about_the_backend_only_and_environment_images_are_fetched_after_it(world, test_client, admin, monkeypatch):
+    from app.services.sandbox import backends as backend_service
+    from app.services.sandbox.drivers.base import SandboxDriverError
+
+    world.add_environment("Analytics", image="registry.example.com/team/analytics:1")
+    world.add_environment("Broken", image="registry.example.com/team/does-not-exist:1")
+    world.add_environment("Off", image="registry.example.com/team/off:1", enabled=False)
+
+    async def pull(self, image, **kwargs):
+        if "does-not-exist" in image:
+            raise SandboxDriverError("pull access denied for team/does-not-exist", code="command_failed")
+        self._backend.pulled_images.append(image)
+        return None
+    monkeypatch.setattr(fake_driver.FakeDriver, "pull_image", pull)
+
+    backend = _create(test_client, admin, name="img-server", config={"server": "img-server"}).json()
+    done = test_client.post(f"{BASE}/{backend['id']}/bootstrap", json={"wait": True}, headers=admin).json()
+    assert done["bootstrap_status"] == "ready", "an environment whose image cannot be fetched does not fail bootstrap"
+    assert [s["status"] for s in done["bootstrap_steps"]] == ["ok"] * 5
+    assert test_client.put(f"{BASE}/{backend['id']}", json={"enabled": True}, headers=admin).json()["enabled"] is True
+
+    outcomes = world.call(lambda db: backend_service.prefetch_environment_images(world.org_id, backend["id"]))
+    assert outcomes["Analytics"] == "ok" and "pull access denied" in outcomes["Broken"]
+    assert "Off" not in outcomes, "a disabled environment is not fetched"
+    # (The route also starts the same fetch in the background once bootstrap is done.)
+    assert set(fake_driver._BACKENDS["img-server"].pulled_images) == {"registry.example.com/team/analytics:1"}
+    after = test_client.get(f"{BASE}/{backend['id']}", headers=admin).json()
+    assert (after["bootstrap_status"], after["enabled"]) == ("ready", True), "a failed fetch changes nothing about the backend"
+    entry = _audit(world, "sandbox_backend.images_fetched", backend["id"])[-1]
+    assert entry.details["failed"] == ["Broken"] and entry.outcome == "failure"

@@ -226,7 +226,7 @@ class FakeDriver(SandboxDriver):
                     for image in images:
                         if image not in backend.pulled_images:
                             backend.pulled_images.append(image)
-                    detail = f"{len(images)} environment image(s)"
+                    detail = f"{len(images)} more image(s)" if images else None
                 elif result.key == "verify":
                     self._host.start()
                 await report(result, status, detail)

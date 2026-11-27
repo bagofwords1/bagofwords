@@ -457,6 +457,19 @@ async def _bootstrap_in_background(organization_id: str, actor_id: str, backend_
             import logging
 
             logging.getLogger(__name__).exception("sandbox backend bootstrap failed (backend=%s)", backend_id)
+            return
+    await _prefetch_images(organization_id, backend_id)
+
+
+async def _prefetch_images(organization_id: str, backend_id: str) -> None:
+    """Once a backend is ready, fetch the environments' images in the
+    background. Never part of bootstrap: a failure here is only recorded."""
+    try:
+        await backend_service.prefetch_environment_images(organization_id, backend_id)
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("could not prefetch sandbox images (backend=%s)", backend_id)
 
 
 @router.post("/backends/{backend_id}/bootstrap", response_model=SandboxBackendSchema)
@@ -485,6 +498,7 @@ async def bootstrap_backend(
     try:
         if data.wait:
             await backend_service.bootstrap_backend(db, organization.id, str(current_user.id), backend, take_over=data.take_over)
+            spawn(_prefetch_images(str(organization.id), backend.id))
         else:
             await backend_service.mark_bootstrap_started(db, backend)
             spawn(_bootstrap_in_background(str(organization.id), str(current_user.id), backend.id, data.take_over))

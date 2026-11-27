@@ -287,7 +287,9 @@ class SandboxDriver(abc.ABC):
                       images: Sequence[str] = ()) -> List[StepResult]:
         """Prepare the backend to run sandboxes ("Bootstrap"). Safe to run again:
         it skips what is in place and repairs what is missing. Stops at the
-        first failed step. ``images`` are environment images to pre-pull."""
+        first failed step. ``images`` are extra images to fetch as part of it;
+        the service passes none, because preparing a backend does not depend
+        on which environments exist."""
 
     @abc.abstractmethod
     async def check(self) -> BackendHealth:

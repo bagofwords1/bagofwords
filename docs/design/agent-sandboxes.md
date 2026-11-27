@@ -228,8 +228,8 @@ the first failed step and leaves the backend disabled.
 
 In order: (1) check Docker, a supported setup and server ownership; (2) detect gVisor,
 a warning and not a failure when absent; (3) create the sandbox network; (4) place the
-`sandboxd` binary, copied out of the tools image; (5) pull the router image, the
-firewall helper image and matching environment images; (6) start the router and pin its
+`sandboxd` binary, copied out of the tools image; (5) pull the router image and the
+firewall helper image; (6) start the router and pin its
 CA; (7) start the egress proxy; (8) apply the firewall rules; (9) verify with a
 throwaway sandbox: run a command in it over TLS, confirm it cannot reach the host, the
 internet or the metadata address, remove it.
@@ -621,3 +621,25 @@ These came out of the first code review and are now covered by tests in
   created from it exist, unless they are deleted with it.
 - **Changed outputs.** A file also counts as changed when its whole-second
   timestamp is not before the moment the run began, by the sandbox's own clock.
+
+### Bootstrap does not depend on environments
+
+Changed after review of the first real setup. Bootstrap prepares the backend
+and nothing else; it is done once per server, whatever environments exist.
+The issue had it pre-pull every environment's image, which made one
+environment with an image that could not be fetched fail the whole backend.
+
+Environment images are now fetched in three places, none of which can fail a
+bootstrap:
+
+- right after a bootstrap succeeds, in the background
+  (`backends.prefetch_environment_images`), with each environment's registry
+  credentials. Failures are logged and audited as
+  `sandbox_backend.images_fetched`;
+- when an environment is saved with a new image
+  (`environments.pull_image_on_backends`);
+- when a sandbox is created and the server does not have the image yet.
+
+Not built: a place in the UI that shows an environment whose image could not
+be fetched. Today that is visible only in the audit log and when a first run
+fails.

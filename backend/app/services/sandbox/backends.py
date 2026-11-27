@@ -375,10 +375,14 @@ async def live_sandboxes(db: AsyncSession, backend_id: str) -> List[Sandbox]:
 async def bootstrap_backend(db: AsyncSession, organization_id: str, actor_id: Optional[str],
                             backend: SandboxBackend, *, take_over: bool = False) -> List[StepResult]:
     """Prepare a backend. Each step's result is stored as it happens, so any
-    worker can show progress. A failed step leaves the backend disabled."""
-    from app.services.sandbox.environments import pinned_image
+    worker can show progress. A failed step leaves the backend disabled.
 
-    images = [pinned_image(env) for env in await _environments_matching(db, organization_id, backend)]
+    Bootstrap is about the backend only: Docker, isolation, the network, the
+    router, the egress proxy, the firewall. It does not depend on which
+    environments exist, so an environment with an image that cannot be
+    fetched never fails it. Environment images are fetched separately
+    (``prefetch_environment_images``, on saving an environment, or when the
+    first sandbox is created)."""
     driver = await build_driver(db, backend)
     await mark_bootstrap_started(db, backend, driver)
 
@@ -392,7 +396,7 @@ async def bootstrap_backend(db: AsyncSession, organization_id: str, actor_id: Op
         await db.commit()
 
     try:
-        results = await driver.prepare(on_step, take_over=take_over, images=images)
+        results = await driver.prepare(on_step, take_over=take_over)
     except SandboxDriverError as exc:
         results = [StepResult(key="prepare", title="Prepare the backend", status="failed", detail=exc.message)]
     except Exception as exc:  # noqa: BLE001 - a driver bug must not leave "running" forever
@@ -435,6 +439,53 @@ async def _environments_matching(db: AsyncSession, organization_id: str, backend
     )
     labels = set(backend.labels or [])
     return [env for env in rows.scalars().all() if set(env.backend_labels or []) <= labels]
+
+
+async def prefetch_environment_images(organization_id: str, backend_id: str, session_factory=None) -> Dict[str, str]:
+    """After a backend is bootstrapped: fetch the image of every environment it
+    could run, so the first sandbox does not wait for a download. Best effort.
+    A failure is recorded (log and audit) and changes nothing about the backend;
+    the image is fetched again when a sandbox is created. Returns
+    ``{environment name: outcome}``."""
+    from app.services.sandbox.environments import pinned_image
+
+    if session_factory is None:
+        from app.dependencies import async_session_maker as session_factory
+
+    outcomes: Dict[str, str] = {}
+    async with session_factory() as db:
+        try:
+            backend = await get_backend(db, organization_id, backend_id)
+            if backend.bootstrap_status != "ready":
+                return outcomes
+            environments = list(await _environments_matching(db, organization_id, backend))
+            if not environments:
+                return outcomes
+            driver = await build_driver(db, backend)
+        except SandboxError:
+            return outcomes
+        try:
+            for env in environments:
+                try:
+                    # The digest an environment is pinned to is set when the
+                    # environment is saved, not here: this only warms the cache.
+                    await driver.pull_image(
+                        pinned_image(env), registry_username=env.registry_username,
+                        registry_password=env.registry_password,
+                    )
+                    outcomes[env.name] = "ok"
+                except SandboxDriverError as exc:
+                    outcomes[env.name] = exc.message
+                    logger.warning("could not fetch the image of sandbox environment %s on backend %s: %s",
+                                   env.name, backend.name, exc.message)
+        finally:
+            await driver.close()
+        failed = sorted(name for name, outcome in outcomes.items() if outcome != "ok")
+        await audit(db, organization_id, "sandbox_backend.images_fetched", None, "sandbox_backend", backend.id,
+                    {"title": backend.name, "environments": outcomes, "failed": failed},
+                    outcome="failure" if failed else "success")
+        await db.commit()
+    return outcomes
 
 
 async def live_sandbox_count(db: AsyncSession, backend_id: str) -> int:
