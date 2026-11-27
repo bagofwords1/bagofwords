@@ -190,6 +190,29 @@ AGENT_DELETE_CLEARS = frozenset({
     "user_data_source_credentials",      # explicit delete
     "webhook_data_source_association",   # explicit detach (Webhook-side M2M)
 })
+
+
+# DataSource relationships whose rows delete_data_source removes in bulk.
+_AGENT_BULK_CLEARED_COLLECTIONS = (
+    "tables", "table_stats", "table_usage_events", "table_feedback_events",
+    "metadata_resources", "metadata_indexing_jobs",
+)
+
+
+def catalog_row_child_models():
+    """Models with a foreign key to datasource_tables that its database rule
+    does not delete or null (no ON DELETE CASCADE / SET NULL).
+
+    delete_data_source_tables removes catalog rows with one set-based DELETE,
+    bypassing the ORM cascade, so it clears these first. A new such model must
+    be added here; tests/unit/test_agent_delete_covers_every_reference.py
+    enforces it.
+    """
+    from app.models.table_stats import TableStats
+    from app.models.table_usage_event import TableUsageEvent
+    from app.models.table_feedback_event import TableFeedbackEvent
+    return (TableStats, TableUsageEvent, TableFeedbackEvent)
+
 # Deliberately left pointing at the deleted id: history, and no database-level
 # constraint (the model declares a ForeignKey, the migration never created it).
 AGENT_DELETE_KEEPS = frozenset({
@@ -2325,19 +2348,35 @@ class DataSourceService:
             )
         )
 
-        # 3) Delete dependent metadata resources first (they FK both data source and jobs)
-        resources_q = await db.execute(
-            select(MetadataResource).where(MetadataResource.data_source_id == data_source_id)
+        # 3) Delete dependent metadata resources first (they FK both data source
+        #    and jobs), then the indexing jobs. Set-based: an agent over a large
+        #    file source has thousands of them, and loading and deleting each
+        #    through the ORM made deleting such an agent take minutes. Nothing
+        #    else is lost: instructions.source_metadata_resource_id and
+        #    instruction_builds.metadata_indexing_job_id are ON DELETE SET NULL
+        #    in the database.
+        await db.execute(
+            delete(MetadataResource)
+            .where(MetadataResource.data_source_id == data_source_id)
+            .execution_options(synchronize_session=False)
         )
-        for resource in resources_q.scalars().all():
-            await db.delete(resource)
 
         # 4) Delete metadata indexing jobs for this data source
-        jobs_q = await db.execute(
-            select(MetadataIndexingJob).where(MetadataIndexingJob.data_source_id == data_source_id)
+        await db.execute(
+            delete(MetadataIndexingJob)
+            .where(MetadataIndexingJob.data_source_id == data_source_id)
+            .execution_options(synchronize_session=False)
         )
-        for job in jobs_q.scalars().all():
-            await db.delete(job)
+
+        # 4b) The agent's table stats and usage/feedback history. The ORM
+        #     cascade on DataSource deleted these one row at a time on the final
+        #     DELETE; do it in one statement each, once, outside the retry loop.
+        for model in catalog_row_child_models():
+            await db.execute(
+                delete(model)
+                .where(model.data_source_id == data_source_id)
+                .execution_options(synchronize_session=False)
+            )
 
         # 5) Delete any linked git repository for this data source
         repo_q = await db.execute(
@@ -2364,6 +2403,11 @@ class DataSourceService:
         for attempt in range(max_attempts):
             # Delete (possibly re-created) schema tables for this data source
             await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
+            # The bulk deletes bypass the session (expire_on_commit=False keeps
+            # whatever it loaded). Expire the collections the ORM cascades over
+            # on this DELETE so it reads them afresh — empty — instead of acting
+            # on rows that are already gone.
+            db.expire(data_source, list(_AGENT_BULK_CLEARED_COLLECTIONS))
             try:
                 await db.delete(data_source)
                 await db.commit()
@@ -2639,10 +2683,28 @@ class DataSourceService:
         return deleted
 
     async def delete_data_source_tables(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
-        result = await db.execute(select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source_id))
-        tables = result.scalars().all()
-        for table in tables:
-            await db.delete(table)
+        """Delete the agent's catalog rows and the rows hanging off each of them.
+
+        Set-based on purpose: a file agent (OneDrive, SharePoint, Drive, S3)
+        keeps one catalog row per file — up to tens of thousands — and the ORM
+        cascade issued a DELETE plus a lazy SELECT per child relationship for
+        every row, which made deleting such an agent take minutes. The children
+        are cleared first (catalog_row_child_models); keys with their own
+        ON DELETE rule (column_stats, user overlay tables) are left to the
+        database, as the ORM did.
+        """
+        table_ids = select(DataSourceTable.id).where(DataSourceTable.datasource_id == data_source_id)
+        for model in catalog_row_child_models():
+            await db.execute(
+                delete(model)
+                .where(model.datasource_table_id.in_(table_ids))
+                .execution_options(synchronize_session=False)
+            )
+        await db.execute(
+            delete(DataSourceTable)
+            .where(DataSourceTable.datasource_id == data_source_id)
+            .execution_options(synchronize_session=False)
+        )
         await db.commit()
         return {"message": "Data source tables deleted successfully"}
     

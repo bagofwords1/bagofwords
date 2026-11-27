@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Index
+from sqlalchemy import text, Column, String, Text, DateTime, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -30,5 +30,9 @@ class TableFeedbackEvent(BaseSchema):
         Index("ix_feedback_org_report_table_time", "org_id", "report_id", "table_fqn", "created_at_event"),
         Index("ix_feedback_org_report_ds_time", "org_id", "report_id", "data_source_id", "created_at_event"),
         Index("ix_feedback_table_time", "table_fqn", "created_at_event"),
+        # dstblref01: deleting a catalog row checks this column
+        Index("ix_table_feedback_events_datasource_table_id", "datasource_table_id",
+              sqlite_where=text("datasource_table_id IS NOT NULL"),
+              postgresql_where=text("datasource_table_id IS NOT NULL")),
     )
 
