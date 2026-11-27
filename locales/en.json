@@ -6373,9 +6373,12 @@
   },
   "toolbar": {
     "polishDashboard": "Polish Dashboard",
-    "polishRequestLabel": "Polish"
+    "polishRequestLabel": "Polish",
+    "fixErrorRequestLabel": "Fix render error"
   },
   "artifactFrame": {
+    "renderFailedTitle": "Dashboard failed to render",
+    "fixError": "Fix Error",
     "dataAddQuery": "Add query",
     "dataNoQueriesToAdd": "No queries to add",
     "dataAddFailed": "Failed to add query to the dashboard",

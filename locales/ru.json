@@ -5572,9 +5572,12 @@
   },
   "toolbar": {
     "polishDashboard": "Доработать дашборд",
-    "polishRequestLabel": "Доработка"
+    "polishRequestLabel": "Доработка",
+    "fixErrorRequestLabel": "Исправление ошибки отображения"
   },
   "artifactFrame": {
+    "renderFailedTitle": "Не удалось отобразить дашборд",
+    "fixError": "Исправить ошибку",
     "dataAddQuery": "Добавить запрос",
     "dataNoQueriesToAdd": "Нет запросов для добавления",
     "dataAddFailed": "Не удалось добавить запрос на дашборд",

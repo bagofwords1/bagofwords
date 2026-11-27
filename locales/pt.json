@@ -5572,9 +5572,12 @@
   },
   "toolbar": {
     "polishDashboard": "Aprimorar painel",
-    "polishRequestLabel": "Aprimorar"
+    "polishRequestLabel": "Aprimorar",
+    "fixErrorRequestLabel": "Corrigir erro de exibição"
   },
   "artifactFrame": {
+    "renderFailedTitle": "Não foi possível exibir o painel",
+    "fixError": "Corrigir erro",
     "dataAddQuery": "Adicionar consulta",
     "dataNoQueriesToAdd": "Sem consultas para adicionar",
     "dataAddFailed": "Falha ao adicionar a consulta ao painel",

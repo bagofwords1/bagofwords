@@ -5572,9 +5572,12 @@
   },
   "toolbar": {
     "polishDashboard": "تحسين لوحة التحكم",
-    "polishRequestLabel": "تحسين"
+    "polishRequestLabel": "تحسين",
+    "fixErrorRequestLabel": "إصلاح خطأ العرض"
   },
   "artifactFrame": {
+    "renderFailedTitle": "تعذّر عرض لوحة المعلومات",
+    "fixError": "إصلاح الخطأ",
     "dataAddQuery": "إضافة استعلام",
     "dataNoQueriesToAdd": "لا توجد استعلامات للإضافة",
     "dataAddFailed": "فشل في إضافة الاستعلام إلى لوحة المعلومات",

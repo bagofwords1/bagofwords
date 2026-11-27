@@ -6278,9 +6278,12 @@
   },
   "toolbar": {
     "polishDashboard": "Pulir panel",
-    "polishRequestLabel": "Pulir"
+    "polishRequestLabel": "Pulir",
+    "fixErrorRequestLabel": "Corregir error de visualización"
   },
   "artifactFrame": {
+    "renderFailedTitle": "No se pudo mostrar el panel",
+    "fixError": "Corregir error",
     "dataAddQuery": "Añadir consulta",
     "dataNoQueriesToAdd": "No hay consultas para añadir",
     "dataAddFailed": "No se pudo añadir la consulta al panel",

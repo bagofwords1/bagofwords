@@ -5572,9 +5572,12 @@
   },
   "toolbar": {
     "polishDashboard": "Putsa instrumentpanel",
-    "polishRequestLabel": "Putsa"
+    "polishRequestLabel": "Putsa",
+    "fixErrorRequestLabel": "Åtgärda visningsfel"
   },
   "artifactFrame": {
+    "renderFailedTitle": "Det gick inte att visa instrumentpanelen",
+    "fixError": "Åtgärda fel",
     "dataAddQuery": "Lägg till fråga",
     "dataNoQueriesToAdd": "Inga frågor att lägga till",
     "dataAddFailed": "Det gick inte att lägga till frågan på instrumentpanelen",

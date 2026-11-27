@@ -6298,9 +6298,12 @@
   },
   "toolbar": {
     "polishDashboard": "ליטוש דשבורד",
-    "polishRequestLabel": "ליטוש"
+    "polishRequestLabel": "ליטוש",
+    "fixErrorRequestLabel": "תיקון שגיאת תצוגה"
   },
   "artifactFrame": {
+    "renderFailedTitle": "הצגת הדשבורד נכשלה",
+    "fixError": "תיקון שגיאה",
     "dataAddQuery": "הוספת שאילתה",
     "dataNoQueriesToAdd": "אין שאילתות להוספה",
     "dataAddFailed": "הוספת השאילתה לדשבורד נכשלה",

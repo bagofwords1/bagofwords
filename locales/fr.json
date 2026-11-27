@@ -5572,9 +5572,12 @@
   },
   "toolbar": {
     "polishDashboard": "Peaufiner le tableau de bord",
-    "polishRequestLabel": "Peaufiner"
+    "polishRequestLabel": "Peaufiner",
+    "fixErrorRequestLabel": "Corriger l'erreur d'affichage"
   },
   "artifactFrame": {
+    "renderFailedTitle": "Impossible d'afficher le tableau de bord",
+    "fixError": "Corriger l'erreur",
     "dataAddQuery": "Ajouter une requête",
     "dataNoQueriesToAdd": "Aucune requête à ajouter",
     "dataAddFailed": "Échec de l'ajout de la requête au tableau de bord",
