@@ -5003,11 +5003,11 @@
     },
     "network": {
       "none": "Sin red",
-      "registries": "Solo registros de paquetes",
+      "registries": "Solo dominios permitidos",
       "allowlist": "Solo dominios permitidos",
       "full": "Internet completo",
       "noneHint": "El código del sandbox no puede acceder a la red.",
-      "registriesHint": "Solo se puede acceder a los registros de paquetes indicados en la configuración de Sandbox, para que las ejecuciones puedan instalar paquetes.",
+      "registriesHint": "Solo se puede acceder a los dominios indicados en Conexiones salientes permitidas, en la configuración de Sandbox. De forma predeterminada son los registros de paquetes de pip, npm y Go, para que las ejecuciones puedan instalar paquetes.",
       "allowlistHint": "Solo se puede acceder a los dominios indicados en este entorno.",
       "fullHint": "El código del sandbox puede acceder a cualquier dirección de internet."
     },
@@ -5232,9 +5232,9 @@
       "maxLifetimeHint": "Cualquier sandbox se elimina pasado este tiempo desde su creación.",
       "minutes": "minutos",
       "days": "días",
-      "registriesSection": "Registros de paquetes",
-      "registriesSectionHint": "Lo que permite la política de red «Solo registros de paquetes».",
-      "registryDomains": "Dominios de registros",
+      "registriesSection": "Conexiones salientes permitidas",
+      "registriesSectionHint": "Los dominios a los que puede acceder un sandbox con la política de red «Solo dominios permitidos». Los valores predeterminados son los registros de paquetes de pip, npm y Go. Un dominio añadido aquí queda abierto a todo el tráfico, no solo a la descarga de paquetes.",
+      "registryDomains": "Dominios permitidos",
       "registryDomainsHint": "Un dominio por línea, sin esquema, puerto ni ruta."
     }
   },

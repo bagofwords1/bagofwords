@@ -5080,11 +5080,11 @@
     },
     "network": {
       "none": "No network",
-      "registries": "Package registries only",
+      "registries": "Allowed domains only",
       "allowlist": "Allowed domains only",
       "full": "Full internet",
       "noneHint": "Code in the sandbox cannot reach the network at all.",
-      "registriesHint": "Only the package registries listed in the Sandbox settings can be reached, so runs can install packages.",
+      "registriesHint": "Only the domains listed under Allowed outbound connections in the Sandbox settings can be reached. By default these are the pip, npm and Go package registries, so runs can install packages.",
       "allowlistHint": "Only the domains listed on this environment can be reached.",
       "fullHint": "Code in the sandbox can reach any address on the internet."
     },
@@ -5309,9 +5309,9 @@
       "maxLifetimeHint": "Any sandbox is deleted this long after it was created.",
       "minutes": "minutes",
       "days": "days",
-      "registriesSection": "Package registries",
-      "registriesSectionHint": "What the \"Package registries only\" network policy allows.",
-      "registryDomains": "Registry domains",
+      "registriesSection": "Allowed outbound connections",
+      "registriesSectionHint": "The domains a sandbox on the \"Allowed domains only\" network policy can reach. The defaults are the pip, npm and Go package registries. A domain added here is open to all traffic, not only package downloads.",
+      "registryDomains": "Allowed domains",
       "registryDomainsHint": "One domain per line, without a scheme, port or path."
     }
   },

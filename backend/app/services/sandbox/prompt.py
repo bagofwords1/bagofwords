@@ -10,7 +10,7 @@ from typing import Any, Iterable, List, Optional, Sequence
 
 NETWORK_EXPLANATIONS = {
     "none": "no internet access: nothing can be downloaded and packages cannot be installed; use what is preinstalled",
-    "registries": "the package registries only (pip, npm and go get work); every other site is refused",
+    "registries": "only the domains the admin allows, by default the package registries (pip, npm and go get work); every other site is refused",
     "allowlist": "only the domains its environment lists; everything else is refused",
     "full": "the public internet (private networks stay blocked)",
 }
