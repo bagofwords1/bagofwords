@@ -41,7 +41,14 @@ class LLMUsageRecorderService:
             cache_write_1h_tokens=cache_write_1h_tokens,
             cache_write_12h_tokens=cache_write_12h_tokens,
         )
-        output_cost = self._calc_output_cost(llm_model, completion_tokens, prompt_tokens)
+        output_cost = self._calc_output_cost(
+            llm_model, completion_tokens, prompt_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=max(
+                cache_creation_tokens or 0,
+                (cache_write_5m_tokens or 0) + (cache_write_1h_tokens or 0) + (cache_write_12h_tokens or 0),
+            ),
+        )
 
         # Org is always knowable from the model itself; fall back to it when the
         # caller didn't supply explicit attribution. The other dimensions stay
@@ -119,11 +126,18 @@ class LLMUsageRecorderService:
         )
 
     @staticmethod
-    def _calc_output_cost(llm_model: LLMModel, tokens: int, prompt_tokens: int = 0) -> float:
+    def _calc_output_cost(
+        llm_model: LLMModel,
+        tokens: int,
+        prompt_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> float:
         rate = llm_model.get_output_cost_rate()
         if not tokens or rate is None:
             return 0.0
-        if pricing.long_context_pricing(getattr(llm_model, "model_id", None), prompt_tokens):
-            rate *= 1.5
-        return (tokens / 1_000_000) * float(rate)
+        _, output_multiplier = pricing.long_context_multipliers(
+            getattr(llm_model, "model_id", None), prompt_tokens, cache_read_tokens, cache_write_tokens
+        )
+        return (tokens / 1_000_000) * float(rate) * output_multiplier
 

@@ -322,6 +322,9 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 10.00
     },
     {
+        # $2/$10 is now the standard price: Anthropic dropped the planned
+        # 2026-09-01 increase to $3/$15.
+        # https://platform.claude.com/docs/en/about-claude/pricing
         "name": "Claude Sonnet 5",
         "model_id": "claude-sonnet-5",
         "provider_type": "anthropic",
@@ -330,8 +333,8 @@ LLM_MODEL_DETAILS = [
         "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1000000,
-        "input_cost_per_million_tokens_usd": 3.00,
-        "output_cost_per_million_tokens_usd": 15.00
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
     },
     {
         # Successor to Claude Opus 5, cheaper per token ($4/$20) with the same
@@ -383,8 +386,8 @@ LLM_MODEL_DETAILS = [
     },
     {
         # Successor to Claude Haiku 4.5: 1M window, 128K output, $0.10/$0.50
-        # for prompts up to 100K tokens ($0.50/$2.50 above; we bill the base
-        # tier). Cache reads/writes use the standard 0.1x / 1.25x / 2x, so no
+        # for prompts up to 100K tokens ($0.50/$2.50 above, applied by
+        # pricing.long_context_multipliers). Cache reads/writes use the standard 0.1x / 1.25x / 2x, so no
         # pricing override. Adaptive thinking only (budget_tokens 400s), effort
         # low..max with API default "medium"; non-default temperature 400s
         # (``haiku-5`` in _NO_SAMPLING_PARAM_TAGS). Not the small default:
