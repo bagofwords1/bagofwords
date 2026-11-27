@@ -31,6 +31,7 @@ from app.schemas.sandbox_schema import (
 )
 from app.services.sandbox import access as access_service
 from app.services.sandbox import environments as environment_service
+from app.services.sandbox import errors
 from app.services.sandbox.errors import SandboxError
 from app.services.sandbox.feature import require_sandbox_feature
 from app.services.sandbox.settings import load_settings
@@ -659,6 +660,14 @@ async def stop_sandbox(
     try:
         sandbox = await service.get(db, organization.id, sandbox_id)
         await service.stop(db, sandbox, str(current_user.id), reason="stopped by an admin")
+        if sandbox.state != "stopped":
+            # It was no longer on its server, so there was nothing to stop and it
+            # is now marked failed. That is not "stopped": say what happened.
+            raise SandboxError(
+                errors.UNAVAILABLE,
+                "The sandbox was not found where it should be running, so it could not be stopped. "
+                "It is marked failed and will be recreated on the next run.", status=409,
+            )
     except SandboxError as exc:
         raise _http(exc)
     return (await _fleet_rows(db, service, [sandbox], with_usage=False))[0]

@@ -176,3 +176,37 @@ def test_an_admin_deletes_one_sandbox_even_while_it_runs(world, test_client, adm
     assert len(entry) == 1 and entry[0].details["reason"] == "deleted by an admin"
     fresh = world.run_code(rep, world.admin_id, RunRequest(language="bash", code="ls outputs"))
     assert fresh.sandbox_id != sandbox_id and fresh.stdout == "", "the report gets a new, empty sandbox"
+
+
+def test_stopping_a_sandbox_that_is_gone_from_its_server_is_not_reported_as_stopped(world, test_client, admin, report):
+    sandbox_id = world.run_code(report(), world.admin_id, ECHO).sandbox_id
+    get_stub_host().remove_sandbox(f"sbx-{sandbox_id}")  # someone removed the container by hand
+
+    answer = test_client.post(f"{BASE}/{sandbox_id}/stop", headers=admin)
+    assert answer.status_code == 409 and answer.json()["error_code"] == "sandbox.unavailable", answer.text
+    assert world.rows(Sandbox, Sandbox.id == sandbox_id)[0].state == "failed"
+
+
+def test_a_run_that_does_not_stop_is_not_reported_as_stopped(world, test_client, admin, report, monkeypatch):
+    from app.services.sandbox import runtime_client, service as service_module
+
+    rep = report()
+    sandbox_id = world.run_code(rep, world.admin_id, ECHO).sandbox_id
+    monkeypatch.setattr(service_module, "KILL_GRACE_SECONDS", 1)
+
+    real_signal = runtime_client.SandboxRuntimeClient.send_signal
+
+    async def lost_signal(self, process_id, signal_name="SIGTERM"):
+        return None  # the signal goes nowhere
+    runtime_client.SandboxRuntimeClient.send_signal = lost_signal
+
+    def act():
+        try:
+            return test_client.post(f"{BASE}/{sandbox_id}/kill-run", headers=admin)
+        finally:
+            runtime_client.SandboxRuntimeClient.send_signal = real_signal  # let the delete below really stop it
+            test_client.delete(f"{BASE}/{sandbox_id}", headers=admin)
+
+    answer, _ = _with_a_run_in_progress(world, rep, act)
+    assert answer.status_code == 503 and answer.json()["error_code"] == "sandbox.unavailable", answer.text
+    assert "did not stop" in answer.json()["detail"]

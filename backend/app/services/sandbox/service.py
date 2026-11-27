@@ -899,6 +899,20 @@ class SandboxService:
                     if run.status != "running":
                         return run
                 await runtime.send_signal(int(process_id), "SIGKILL")
+                for _ in range(10):
+                    await asyncio.sleep(0.5)
+                    await db.refresh(run)
+                    if run.status != "running":
+                        return run
+            # Both signals were sent and the run is still recorded as running: say
+            # so, rather than report a stop that did not happen.
+            raise SandboxError(
+                errors.UNAVAILABLE,
+                "The run did not stop. The sandbox may no longer be reachable; delete the sandbox to end it.",
+                status=503,
+            )
+        except SandboxError:
+            raise
         except SandboxDriverError as exc:
             raise SandboxError(errors.UNAVAILABLE, f"The sandbox could not be reached: {exc.message}", status=503) from exc
         except Exception as exc:  # noqa: BLE001 - runtime client errors
