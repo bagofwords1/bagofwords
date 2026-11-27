@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 import time
+from collections import Counter
 from pathlib import Path
 from typing import AsyncIterator, Dict, Any, Type, List, Optional
 
@@ -114,7 +115,20 @@ class CreateArtifactTool(Tool):
             )
             return None, []
 
-        js_errors: list[str] = []
+        # Each channel has its own cap, so many chart warnings can never
+        # crowd a thrown error out. Charts come before console errors: repair
+        # prompts read the first few. One chart error per warning box on
+        # screen (read from the DOM after the render); the console warnings,
+        # which a remount or StrictMode repeats, only stand in when the page
+        # couldn't be read.
+        thrown: list[str] = []
+        console_errors: list[str] = []
+        chart_warnings: list[str] = []
+        chart_boxes: list = [None]
+
+        def _collected() -> list[str]:
+            charts = chart_warnings if chart_boxes[0] is None else chart_boxes[0]
+            return thrown + charts + console_errors
 
         try:
             import tempfile, os
@@ -141,20 +155,27 @@ class CreateArtifactTool(Tool):
                 # pageerror catches thrown/uncaught exceptions (incl. Babel
                 # transform errors), console 'error' catches failures that
                 # libraries report without throwing (React render errors).
+                # A chart that can't draw from its props only warns (kept as
+                # the fallback for the warning boxes read below); its message
+                # is kept as-is, so it is fatal and drives repair.
+                from app.ai.tools.implementations._artifact_refs import CHART_ERROR_PREFIX, is_chart_error
+
                 def _on_pageerror(err):
-                    if len(js_errors) < 10:
-                        js_errors.append(str(err))
+                    if len(thrown) < 10:
+                        thrown.append(str(err))
 
                 def _on_console(msg):
                     try:
-                        if msg.type == "error" and len(js_errors) < 10:
-                            text = msg.text or ""
+                        text = msg.text or ""
+                        if msg.type == "error":
                             # Skip noise that isn't a code defect
-                            if "favicon" in text.lower():
+                            if len(console_errors) >= 10 or "favicon" in text.lower():
                                 return
                             entry = f"[console.error] {text}"
-                            if not any(text in e for e in js_errors):
-                                js_errors.append(entry)
+                            if not any(text in e for e in thrown + console_errors):
+                                console_errors.append(entry)
+                        elif is_chart_error(msg.type, text) and len(chart_warnings) < 20:
+                            chart_warnings.append(text)
                     except Exception:
                         pass
 
@@ -172,19 +193,38 @@ class CreateArtifactTool(Tool):
                     page_url["url"] = f"file://{tmp.name}"
                     await page.goto(page_url["url"], wait_until="networkidle")
 
-                    # Wait for React to mount and charts to render (short timeout)
+                    # Wait for React to mount and charts to render (short timeout).
+                    # A page whose JS thread is blocked (a busy loop) can keep
+                    # Playwright's own timeout from firing, so each step on the
+                    # page also gets a hard bound a little above its own.
                     try:
-                        await page.wait_for_function(
+                        await asyncio.wait_for(page.wait_for_function(
                             "window.__ARTIFACT_RENDER_COMPLETE__ === true",
                             timeout=8000,
-                        )
+                        ), timeout=10)
                     except Exception:
                         pass  # Take screenshot anyway — partial render is still useful
 
                     await asyncio.sleep(0.3)
-                    screenshot_bytes = await page.screenshot(type="png", full_page=False)
+                    # One query of the DOM: it answers at once unless the
+                    # page's JS thread is blocked (a busy loop), which no wait
+                    # cures. 2 s, a quarter of the readiness wait above, so a
+                    # hung page falls back to the console warnings it logged.
+                    try:
+                        boxes = await asyncio.wait_for(page.evaluate(
+                            "() => Array.from(document.querySelectorAll('[data-bow-chart-warning]'),"
+                            " e => [e.getAttribute('data-bow-chart-warning'), e.getAttribute('data-bow-chart-viz')])"
+                        ), timeout=2)
+                        # Same form as the console warning: "[viz <id>]" keeps two
+                        # vizzes with one title apart.
+                        chart_boxes[0] = [CHART_ERROR_PREFIX + str(m) + (f" [viz {v}]" if v else "")
+                                          for m, v in boxes if m][:20]
+                    except Exception as e:
+                        logger.warning(f"Reading the chart warning boxes failed; using console warnings: {e!r}")
+                    screenshot_bytes = await asyncio.wait_for(
+                        page.screenshot(type="png", full_page=False, timeout=30000), timeout=35)
                     await browser.close()
-                    return base64.b64encode(screenshot_bytes).decode("utf-8"), js_errors
+                    return base64.b64encode(screenshot_bytes).decode("utf-8"), _collected()
                 finally:
                     os.unlink(tmp.name)
         except Exception as e:
@@ -195,7 +235,7 @@ class CreateArtifactTool(Tool):
                 "Artifact render check unavailable — dashboards are being saved WITHOUT a render "
                 f"check until this is fixed (set BOW_CHROMIUM_EXECUTABLE to a working Chromium): {e}"
             )
-            return None, js_errors
+            return None, _collected()
 
     async def _generate_thumbnail_background(
         self,
@@ -412,13 +452,115 @@ class CreateArtifactTool(Tool):
 
     @staticmethod
     def fatal_render_errors(errors: List[str]) -> List[str]:
-        """Errors that gate completion: thrown/uncaught exceptions.
+        """Errors that gate completion: thrown/uncaught exceptions, and charts
+        that can't draw from their props (`[bow-chart] …`).
 
         `[console.error]` entries are advisory — React dev builds log
         non-fatal warnings through console.error, so they inform repair but
         never fail an otherwise working artifact.
         """
         return [e for e in (errors or []) if not e.startswith("[console.error]")]
+
+    @staticmethod
+    def chart_render_errors(errors: List[str]) -> List[str]:
+        """The render errors of charts that can't draw from their props.
+
+        They drive repair like any fatal error, but a page whose only fatal
+        errors they are is still saved, with them as a warning: the rest of
+        the page works, and the viewer sees a box where the chart would be.
+        """
+        from app.ai.tools.implementations._artifact_refs import CHART_ERROR_PREFIX
+        return [e for e in (errors or []) if e.startswith(CHART_ERROR_PREFIX)]
+
+    @staticmethod
+    def _chart_list(chart_errors: List[str]) -> str:
+        from app.ai.tools.implementations._artifact_refs import CHART_ERROR_PREFIX
+        return "; ".join(e[len(CHART_ERROR_PREFIX):] if e.startswith(CHART_ERROR_PREFIX) else e for e in chart_errors)
+
+    @classmethod
+    def chart_errors_warning(cls, chart_errors: List[str], maybe_old: bool = False) -> str:
+        """What the planner reads about a page saved with charts that can't draw."""
+        return (f"Saved, but {len(chart_errors)} chart(s) can't draw and show a warning box instead: "
+                f"{cls._chart_list(chart_errors)}" + (cls.CHART_BASELINE_MISSING_NOTE if maybe_old else "")
+                + " Fix them with edit_artifact.")
+
+    @classmethod
+    def known_chart_errors_note(cls, known: List[str]) -> str:
+        """The non-blocking note for charts an edit found already broken."""
+        return (f"{len(known)} chart(s) were already broken before this edit (not blocking): "
+                f"{cls._chart_list(known)} Fix them with edit_artifact when you can.")
+
+    # Said with chart errors that could not be compared with the previous version.
+    CHART_BASELINE_MISSING_NOTE = (
+        " The previous version could not be rendered to compare, so a chart may have been broken "
+        "before this edit too."
+    )
+
+    async def _chart_baseline(
+        self, artifact_data: Dict[str, Any], previous_code: str,
+        previous_render_errors: Optional[List[str]], deadline_monotonic: Optional[float],
+    ) -> Optional[Counter]:
+        """The chart errors ``previous_code`` renders, as a multiset of
+        normalized messages; None when they can't be known.
+
+        Rendered, not read from the stored render_errors: versions saved
+        before chart errors were captured have none. Those stored errors are
+        the fallback when the previous render fails (no screenshot).
+        """
+        shot, before = None, []
+        remaining = None if deadline_monotonic is None else deadline_monotonic - time.monotonic()
+        if remaining is None or remaining > 0:
+            try:
+                html = self._build_thumbnail_html(artifact_data, previous_code, mode="page")
+                render = self._take_preview_screenshot(html)
+                shot, before = await (render if remaining is None else asyncio.wait_for(render, remaining))
+            except Exception as e:
+                logger.warning(f"Rendering the previous version to compare chart errors failed: {e}")
+        if shot is not None:
+            return Counter(" ".join(e.split()) for e in self.chart_render_errors(before))
+        stored = self.chart_render_errors(previous_render_errors or [])
+        logger.warning(
+            "The previous version could not be rendered to compare chart errors; "
+            + ("using its stored render errors." if stored else "every chart error counts as new.")
+        )
+        return Counter(" ".join(e.split()) for e in stored) if stored else None
+
+    async def _split_known_chart_errors(
+        self, errors: List[str], artifact_data: Dict[str, Any], previous_code: Optional[str],
+        cache: Dict[str, Any], *, previous_render_errors: Optional[List[str]] = None,
+        deadline_monotonic: Optional[float] = None,
+    ) -> tuple:
+        """(gating, known): ``errors`` split into those that gate and the chart
+        errors ``previous_code`` already rendered.
+
+        An edit is judged on the chart errors it adds, like chart_prop_errors:
+        a chart the page already got wrong never blocks an unrelated edit,
+        while a second chart broken the same way still counts (a multiset).
+        The previous code is rendered at most once per ``cache`` (one tool
+        call), and only when chart errors are all that could gate.
+        ``cache["baseline"] is None`` means no comparison was possible.
+        """
+        from app.ai.tools.implementations._artifact_refs import CHART_ERROR_PREFIX
+        charts = self.chart_render_errors(errors)
+        if previous_code is None or not charts or len(charts) != len(self.fatal_render_errors(errors)):
+            # Nothing to compare, or a thrown error fails/repairs this anyway.
+            return list(errors), []
+        if "baseline" not in cache:
+            cache["baseline"] = await self._chart_baseline(
+                artifact_data, previous_code, previous_render_errors, deadline_monotonic)
+        if cache["baseline"] is None:
+            return list(errors), []
+        left = Counter(cache["baseline"])
+        gating: List[str] = []
+        known: List[str] = []
+        for e in errors:
+            key = " ".join(e.split())
+            if e.startswith(CHART_ERROR_PREFIX) and left[key] > 0:
+                left[key] -= 1
+                known.append(e)
+            else:
+                gating.append(e)
+        return gating, known
 
     @staticmethod
     def params_wiring_errors(code: str, artifact_data: Dict[str, Any], *, previous_code: Optional[str] = None, previous_visualization_ids: Optional[List[str]] = None) -> List[str]:
@@ -729,6 +871,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         deadline_monotonic: Optional[float] = None,
         max_repairs: Optional[int] = None,
         strict: bool = False,
+        previous_code: Optional[str] = None,
+        previous_render_errors: Optional[List[str]] = None,
     ) -> AsyncIterator[Any]:
         """Render-validate page code and repair it in-tool when it fails.
 
@@ -737,7 +881,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         Contract errors (viz refs, params wiring, page checks) left after the
         repairs fail the result in both modes; they are merged into `errors`.
         strict=True also fails on file-reference errors when render
-        validation is unavailable.
+        validation is unavailable. previous_code (an edit): the chart errors
+        that code already rendered don't gate or drive repair (they stay in
+        `errors` and come back as "known_chart_errors"); only those the edit
+        adds count. previous_render_errors (its stored ones) stand in when
+        the previous code can't be rendered.
 
         Async generator: yields ToolProgressEvent items for the UI, then a
         final dict result:
@@ -749,6 +897,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
           repair context.
         - If repair can't produce a clean render, the ORIGINAL code and its
           errors are returned so what's persisted matches what was verified.
+        - Except when charts that can't draw are the only fatal errors left
+          (and no contract error): the last candidate is clean, and the result
+          carries them as "chart_errors" for the caller to warn about.
         """
         import time as _time
 
@@ -780,7 +931,15 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             }
             return
         screenshot, errors = await self._take_preview_screenshot(html)
-        fatal = self.fatal_render_errors(errors)
+        chart_cache: Dict[str, Any] = {}
+
+        async def _gate(errs):
+            return await self._split_known_chart_errors(
+                errs, artifact_data, previous_code, chart_cache,
+                previous_render_errors=previous_render_errors, deadline_monotonic=deadline_monotonic)
+
+        gating, known_charts = await _gate(errors)
+        fatal = self.fatal_render_errors(gating)
         # Params-wiring contract rides the same repair loop: an unwired param
         # renders fine but silently never re-runs the data — as much a defect
         # as a thrown error, and fixable by the same in-tool repair.
@@ -813,7 +972,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 type="tool.progress",
                 payload={"stage": "repairing_code", "attempt": attempts, "error_count": len(fatal) + len(wiring)},
             )
-            fixed = await self._fix_code(candidate, list(errors) + wiring, mode, runtime_ctx)
+            fixed = await self._fix_code(candidate, list(gating) + wiring, mode, runtime_ctx)
             if not fixed or fixed == candidate:
                 break
 
@@ -823,8 +982,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             )
             html = self._build_thumbnail_html(artifact_data, fixed, mode=mode)
             screenshot, errors = await self._take_preview_screenshot(html)
+            gating, known_charts = await _gate(errors)
             candidate = fixed
-            fatal = self.fatal_render_errors(errors)
+            fatal = self.fatal_render_errors(gating)
             wiring = self.params_wiring_errors(candidate, artifact_data) if mode == "page" else []
             if mode == "page":
                 wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data) + file_reference_errors(candidate, artifact_data) + raw_chart_errors(candidate, artifact_data) + viewer_name_errors(candidate, artifact_data) + focal_point_errors(candidate, artifact_data, once_key=_layout_key)
@@ -853,6 +1013,22 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "errors": errors,
                 "repair_attempts": attempts,
                 "params_wiring_errors": wiring,
+                "known_chart_errors": known_charts,
+            }
+        elif not wiring and fatal == self.chart_render_errors(fatal):
+            # Only charts that can't draw are left after the repairs: the page
+            # works around their warning boxes, so it is saved, and the caller
+            # tells the planner which charts to fix.
+            yield {
+                "code": candidate,
+                "clean": True,
+                "screenshot": screenshot,
+                "errors": errors,
+                "repair_attempts": attempts,
+                "params_wiring_errors": wiring,
+                "chart_errors": fatal,
+                "known_chart_errors": known_charts,
+                "chart_baseline_missing": previous_code is not None and chart_cache.get("baseline", Counter()) is None,
             }
         else:
             # Repair didn't converge — return the original, verified-broken
@@ -1605,6 +1781,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         render_clean = True
         repair_attempts = 0
         params_wiring_errors: list[str] = []
+        chart_errors: list[str] = []
         thumbnail_html: Optional[str] = None
         artifact_data: Optional[Dict[str, Any]] = None
 
@@ -1666,6 +1843,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 render_errors = list(_validate_result["errors"] or [])
                 repair_attempts = int(_validate_result["repair_attempts"] or 0)
                 params_wiring_errors = list(_validate_result.get("params_wiring_errors") or [])
+                chart_errors = list(_validate_result.get("chart_errors") or [])
                 # Generation and its repair loop may both supply new source.
                 # Check the exact candidate that would become the completed version.
                 if render_clean and not planner_authored:
@@ -1996,8 +2174,15 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "server — the PPTX file is still downloadable."
                 )
         elif data.mode == "page":
+            if chart_errors:
+                # Also without a screenshot: a render that broke off after the
+                # charts warned still names them.
+                summary_msg += ". " + self.chart_errors_warning(chart_errors)
             if not screenshot_base64:
-                summary_msg += "." + self.RENDER_UNCHECKED_NOTE
+                # The chart warning already ends its sentence.
+                summary_msg += ("" if chart_errors else ".") + self.RENDER_UNCHECKED_NOTE
+            elif chart_errors:
+                pass  # the warning above replaces "Render validation passed"
             elif repair_attempts:
                 summary_msg += f". Render validation passed after {repair_attempts} in-tool repair attempt(s)."
             else:
@@ -2033,6 +2218,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             observation["render_errors"] = render_errors
         if repair_attempts:
             observation["repair_attempts"] = repair_attempts
+        if chart_errors:
+            observation["chart_errors"] = output["chart_errors"] = chart_errors
         # Wiring contract unmet after the repair budget: the dashboard renders
         # but its param control(s) are dead — say so instead of shipping it
         # silently, so the planner can follow up with edit_artifact.

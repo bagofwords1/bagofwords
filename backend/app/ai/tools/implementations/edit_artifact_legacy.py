@@ -1371,6 +1371,9 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         render_errors: list[str] = []
         render_repair_attempts = 0
         params_wiring_errors: list[str] = []
+        chart_errors: list[str] = []
+        known_charts: list[str] = []
+        chart_baseline_missing = False
         page_artifact_data: Optional[Dict[str, Any]] = None
 
         if artifact.mode == "page":
@@ -1394,6 +1397,8 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
             _validate_result: Optional[Dict[str, Any]] = None
             async for _item in self._create_tool._validate_and_repair_stream(
                 new_code, page_artifact_data, "page", runtime_ctx, deadline_monotonic=_repair_deadline,
+                previous_code=existing_code,
+                previous_render_errors=getattr(artifact, "render_errors", None),
             ):
                 if isinstance(_item, dict):
                     _validate_result = _item
@@ -1450,6 +1455,9 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                     render_errors = list(_validate_result["errors"] or [])
                     render_repair_attempts = int(_validate_result["repair_attempts"] or 0)
                     params_wiring_errors = list(_validate_result.get("params_wiring_errors") or [])
+                    chart_errors = list(_validate_result.get("chart_errors") or [])
+                    known_charts = list(_validate_result.get("known_chart_errors") or [])
+                    chart_baseline_missing = bool(_validate_result.get("chart_baseline_missing"))
                 else:
                     _fatal = self._create_tool.fatal_render_errors(_validate_result["errors"] or [])
                     _first_error = _fatal[0] if _fatal else "unknown render error"
@@ -1683,13 +1691,17 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         else:
             summary_msg += " — fell back to full rewrite"
         if new_artifact.mode == "page":
-            if render_repair_attempts:
+            if chart_errors:
+                summary_msg += ". " + self._create_tool.chart_errors_warning(chart_errors, maybe_old=chart_baseline_missing)
+            elif render_repair_attempts:
                 summary_msg += f". Render validation passed after {render_repair_attempts} in-tool repair attempt(s)."
             else:
                 summary_msg += ". Render validation passed."
             _console_warnings = [e for e in render_errors if e.startswith("[console.error]")]
             if _console_warnings:
                 summary_msg += f" {len(_console_warnings)} non-fatal console error(s) were logged."
+            if known_charts:
+                summary_msg += " " + self._create_tool.known_chart_errors_note(known_charts)
         elif new_artifact.mode == "slides":
             if _pptx_repair_attempts:
                 summary_msg += f". PPTX execution passed after {_pptx_repair_attempts} in-tool repair attempt(s)."
@@ -1732,6 +1744,10 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
             observation["render_errors"] = render_errors
         if render_repair_attempts:
             observation["repair_attempts"] = render_repair_attempts
+        if chart_errors:
+            observation["chart_errors"] = output["chart_errors"] = chart_errors
+        if known_charts:
+            observation["known_chart_errors"] = known_charts
         # Wiring contract unmet after the repair budget — annotate loudly so
         # the planner can follow up rather than shipping a dead control.
         if params_wiring_errors:
