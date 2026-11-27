@@ -90,12 +90,25 @@ def session():
     engine.dispose()
 
 
+def _sibling_revisions() -> list[str]:
+    """Revisions above PREVIOUS that do not build on REVISION: branches merged
+    with it later (e.g. other migrations shipped in the same release)."""
+    sd = script_directory()
+    above = [r.revision for r in sd.iterate_revisions("heads", PREVIOUS) if r.revision != PREVIOUS]
+    return [r for r in reversed(above)
+            if REVISION not in {a.revision for a in sd.iterate_revisions(r, PREVIOUS)}]
+
+
 def test_migration_adds_the_eight_tables_and_changes_nothing_else():
     url = sync_test_url()
     with_tables = _shape(url)
     assert TABLES <= set(with_tables)
 
+    # Downgrading to PREVIOUS also undoes sibling branches merged after it;
+    # re-apply those so the comparison isolates this revision.
     _alembic(url, "downgrade", PREVIOUS)
+    for sibling in _sibling_revisions():
+        _alembic(url, "upgrade", sibling)
     try:
         without = _shape(url)
         assert not (TABLES & set(without)), "downgrade leaves no sandbox table behind"
