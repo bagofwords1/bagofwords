@@ -34,6 +34,7 @@ const start = view.indexOf('<ArtifactChatBubble');
 assert.ok(start >= 0, 'SharedDashboardView.vue renders the bubble');
 const element = view.slice(start, view.indexOf('/>', start));
 assert.match(element, /\n\s*:host-context="props\.hostContext \?\? null"/, 'the page passes its host context to the bubble');
-assert.match(element, /v-if="reportLoaded && report\?\.artifact_chat_enabled && api\.chatBase && !embedded && !ownConversations"/,
-  'when the bubble shows is unchanged');
+// #1935: a draft (no chat base yet) shows the bubble as a preview; otherwise unchanged.
+assert.match(element, /v-if="reportLoaded && report\?\.artifact_chat_enabled && \(api\.chatBase \|\| chatPreview\) && !embedded && !ownConversations"/,
+  'when the bubble shows is unchanged, apart from the draft preview');
 console.log('PASS: SharedDashboardView binds :host-context on the bubble');
