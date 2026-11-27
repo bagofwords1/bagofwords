@@ -1,0 +1,16 @@
+== before (base code)
+PUT settings -> 200 | stored: None
+report retention job: No module named 'app.services.retention'
+old report rows left after the nightly run: 1
+            print("report retention job: exists")
+            print("report retention job:", e)
+        print("old report rows left after the nightly run:", left)
+E       AssertionError: the 31-day-old report is still there: report retention does not exist
+tests/e2e/rbac/test_retention_baseline.py:31: AssertionError
+1 failed in 7.29s
+
+== after (this branch)
+PUT settings -> 200 | stored: {'value': 30, 'name': 'Report retention (days)', 'description': 'Delete reports nobody has used for this many days, for good, every night: every message, agent run, tool call, query and result, and files nothing else uses. Scheduled, shared and published reports, and reports with a live dashboard, are kept. Empty keeps reports forever.', 'is_lab': False, 'editable': True, 'state': 'enabled'}
+report retention job: exists -> {'reports': 1, 'artifacts': 0, 'files': 0, 'blobs': {'deleted': 0, 'still_pending': 0}}
+old report rows left after the nightly run: 0
+1 passed in 6.68s

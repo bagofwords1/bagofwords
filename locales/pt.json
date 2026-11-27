@@ -3570,7 +3570,11 @@
         },
         "workspace": {
           "title": "Espaço de trabalho",
-          "description": "Webhooks, forks e retenção de dados"
+          "description": "Links públicos, pedidos de acesso, webhooks e forks"
+        },
+        "retention": {
+          "title": "Retenção de dados",
+          "description": "Excluir definitivamente relatórios, painéis e arquivos antigos"
         },
         "other": {
           "title": "Outros",
@@ -3783,7 +3787,15 @@
         },
         "file_retention_days": {
           "name": "Retenção de arquivos (dias)",
-          "description": "Exclui todas as noites os arquivos mais antigos que este número de dias. Arquivos usados por um painel, arquivos na biblioteca de um agente ou projeto e envios para um relatório agendado são mantidos. 0 mantém os arquivos para sempre."
+          "description": "Exclui definitivamente, toda noite, os arquivos com mais desse número de dias. Arquivos usados por um painel, arquivos na biblioteca de um agente ou projeto e envios que alimentam um relatório agendado são mantidos. Vazio mantém os arquivos para sempre."
+        },
+        "report_retention_days": {
+          "name": "Retenção de relatórios (dias)",
+          "description": "Exclui definitivamente, toda noite, os relatórios que ninguém usou por esse número de dias: cada mensagem, execução do agente, chamada de ferramenta, consulta e resultado, e os arquivos que nada mais usa. Relatórios agendados, compartilhados e publicados, e relatórios com um painel ativo, são mantidos. Vazio mantém os relatórios para sempre."
+        },
+        "artifact_retention_days": {
+          "name": "Retenção de painéis (dias)",
+          "description": "Exclui definitivamente, toda noite, os painéis e páginas que ninguém editou nem executou por esse número de dias, com suas versões, dados e arquivos. Painéis publicados, compartilhados, agendados e incorporados são mantidos. Vazio os mantém para sempre."
         },
         "enable_excel_addin": {
           "name": "Suplemento do Excel",
@@ -3829,6 +3841,12 @@
           "name": "Top K colunas por tabela",
           "description": "Quantas colunas de uma tabela larga o agente vê por completo no contexto, ordenadas por uso das colunas, referências em instruções e chaves/carimbos de data/hora. O resto é resumido por prefixo e continua pesquisável com describe_tables. 0 = sem limite."
         }
+      },
+      "retention": {
+        "keepForever": "Manter para sempre",
+        "warning": "A retenção exclui definitivamente. Relatórios, painéis e arquivos excluídos não podem ser restaurados.",
+        "preview": "A execução desta noite excluiria {reports} relatórios, {artifacts} painéis e {files} arquivos.",
+        "previewNone": "A execução desta noite não excluiria nada."
       },
       "permissionMode": {
         "title": "Modo de permissões de ferramentas",

@@ -1,0 +1,33 @@
+org 324d1f76-f3bf-4e30-8ff9-46127bdeceb2, data source ['9bb1857c-4be0-42a0-9f3c-05702bd3e860']
+S1 tree before: {"agent_executions": 2, "completion_blocks": 4, "completions": 6, "context_snapshots": 8, "dashboard_layout_versions": 1, "plan_decisions": 4, "queries": 1, "report_context_states": 1, "reports": 1, "steps": 1, "table_usage_events": 1, "tool_executions": 2, "visualizations": 1, "widgets": 1}
+S8 tree before: {"agent_executions": 1, "artifact_versions": 1, "artifacts": 1, "completion_blocks": 3, "completions": 2, "context_snapshots": 6, "dashboard_layout_versions": 1, "plan_decisions": 3, "queries": 1, "report_context_states": 1, "reports": 1, "steps": 1, "table_usage_events": 1, "tool_executions": 2, "visualizations": 1, "widgets": 1}
+PASS real agent runs wrote the run tree  ['agent_executions', 'completion_blocks', 'completions', 'plan_decisions', 'tool_executions']
+PASS no dangling references before the run
+PASS uploads are on disk before the run
+PASS retention set through the API  {'report_retention_days': 30, 'artifact_retention_days': 30, 'file_retention_days': 30}
+preview: {"report_retention_days": 30, "artifact_retention_days": 30, "file_retention_days": 30, "reports": 4, "artifacts": 2, "files": 1}
+PASS preview counts the reports tonight's run deletes  4 == 4
+nightly run: {"reports": 4, "artifacts": 1, "files": 1, "blobs": {"deleted": 0, "still_pending": 0}} | file retention: 1
+PASS S1 old chat, two turns, with its own upload: deleted with its whole tree  34 rows in 14 tables -> 0
+PASS S2 recent chat (also uses S1's second upload): kept whole  26 rows -> 26
+PASS S3 old chat with activity yesterday: kept whole  25 rows -> 25
+PASS S4 old report with an active schedule: kept whole  26 rows -> 26
+PASS S6 old conversation shared by link: kept whole  25 rows -> 25
+PASS S7 old chat whose dashboard is shared: kept whole  27 rows -> 27
+PASS S8 old chat with a never-published dashboard: deleted with its whole tree  27 rows in 16 tables -> 0
+PASS S9 old chat with a rewound turn: deleted with its whole tree  32 rows in 14 tables -> 0
+PASS S10 old chat an instruction was learned from: deleted with its whole tree  25 rows in 14 tables -> 0
+PASS S13 old chat with a run in progress: kept whole  25 rows -> 25
+PASS S14 old dashboard that left its (recent) conversation: dashboard deleted, conversation kept  2 rows -> 0
+PASS S15 recent standalone dashboard: kept  2 rows -> 2
+PASS S10 the instruction stays, its link to the run cleared  [('63a163e4-65be-47f1-9c35-23ab264e6732', None)]
+PASS S9 the rewound (hidden) turn is deleted too
+PASS S1's own upload: row and bytes gone  uploads/files/34acd30f-0567-4944-b8c1-c99562f3449c_retention-a7992e.csv
+PASS S2 still uses S1's second upload: kept
+PASS S16 old upload deleted by file retention, bytes gone
+PASS no dangling reference anywhere after the run
+PASS LLM usage history kept  107 -> 107 records
+PASS deletions are in the audit log (counts only)  [('retention.reports_deleted', 4), ('retention.artifacts_deleted', 1)]
+PASS a second run deletes nothing  {'reports': 0, 'artifacts': 0, 'files': 0, 'blobs': {'deleted': 0, 'still_pending': 0}}
+PASS preview is empty after the run  {'report_retention_days': 30, 'artifact_retention_days': 30, 'file_retention_days': 30, 'reports': 0, 'artifacts': 0, 'files': 0}
+27/27 passed

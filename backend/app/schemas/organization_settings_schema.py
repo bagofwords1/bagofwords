@@ -493,7 +493,12 @@ class OrganizationSettingsConfig(BaseModel):
     # Days to keep files before the nightly job deletes them; 0 keeps them
     # forever. Dashboard files, agent/project library files and uploads that
     # feed a scheduled report never expire. See app/services/file_retention_service.py.
-    file_retention_days: FeatureConfig = FeatureConfig(value=0, name="File retention (days)", description="Delete files older than this many days, every night. Files used by a dashboard, files in an agent or project library, and uploads that feed a scheduled report are kept. 0 keeps files forever.", is_lab=False, editable=True)
+    file_retention_days: FeatureConfig = FeatureConfig(value=0, name="File retention (days)", description="Delete files older than this many days, for good, every night. Files used by a dashboard, files in an agent or project library, and uploads that feed a scheduled report are kept. Empty keeps files forever.", is_lab=False, editable=True)
+    # Report and artifact retention: days without activity before the nightly
+    # job deletes them for good, with everything they own. 0 (default, shown
+    # as an empty field) keeps them forever. See app/services/retention/.
+    report_retention_days: FeatureConfig = FeatureConfig(value=0, name="Report retention (days)", description="Delete reports nobody has used for this many days, for good, every night: every message, agent run, tool call, query and result, and files nothing else uses. Scheduled, shared and published reports, and reports with a live dashboard, are kept. Empty keeps reports forever.", is_lab=False, editable=True)
+    artifact_retention_days: FeatureConfig = FeatureConfig(value=0, name="Dashboard retention (days)", description="Delete dashboards and pages nobody has edited or run for this many days, for good, every night, with their versions, data and files. Published, shared, scheduled and embedded dashboards are kept. Empty keeps them forever.", is_lab=False, editable=True)
     enable_excel_addin: FeatureConfig = FeatureConfig(value=True, name="Excel Add-in", description="Enable the built-in Excel Add-in so users can sideload the manifest directly from this instance", is_lab=False, editable=True)
     model_routing: FeatureConfig = FeatureConfig(value=False, name="Auto model router", description="Enterprise. When a user doesn't pick a specific model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add per-model routing guidance on the LLM page to steer the choice. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
     # How the Auto router picks a run's starting model. "small_model" (default,

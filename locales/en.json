@@ -4100,7 +4100,11 @@
         },
         "workspace": {
           "title": "Workspace",
-          "description": "Public links, webhooks, forks and data retention"
+          "description": "Public links, access requests, webhooks and forks"
+        },
+        "retention": {
+          "title": "Data retention",
+          "description": "Delete old reports, dashboards and files for good"
         },
         "other": {
           "title": "Other",
@@ -4325,7 +4329,15 @@
         },
         "file_retention_days": {
           "name": "File retention (days)",
-          "description": "Delete files older than this many days, every night. Files used by a dashboard, files in an agent or project library, and uploads that feed a scheduled report are kept. 0 keeps files forever."
+          "description": "Delete files older than this many days, for good, every night. Files used by a dashboard, files in an agent or project library, and uploads that feed a scheduled report are kept. Empty keeps files forever."
+        },
+        "report_retention_days": {
+          "name": "Report retention (days)",
+          "description": "Delete reports nobody has used for this many days, for good, every night: every message, agent run, tool call, query and result, and files nothing else uses. Scheduled, shared and published reports, and reports with a live dashboard, are kept. Empty keeps reports forever."
+        },
+        "artifact_retention_days": {
+          "name": "Dashboard retention (days)",
+          "description": "Delete dashboards and pages nobody has edited or run for this many days, for good, every night, with their versions, data and files. Published, shared, scheduled and embedded dashboards are kept. Empty keeps them forever."
         },
         "enable_excel_addin": {
           "name": "Excel Add-in",
@@ -4439,6 +4451,12 @@
           "name": "Top K columns per table",
           "description": "How many columns of a wide table the agent sees in full in its context, ranked by column usage, instruction references and keys/timestamps. The rest are summarized by prefix and stay searchable with describe_tables. 0 = no limit."
         }
+      },
+      "retention": {
+        "keepForever": "Keep forever",
+        "warning": "Retention deletes for good. Deleted reports, dashboards and files cannot be restored.",
+        "preview": "Tonight's run would delete {reports} reports, {artifacts} dashboards and {files} files.",
+        "previewNone": "Tonight's run would delete nothing."
       },
       "permissionMode": {
         "title": "Tool permission mode",

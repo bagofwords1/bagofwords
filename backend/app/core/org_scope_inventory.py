@@ -104,6 +104,7 @@ GLOBAL: FrozenSet[str] = frozenset({
     "InstanceSettings",
     "LoginExchangeCode",  # one-time sign-in code for a global user account
     "OAuthAccount",   # sign-in identity of a global user account
+    "PendingBlobDelete",  # storage paths of already-deleted files, retried by the nightly job; read by no API
     "SAMLRequest",    # sign-in state, before any organization is known
     "User",           # one account, a membership per organization
 })

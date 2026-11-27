@@ -3570,7 +3570,11 @@
         },
         "workspace": {
           "title": "Area di lavoro",
-          "description": "Webhook, fork e conservazione dei dati"
+          "description": "Link pubblici, richieste di accesso, webhook e fork"
+        },
+        "retention": {
+          "title": "Conservazione dei dati",
+          "description": "Elimina definitivamente report, dashboard e file vecchi"
         },
         "other": {
           "title": "Altro",
@@ -3783,7 +3787,15 @@
         },
         "file_retention_days": {
           "name": "Conservazione dei file (giorni)",
-          "description": "Ogni notte elimina i file più vecchi di questo numero di giorni. I file usati da una dashboard, quelli nella libreria di un agente o progetto e i caricamenti per un report pianificato vengono conservati. 0 li conserva per sempre."
+          "description": "Elimina definitivamente, ogni notte, i file più vecchi di questo numero di giorni. I file usati da una dashboard, quelli nella libreria di un agente o progetto e i caricamenti che alimentano un report pianificato vengono conservati. Vuoto conserva i file per sempre."
+        },
+        "report_retention_days": {
+          "name": "Conservazione dei report (giorni)",
+          "description": "Elimina definitivamente, ogni notte, i report che nessuno usa da questo numero di giorni: ogni messaggio, esecuzione dell'agente, chiamata a strumento, query e risultato, e i file che nient'altro usa. I report pianificati, condivisi e pubblicati, e quelli con una dashboard attiva, vengono conservati. Vuoto conserva i report per sempre."
+        },
+        "artifact_retention_days": {
+          "name": "Conservazione delle dashboard (giorni)",
+          "description": "Elimina definitivamente, ogni notte, le dashboard e le pagine che nessuno ha modificato o eseguito da questo numero di giorni, con versioni, dati e file. Le dashboard pubblicate, condivise, pianificate e incorporate vengono conservate. Vuoto le conserva per sempre."
         },
         "enable_excel_addin": {
           "name": "Componente aggiuntivo di Excel",
@@ -3829,6 +3841,12 @@
           "name": "Top K colonne per tabella",
           "description": "Quante colonne di una tabella ampia l'agente vede per intero nel contesto, ordinate per utilizzo, riferimenti nelle istruzioni e chiavi/timestamp. Le altre sono riassunte per prefisso e restano ricercabili con describe_tables. 0 = nessun limite."
         }
+      },
+      "retention": {
+        "keepForever": "Conserva per sempre",
+        "warning": "La conservazione elimina definitivamente. Report, dashboard e file eliminati non possono essere ripristinati.",
+        "preview": "L'esecuzione di stanotte eliminerebbe {reports} report, {artifacts} dashboard e {files} file.",
+        "previewNone": "L'esecuzione di stanotte non eliminerebbe nulla."
       },
       "permissionMode": {
         "title": "Modalità dei permessi degli strumenti",

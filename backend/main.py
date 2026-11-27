@@ -699,6 +699,24 @@ async def startup_event():
             logger.info("Scheduled job: purge_expired_files (file retention) @ 03:45 daily")
         except Exception as e:
             logger.error(f"Failed to schedule file retention job: {e}")
+        # Report and artifact retention (off by default), then the retry of
+        # file bytes a delete could not remove yet.
+        try:
+            from app.services.retention.jobs import JOB_ID as RETENTION_JOB_ID, purge_expired as purge_retention
+            scheduler.add_job(
+                purge_retention,
+                trigger="cron",
+                hour=4,
+                minute=0,
+                id=RETENTION_JOB_ID,
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: purge_retention (report + artifact retention) @ 04:00 daily")
+        except Exception as e:
+            logger.error(f"Failed to schedule report/artifact retention job: {e}")
         # A dashboard's refresh history keeps 30 days (refhist01).
         try:
             from app.services.dashboard_refresh_history import purge_old_runs

@@ -3570,7 +3570,11 @@
         },
         "workspace": {
           "title": "Espace de travail",
-          "description": "Webhooks, duplications et conservation des données"
+          "description": "Liens publics, demandes d'accès, webhooks et duplications"
+        },
+        "retention": {
+          "title": "Conservation des données",
+          "description": "Supprimer définitivement les anciens rapports, tableaux de bord et fichiers"
         },
         "other": {
           "title": "Autres",
@@ -3783,7 +3787,15 @@
         },
         "file_retention_days": {
           "name": "Conservation des fichiers (jours)",
-          "description": "Supprime chaque nuit les fichiers plus anciens que ce nombre de jours. Les fichiers utilisés par un tableau de bord, ceux d'une bibliothèque d'agent ou de projet et ceux importés dans un rapport planifié sont conservés. 0 les conserve indéfiniment."
+          "description": "Supprime définitivement, chaque nuit, les fichiers plus anciens que ce nombre de jours. Les fichiers utilisés par un tableau de bord, ceux de la bibliothèque d'un agent ou d'un projet et les fichiers importés qui alimentent un rapport planifié sont conservés. Vide conserve les fichiers pour toujours."
+        },
+        "report_retention_days": {
+          "name": "Conservation des rapports (jours)",
+          "description": "Supprime définitivement, chaque nuit, les rapports que personne n'a utilisés depuis ce nombre de jours : chaque message, exécution d'agent, appel d'outil, requête et résultat, et les fichiers que rien d'autre n'utilise. Les rapports planifiés, partagés et publiés, et ceux avec un tableau de bord actif, sont conservés. Vide conserve les rapports pour toujours."
+        },
+        "artifact_retention_days": {
+          "name": "Conservation des tableaux de bord (jours)",
+          "description": "Supprime définitivement, chaque nuit, les tableaux de bord et pages que personne n'a modifiés ni exécutés depuis ce nombre de jours, avec leurs versions, données et fichiers. Les tableaux de bord publiés, partagés, planifiés et intégrés sont conservés. Vide les conserve pour toujours."
         },
         "enable_excel_addin": {
           "name": "Complément Excel",
@@ -3829,6 +3841,12 @@
           "name": "Top K colonnes par table",
           "description": "Nombre de colonnes d'une table large que l'agent voit en entier dans son contexte, classées par utilisation, références dans les instructions et clés/horodatages. Les autres sont résumées par préfixe et restent recherchables avec describe_tables. 0 = sans limite."
         }
+      },
+      "retention": {
+        "keepForever": "Conserver toujours",
+        "warning": "La conservation supprime définitivement. Les rapports, tableaux de bord et fichiers supprimés ne peuvent pas être restaurés.",
+        "preview": "L'exécution de cette nuit supprimerait {reports} rapports, {artifacts} tableaux de bord et {files} fichiers.",
+        "previewNone": "L'exécution de cette nuit ne supprimerait rien."
       },
       "permissionMode": {
         "title": "Mode d'autorisation des outils",

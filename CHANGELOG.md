@@ -2,6 +2,8 @@
 
 ## Version 0.0.639 (November 26, 2026)
 - Added agent sandboxes: containers on your own Linux servers where a report's agent runs code and saves the files it writes to the report (#1941) — off until `BOW_AGENT_SANDBOXES_ENABLED` is set, then set up in Settings → Sandbox
+- Added report and dashboard retention: reports and dashboards nobody used for N days are deleted for good every night, with their runs, queries and files (#1943) — Settings → AI settings → Data retention, off by default
+- Fixed deleted files' bytes staying in storage when removing them failed once; they are now retried every night (#1943)
 
 ## Version 0.0.638 (November 25, 2026)
 - Added a Microsoft Learn connector for searching and reading Microsoft and Azure documentation, with no sign-in needed (#1929)
