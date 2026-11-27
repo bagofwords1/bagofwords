@@ -41,6 +41,7 @@ from app.models.custom_table_user_copy import (
     STATUS_ERROR,
     STATUS_EVICTED,
     STATUS_OK,
+    STATUS_STALE,
     CustomTableUserCopy,
 )
 
@@ -769,7 +770,23 @@ class CustomTableUserCopyService:
             .where(CustomTableUserCopy.connection_table_id == str(table_id))
             .order_by(CustomTableUserCopy.last_used_at.desc().nullslast())
         )).all()
-        return [self.describe(copy, email=email, name=name) for copy, email, name in rows]
+        cq = await db.get(ConnectionTable, str(table_id))
+        out = []
+        now = datetime.utcnow()
+        by_org: dict = {}
+        for copy, email, name in rows:
+            row = self.describe(copy, email=email, name=name)
+            if cq is not None and row["status"] == STATUS_OK:
+                org_id = str(copy.organization_id)
+                if org_id not in by_org:
+                    by_org[org_id] = await self.limits_for(db, org_id)
+                limits, _fast, tz = by_org[org_id]
+                # A file is on disk but the person will not be served it as it
+                # is: say so, rather than "ready".
+                if not self._state(copy, self._snapshot(cq, now, _zone(tz)), None, now, limits).fresh:
+                    row["status"] = STATUS_STALE
+            out.append(row)
+        return out
 
     @staticmethod
     def describe(copy: CustomTableUserCopy, *, email: str = None, name: str = None) -> dict:

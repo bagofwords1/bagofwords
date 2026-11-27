@@ -8462,6 +8462,7 @@
     "lastUsed": "Senast använd",
     "stateBuilding": "Skapas",
     "stateOk": "Klar",
+    "stateStale": "Byggs om vid nästa fråga",
     "stateError": "Misslyckades",
     "stateEvicted": "Borttagen",
     "deleteCopy": "Ta bort kopia",

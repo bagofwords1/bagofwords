@@ -8462,6 +8462,7 @@
     "lastUsed": "آخر استخدام",
     "stateBuilding": "قيد الإنشاء",
     "stateOk": "جاهزة",
+    "stateStale": "يُعاد بناؤها عند السؤال التالي",
     "stateError": "فشلت",
     "stateEvicted": "أُزيلت",
     "deleteCopy": "حذف النسخة",

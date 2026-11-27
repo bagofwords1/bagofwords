@@ -8462,6 +8462,7 @@
     "lastUsed": "Ultimo utilizzo",
     "stateBuilding": "In creazione",
     "stateOk": "Pronta",
+    "stateStale": "Ricostruita alla prossima domanda",
     "stateError": "Non riuscita",
     "stateEvicted": "Rimossa",
     "deleteCopy": "Elimina copia",

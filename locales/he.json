@@ -9436,6 +9436,7 @@
     "lastUsed": "שימוש אחרון",
     "stateBuilding": "בבנייה",
     "stateOk": "מוכן",
+    "stateStale": "ייבנה מחדש בשאלה הבאה",
     "stateError": "נכשל",
     "stateEvicted": "הוסר",
     "deleteCopy": "מחיקת עותק",

@@ -106,8 +106,6 @@ class Sandbox:
         ref = refs.get(self.table_id)
         if ref is None:
             return None
-        async def _noop():
-            return None
         con = artifacts.connect_encrypted(ref.artifact_path, ref.artifact_key, read_only=True)
         try:
             return sorted(r[0] for r in con.execute('SELECT value FROM orders_copy').fetchall())
@@ -637,3 +635,18 @@ async def test_the_admins_listing_names_each_person_and_what_they_hold(sandbox):
     assert all(row["status"] == "ok" and row["user_email"] for row in listing)
     assert summary[sandbox.table_id]["copies"] == 2
     assert summary[sandbox.table_id]["bytes"] == sum(row["artifact_bytes"] for row in listing)
+
+
+async def test_the_listing_does_not_call_a_copy_ready_when_it_is_about_to_be_rebuilt(sandbox):
+    await sandbox.rows(sandbox.alice)
+    await sandbox.rows(sandbox.bob)
+    async with async_session_maker() as db:
+        await sandbox.service.invalidate(db, user_id=sandbox.alice.id, table_id=sandbox.table_id)
+        listing = {row["user_id"]: row["status"]
+                   for row in await sandbox.service.list_for_table(db, sandbox.table_id)}
+    assert listing[sandbox.alice.id] != "ok" and listing[sandbox.bob.id] == "ok"
+    await sandbox.rows(sandbox.alice)
+    async with async_session_maker() as db:
+        listing = {row["user_id"]: row["status"]
+                   for row in await sandbox.service.list_for_table(db, sandbox.table_id)}
+    assert listing[sandbox.alice.id] == "ok"

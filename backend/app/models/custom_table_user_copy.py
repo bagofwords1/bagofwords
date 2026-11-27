@@ -19,6 +19,9 @@ STATUS_BUILDING = "building"   # an extraction is running (see `building_since`)
 STATUS_OK = "ok"               # `artifact_path` holds this user's rows
 STATUS_ERROR = "error"         # the last build failed; `error` says why
 STATUS_EVICTED = "evicted"     # the file was removed (expired, purged, quota)
+# Never stored: how the admin's listing shows a copy whose file is on disk but
+# which will be rebuilt before (or just after) its person is next served.
+STATUS_STALE = "stale"
 
 
 class CustomTableUserCopy(BaseSchema):

@@ -1418,7 +1418,7 @@ function copyWhen(v: any) {
 }
 // Keyed on the status the backend sends, never on its label.
 function copyStatusLabel(status: string) {
-  const key = ({ building: 'stateBuilding', ok: 'stateOk', error: 'stateError', evicted: 'stateEvicted' } as any)[status]
+  const key = ({ building: 'stateBuilding', ok: 'stateOk', stale: 'stateStale', error: 'stateError', evicted: 'stateEvicted' } as any)[status]
   return key ? t(`customTableCopies.${key}`) : status
 }
 function copyStatusClass(status: string) {

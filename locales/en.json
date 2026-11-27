@@ -9445,6 +9445,7 @@
     "lastUsed": "Last used",
     "stateBuilding": "Building",
     "stateOk": "Ready",
+    "stateStale": "Rebuilds at next question",
     "stateError": "Failed",
     "stateEvicted": "Removed",
     "deleteCopy": "Delete copy",

@@ -8462,6 +8462,7 @@
     "lastUsed": "Последнее использование",
     "stateBuilding": "Создаётся",
     "stateOk": "Готова",
+    "stateStale": "Будет пересобрана при следующем вопросе",
     "stateError": "Ошибка",
     "stateEvicted": "Удалена",
     "deleteCopy": "Удалить копию",

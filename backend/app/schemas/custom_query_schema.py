@@ -340,7 +340,7 @@ class CustomTableUserCopySchema(BaseModel):
     user_id: str
     user_email: Optional[str] = None
     user_name: Optional[str] = None
-    # building | ok | error | evicted
+    # building | ok | stale (rebuilt at the person's next question) | error | evicted
     status: str
     error: Optional[str] = None
     row_count: Optional[int] = None

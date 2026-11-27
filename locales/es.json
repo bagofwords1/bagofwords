@@ -9416,6 +9416,7 @@
     "lastUsed": "Último uso",
     "stateBuilding": "Creándose",
     "stateOk": "Lista",
+    "stateStale": "Se reconstruye en la próxima pregunta",
     "stateError": "Con error",
     "stateEvicted": "Eliminada",
     "deleteCopy": "Eliminar copia",

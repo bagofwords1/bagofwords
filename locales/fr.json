@@ -8462,6 +8462,7 @@
     "lastUsed": "Dernière utilisation",
     "stateBuilding": "En cours de création",
     "stateOk": "Prête",
+    "stateStale": "Reconstruite à la prochaine question",
     "stateError": "Échec",
     "stateEvicted": "Retirée",
     "deleteCopy": "Supprimer la copie",
