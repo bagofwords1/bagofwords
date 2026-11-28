@@ -218,7 +218,7 @@ const facts = computed<Fact[]>(() => {
     add('environment', row.environment_name)
     const policy = limits.network_policy
     add('network', policy && te(`sandbox.network.${policy}`) ? t(`sandbox.network.${policy}`) : policy)
-    add('runsOn', row.backend_name)
+    add('runsOn', row.compute_name)
     if (row.state === 'busy' && row.running_since) {
         add('running', between(row.running_since, null, now.value), { title: formatDate(row.running_since) })
     }

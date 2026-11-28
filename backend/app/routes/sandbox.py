@@ -188,7 +188,7 @@ async def set_environment_access(
 
 
 class PullResponse(BaseModel):
-    backends: dict
+    computes: dict
 
 
 @router.post("/environments/{environment_id}/pull", response_model=PullResponse)
@@ -199,19 +199,19 @@ async def pull_environment_image(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Pull the environment's image on every matching backend now, and report per backend."""
+    """Pull the environment's image on every matching compute now, and report per compute."""
     try:
         await environment_service.get_environment(db, organization.id, environment_id)
     except SandboxError as exc:
         raise _http(exc)
-    return PullResponse(backends=await environment_service.pull_image_on_backends(organization.id, environment_id))
+    return PullResponse(computes=await environment_service.pull_image_on_computes(organization.id, environment_id))
 
 
 def _pull_in_background(organization_id: str, environment_id: str) -> None:
-    """Saving an environment with a new image pulls it on matching backends, without making the admin wait."""
+    """Saving an environment with a new image pulls it on matching computes, without making the admin wait."""
     from app.core.fire_and_forget import spawn
 
-    spawn(environment_service.pull_image_on_backends(str(organization_id), str(environment_id)))
+    spawn(environment_service.pull_image_on_computes(str(organization_id), str(environment_id)))
 
 
 # ── Settings ─────────────────────────────────────────────────────────────
@@ -230,20 +230,20 @@ class SandboxSettingsResponse(BaseModel):
     max_running_per_user: int
     max_running_total: Optional[int]
     # What is still missing before sandboxes can be used, for the Settings tab.
-    backends_ready: int = 0
+    computes_ready: int = 0
     environments: int = 0
     running_sandboxes: int = 0
 
 
 async def _settings_response(db: AsyncSession, organization_id: str) -> SandboxSettingsResponse:
-    from app.services.sandbox import backends as backend_service
+    from app.services.sandbox import computes as compute_service
 
     settings = await load_settings(db, organization_id)
-    backends = await backend_service.list_backends(db, organization_id)
-    counts = await backend_service.running_counts(db, organization_id)
+    computes = await compute_service.list_computes(db, organization_id)
+    counts = await compute_service.running_counts(db, organization_id)
     return SandboxSettingsResponse(
-        **settings.model_dump(include=set(SandboxSettingsResponse.model_fields) - {"backends_ready", "environments", "running_sandboxes"}),
-        backends_ready=sum(1 for b in backends if b.enabled and b.bootstrap_status == "ready"),
+        **settings.model_dump(include=set(SandboxSettingsResponse.model_fields) - {"computes_ready", "environments", "running_sandboxes"}),
+        computes_ready=sum(1 for b in computes if b.enabled and b.bootstrap_status == "ready"),
         environments=len(await environment_service.list_environments(db, organization_id, enabled_only=True)),
         running_sandboxes=sum(counts.values()),
     )
@@ -299,10 +299,10 @@ async def update_sandbox_settings(
     return await _settings_response(db, organization.id)
 
 
-# ── Backends ─────────────────────────────────────────────────────────────
+# ── Computes ─────────────────────────────────────────────────────────────
 
-from app.schemas.sandbox_schema import SandboxBackendCreate, SandboxBackendSchema, SandboxBackendUpdate  # noqa: E402
-from app.services.sandbox import backends as backend_service  # noqa: E402
+from app.schemas.sandbox_schema import SandboxComputeCreate, SandboxComputeSchema, SandboxComputeUpdate  # noqa: E402
+from app.services.sandbox import computes as compute_service  # noqa: E402
 from app.services.sandbox.drivers import registry as driver_registry  # noqa: E402
 from app.services.sandbox.drivers.base import SandboxDriverError  # noqa: E402
 
@@ -310,22 +310,22 @@ from app.services.sandbox.drivers.base import SandboxDriverError  # noqa: E402
 BOOTSTRAP_STALE_SECONDS = 30 * 60
 
 
-async def _backend_response(db: AsyncSession, organization_id: str, backend) -> SandboxBackendSchema:
-    counts = await backend_service.running_counts(db, organization_id)
-    return backend_service.to_schema(backend, counts.get(backend.id, 0))
+async def _compute_response(db: AsyncSession, organization_id: str, compute) -> SandboxComputeSchema:
+    counts = await compute_service.running_counts(db, organization_id)
+    return compute_service.to_schema(compute, counts.get(compute.id, 0))
 
 
-@router.get("/backend-types")
+@router.get("/compute-types")
 @requires_permission("manage_sandboxes")
-async def list_backend_types(
+async def list_compute_types(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """The backend types this deployment offers, each with the form it needs
+    """The compute types this deployment offers, each with the form it needs
     (config and credentials schemas) and what it can support."""
     described = []
-    for entry in driver_registry.backend_types():
+    for entry in driver_registry.compute_types():
         try:
             described.append(driver_registry.describe_type(entry.name))
         except SandboxDriverError as exc:
@@ -333,89 +333,89 @@ async def list_backend_types(
     return described
 
 
-@router.get("/backends", response_model=List[SandboxBackendSchema])
+@router.get("/computes", response_model=List[SandboxComputeSchema])
 @requires_permission("manage_sandboxes")
-async def list_backends(
+async def list_computes(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    counts = await backend_service.running_counts(db, organization.id)
-    return [backend_service.to_schema(b, counts.get(b.id, 0)) for b in await backend_service.list_backends(db, organization.id)]
+    counts = await compute_service.running_counts(db, organization.id)
+    return [compute_service.to_schema(b, counts.get(b.id, 0)) for b in await compute_service.list_computes(db, organization.id)]
 
 
-@router.post("/backends", response_model=SandboxBackendSchema)
+@router.post("/computes", response_model=SandboxComputeSchema)
 @requires_permission("manage_sandboxes")
-async def create_backend(
-    data: SandboxBackendCreate,
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization),
-):
-    try:
-        backend = await backend_service.create_backend(db, organization.id, str(current_user.id), data)
-    except SandboxError as exc:
-        raise _http(exc)
-    return await _backend_response(db, organization.id, backend)
-
-
-@router.get("/backends/{backend_id}", response_model=SandboxBackendSchema)
-@requires_permission("manage_sandboxes")
-async def get_backend(
-    backend_id: str,
+async def create_compute(
+    data: SandboxComputeCreate,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     try:
-        backend = await backend_service.get_backend(db, organization.id, backend_id)
+        compute = await compute_service.create_compute(db, organization.id, str(current_user.id), data)
     except SandboxError as exc:
         raise _http(exc)
-    return await _backend_response(db, organization.id, backend)
+    return await _compute_response(db, organization.id, compute)
 
 
-@router.put("/backends/{backend_id}", response_model=SandboxBackendSchema)
+@router.get("/computes/{compute_id}", response_model=SandboxComputeSchema)
 @requires_permission("manage_sandboxes")
-async def update_backend(
-    backend_id: str,
-    data: SandboxBackendUpdate,
+async def get_compute(
+    compute_id: str,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     try:
-        backend = await backend_service.update_backend(db, organization.id, str(current_user.id), backend_id, data)
+        compute = await compute_service.get_compute(db, organization.id, compute_id)
     except SandboxError as exc:
         raise _http(exc)
-    return await _backend_response(db, organization.id, backend)
+    return await _compute_response(db, organization.id, compute)
 
 
-class BackendTestResponse(BaseModel):
+@router.put("/computes/{compute_id}", response_model=SandboxComputeSchema)
+@requires_permission("manage_sandboxes")
+async def update_compute(
+    compute_id: str,
+    data: SandboxComputeUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    try:
+        compute = await compute_service.update_compute(db, organization.id, str(current_user.id), compute_id, data)
+    except SandboxError as exc:
+        raise _http(exc)
+    return await _compute_response(db, organization.id, compute)
+
+
+class ComputeTestResponse(BaseModel):
     reachable: bool
     prepared: bool
     healthy: bool
     error: Optional[str]
     checks: List[dict]
-    backend: SandboxBackendSchema
+    compute: SandboxComputeSchema
 
 
-@router.post("/backends/{backend_id}/test", response_model=BackendTestResponse)
+@router.post("/computes/{compute_id}/test", response_model=ComputeTestResponse)
 @requires_permission("manage_sandboxes")
-async def test_backend(
-    backend_id: str,
+async def test_compute(
+    compute_id: str,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Test connection. Changes nothing on the backend."""
+    """Test connection. Changes nothing on the compute."""
     try:
-        backend = await backend_service.get_backend(db, organization.id, backend_id)
-        health = await backend_service.check_backend(db, organization.id, backend)
+        compute = await compute_service.get_compute(db, organization.id, compute_id)
+        health = await compute_service.check_compute(db, organization.id, compute)
     except SandboxError as exc:
         raise _http(exc)
-    return BackendTestResponse(
+    return ComputeTestResponse(
         reachable=health.reachable, prepared=health.prepared, healthy=health.healthy, error=health.error,
-        checks=health.checks, backend=await _backend_response(db, organization.id, backend),
+        checks=health.checks, compute=await _compute_response(db, organization.id, compute),
     )
 
 
@@ -423,22 +423,22 @@ class ConfirmIdentityRequest(BaseModel):
     fingerprint: str
 
 
-@router.post("/backends/{backend_id}/confirm-identity", response_model=SandboxBackendSchema)
+@router.post("/computes/{compute_id}/confirm-identity", response_model=SandboxComputeSchema)
 @requires_permission("manage_sandboxes")
-async def confirm_backend_identity(
-    backend_id: str,
+async def confirm_compute_identity(
+    compute_id: str,
     data: ConfirmIdentityRequest,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Trust the fingerprint Test connection showed. Nothing is sent to a backend before this."""
+    """Trust the fingerprint Test connection showed. Nothing is sent to a compute before this."""
     try:
-        backend = await backend_service.get_backend(db, organization.id, backend_id)
-        await backend_service.confirm_identity(db, organization.id, str(current_user.id), backend, data.fingerprint)
+        compute = await compute_service.get_compute(db, organization.id, compute_id)
+        await compute_service.confirm_identity(db, organization.id, str(current_user.id), compute, data.fingerprint)
     except SandboxError as exc:
         raise _http(exc)
-    return await _backend_response(db, organization.id, backend)
+    return await _compute_response(db, organization.id, compute)
 
 
 class BootstrapRequest(BaseModel):
@@ -447,91 +447,91 @@ class BootstrapRequest(BaseModel):
     wait: bool = False
 
 
-async def _bootstrap_in_background(organization_id: str, actor_id: str, backend_id: str, take_over: bool) -> None:
+async def _bootstrap_in_background(organization_id: str, actor_id: str, compute_id: str, take_over: bool) -> None:
     from app.dependencies import async_session_maker
 
     async with async_session_maker() as db:
         try:
-            backend = await backend_service.get_backend(db, organization_id, backend_id)
-            await backend_service.bootstrap_backend(db, organization_id, actor_id, backend, take_over=take_over)
-        except Exception:  # noqa: BLE001 - recorded on the backend by bootstrap_backend; nothing to return to
+            compute = await compute_service.get_compute(db, organization_id, compute_id)
+            await compute_service.bootstrap_compute(db, organization_id, actor_id, compute, take_over=take_over)
+        except Exception:  # noqa: BLE001 - recorded on the compute by bootstrap_compute; nothing to return to
             import logging
 
-            logging.getLogger(__name__).exception("sandbox backend bootstrap failed (backend=%s)", backend_id)
+            logging.getLogger(__name__).exception("sandbox compute bootstrap failed (compute=%s)", compute_id)
             return
-    await _prefetch_images(organization_id, backend_id)
+    await _prefetch_images(organization_id, compute_id)
 
 
-async def _prefetch_images(organization_id: str, backend_id: str) -> None:
-    """Once a backend is ready, fetch the environments' images in the
+async def _prefetch_images(organization_id: str, compute_id: str) -> None:
+    """Once a compute is ready, fetch the environments' images in the
     background. Never part of bootstrap: a failure here is only recorded."""
     try:
-        await backend_service.prefetch_environment_images(organization_id, backend_id)
+        await compute_service.prefetch_environment_images(organization_id, compute_id)
     except Exception:  # noqa: BLE001
         import logging
 
-        logging.getLogger(__name__).exception("could not prefetch sandbox images (backend=%s)", backend_id)
+        logging.getLogger(__name__).exception("could not prefetch sandbox images (compute=%s)", compute_id)
 
 
-@router.post("/backends/{backend_id}/bootstrap", response_model=SandboxBackendSchema)
+@router.post("/computes/{compute_id}/bootstrap", response_model=SandboxComputeSchema)
 @requires_permission("manage_sandboxes")
-async def bootstrap_backend(
-    backend_id: str,
+async def bootstrap_compute(
+    compute_id: str,
     data: BootstrapRequest,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Prepare (or repair) a backend. Returns at once; the steps are stored on
-    the backend as they finish, so reading the backend shows the progress."""
+    """Prepare (or repair) a compute. Returns at once; the steps are stored on
+    the compute as they finish, so reading the compute shows the progress."""
     from datetime import datetime
 
     from app.core.fire_and_forget import spawn
 
     try:
-        backend = await backend_service.get_backend(db, organization.id, backend_id)
+        compute = await compute_service.get_compute(db, organization.id, compute_id)
     except SandboxError as exc:
         raise _http(exc)
-    previous_status = backend.bootstrap_status if backend.bootstrap_status != "running" else "failed"
+    previous_status = compute.bootstrap_status if compute.bootstrap_status != "running" else "failed"
     # Claimed atomically: a double click or two admins cannot both start one.
-    if not await backend_service.claim_bootstrap(db, backend, stale_seconds=BOOTSTRAP_STALE_SECONDS):
-        raise AppError("sandbox.bootstrap_running", "This backend is being bootstrapped already.", status_code=409)
+    if not await compute_service.claim_bootstrap(db, compute, stale_seconds=BOOTSTRAP_STALE_SECONDS):
+        raise AppError("sandbox.bootstrap_running", "This compute is being bootstrapped already.", status_code=409)
     try:
         if data.wait:
-            await backend_service.bootstrap_backend(db, organization.id, str(current_user.id), backend, take_over=data.take_over)
-            spawn(_prefetch_images(str(organization.id), backend.id))
+            await compute_service.bootstrap_compute(db, organization.id, str(current_user.id), compute, take_over=data.take_over)
+            spawn(_prefetch_images(str(organization.id), compute.id))
         else:
-            await backend_service.mark_bootstrap_started(db, backend)
-            spawn(_bootstrap_in_background(str(organization.id), str(current_user.id), backend.id, data.take_over))
+            await compute_service.mark_bootstrap_started(db, compute)
+            spawn(_bootstrap_in_background(str(organization.id), str(current_user.id), compute.id, data.take_over))
     except SandboxError as exc:
         # Nothing was started (the driver could not even be built): give the claim back.
-        backend.bootstrap_status = previous_status
+        compute.bootstrap_status = previous_status
         await db.commit()
         raise _http(exc)
-    return await _backend_response(db, organization.id, backend)
+    return await _compute_response(db, organization.id, compute)
 
 
-@router.delete("/backends/{backend_id}")
+@router.delete("/computes/{compute_id}")
 @requires_permission("manage_sandboxes")
-async def delete_backend(
-    backend_id: str,
+async def delete_compute(
+    compute_id: str,
     cleanup: bool = False,
     delete_sandboxes: bool = False,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Delete a backend. Refused while it has sandboxes unless ``delete_sandboxes``
+    """Delete a compute. Refused while it has sandboxes unless ``delete_sandboxes``
     is set; ``cleanup`` also removes everything BoW put on it."""
     from app.services.sandbox.service import SandboxService
 
     try:
-        backend = await backend_service.get_backend(db, organization.id, backend_id)
+        compute = await compute_service.get_compute(db, organization.id, compute_id)
         if delete_sandboxes:
             service = SandboxService()
-            for sandbox in await backend_service.live_sandboxes(db, backend.id):
-                await service.delete(db, sandbox, str(current_user.id), reason="backend deleted")
-        await backend_service.delete_backend(db, organization.id, str(current_user.id), backend_id, cleanup=cleanup)
+            for sandbox in await compute_service.live_sandboxes(db, compute.id):
+                await service.delete(db, sandbox, str(current_user.id), reason="compute deleted")
+        await compute_service.delete_compute(db, organization.id, str(current_user.id), compute_id, cleanup=cleanup)
     except SandboxError as exc:
         raise _http(exc)
     return {"deleted": True}
@@ -553,7 +553,7 @@ async def _fleet_rows(db: AsyncSession, service, sandboxes, *, with_usage: bool)
     from sqlalchemy import select
 
     from app.models.report import Report
-    from app.models.sandbox import SandboxBackend, SandboxEnvironment, SandboxRun
+    from app.models.sandbox import SandboxCompute, SandboxEnvironment, SandboxRun
     from app.models.user import User as UserModel
 
     async def names(model, column, ids):
@@ -565,7 +565,7 @@ async def _fleet_rows(db: AsyncSession, service, sandboxes, *, with_usage: bool)
 
     reports = await names(Report, Report.title, [s.report_id for s in sandboxes])
     users = await names(UserModel, UserModel.name, [s.user_id for s in sandboxes])
-    backends = await names(SandboxBackend, SandboxBackend.name, [s.backend_id for s in sandboxes])
+    computes = await names(SandboxCompute, SandboxCompute.name, [s.compute_id for s in sandboxes])
     environments = await names(SandboxEnvironment, SandboxEnvironment.name, [s.environment_id for s in sandboxes])
     running = {}
     busy = [s.id for s in sandboxes if s.state == "busy"]
@@ -585,7 +585,7 @@ async def _fleet_rows(db: AsyncSession, service, sandboxes, *, with_usage: bool)
         out.append(SandboxFleetRow(
             **SandboxSchema.from_model(sandbox).model_dump(),
             report_title=reports.get(sandbox.report_id), user_name=users.get(sandbox.user_id or ""),
-            backend_name=backends.get(sandbox.backend_id or ""),
+            compute_name=computes.get(sandbox.compute_id or ""),
             environment_name=environments.get(sandbox.environment_id or "") or (sandbox.limits or {}).get("environment"),
             running_run_id=run_id, running_since=since,
             usage=SandboxUsage(**{k: getattr(stats, k, None) for k in SandboxUsage.model_fields}) if stats else None,
@@ -602,7 +602,7 @@ async def list_sandboxes(
     organization: Organization = Depends(get_current_organization),
 ):
     """Every sandbox that exists in the organization. ``usage=true`` adds live
-    CPU, memory and disk, which costs one call to each backend."""
+    CPU, memory and disk, which costs one call to each compute."""
     from app.services.sandbox.service import SandboxService
 
     service = SandboxService()

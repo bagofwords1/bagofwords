@@ -1,4 +1,4 @@
-"""The fake backend: a second implementation of the driver interface.
+"""The fake compute: a second implementation of the driver interface.
 
 It exists so the interface always has two implementations (this one and the
 real one), so the same contract suite runs in CI without a server, and so the
@@ -12,7 +12,7 @@ policy would allow). The type is offered only under ``TESTING`` or an explicit
 opt-in; see ``registry.fake_driver_enabled``.
 
 Its configuration can switch capabilities off and make steps fail, which is
-how tests reach the paths a healthy backend never takes.
+how tests reach the paths a healthy compute never takes.
 """
 from __future__ import annotations
 
@@ -36,8 +36,8 @@ from app.services.sandbox.drivers.base import (
     STATUS_MISSING,
     STATUS_RUNNING,
     STATUS_STOPPED,
-    BackendContext,
-    BackendHealth,
+    ComputeContext,
+    ComputeHealth,
     EgressRecord,
     Endpoint,
     ReconcileResult,
@@ -57,15 +57,15 @@ from app.services.sandbox.drivers.base import (
 class FakeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    strong_isolation: bool = Field(default=True, title="Strong isolation", description="Pretend the backend has a strong isolation runtime.")
+    strong_isolation: bool = Field(default=True, title="Strong isolation", description="Pretend the compute has a strong isolation runtime.")
     stop_resume: bool = Field(default=True, title="Stop and resume")
     domain_allowlist: bool = Field(default=True, title="Domain allowlists")
     live_stats: bool = Field(default=True, title="Live stats")
-    unreachable: bool = Field(default=False, title="Unreachable", description="Make every call to the backend fail as if it were down.")
+    unreachable: bool = Field(default=False, title="Unreachable", description="Make every call to the compute fail as if it were down.")
     fail_step: Optional[str] = Field(default=None, title="Failing bootstrap step", description="Key of a bootstrap step that should fail.")
     server: Optional[str] = Field(
         default=None, title="Server name",
-        description="Backends with the same server name are the same pretend server (for ownership and take-over).",
+        description="Computes with the same server name are the same pretend server (for ownership and take-over).",
     )
 
 
@@ -87,7 +87,7 @@ class _FakeSandbox:
 
 
 @dataclass
-class _FakeBackend:
+class _FakeCompute:
     """What "the server" remembers, shared by every driver instance in this process."""
 
     prepared: bool = False
@@ -98,7 +98,7 @@ class _FakeBackend:
     passwords_used: int = 0
 
 
-_BACKENDS: Dict[str, _FakeBackend] = defaultdict(_FakeBackend)
+_COMPUTES: Dict[str, _FakeCompute] = defaultdict(_FakeCompute)
 _LOCK = threading.Lock()
 
 _STEPS = [
@@ -110,16 +110,16 @@ _STEPS = [
 ]
 
 
-def reset_fake_backends() -> None:
-    """Forget every fake backend and remove its sandboxes (test isolation)."""
+def reset_fake_computes() -> None:
+    """Forget every fake compute and remove its sandboxes (test isolation)."""
     from app.services.sandbox.testing.sandboxd_stub import get_stub_host
 
     with _LOCK:
-        backends = list(_BACKENDS.values())
-        _BACKENDS.clear()
+        computes = list(_COMPUTES.values())
+        _COMPUTES.clear()
     host = get_stub_host()
-    for backend in backends:
-        for sandbox_id in list(backend.sandboxes):
+    for compute in computes:
+        for sandbox_id in list(compute.sandboxes):
             host.remove_sandbox(_stub_id(sandbox_id))
 
 
@@ -131,7 +131,7 @@ class FakeDriver(SandboxDriver):
     type_name = "fake"
     potential_capabilities = frozenset({CAP_STOP_RESUME, CAP_STRONG_ISOLATION, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS})
 
-    def __init__(self, ctx: BackendContext):
+    def __init__(self, ctx: ComputeContext):
         super().__init__(ctx)
         self.config = FakeConfig(**(ctx.config or {}))
 
@@ -142,9 +142,9 @@ class FakeDriver(SandboxDriver):
     # ── helpers ──
 
     @property
-    def _backend(self) -> _FakeBackend:
+    def _compute(self) -> _FakeCompute:
         with _LOCK:
-            return _BACKENDS[self.config.server or self.ctx.backend_id]
+            return _COMPUTES[self.config.server or self.ctx.compute_id]
 
     @property
     def _host(self):
@@ -154,18 +154,18 @@ class FakeDriver(SandboxDriver):
 
     def _require_reachable(self) -> None:
         if self.config.unreachable:
-            raise SandboxDriverError("The backend did not answer", code="unreachable")
+            raise SandboxDriverError("The compute did not answer", code="unreachable")
 
     def _require(self, handle: SandboxHandle):
         """The stub sandbox behind a handle, or :class:`SandboxNotFound`."""
         self._require_reachable()
         ref = dict(handle.ref or {})
         stub = self._host.get(ref.get("stub_id", ""))
-        if stub is None or ref.get("pid") != os.getpid() or handle.sandbox_id not in self._backend.sandboxes:
+        if stub is None or ref.get("pid") != os.getpid() or handle.sandbox_id not in self._compute.sandboxes:
             raise SandboxNotFound()
         return stub
 
-    # ── describing the backend ──
+    # ── describing the compute ──
 
     def capabilities(self) -> set:
         caps = set()
@@ -184,7 +184,7 @@ class FakeDriver(SandboxDriver):
 
     async def prepare(self, on_step: Optional[StepCallback] = None, *, take_over: bool = False,
                       images: Sequence[str] = ()) -> List[StepResult]:
-        backend = self._backend
+        compute = self._compute
         results = [StepResult(key=s.key, title=s.title) for s in _STEPS]
 
         async def report(result: StepResult, status: str, detail: Optional[str] = None) -> None:
@@ -201,31 +201,31 @@ class FakeDriver(SandboxDriver):
             await report(result, "running")
             try:
                 if self.config.unreachable:
-                    raise SandboxDriverError("The backend did not answer", code="unreachable")
+                    raise SandboxDriverError("The compute did not answer", code="unreachable")
                 if self.config.fail_step == result.key:
                     raise SandboxDriverError(f"Step '{result.key}' failed (configured to fail)", code="step_failed")
                 detail, status = None, "ok"
                 if result.key == "connect":
-                    if backend.owner and backend.owner != self.ctx.instance_id:
+                    if compute.owner and compute.owner != self.ctx.instance_id:
                         if not take_over:
                             raise SandboxDriverError(
-                                "This backend is owned by another BoW instance. Choose Take over to remove the "
+                                "This compute is owned by another BoW instance. Choose Take over to remove the "
                                 "other instance's sandboxes and claim it.", code="owned_by_other",
                             )
-                        for sandbox in [s for s in backend.sandboxes.values() if s.instance_id != self.ctx.instance_id]:
+                        for sandbox in [s for s in compute.sandboxes.values() if s.instance_id != self.ctx.instance_id]:
                             self._host.remove_sandbox(_stub_id(sandbox.sandbox_id))
-                            backend.sandboxes.pop(sandbox.sandbox_id, None)
+                            compute.sandboxes.pop(sandbox.sandbox_id, None)
                         detail = "Taken over from another BoW instance"
-                    backend.owner = self.ctx.instance_id
+                    compute.owner = self.ctx.instance_id
                 elif result.key == "isolation":
                     if self.config.strong_isolation:
                         detail = "Strong isolation available"
                     else:
-                        status, detail = "warning", "Standard isolation: no strong isolation runtime on this backend"
+                        status, detail = "warning", "Standard isolation: no strong isolation runtime on this compute"
                 elif result.key == "images":
                     for image in images:
-                        if image not in backend.pulled_images:
-                            backend.pulled_images.append(image)
+                        if image not in compute.pulled_images:
+                            compute.pulled_images.append(image)
                     detail = f"{len(images)} more image(s)" if images else None
                 elif result.key == "verify":
                     self._host.start()
@@ -235,11 +235,11 @@ class FakeDriver(SandboxDriver):
                 await report(result, "failed", exc.message)
                 for rest in results[results.index(result) + 1:]:
                     rest.status = "skipped"
-                backend.prepared = False
+                compute.prepared = False
                 self.ctx.driver_state["prepared"] = False
                 return results
 
-        backend.prepared = True
+        compute.prepared = True
         self.ctx.driver_state.update({
             "prepared": True,
             "owner": self.ctx.instance_id,
@@ -247,29 +247,29 @@ class FakeDriver(SandboxDriver):
         })
         return results
 
-    async def check(self) -> BackendHealth:
+    async def check(self) -> ComputeHealth:
         if self.config.unreachable:
-            return BackendHealth(
-                reachable=False, error="The backend did not answer",
-                checks=[{"key": "connect", "title": "Connect", "status": "failed", "detail": "The backend did not answer"}],
+            return ComputeHealth(
+                reachable=False, error="The compute did not answer",
+                checks=[{"key": "connect", "title": "Connect", "status": "failed", "detail": "The compute did not answer"}],
             )
-        backend = self._backend
+        compute = self._compute
         running = sum(
-            1 for s in backend.sandboxes.values()
+            1 for s in compute.sandboxes.values()
             if s.instance_id == self.ctx.instance_id and (stub := self._host.get(_stub_id(s.sandbox_id))) and stub.running
         )
         isolation = "strong" if self.config.strong_isolation else "standard"
-        return BackendHealth(
-            reachable=True, prepared=backend.prepared, healthy=backend.prepared, running=running,
+        return ComputeHealth(
+            reachable=True, prepared=compute.prepared, healthy=compute.prepared, running=running,
             capabilities=sorted(self.capabilities()),
-            info={"isolation": isolation, "owner": backend.owner},
+            info={"isolation": isolation, "owner": compute.owner},
             checks=[
                 {"key": "connect", "title": "Connect", "status": "ok", "detail": None},
                 {"key": "isolation", "title": "Strong isolation",
                  "status": "ok" if self.config.strong_isolation else "warning", "detail": f"{isolation} isolation"},
                 {"key": "prepared", "title": "Bootstrapped",
-                 "status": "ok" if backend.prepared else "warning",
-                 "detail": None if backend.prepared else "Not bootstrapped yet"},
+                 "status": "ok" if compute.prepared else "warning",
+                 "detail": None if compute.prepared else "Not bootstrapped yet"},
             ],
         )
 
@@ -277,31 +277,31 @@ class FakeDriver(SandboxDriver):
 
     async def create(self, spec: SandboxSpec) -> SandboxHandle:
         self._require_reachable()
-        backend = self._backend
-        if not backend.prepared or backend.owner != self.ctx.instance_id:
-            raise SandboxDriverError("The backend is not bootstrapped", code="not_prepared")
+        compute = self._compute
+        if not compute.prepared or compute.owner != self.ctx.instance_id:
+            raise SandboxDriverError("The compute is not bootstrapped", code="not_prepared")
         if spec.require_strong_isolation and not self.config.strong_isolation:
-            raise SandboxDriverError("This backend has no strong isolation", code="unsupported")
+            raise SandboxDriverError("This compute has no strong isolation", code="unsupported")
         if spec.network_policy in DOMAIN_FILTERED_POLICIES and not self.config.domain_allowlist:
-            raise SandboxDriverError("This backend cannot filter by domain", code="unsupported")
-        if spec.sandbox_id in backend.sandboxes:
-            raise SandboxDriverError("A sandbox with this id already exists on the backend", code="already_exists")
+            raise SandboxDriverError("This compute cannot filter by domain", code="unsupported")
+        if spec.sandbox_id in compute.sandboxes:
+            raise SandboxDriverError("A sandbox with this id already exists on the compute", code="already_exists")
 
         env = dict(spec.env)
         env.update(spec.secrets)
         env["BOW_FAKE_NETWORK_POLICY"] = spec.network_policy
         env["BOW_FAKE_ALLOWED_DOMAINS"] = json.dumps(list(spec.allowed_domains))
         self._host.add_sandbox(_stub_id(spec.sandbox_id), spec.token_sha256, env)
-        backend.sandboxes[spec.sandbox_id] = _FakeSandbox(spec.sandbox_id, self.ctx.instance_id, spec.network_policy)
+        compute.sandboxes[spec.sandbox_id] = _FakeSandbox(spec.sandbox_id, self.ctx.instance_id, spec.network_policy)
         return SandboxHandle(
             sandbox_id=spec.sandbox_id,
-            ref={"stub_id": _stub_id(spec.sandbox_id), "pid": os.getpid(), "backend": self.ctx.backend_id},
+            ref={"stub_id": _stub_id(spec.sandbox_id), "pid": os.getpid(), "compute": self.ctx.compute_id},
         )
 
     async def stop(self, handle: SandboxHandle) -> None:
         stub = self._require(handle)
         if not self.config.stop_resume:
-            raise SandboxDriverError("This backend cannot stop and resume sandboxes", code="unsupported")
+            raise SandboxDriverError("This compute cannot stop and resume sandboxes", code="unsupported")
         self._host.set_running(stub.sandbox_id, False)
 
     async def start(self, handle: SandboxHandle) -> None:
@@ -311,7 +311,7 @@ class FakeDriver(SandboxDriver):
     async def delete(self, handle: SandboxHandle) -> None:
         self._require_reachable()
         self._host.remove_sandbox((handle.ref or {}).get("stub_id") or _stub_id(handle.sandbox_id))
-        self._backend.sandboxes.pop(handle.sandbox_id, None)
+        self._compute.sandboxes.pop(handle.sandbox_id, None)
 
     async def status(self, handle: SandboxHandle) -> SandboxStatus:
         try:
@@ -369,49 +369,49 @@ class FakeDriver(SandboxDriver):
 
     async def reconcile(self, known: Sequence[SandboxHandle]) -> ReconcileResult:
         self._require_reachable()
-        backend = self._backend
+        compute = self._compute
         known_ids = {h.sandbox_id for h in known}
         result = ReconcileResult()
-        for sandbox in list(backend.sandboxes.values()):
+        for sandbox in list(compute.sandboxes.values()):
             if sandbox.instance_id != self.ctx.instance_id:
                 continue  # never another instance's
             if sandbox.sandbox_id not in known_ids:
                 self._host.remove_sandbox(_stub_id(sandbox.sandbox_id))
-                backend.sandboxes.pop(sandbox.sandbox_id, None)
+                compute.sandboxes.pop(sandbox.sandbox_id, None)
                 result.removed.append(sandbox.sandbox_id)
-        result.missing = sorted(known_ids - set(backend.sandboxes))
+        result.missing = sorted(known_ids - set(compute.sandboxes))
         return result
 
     async def cleanup(self) -> None:
         self._require_reachable()
-        backend = self._backend
-        for sandbox in [s for s in backend.sandboxes.values() if s.instance_id == self.ctx.instance_id]:
+        compute = self._compute
+        for sandbox in [s for s in compute.sandboxes.values() if s.instance_id == self.ctx.instance_id]:
             self._host.remove_sandbox(_stub_id(sandbox.sandbox_id))
-            backend.sandboxes.pop(sandbox.sandbox_id, None)
-        if backend.owner == self.ctx.instance_id:
-            backend.owner, backend.prepared = None, False
+            compute.sandboxes.pop(sandbox.sandbox_id, None)
+        if compute.owner == self.ctx.instance_id:
+            compute.owner, compute.prepared = None, False
         self.ctx.driver_state.clear()
 
     async def pull_image(self, image: str, *, registry_username: Optional[str] = None,
                          registry_password: Optional[str] = None) -> Optional[str]:
         self._require_reachable()
-        backend = self._backend
-        if image not in backend.pulled_images:
-            backend.pulled_images.append(image)
+        compute = self._compute
+        if image not in compute.pulled_images:
+            compute.pulled_images.append(image)
         return "sha256:" + hashlib.sha256(image.encode("utf-8")).hexdigest()
 
     async def enroll(self, transient) -> None:
         self._require_reachable()
         if transient.get("one_time_password"):
-            self._backend.passwords_used += 1
+            self._compute.passwords_used += 1
             self.ctx.driver_state["enrolled"] = True
 
     # ── test hooks (not part of the driver interface) ──
 
     def plant_foreign_sandbox(self, sandbox_id: str, *, instance_id: Optional[str] = None) -> None:
-        """Put a sandbox on the backend that BoW's database does not know about."""
+        """Put a sandbox on the compute that BoW's database does not know about."""
         self._host.add_sandbox(_stub_id(sandbox_id), hashlib.sha256(b"orphan").hexdigest(), {})
-        self._backend.sandboxes[sandbox_id] = _FakeSandbox(sandbox_id, instance_id or self.ctx.instance_id, "none")
+        self._compute.sandboxes[sandbox_id] = _FakeSandbox(sandbox_id, instance_id or self.ctx.instance_id, "none")
 
     def has_sandbox(self, sandbox_id: str) -> bool:
-        return sandbox_id in self._backend.sandboxes and self._host.get(_stub_id(sandbox_id)) is not None
+        return sandbox_id in self._compute.sandboxes and self._host.get(_stub_id(sandbox_id)) is not None

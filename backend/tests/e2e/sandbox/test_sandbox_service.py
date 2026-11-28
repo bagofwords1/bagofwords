@@ -1,7 +1,7 @@
-"""The sandbox service against the fake backend.
+"""The sandbox service against the fake compute.
 
 What the layers above rely on: one persistent sandbox per report, created on
-first use, stopped and resumed with its files, recreated when lost; a backend
+first use, stopped and resumed with its files, recreated when lost; a compute
 chosen by labels, features and load; quotas; one run at a time; the record of
 runs and events; and an audit entry for every action, with no secret in it.
 
@@ -30,7 +30,7 @@ pytestmark = pytest.mark.e2e
 
 @pytest.fixture
 def world(sandbox_world):
-    sandbox_world.backend_id = sandbox_world.add_backend("fake-1")
+    sandbox_world.compute_id = sandbox_world.add_compute("fake-1")
     sandbox_world.environment_id = sandbox_world.add_environment("Default", is_default=True)
     return sandbox_world
 
@@ -82,7 +82,7 @@ def test_first_run_creates_the_reports_sandbox_and_returns_what_the_code_wrote(w
 
     sandbox = world.sandbox_of(rep)
     assert sandbox.state == "ready" and sandbox.user_id == world.admin_id
-    assert sandbox.backend_id == world.backend_id and sandbox.environment_id == world.environment_id
+    assert sandbox.compute_id == world.compute_id and sandbox.environment_id == world.environment_id
     events = _events(world, sandbox.id)
     assert events[0] == "created" and events[-1] == "ready"
     assert ["run_started", "run_finished"] == [e for e in events if e.startswith("run_")]
@@ -272,7 +272,7 @@ def test_a_lost_sandbox_is_recreated_and_the_caller_is_told(world, report):
     rep = report()
     world.run_code(rep, world.admin_id, _python("open('precious.txt','w').write('x')"))
     lost = world.sandbox_of(rep)
-    get_stub_host().remove_sandbox(lost.driver_ref["stub_id"])  # gone from its backend
+    get_stub_host().remove_sandbox(lost.driver_ref["stub_id"])  # gone from its compute
 
     outcome = world.run_code(rep, world.admin_id, _python("import os\nprint(os.path.exists('precious.txt'))"))
     assert outcome.recreated and outcome.sandbox_id != lost.id
@@ -291,7 +291,7 @@ def test_deleting_removes_the_sandbox_and_the_report_can_get_a_new_one(world, re
         return await world.service.delete_for_report(db, world.report_ref(rep), world.admin_id)
     assert world.call(delete) is True
     assert world.sandbox_of(rep) is None
-    assert get_stub_host().get(f"sbx-{first.sandbox_id}") is None, "nothing is left on the backend"
+    assert get_stub_host().get(f"sbx-{first.sandbox_id}") is None, "nothing is left on the compute"
     assert world.call(delete) is False  # nothing to delete now
     entry = _audit(world, action="sandbox.deleted", resource_id=first.sandbox_id)
     assert len(entry) == 1 and entry[0].details["title"] == "Forecast"
@@ -350,7 +350,7 @@ def test_a_second_run_is_refused_while_one_is_in_progress(world, report):
     assert world.run_code(rep, world.admin_id, _python("print('after')")).stdout == "after\n"
 
 
-# ── quotas and choosing a backend ────────────────────────────────────────
+# ── quotas and choosing a compute ────────────────────────────────────────
 
 
 def test_running_sandboxes_per_user_are_limited_and_stopping_one_frees_a_slot(world, report):
@@ -385,76 +385,76 @@ def test_the_organization_wide_limit_applies_to_everyone(world, report):
     assert refused.value.code == errors.QUOTA_TOTAL
 
 
-def test_a_full_backend_takes_no_more_sandboxes(sandbox_world, create_report):
+def test_a_full_compute_takes_no_more_sandboxes(sandbox_world, create_report):
     world = sandbox_world
-    world.add_backend("small", capacity=1)
+    world.add_compute("small", capacity=1)
     world.add_environment("Default", is_default=True)
     new = lambda: create_report(title=uuid.uuid4().hex, user_token=world.cast["admin"]["token"], org_id=world.org_id)  # noqa: E731
     world.run_code(new(), world.admin_id, _python("print(1)"))
     with pytest.raises(SandboxError) as refused:
         world.run_code(new(), world.admin_id, _python("print(1)"))
-    assert refused.value.code == errors.NO_BACKEND and "capacity" in refused.value.message
+    assert refused.value.code == errors.NO_COMPUTE and "capacity" in refused.value.message
 
 
-def test_new_sandboxes_go_to_the_least_loaded_backend(sandbox_world, create_report):
+def test_new_sandboxes_go_to_the_least_loaded_compute(sandbox_world, create_report):
     world = sandbox_world
-    backends = {world.add_backend("a", capacity=10), world.add_backend("b", capacity=10)}
+    computes = {world.add_compute("a", capacity=10), world.add_compute("b", capacity=10)}
     world.add_environment("Default", is_default=True)
     world.configure(max_running_per_user=10)
     placed = []
     for _ in range(4):
         rep = create_report(title=uuid.uuid4().hex, user_token=world.cast["admin"]["token"], org_id=world.org_id)
         world.run_code(rep, world.admin_id, _python("print(1)"))
-        placed.append(world.sandbox_of(rep).backend_id)
-    assert set(placed) == backends
-    assert sorted(placed.count(b) for b in backends) == [2, 2]
+        placed.append(world.sandbox_of(rep).compute_id)
+    assert set(placed) == computes
+    assert sorted(placed.count(b) for b in computes) == [2, 2]
 
 
-def test_a_backend_must_match_the_environments_labels_and_features(sandbox_world, create_report):
+def test_a_compute_must_match_the_environments_labels_and_features(sandbox_world, create_report):
     world = sandbox_world
-    plain = world.add_backend("plain", strong_isolation=False)
-    gpu = world.add_backend("gpu", labels=["GPU"])
+    plain = world.add_compute("plain", strong_isolation=False)
+    gpu = world.add_compute("gpu", labels=["GPU"])
     world.add_environment("Plain", is_default=True)
-    world.add_environment("GPU", backend_labels=["gpu"])
+    world.add_environment("GPU", compute_labels=["gpu"])
     world.add_environment("Strict", require_strong_isolation=True)
-    world.add_environment("Nowhere", backend_labels=["arm"])
+    world.add_environment("Nowhere", compute_labels=["arm"])
     world.configure(max_running_per_user=10)
 
     def place(environment):
         rep = create_report(title=uuid.uuid4().hex, user_token=world.cast["admin"]["token"], org_id=world.org_id)
         world.run_code(rep, world.admin_id, RunRequest(language="bash", code="true", environment=environment))
-        return world.sandbox_of(rep).backend_id
+        return world.sandbox_of(rep).compute_id
 
     assert place("GPU") == gpu
-    assert place("Strict") == gpu, "only the backend with strong isolation qualifies"
+    assert place("Strict") == gpu, "only the compute with strong isolation qualifies"
     with pytest.raises(SandboxError) as nowhere:
         place("Nowhere")
-    assert nowhere.value.code == errors.NO_BACKEND
+    assert nowhere.value.code == errors.NO_COMPUTE
     assert plain in {place("Plain") for _ in range(3)}
 
 
 @pytest.mark.parametrize("make_unusable", ["disable", "never_bootstrapped", "unreachable"])
-def test_backends_that_are_disabled_unprepared_or_unreachable_get_no_sandboxes(sandbox_world, create_report, make_unusable):
+def test_computes_that_are_disabled_unprepared_or_unreachable_get_no_sandboxes(sandbox_world, create_report, make_unusable):
     world = sandbox_world
     if make_unusable == "never_bootstrapped":
-        world.add_backend("b", bootstrap=False)
+        world.add_compute("b", bootstrap=False)
     else:
-        backend_id = world.add_backend("b")
+        compute_id = world.add_compute("b")
 
         async def change(db):
-            from app.services.sandbox import backends as backend_service
-            backend = await backend_service.get_backend(db, world.org_id, backend_id)
+            from app.services.sandbox import computes as compute_service
+            compute = await compute_service.get_compute(db, world.org_id, compute_id)
             if make_unusable == "disable":
-                await backend_service.set_enabled(db, world.org_id, world.admin_id, backend, False)
+                await compute_service.set_enabled(db, world.org_id, world.admin_id, compute, False)
             else:
-                backend.status = "unreachable"
+                compute.status = "unreachable"
                 await db.commit()
         world.call(change)
     world.add_environment("Default", is_default=True)
     rep = create_report(title="r", user_token=world.cast["admin"]["token"], org_id=world.org_id)
     with pytest.raises(SandboxError) as refused:
         world.run_code(rep, world.admin_id, _python("print(1)"))
-    assert refused.value.code == errors.NO_BACKEND
+    assert refused.value.code == errors.NO_COMPUTE
 
 
 def test_the_organization_switch_gates_everything(world, report):
@@ -469,7 +469,7 @@ def test_the_organization_switch_gates_everything(world, report):
 
 def test_the_environment_is_the_one_asked_for_else_the_agents_else_the_default(sandbox_world, create_report):
     world = sandbox_world
-    world.add_backend("b")
+    world.add_compute("b")
     default = world.add_environment("Default", is_default=True)
     agent_env = world.add_environment("Analytics")
     other = world.add_environment("Other")
@@ -497,7 +497,7 @@ def test_the_environment_is_the_one_asked_for_else_the_agents_else_the_default(s
 
 def test_the_setup_script_runs_once_when_the_sandbox_is_created(sandbox_world, create_report):
     world = sandbox_world
-    world.add_backend("b")
+    world.add_compute("b")
     world.add_environment("Prepared", is_default=True, setup_script="echo ready > prepared.txt; echo setup-output")
     rep = create_report(title="r", user_token=world.cast["admin"]["token"], org_id=world.org_id)
     assert world.run_code(rep, world.admin_id, _python("print(open('prepared.txt').read().strip())")).stdout == "ready\n"
@@ -508,7 +508,7 @@ def test_the_setup_script_runs_once_when_the_sandbox_is_created(sandbox_world, c
 
 def test_a_sandbox_that_cannot_start_is_failed_and_the_next_run_starts_over(sandbox_world, create_report):
     world = sandbox_world
-    world.add_backend("b")
+    world.add_compute("b")
     env_id = world.add_environment("Broken", is_default=True, setup_script="echo nope >&2; exit 7")
     rep = create_report(title="r", user_token=world.cast["admin"]["token"], org_id=world.org_id)
     with pytest.raises(SandboxError) as failed:
@@ -516,7 +516,7 @@ def test_a_sandbox_that_cannot_start_is_failed_and_the_next_run_starts_over(sand
     assert failed.value.code == errors.UNAVAILABLE and "setup script" in failed.value.message
     broken = world.sandbox_of(rep)
     assert broken.state == "failed" and "setup script" in broken.error
-    assert get_stub_host().get(f"sbx-{broken.id}") is None, "the half-made sandbox was removed from the backend"
+    assert get_stub_host().get(f"sbx-{broken.id}") is None, "the half-made sandbox was removed from the compute"
 
     from app.schemas.sandbox_schema import SandboxEnvironmentUpdate
     from app.services.sandbox import environments as environment_service
@@ -531,7 +531,7 @@ def test_a_sandbox_that_cannot_start_is_failed_and_the_next_run_starts_over(sand
 
 def test_every_action_is_audited_with_the_report_name_and_no_secret(sandbox_world, create_report):
     world = sandbox_world
-    world.add_backend("b")
+    world.add_compute("b")
     secret, variable = f"secret-{uuid.uuid4().hex}", "eu-west"
     world.add_environment("With secrets", is_default=True, secrets={"API_KEY": secret}, env_vars={"REGION": variable})
     rep = create_report(title="Margin by region", user_token=world.cast["admin"]["token"], org_id=world.org_id)
@@ -580,7 +580,7 @@ def test_every_state_change_writes_an_event(world, report):
 
 @pytest.mark.parametrize("fate, state_after, next_run", [
     ("stopped", "stopped", "resumed"),   # e.g. out of memory under a sandboxed kernel
-    ("removed", "failed", "recreated"),  # really gone from its backend
+    ("removed", "failed", "recreated"),  # really gone from its compute
 ])
 def test_a_sandbox_that_dies_mid_run_is_resumed_if_it_only_stopped(world, report, monkeypatch, fate, state_after, next_run):
     from app.services.sandbox.runtime_client import SandboxRuntimeClient, SandboxRuntimeError
@@ -702,16 +702,16 @@ def test_stop_and_idle_marking_leave_a_sandbox_alone_once_a_run_has_claimed_it(w
     assert get_stub_host().get(f"sbx-{outcome.sandbox_id}").running is True, "the container was never stopped"
 
 
-def test_deleting_is_refused_while_the_backend_exists_but_cannot_be_used(world, report, monkeypatch):
+def test_deleting_is_refused_while_the_compute_exists_but_cannot_be_used(world, report, monkeypatch):
     rep = report()
     outcome = world.run_code(rep, world.admin_id, _python("print('warm')"))
-    from app.services.sandbox import backends as backend_service
+    from app.services.sandbox import computes as compute_service
 
-    real = backend_service.build_driver
+    real = compute_service.build_driver
 
-    async def cannot_build(db, backend, **kwargs):
-        raise SandboxError(errors.BACKEND_NOT_READY, "The backend's settings are not valid")
-    monkeypatch.setattr(backend_service, "build_driver", cannot_build)
+    async def cannot_build(db, compute, **kwargs):
+        raise SandboxError(errors.COMPUTE_NOT_READY, "The compute's settings are not valid")
+    monkeypatch.setattr(compute_service, "build_driver", cannot_build)
 
     async def delete(db):
         await world.service.delete(db, await db.get(Sandbox, outcome.sandbox_id), world.admin_id)
@@ -720,17 +720,17 @@ def test_deleting_is_refused_while_the_backend_exists_but_cannot_be_used(world, 
     assert refused.value.code == errors.UNAVAILABLE
     assert world.sandbox_of(rep).state == "ready", "still known, so the delete can be retried"
 
-    # A backend that is really gone has nothing left to remove.
-    async def drop_backend(db):
+    # A compute that is really gone has nothing left to remove.
+    async def drop_compute(db):
         from datetime import datetime
 
-        from app.models.sandbox import SandboxBackend
-        (await db.get(SandboxBackend, world.backend_id)).deleted_at = datetime.utcnow()
+        from app.models.sandbox import SandboxCompute
+        (await db.get(SandboxCompute, world.compute_id)).deleted_at = datetime.utcnow()
         await db.commit()
-    world.call(drop_backend)
+    world.call(drop_compute)
     world.call(delete)
     assert world.sandbox_of(rep) is None
-    monkeypatch.setattr(backend_service, "build_driver", real)
+    monkeypatch.setattr(compute_service, "build_driver", real)
 
 
 def test_a_file_rewritten_to_the_same_size_within_the_same_second_is_still_returned(world, report, monkeypatch):

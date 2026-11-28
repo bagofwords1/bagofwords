@@ -360,17 +360,17 @@ def describe_docker(info: Mapping[str, Any], version_text: str) -> Dict[str, Any
     security = [str(option) for option in (info.get("SecurityOptions") or [])]
     if any("rootless" in option for option in security):
         problems.append("Docker runs in rootless mode on this server, which is not supported.")
-    firewall = ((info.get("FirewallBackend") or {}).get("Driver") or "").lower()
+    firewall = ((info.get("FirewallCompute") or {}).get("Driver") or "").lower()
     if firewall and firewall != "iptables":
         problems.append(
-            f"Docker uses the '{firewall}' firewall backend on this server. Only Docker's default iptables "
-            "backend is supported."
+            f"Docker uses the '{firewall}' firewall compute on this server. Only Docker's default iptables "
+            "compute is supported."
         )
     runtimes = sorted((info.get("Runtimes") or {}).keys())
     return {
         "docker_version": info.get("ServerVersion"),
         "storage_driver": info.get("Driver"),
-        "firewall_backend": firewall or None,
+        "firewall_compute": firewall or None,
         "cgroup_version": info.get("CgroupVersion"),
         "runtimes": runtimes,
         "strong_runtime_registered": layout.RUNTIME_STRONG in runtimes,

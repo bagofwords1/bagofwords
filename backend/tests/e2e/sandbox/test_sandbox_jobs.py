@@ -1,4 +1,4 @@
-"""The scheduled sandbox jobs: lifecycle, backend health, reconcile.
+"""The scheduled sandbox jobs: lifecycle, compute health, reconcile.
 
 A sandbox left alone is marked idle, then stopped, then deleted, at the
 configured times, and resumes if it is used while stopped. Each job is one
@@ -12,9 +12,9 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.ee.audit.models import AuditLog
-from app.models.sandbox import Sandbox, SandboxBackend, SandboxEvent, SandboxRun
-from app.schemas.sandbox_schema import SandboxBackendUpdate
-from app.services.sandbox import backends as backend_service
+from app.models.sandbox import Sandbox, SandboxCompute, SandboxEvent, SandboxRun
+from app.schemas.sandbox_schema import SandboxComputeUpdate
+from app.services.sandbox import computes as compute_service
 from app.services.sandbox import errors, jobs
 from app.services.sandbox.errors import SandboxError
 from app.services.sandbox.service import RunRequest
@@ -30,7 +30,7 @@ MINUTE = 60
 
 @pytest.fixture
 def world(sandbox_world):
-    sandbox_world.backend_id = sandbox_world.add_backend("fake-1")
+    sandbox_world.compute_id = sandbox_world.add_compute("fake-1")
     sandbox_world.add_environment("Default", is_default=True)
     # Short, distinct timeouts so each step of the lifecycle has its own moment.
     sandbox_world.configure(mark_idle_after_seconds=5 * MINUTE, idle_timeout_seconds=30 * MINUTE,
@@ -83,7 +83,7 @@ def test_a_sandbox_left_alone_is_marked_idle_then_stopped_then_deleted_at_the_co
     assert _tick(jobs.lifecycle_tick, used + timedelta(minutes=31))["stopped"] == 1
     stopped = world.rows(Sandbox, Sandbox.id == sandbox_id)[0]
     assert stopped.state == "stopped" and stopped.stopped_at is not None
-    assert get_stub_host().get(f"sbx-{sandbox_id}").running is False, "really stopped on the backend, not deleted"
+    assert get_stub_host().get(f"sbx-{sandbox_id}").running is False, "really stopped on the compute, not deleted"
 
     _tick(jobs.lifecycle_tick, stopped.stopped_at + timedelta(days=6, hours=23))
     assert _state(world, sandbox_id) == "stopped", "kept for the whole retention period"
@@ -184,7 +184,7 @@ def test_one_broken_sandbox_does_not_stop_the_pass(world, report):
 
     async def break_first(db):
         sandbox = await db.get(Sandbox, first)
-        sandbox.backend_id = None  # nothing can be done on a backend it no longer has
+        sandbox.compute_id = None  # nothing can be done on a compute it no longer has
         await db.commit()
     world.call(break_first)
 
@@ -193,37 +193,37 @@ def test_one_broken_sandbox_does_not_stop_the_pass(world, report):
     assert _state(world, second) == "stopped"
 
 
-# ── backend health ───────────────────────────────────────────────────────
+# ── compute health ───────────────────────────────────────────────────────
 
 
 def _set_unreachable(world, unreachable):
     async def _go(db):
-        await backend_service.update_backend(db, world.org_id, world.admin_id, world.backend_id,
-                                             SandboxBackendUpdate(config={"unreachable": unreachable}))
+        await compute_service.update_compute(db, world.org_id, world.admin_id, world.compute_id,
+                                             SandboxComputeUpdate(config={"unreachable": unreachable}))
     world.call(_go)
 
 
-def test_an_unreachable_backend_gets_no_new_sandboxes_until_it_answers_again(world, report):
-    assert _tick(jobs.backend_health_tick)["healthy"] == 1
+def test_an_unreachable_compute_gets_no_new_sandboxes_until_it_answers_again(world, report):
+    assert _tick(jobs.compute_health_tick)["healthy"] == 1
     _set_unreachable(world, True)
-    assert _tick(jobs.backend_health_tick)["unreachable"] == 1
-    backend = world.rows(SandboxBackend, SandboxBackend.id == world.backend_id)[0]
-    assert backend.status == "unreachable" and backend.last_error and backend.last_checked_at
+    assert _tick(jobs.compute_health_tick)["unreachable"] == 1
+    compute = world.rows(SandboxCompute, SandboxCompute.id == world.compute_id)[0]
+    assert compute.status == "unreachable" and compute.last_error and compute.last_checked_at
     with pytest.raises(SandboxError) as refused:
         world.run_code(report(), world.admin_id, ECHO)
-    assert refused.value.code == errors.NO_BACKEND
+    assert refused.value.code == errors.NO_COMPUTE
 
     _set_unreachable(world, False)
-    _tick(jobs.backend_health_tick)
-    assert world.rows(SandboxBackend, SandboxBackend.id == world.backend_id)[0].status == "healthy"
+    _tick(jobs.compute_health_tick)
+    assert world.rows(SandboxCompute, SandboxCompute.id == world.compute_id)[0].status == "healthy"
     assert world.run_code(report(), world.admin_id, ECHO).stdout == "ran\n"
 
 
-def test_sandboxes_on_an_unreachable_backend_are_not_judged(world, report):
+def test_sandboxes_on_an_unreachable_compute_are_not_judged(world, report):
     sandbox_id = world.run_code(report(), world.admin_id, ECHO).sandbox_id
     _set_unreachable(world, True)
-    _tick(jobs.backend_health_tick)
-    assert _state(world, sandbox_id) == "ready", "the backend is down, which says nothing about the sandbox"
+    _tick(jobs.compute_health_tick)
+    assert _state(world, sandbox_id) == "ready", "the compute is down, which says nothing about the sandbox"
 
 
 def test_the_health_check_notices_a_sandbox_that_is_gone_or_was_stopped(world, report):
@@ -234,7 +234,7 @@ def test_the_health_check_notices_a_sandbox_that_is_gone_or_was_stopped(world, r
     get_stub_host().remove_sandbox(f"sbx-{lost}")
     get_stub_host().set_running(f"sbx-{stopped}", False)
 
-    counts = _tick(jobs.backend_health_tick)
+    counts = _tick(jobs.compute_health_tick)
     assert (counts["sandboxes_failed"], counts["sandboxes_stopped"]) == (1, 1)
     assert (_state(world, lost), _state(world, stopped), _state(world, fine)) == ("failed", "stopped", "ready")
     assert world.rows(Sandbox, Sandbox.id == fine)[0].last_seen_at is not None
@@ -249,8 +249,8 @@ def test_the_health_check_notices_a_sandbox_that_is_gone_or_was_stopped(world, r
 
 def _driver_call(world, fn):
     async def _go(db):
-        backend = await backend_service.get_backend(db, world.org_id, world.backend_id)
-        driver = await backend_service.build_driver(db, backend)
+        compute = await compute_service.get_compute(db, world.org_id, world.compute_id)
+        driver = await compute_service.build_driver(db, compute)
         return fn(driver)
     return world.call(_go)
 
@@ -261,7 +261,7 @@ def test_reconcile_removes_what_the_database_does_not_know_and_leaves_the_rest(w
     _driver_call(world, lambda d: (d.plant_foreign_sandbox(orphan), d.plant_foreign_sandbox(foreign, instance_id="another-bow")))
 
     counts = _tick(jobs.reconcile_tick)
-    assert counts["backends"] == 1 and counts["removed"] == 1 and counts["lost"] == 0
+    assert counts["computes"] == 1 and counts["removed"] == 1 and counts["lost"] == 0
     present = _driver_call(world, lambda d: {name: d.has_sandbox(name) for name in (known, orphan, foreign)})
     assert present == {known: True, orphan: False, foreign: True}, "another BoW instance's sandbox is left alone"
     assert _state(world, known) == "ready"
@@ -274,7 +274,7 @@ def test_reconcile_never_takes_a_sandbox_being_created_for_an_orphan(world, repo
 
     async def mid_create(db):
         """The row exists and the container exists, but the handle is not stored yet."""
-        db.add(Sandbox(id=creating, organization_id=world.org_id, report_id=rep["id"], backend_id=world.backend_id,
+        db.add(Sandbox(id=creating, organization_id=world.org_id, report_id=rep["id"], compute_id=world.compute_id,
                        state="provisioning", limits={}))
         await db.commit()
     world.call(mid_create)
@@ -288,18 +288,18 @@ def test_reconcile_marks_a_known_sandbox_that_is_gone_as_lost(world, report):
     rep = report()
     sandbox_id = world.run_code(rep, world.admin_id, ECHO).sandbox_id
     get_stub_host().remove_sandbox(f"sbx-{sandbox_id}")
-    _driver_call(world, lambda d: d._backend.sandboxes.pop(sandbox_id, None))
+    _driver_call(world, lambda d: d._compute.sandboxes.pop(sandbox_id, None))
 
     assert _tick(jobs.reconcile_tick)["lost"] == 1
     assert _state(world, sandbox_id) == "failed"
     assert world.run_code(rep, world.admin_id, ECHO).recreated is True
 
 
-def test_reconcile_skips_backends_that_are_unreachable_or_not_bootstrapped(world, report):
-    world.add_backend("never-bootstrapped", bootstrap=False)
+def test_reconcile_skips_computes_that_are_unreachable_or_not_bootstrapped(world, report):
+    world.add_compute("never-bootstrapped", bootstrap=False)
     _set_unreachable(world, True)
-    _tick(jobs.backend_health_tick)
-    assert _tick(jobs.reconcile_tick) == {"backends": 0, "removed": 0, "repaired": 0, "lost": 0, "errors": 0}
+    _tick(jobs.compute_health_tick)
+    assert _tick(jobs.reconcile_tick) == {"computes": 0, "removed": 0, "repaired": 0, "lost": 0, "errors": 0}
 
 
 # ── registration and the flag ────────────────────────────────────────────
@@ -322,7 +322,7 @@ def test_the_three_jobs_are_scheduled_with_the_flag_on(agent_sandboxes_on):
     scheduler = _Scheduler()
     job_ids = jobs.register_sandbox_jobs(scheduler)
     assert sorted(job_ids) == sorted(scheduler.jobs) == [
-        "agent_sandbox_backend_health", "agent_sandbox_lifecycle", "agent_sandbox_reconcile"]
+        "agent_sandbox_compute_health", "agent_sandbox_lifecycle", "agent_sandbox_reconcile"]
     for function, options in scheduler.jobs.values():
         assert options["trigger"] == "interval" and options["seconds"] >= 60
         assert options["max_instances"] == 1 and options["replace_existing"] is True, "a slow pass never overlaps itself"

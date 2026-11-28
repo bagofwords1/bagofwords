@@ -1,32 +1,32 @@
-"""The driver registry: backend types, their forms, and lazy loading."""
+"""The driver registry: compute types, their forms, and lazy loading."""
 import sys
 
 import pytest
 
 from app.services.sandbox.drivers import registry
-from app.services.sandbox.drivers.base import ALL_CAPABILITIES, BackendContext, SandboxDriver, SandboxDriverError
+from app.services.sandbox.drivers.base import ALL_CAPABILITIES, ComputeContext, SandboxDriver, SandboxDriverError
 from app.settings.config import settings
 
 
 def test_the_fake_type_is_offered_only_for_tests_or_by_explicit_opt_in(monkeypatch):
-    assert "fake" in {t.name for t in registry.backend_types()}  # the suite runs under TESTING
+    assert "fake" in {t.name for t in registry.compute_types()}  # the suite runs under TESTING
 
     monkeypatch.setattr(settings, "TESTING", False)
     monkeypatch.delenv("BOW_AGENT_SANDBOXES_FAKE_DRIVER", raising=False)
-    assert "fake" not in {t.name for t in registry.backend_types()}
-    assert "docker-ssh" in {t.name for t in registry.backend_types()}
+    assert "fake" not in {t.name for t in registry.compute_types()}
+    assert "docker-ssh" in {t.name for t in registry.compute_types()}
     # Not listed means not usable either: an existing row cannot reach it.
     with pytest.raises(SandboxDriverError) as refused:
-        registry.create_driver("fake", BackendContext(backend_id="b", name="b", instance_id="i"))
+        registry.create_driver("fake", ComputeContext(compute_id="b", name="b", instance_id="i"))
     assert refused.value.code == "unknown_type"
 
     monkeypatch.setenv("BOW_AGENT_SANDBOXES_FAKE_DRIVER", "1")
-    assert "fake" in {t.name for t in registry.backend_types()}
+    assert "fake" in {t.name for t in registry.compute_types()}
 
 
 def test_unknown_types_are_refused():
     with pytest.raises(SandboxDriverError) as refused:
-        registry.get_backend_type("kubernetes")
+        registry.get_compute_type("kubernetes")
     assert refused.value.code == "unknown_type"
 
 
@@ -60,7 +60,7 @@ def test_empty_credentials_are_dropped_and_one_time_ones_are_marked():
 
 
 def test_drivers_are_built_from_the_registry_and_implement_the_interface():
-    driver = registry.create_driver("fake", BackendContext(backend_id="b", name="b", instance_id="i"))
+    driver = registry.create_driver("fake", ComputeContext(compute_id="b", name="b", instance_id="i"))
     assert isinstance(driver, SandboxDriver)
     assert driver.capabilities() <= ALL_CAPABILITIES
     assert [s.key for s in driver.prepare_steps()]
@@ -74,6 +74,6 @@ def test_only_safe_driver_state_is_public():
 def test_listing_types_does_not_load_any_driver():
     for name in [m for m in sys.modules if m.startswith("app.services.sandbox.drivers.docker_ssh")]:
         del sys.modules[name]
-    registry.backend_types()
-    registry.get_backend_type("docker-ssh")
+    registry.compute_types()
+    registry.get_compute_type("docker-ssh")
     assert not [m for m in sys.modules if m.startswith("app.services.sandbox.drivers.docker_ssh")]

@@ -14,7 +14,7 @@ import asyncssh
 import pytest
 import pytest_asyncio
 
-from app.services.sandbox.drivers.base import BackendContext, SandboxDriverError
+from app.services.sandbox.drivers.base import ComputeContext, SandboxDriverError
 from app.services.sandbox.drivers.docker_ssh.driver import DockerSSHDriver
 from app.services.sandbox.drivers.docker_ssh.ssh import (
     MODE_ROOT, MODE_SUDO, SSHError, SSHHost, fingerprint_of, generate_keypair,
@@ -246,8 +246,8 @@ async def test_a_wrong_one_time_password_is_refused_and_installs_nothing(server,
 
 
 def _driver(server, keypair, **state):
-    ctx = BackendContext(
-        backend_id="b", name="b", instance_id="i",
+    ctx = ComputeContext(
+        compute_id="b", name="b", instance_id="i",
         config={"address": "127.0.0.1", "ssh_port": server.port, "ssh_user": "ubuntu", "ssh_public_key": keypair[1]},
         credentials={"ssh_private_key": keypair[0]}, driver_state=dict(state),
     )
@@ -278,7 +278,7 @@ async def test_test_connection_shows_the_fingerprint_until_it_is_confirmed_then_
         await driver.close()
 
 
-async def test_a_fingerprint_given_with_the_backend_is_pinned_on_first_contact_only_if_it_matches(server, keypair):
+async def test_a_fingerprint_given_with_the_compute_is_pinned_on_first_contact_only_if_it_matches(server, keypair):
     server.authorized_keys = keypair[1]
     matching = _driver(server, keypair)
     matching.config.ssh_host_key_fingerprint = fingerprint_of(server.host_public_key)

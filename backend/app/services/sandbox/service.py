@@ -1,9 +1,9 @@
 """The sandbox service: one persistent sandbox per report.
 
-It owns the states, choosing a backend, quotas, the record of runs and
+It owns the states, choosing a compute, quotas, the record of runs and
 events, and audit. It reaches infrastructure only through a
 :class:`~.drivers.base.SandboxDriver` and the runtime client, so it works the
-same on every backend type.
+same on every compute type.
 
 States::
 
@@ -35,8 +35,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.sandbox import Sandbox, SandboxBackend, SandboxEnvironment, SandboxEvent, SandboxRun
-from app.services.sandbox import backends as backend_service
+from app.models.sandbox import Sandbox, SandboxCompute, SandboxEnvironment, SandboxEvent, SandboxRun
+from app.services.sandbox import computes as compute_service
 from app.services.sandbox import environments as environment_service
 from app.services.sandbox import errors
 from app.services.sandbox.audit import audit
@@ -59,7 +59,7 @@ from app.services.sandbox.settings import SandboxSettings, ensure_instance_id, l
 
 logger = logging.getLogger(__name__)
 
-RUNNING_STATES = backend_service.RUNNING_STATES
+RUNNING_STATES = compute_service.RUNNING_STATES
 
 # What may follow what. ``failed`` and ``deleted`` are reachable from anywhere.
 TRANSITIONS: Dict[str, frozenset] = {
@@ -302,10 +302,10 @@ class SandboxService:
         return marked.rowcount == 1
 
     async def _driver(self, db: AsyncSession, sandbox: Sandbox) -> tuple:
-        backend = await db.get(SandboxBackend, sandbox.backend_id) if sandbox.backend_id else None
-        if backend is None:
-            raise SandboxError(errors.UNAVAILABLE, "The backend this sandbox ran on no longer exists.", status=409)
-        return backend, await backend_service.build_driver(db, backend)
+        compute = await db.get(SandboxCompute, sandbox.compute_id) if sandbox.compute_id else None
+        if compute is None:
+            raise SandboxError(errors.UNAVAILABLE, "The compute this sandbox ran on no longer exists.", status=409)
+        return compute, await compute_service.build_driver(db, compute)
 
     @staticmethod
     async def _title(db: AsyncSession, sandbox: Sandbox, title: Optional[str] = None) -> str:
@@ -375,26 +375,26 @@ class SandboxService:
                     "Try again when one has stopped.", status=429,
                 )
 
-    async def choose_backend(self, db: AsyncSession, organization_id: str, env: SandboxEnvironment) -> SandboxBackend:
-        """The least-loaded enabled, healthy backend that fits the environment."""
+    async def choose_compute(self, db: AsyncSession, organization_id: str, env: SandboxEnvironment) -> SandboxCompute:
+        """The least-loaded enabled, healthy compute that fits the environment."""
         candidates = [
-            b for b in await backend_service.list_backends(db, organization_id)
+            b for b in await compute_service.list_computes(db, organization_id)
             if b.enabled and b.bootstrap_status == "ready" and b.status != "unreachable"
         ]
         if not candidates:
-            raise SandboxError(errors.NO_BACKEND, "No sandbox backend is enabled and healthy.", status=503)
-        fitting = [b for b in candidates if environment_service.backend_fits(b, env)]
+            raise SandboxError(errors.NO_COMPUTE, "No sandbox compute is enabled and healthy.", status=503)
+        fitting = [b for b in candidates if environment_service.compute_fits(b, env)]
         if not fitting:
             raise SandboxError(
-                errors.NO_BACKEND,
-                f"No sandbox backend can run the environment '{env.name}' (labels or required features do not match).",
+                errors.NO_COMPUTE,
+                f"No sandbox compute can run the environment '{env.name}' (labels or required features do not match).",
                 status=503,
             )
-        counts = await backend_service.running_counts(db, organization_id)
+        counts = await compute_service.running_counts(db, organization_id)
         free = [b for b in fitting if counts.get(b.id, 0) < (b.capacity or 0)]
         if not free:
             raise SandboxError(
-                errors.NO_BACKEND, "Every sandbox backend that fits is at capacity. Try again when a sandbox has stopped.",
+                errors.NO_COMPUTE, "Every sandbox compute that fits is at capacity. Try again when a sandbox has stopped.",
                 status=503,
             )
         return min(free, key=lambda b: (counts.get(b.id, 0) / max(b.capacity, 1), counts.get(b.id, 0), b.name))
@@ -447,12 +447,12 @@ class SandboxService:
             org_default_id=settings.default_environment_id,
         )
         await self._check_quotas(db, report.organization_id, actor_id, settings)
-        backend = await self.choose_backend(db, report.organization_id, env)
+        compute = await self.choose_compute(db, report.organization_id, env)
 
         token = secrets_module.token_urlsafe(32)
         sandbox = Sandbox(
             organization_id=str(report.organization_id), report_id=str(report.id), user_id=actor_id,
-            backend_id=backend.id, environment_id=env.id, image_digest=env.image_digest, state="provisioning",
+            compute_id=compute.id, environment_id=env.id, image_digest=env.image_digest, state="provisioning",
             token=token, expires_at=_now() + timedelta(seconds=settings.max_lifetime_seconds),
             limits={
                 "cpus": env.cpus, "memory_mb": env.memory_mb, "disk_mb": env.disk_mb,
@@ -471,13 +471,13 @@ class SandboxService:
                 raise
             return winner, flags
 
-        await self._provision(db, sandbox, env, backend, settings, token, report, actor_id)
+        await self._provision(db, sandbox, env, compute, settings, token, report, actor_id)
         flags["created"] = True
         return sandbox, flags
 
-    async def _provision(self, db: AsyncSession, sandbox: Sandbox, env: SandboxEnvironment, backend: SandboxBackend,
+    async def _provision(self, db: AsyncSession, sandbox: Sandbox, env: SandboxEnvironment, compute: SandboxCompute,
                          settings: SandboxSettings, token: str, report: ReportRef, actor_id: Optional[str]) -> None:
-        driver = await backend_service.build_driver(db, backend)
+        driver = await compute_service.build_driver(db, compute)
         try:
             try:
                 handle = await driver.create(self._spec(sandbox, env, settings, token))
@@ -501,11 +501,11 @@ class SandboxService:
 
         sandbox.last_seen_at = sandbox.last_used_at = _now()
         await self._set_state(db, sandbox, "ready", actor_id, event="created", details={
-            "environment": env.name, "backend": backend.name, "network_policy": env.network_policy,
+            "environment": env.name, "compute": compute.name, "network_policy": env.network_policy,
         })
         await audit(db, report.organization_id, "sandbox.created", actor_id, "sandbox", sandbox.id, {
             "title": report.title or report.id, "report_id": report.id, "environment": env.name,
-            "backend": backend.name, "network_policy": env.network_policy,
+            "compute": compute.name, "network_policy": env.network_policy,
         })
         await db.commit()
 
@@ -530,7 +530,7 @@ class SandboxService:
             try:
                 await driver.delete(self._handle(sandbox))
             except Exception:  # noqa: BLE001 - reconcile removes whatever is left
-                logger.warning("could not remove failed sandbox %s from its backend", sandbox.id)
+                logger.warning("could not remove failed sandbox %s from its compute", sandbox.id)
         sandbox.error = reason[:1000]
         await self._set_state(db, sandbox, "failed", actor_id, details={"reason": reason[:500]})
         await db.commit()
@@ -540,7 +540,7 @@ class SandboxService:
     async def _ensure_running(self, db: AsyncSession, sandbox: Sandbox, report: ReportRef,
                               actor_id: Optional[str]) -> bool:
         """Make sure the sandbox answers; resume it if it was stopped. Returns
-        whether it was resumed. Raises ``_Lost`` when it is gone from its backend."""
+        whether it was resumed. Raises ``_Lost`` when it is gone from its compute."""
         # Another call may be creating this sandbox or running in it right now
         # (parallel tool calls, another worker). Its daemon may not answer yet,
         # or answer slowly under load: that is not "lost", and nothing here may
@@ -550,7 +550,7 @@ class SandboxService:
             raise errors.starting()
         if sandbox.state == "busy":
             raise errors.busy()
-        backend, driver = await self._driver(db, sandbox)
+        compute, driver = await self._driver(db, sandbox)
         handle = self._handle(sandbox)
         resumed = False
         try:
@@ -565,7 +565,7 @@ class SandboxService:
                 if sandbox.state == "busy":
                     raise errors.busy()
                 if status.state == STATUS_MISSING:
-                    raise _Lost("it is no longer on its backend")
+                    raise _Lost("it is no longer on its compute")
                 if status.state != STATUS_STOPPED:
                     raise _Lost("it is running but does not answer")
                 # Stopped behind our back (a reboot, an admin): record it, then resume.
@@ -573,16 +573,16 @@ class SandboxService:
 
             settings = await load_settings(db, sandbox.organization_id)
             await self._check_quotas(db, sandbox.organization_id, actor_id, settings)
-            counts = await backend_service.running_counts(db, sandbox.organization_id)
-            if counts.get(backend.id, 0) >= (backend.capacity or 0):
+            counts = await compute_service.running_counts(db, sandbox.organization_id)
+            if counts.get(compute.id, 0) >= (compute.capacity or 0):
                 raise SandboxError(
-                    errors.NO_BACKEND, "The sandbox's backend is at capacity. Try again when a sandbox has stopped.",
+                    errors.NO_COMPUTE, "The sandbox's compute is at capacity. Try again when a sandbox has stopped.",
                     status=503,
                 )
             try:
                 await driver.start(handle)
             except SandboxNotFound as exc:
-                raise _Lost("it is no longer on its backend") from exc
+                raise _Lost("it is no longer on its compute") from exc
             async with self._runtime(driver, sandbox) as runtime:
                 await runtime.wait_healthy(HEALTH_DEADLINE_SECONDS)
             sandbox.last_seen_at = _now()
@@ -784,7 +784,7 @@ class SandboxService:
             # The sandbox stopped answering mid-run. If its container merely
             # stopped (typically: it ran out of memory), it resumes on the next
             # run with its files; only a sandbox that is really gone is recreated.
-            died_stopped = await self._stopped_on_backend(db, sandbox)
+            died_stopped = await self._stopped_on_compute(db, sandbox)
             if died_stopped:
                 memory = (sandbox.limits or {}).get("memory_mb")
                 error = SandboxError(
@@ -923,29 +923,29 @@ class SandboxService:
 
     async def stats(self, db: AsyncSession, sandboxes: Sequence[Sandbox]) -> Dict[str, Any]:
         """Live CPU, memory and disk per sandbox id, for the ones that are
-        running on a reachable backend that can report it. Best effort: a
-        backend that does not answer simply contributes nothing."""
+        running on a reachable compute that can report it. Best effort: a
+        compute that does not answer simply contributes nothing."""
         out: Dict[str, Any] = {}
-        by_backend: Dict[str, List[Sandbox]] = {}
+        by_compute: Dict[str, List[Sandbox]] = {}
         for sandbox in sandboxes:
-            if sandbox.backend_id and sandbox.driver_ref and sandbox.state in ("ready", "busy", "idle"):
-                by_backend.setdefault(sandbox.backend_id, []).append(sandbox)
-        for backend_id, group in by_backend.items():
+            if sandbox.compute_id and sandbox.driver_ref and sandbox.state in ("ready", "busy", "idle"):
+                by_compute.setdefault(sandbox.compute_id, []).append(sandbox)
+        for compute_id, group in by_compute.items():
             try:
-                backend = await db.get(SandboxBackend, backend_id)
-                if backend is None or backend.deleted_at is not None or backend.status == "unreachable":
+                compute = await db.get(SandboxCompute, compute_id)
+                if compute is None or compute.deleted_at is not None or compute.status == "unreachable":
                     continue
-                driver = await backend_service.build_driver(db, backend)
+                driver = await compute_service.build_driver(db, compute)
                 try:
                     out.update(await driver.stats([self._handle(s) for s in group]))
                 finally:
                     await driver.close()
             except Exception:  # noqa: BLE001 - usage numbers are optional
-                logger.debug("could not read sandbox stats from backend %s", backend_id, exc_info=True)
+                logger.debug("could not read sandbox stats from compute %s", compute_id, exc_info=True)
         return out
 
-    async def _stopped_on_backend(self, db: AsyncSession, sandbox: Sandbox) -> bool:
-        """Whether the sandbox still exists on its backend but is not running."""
+    async def _stopped_on_compute(self, db: AsyncSession, sandbox: Sandbox) -> bool:
+        """Whether the sandbox still exists on its compute but is not running."""
         try:
             _, driver = await self._driver(db, sandbox)
             try:
@@ -1046,7 +1046,7 @@ class SandboxService:
         _, driver = await self._driver(db, sandbox)
         try:
             if CAP_STOP_RESUME not in driver.capabilities():
-                raise SandboxError(errors.INVALID_STATE, "This backend cannot stop and resume sandboxes", status=409)
+                raise SandboxError(errors.INVALID_STATE, "This compute cannot stop and resume sandboxes", status=409)
             # The state above was read earlier (the lifecycle job reads a whole
             # batch first). Claim the sandbox the way a run does, so a run that
             # started in between is never stopped under its feet, and no run can
@@ -1067,7 +1067,7 @@ class SandboxService:
             try:
                 await driver.stop(self._handle(sandbox))
             except SandboxNotFound:
-                await self._fail(db, sandbox, None, "lost: it is no longer on its backend")
+                await self._fail(db, sandbox, None, "lost: it is no longer on its compute")
                 return sandbox
             except BaseException:
                 # Not stopped: give the sandbox back as it was.
@@ -1091,20 +1091,20 @@ class SandboxService:
 
     async def _remove(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], *, reason: str,
                       title: Optional[str] = None) -> None:
-        backend = await db.get(SandboxBackend, sandbox.backend_id) if sandbox.backend_id else None
-        # Only a backend that is really gone means there is nothing to remove.
-        # A backend that exists but whose driver cannot be built (or reached)
+        compute = await db.get(SandboxCompute, sandbox.compute_id) if sandbox.compute_id else None
+        # Only a compute that is really gone means there is nothing to remove.
+        # A compute that exists but whose driver cannot be built (or reached)
         # still holds the container: marking the row deleted would orphan it.
-        if backend is not None and backend.deleted_at is None and sandbox.driver_ref:
+        if compute is not None and compute.deleted_at is None and sandbox.driver_ref:
             try:
-                driver = await backend_service.build_driver(db, backend)
+                driver = await compute_service.build_driver(db, compute)
                 try:
                     await driver.delete(self._handle(sandbox))
                 finally:
                     await driver.close()
             except (SandboxDriverError, SandboxError) as exc:
                 # "recreated" goes on: the report needs a working sandbox now,
-                # and reconcile removes the old container once the backend answers.
+                # and reconcile removes the old container once the compute answers.
                 if reason not in ("recreated",):
                     raise SandboxError(
                         errors.UNAVAILABLE, f"The sandbox could not be deleted: {exc.message}", status=503,
@@ -1157,7 +1157,7 @@ class SandboxService:
 
 
 class _Lost(Exception):
-    """The sandbox is gone from its backend, or runs but does not answer."""
+    """The sandbox is gone from its compute, or runs but does not answer."""
 
 
 @dataclass

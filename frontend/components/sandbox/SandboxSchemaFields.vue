@@ -1,6 +1,6 @@
 <template>
-    <!-- A backend type's form, rendered from the JSON schema the API hands out
-         (GET /sandbox/backend-types): one input per property. Read-only
+    <!-- A compute type's form, rendered from the JSON schema the API hands out
+         (GET /sandbox/compute-types): one input per property. Read-only
          properties are never inputs; secrets are never prefilled. -->
     <div class="space-y-4">
         <div v-for="field in fields" :key="field.key" class="flex flex-col" :data-testid="`sandbox-field-${field.key}`">
@@ -24,10 +24,10 @@
                     {{ field.title }}
                     <span v-if="field.required" class="text-red-600" aria-hidden="true">*</span>
                     <UBadge v-if="field.stored" size="xs" color="green" variant="subtle" :data-testid="`sandbox-stored-${field.key}`">
-                        {{ $t('sandbox.backends.form.stored') }}
+                        {{ $t('sandbox.computes.form.stored') }}
                     </UBadge>
                     <UBadge v-if="field.transient" size="xs" color="gray" variant="subtle">
-                        {{ $t('sandbox.backends.form.transient') }}
+                        {{ $t('sandbox.computes.form.transient') }}
                     </UBadge>
                 </label>
                 <UTextarea
@@ -38,7 +38,7 @@
                     dir="ltr"
                     autocomplete="off"
                     spellcheck="false"
-                    :placeholder="field.stored ? $t('sandbox.backends.form.storedPlaceholder') : ''"
+                    :placeholder="field.stored ? $t('sandbox.computes.form.storedPlaceholder') : ''"
                     :data-testid="`sandbox-input-${field.key}`"
                     :ui="{ base: 'font-mono text-xs' }"
                     @update:model-value="set(field.key, $event)"
@@ -50,7 +50,7 @@
                     type="password"
                     dir="ltr"
                     autocomplete="new-password"
-                    :placeholder="field.stored ? $t('sandbox.backends.form.storedPlaceholder') : ''"
+                    :placeholder="field.stored ? $t('sandbox.computes.form.storedPlaceholder') : ''"
                     :data-testid="`sandbox-input-${field.key}`"
                     @update:model-value="set(field.key, $event)"
                 />
@@ -88,7 +88,7 @@ import { sandboxFieldType, type SandboxFormSchema } from '~/composables/useSandb
 const props = defineProps<{
     schema: SandboxFormSchema
     modelValue: Record<string, any>
-    // Names of the secrets already stored on the backend being edited.
+    // Names of the secrets already stored on the compute being edited.
     storedSecrets?: string[]
     idPrefix?: string
 }>()

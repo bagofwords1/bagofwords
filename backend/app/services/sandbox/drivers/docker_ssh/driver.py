@@ -5,7 +5,7 @@
     BoW ── HTTPS :port ────► router ──► sandbox  (sandboxd: gRPC + REST)
                              sandbox ──► egress proxy ──► internet
 
-One instance serves one backend and holds one SSH connection, opened on first
+One instance serves one compute and holds one SSH connection, opened on first
 use. Nothing is kept in memory between calls that another worker would need:
 the handle BoW stores and the records on the host are enough.
 """
@@ -26,8 +26,8 @@ from app.services.sandbox.drivers.base import (
     STATUS_MISSING,
     STATUS_RUNNING,
     STATUS_STOPPED,
-    BackendContext,
-    BackendHealth,
+    ComputeContext,
+    ComputeHealth,
     EgressRecord,
     Endpoint,
     ReconcileResult,
@@ -66,7 +66,7 @@ class DockerSSHDriver(SandboxDriver):
     type_name = "docker-ssh"
     potential_capabilities = frozenset({CAP_STOP_RESUME, CAP_STRONG_ISOLATION, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS})
 
-    def __init__(self, ctx: BackendContext):
+    def __init__(self, ctx: ComputeContext):
         super().__init__(ctx)
         self.config = DockerSSHConfig(**(ctx.config or {}))
         self.addr = layout.addresses()
@@ -76,14 +76,14 @@ class DockerSSHDriver(SandboxDriver):
     # ── registry hooks ──
 
     @staticmethod
-    def is_another_backend(previous_config: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    def is_another_compute(previous_config: Dict[str, Any], config: Dict[str, Any]) -> bool:
         """A different address or SSH port is a different server: its host key,
         its router's certificate and "bootstrapped" are not this one's."""
         return any(previous_config.get(key) != config.get(key) for key in ("address", "ssh_port"))
 
     @staticmethod
     def prepare_credentials(config: Dict[str, Any], credentials: Dict[str, Any]) -> tuple:
-        """Before a backend is stored: generate a key pair when none was pasted,
+        """Before a compute is stored: generate a key pair when none was pasted,
         and keep the public key with the (non-secret) config so it can be shown."""
         config, credentials = dict(config), dict(credentials)
         private_key = credentials.get("ssh_private_key")
@@ -180,13 +180,13 @@ class DockerSSHDriver(SandboxDriver):
         if not self.ctx.driver_state.get("ssh_host_key"):
             raise SandboxDriverError(
                 "Confirm the server's SSH host key fingerprint before using a one-time password "
-                "(run Test connection), or enter the fingerprint with the backend.", code="host_key_unconfirmed",
+                "(run Test connection), or enter the fingerprint with the compute.", code="host_key_unconfirmed",
             )
         public_key = self.config.ssh_public_key or public_key_of((self.ctx.credentials or {}).get("ssh_private_key") or "")
         await self.ssh.install_public_key(password, public_key)
         self.ctx.driver_state["enrolled_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
-    # ── describing the backend ──
+    # ── describing the compute ──
 
     def capabilities(self) -> set:
         caps = {CAP_STOP_RESUME, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS}
@@ -213,7 +213,7 @@ class DockerSSHDriver(SandboxDriver):
         except SSHError as exc:
             return _failed_first(exc.message)
 
-    async def check(self) -> BackendHealth:
+    async def check(self) -> ComputeHealth:
         checks: List[Dict[str, Any]] = []
 
         def line(key: str, title: str, status: str, detail: Optional[str] = None) -> None:
@@ -226,7 +226,7 @@ class DockerSSHDriver(SandboxDriver):
                 if not state.get("ssh_host_key"):
                     line("host_key", "SSH host key", "warning",
                          f"Fingerprint {fingerprint}. Confirm that this is your server's key; it is pinned after that.")
-                    return BackendHealth(reachable=True, capabilities=sorted(self.capabilities()),
+                    return ComputeHealth(reachable=True, capabilities=sorted(self.capabilities()),
                                          info=self.public_info(state), checks=checks,
                                          error="Confirm the server's SSH host key fingerprint.")
             line("host_key", "SSH host key", "ok", f"Pinned: {fingerprint_of(state['ssh_host_key'])}")
@@ -238,10 +238,10 @@ class DockerSSHDriver(SandboxDriver):
                  else f"Logged in as {self.config.ssh_user}; commands run through sudo -n.")
 
             facts = await self.host.docker_info()
-            state["docker"] = {k: facts[k] for k in ("docker_version", "storage_driver", "firewall_backend", "cgroup_version", "cpus", "memory_bytes")}
+            state["docker"] = {k: facts[k] for k in ("docker_version", "storage_driver", "firewall_compute", "cgroup_version", "cpus", "memory_bytes")}
             if facts["problems"]:
                 line("docker", "Docker", "failed", " ".join(facts["problems"]))
-                return BackendHealth(reachable=True, capabilities=sorted(self.capabilities()), info=self.public_info(state),
+                return ComputeHealth(reachable=True, capabilities=sorted(self.capabilities()), info=self.public_info(state),
                                      checks=checks, error=" ".join(facts["problems"]))
             line("docker", "Docker", "ok", f"Docker {facts['docker_version']}")
 
@@ -274,7 +274,7 @@ class DockerSSHDriver(SandboxDriver):
             else:
                 line("bootstrap", "Bootstrapped", "ok", "The router, the egress proxy and the firewall helper are running.")
             running = sum(1 for c in containers.values() if c.get("sandbox") and c.get("state") == "running")
-            return BackendHealth(
+            return ComputeHealth(
                 reachable=True, prepared=prepared, healthy=prepared and not down, running=running,
                 capabilities=sorted(self.capabilities()), info=self.public_info(state), checks=checks,
                 error=None if (prepared and not down) else next((c["detail"] for c in checks if c["status"] == "failed"), None),
@@ -282,7 +282,7 @@ class DockerSSHDriver(SandboxDriver):
         except SandboxDriverError as exc:
             line(exc.code if exc.code in ("host_key_mismatch", "auth_failed", "no_privileges") else "ssh",
                  "SSH access", "failed", exc.message)
-            return BackendHealth(reachable=exc.code not in ("unreachable", "timeout"), info=self.public_info(state),
+            return ComputeHealth(reachable=exc.code not in ("unreachable", "timeout"), info=self.public_info(state),
                                  checks=checks, error=exc.message)
 
     # ── sandbox lifecycle ──

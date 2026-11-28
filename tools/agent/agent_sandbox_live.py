@@ -29,7 +29,7 @@ Usage (from backend/, so the app's modules and the DevBox env are available):
 Optional: BOW_URL (default http://localhost:8000), BOW_SANDBOX_TEST_BOW_ADDRESS,
 BOW_SANDBOX_TEST_PRELOADED=1 (images are already on the server).
 Sandboxes are created with a 1 GB memory limit. Without --keep everything it
-created is removed at the end (sandboxes, environments, the backend, and
+created is removed at the end (sandboxes, environments, the compute, and
 what BoW put on the server).
 """
 from __future__ import annotations
@@ -83,7 +83,7 @@ class Api:
 
 
 async def _db(fn):
-    """Run ``await fn(db)`` against the app database (the script runs inside the backend's environment)."""
+    """Run ``await fn(db)`` against the app database (the script runs inside the compute's environment)."""
     from app.dependencies import async_session_maker
 
     async with async_session_maker() as db:
@@ -119,17 +119,17 @@ def sandbox_rows(report_id: str):
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--keep", action="store_true", help="leave the backend, environments and sandboxes in place")
+    parser.add_argument("--keep", action="store_true", help="leave the compute, environments and sandboxes in place")
     args = parser.parse_args()
     host = os.environ["BOW_SANDBOX_TEST_HOST"]
     suffix = uuid.uuid4().hex[:6]
     api = Api()
-    created = {"backend": None, "environments": [], "reports": []}
+    created = {"compute": None, "environments": [], "reports": []}
     settings_before = api.call("GET", "/api/sandbox/settings")
     # Leftovers of an interrupted earlier run would compete for the same server.
-    for stale in api.call("GET", "/api/sandbox/backends"):
+    for stale in api.call("GET", "/api/sandbox/computes"):
         if stale["name"].startswith("live-"):
-            api.http.delete(f"/api/sandbox/backends/{stale['id']}", headers=api.headers, params={"delete_sandboxes": "true"})
+            api.http.delete(f"/api/sandbox/computes/{stale['id']}", headers=api.headers, params={"delete_sandboxes": "true"})
     for stale in api.call("GET", "/api/sandbox/environments"):
         if stale["name"].startswith("Live "):
             api.http.delete(f"/api/sandbox/environments/{stale['id']}", headers=api.headers)
@@ -139,8 +139,8 @@ def main() -> int:
         step("1. An admin adds a server, bootstraps it, creates environments and turns the feature on")
         with open(os.environ["BOW_SANDBOX_TEST_KEY"]) as handle:
             private_key = handle.read()
-        backend = api.call("POST", "/api/sandbox/backends", json={
-            # The label keeps this run's environments on this server and no other backend.
+        compute = api.call("POST", "/api/sandbox/computes", json={
+            # The label keeps this run's environments on this server and no other compute.
             "name": f"live-{suffix}", "type": "docker-ssh", "capacity": 2, "labels": [f"live-{suffix}"],
             "config": {
                 "address": host, "ssh_user": os.environ.get("BOW_SANDBOX_TEST_USER", "root"),
@@ -149,38 +149,38 @@ def main() -> int:
             },
             "credentials": {"ssh_private_key": private_key},
         })
-        created["backend"] = backend["id"]
-        check("the backend is created disabled, and no private key comes back",
-              backend["enabled"] is False and "PRIVATE KEY" not in json.dumps(backend)
-              and backend["credentials_set"] == ["ssh_private_key"])
+        created["compute"] = compute["id"]
+        check("the compute is created disabled, and no private key comes back",
+              compute["enabled"] is False and "PRIVATE KEY" not in json.dumps(compute)
+              and compute["credentials_set"] == ["ssh_private_key"])
 
-        tested = api.call("POST", f"/api/sandbox/backends/{backend['id']}/test")
-        fingerprint = tested["backend"]["info"].get("host_key_seen_fingerprint")
+        tested = api.call("POST", f"/api/sandbox/computes/{compute['id']}/test")
+        fingerprint = tested["compute"]["info"].get("host_key_seen_fingerprint")
         check("Test connection shows the server's fingerprint before anything is trusted",
               tested["prepared"] is False and bool(fingerprint), str(fingerprint))
         expected = os.environ.get("BOW_SANDBOX_TEST_FINGERPRINT")
         check("the fingerprint is the one expected for this server", not expected or fingerprint == expected.rstrip("="))
-        api.call("POST", f"/api/sandbox/backends/{backend['id']}/confirm-identity", json={"fingerprint": fingerprint})
-        tested = api.call("POST", f"/api/sandbox/backends/{backend['id']}/test")
+        api.call("POST", f"/api/sandbox/computes/{compute['id']}/confirm-identity", json={"fingerprint": fingerprint})
+        tested = api.call("POST", f"/api/sandbox/computes/{compute['id']}/test")
         checks = {c["key"]: c["status"] for c in tested["checks"]}
         check("after confirming it, Test connection logs in and reports Docker and gVisor",
               checks.get("host_key") == "ok" and checks.get("ssh") == "ok" and checks.get("docker") == "ok", json.dumps(checks))
 
         started = time.time()
-        booted = api.call("POST", f"/api/sandbox/backends/{backend['id']}/bootstrap", json={"wait": True, "take_over": True})
+        booted = api.call("POST", f"/api/sandbox/computes/{compute['id']}/bootstrap", json={"wait": True, "take_over": True})
         steps = {s["key"]: s for s in booted["bootstrap_steps"]}
         check("bootstrap finishes with every step reported", booted["bootstrap_status"] == "ready",
               f"{time.time() - started:.0f}s; " + ", ".join(f"{k}={s['status']}" for k, s in steps.items()))
         print("     verify:", steps["verify"]["detail"])
         check("isolation is reported", booted["info"].get("isolation") in ("gvisor", "runc"), str(booted["info"].get("isolation")))
-        api.call("PUT", f"/api/sandbox/backends/{backend['id']}", json={"enabled": True})
+        api.call("PUT", f"/api/sandbox/computes/{compute['id']}", json={"enabled": True})
 
         registries = api.call("POST", "/api/sandbox/environments", json={
             "name": f"Live registries {suffix}", "image": os.environ.get("BOW_SANDBOX_IMAGE", "python:3.12-slim"),
-            "network_policy": "registries", "memory_mb": 1024, "disk_mb": 1024, "backend_labels": [f"live-{suffix}"]})
+            "network_policy": "registries", "memory_mb": 1024, "disk_mb": 1024, "compute_labels": [f"live-{suffix}"]})
         offline = api.call("POST", "/api/sandbox/environments", json={
             "name": f"Live offline {suffix}", "image": os.environ.get("BOW_SANDBOX_IMAGE", "python:3.12-slim"),
-            "network_policy": "none", "memory_mb": 1024, "disk_mb": 1024, "backend_labels": [f"live-{suffix}"]})
+            "network_policy": "none", "memory_mb": 1024, "disk_mb": 1024, "compute_labels": [f"live-{suffix}"]})
         created["environments"] = [registries["id"], offline["id"]]
         for env in (registries, offline):
             api.call("PUT", f"/api/sandbox/environments/{env['id']}/access",
@@ -188,8 +188,8 @@ def main() -> int:
         check("two environments exist and are granted to the user", True)
         settings = api.call("PUT", "/api/sandbox/settings", json={
             "enabled": True, "default_environment_id": registries["id"], "max_running_per_user": 2})
-        check("the feature is switched on with a ready backend and environments",
-              settings["enabled"] and settings["backends_ready"] >= 1 and settings["environments"] >= 2)
+        check("the feature is switched on with a ready compute and environments",
+              settings["enabled"] and settings["computes_ready"] >= 1 and settings["environments"] >= 2)
 
         # ── 2. a user's agent runs code ──────────────────────────────────
         step("2. In a report, the agent installs a package, runs Python and writes a PNG")
@@ -278,18 +278,18 @@ def main() -> int:
         check("the lifecycle job stopped the idle sandbox", counts["stopped"] >= 1 and sandbox.state == "stopped",
               f"counts={counts}, state={sandbox.state}")
 
-        async def backend_status(session):
-            from app.models.sandbox import Sandbox, SandboxBackend
-            from app.services.sandbox import backends as backend_service
+        async def compute_status(session):
+            from app.models.sandbox import Sandbox, SandboxCompute
+            from app.services.sandbox import computes as compute_service
             from app.services.sandbox.drivers.base import SandboxHandle
 
             row = await session.get(Sandbox, sandbox.id)
-            driver = await backend_service.build_driver(session, await session.get(SandboxBackend, row.backend_id))
+            driver = await compute_service.build_driver(session, await session.get(SandboxCompute, row.compute_id))
             try:
                 return (await driver.status(SandboxHandle(sandbox_id=row.id, ref=dict(row.driver_ref or {})))).state
             finally:
                 await driver.close()
-        check("its container is stopped on the server, not removed", db(backend_status) == "stopped")
+        check("its container is stopped on the server, not removed", db(compute_status) == "stopped")
 
         api.ask(report["id"], (
             "Use run_in_sandbox again, WITHOUT the `packages` argument: run Python that imports cowsay and prints "
@@ -304,9 +304,9 @@ def main() -> int:
               f"{getattr(last, 'status', None)}: {(getattr(last, 'stdout', '') or '')[-160:]!r} {(getattr(last, 'stderr', '') or '')[-200:]!r}")
 
         # ── jobs against the real host ───────────────────────────────────
-        step("5. Backend health and reconcile against the real server")
-        health = asyncio.run(jobs.backend_health_tick())
-        check("the backend health job finds the server healthy", health["healthy"] >= 1 and health["errors"] == 0, json.dumps(health))
+        step("5. Compute health and reconcile against the real server")
+        health = asyncio.run(jobs.compute_health_tick())
+        check("the compute health job finds the server healthy", health["healthy"] >= 1 and health["errors"] == 0, json.dumps(health))
         reconcile = asyncio.run(jobs.reconcile_tick())
         check("reconcile has nothing to remove and loses nothing", reconcile["lost"] == 0 and reconcile["errors"] == 0, json.dumps(reconcile))
     finally:
@@ -331,10 +331,10 @@ def main() -> int:
                 print("  could not restore settings:", exc)
             for environment_id in created["environments"]:
                 api.http.delete(f"/api/sandbox/environments/{environment_id}", headers=api.headers)
-            if created["backend"]:
-                response = api.http.delete(f"/api/sandbox/backends/{created['backend']}", headers=api.headers,
+            if created["compute"]:
+                response = api.http.delete(f"/api/sandbox/computes/{created['compute']}", headers=api.headers,
                                            params={"cleanup": "true", "delete_sandboxes": "true"})
-                print("  backend deleted and server cleaned:", response.status_code, response.text[:200])
+                print("  compute deleted and server cleaned:", response.status_code, response.text[:200])
 
     failed = [name for name, ok, _ in RESULTS if not ok]
     print(f"\n{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed" + (f"; FAILED: {failed}" if failed else ""))

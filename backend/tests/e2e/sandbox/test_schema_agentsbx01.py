@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.sandbox import (
-    Sandbox, SandboxBackend, SandboxEnvironment, SandboxRun,
+    Sandbox, SandboxCompute, SandboxEnvironment, SandboxRun,
 )
 from tests.fixtures.dashboard_corpus.alembic_at import alembic_pointed_at, current_revisions, script_directory
 from tests.fixtures.dashboard_corpus.rows import sync_test_url
@@ -29,7 +29,7 @@ pytestmark = pytest.mark.e2e
 PREVIOUS = "mrgheads12"
 REVISION = "agentsbx01"
 TABLES = {
-    "sandbox_backends", "sandbox_environments", "sandbox_agent_defaults", "sandboxes",
+    "sandbox_computes", "sandbox_environments", "sandbox_agent_defaults", "sandboxes",
     "sandbox_runs", "sandbox_events", "sandbox_egress_log", "sandbox_exposures",
 }
 
@@ -156,28 +156,28 @@ def test_database_allows_one_live_sandbox_per_report(session):
     assert rows == 2
 
 
-def test_names_are_unique_among_live_backends_and_environments(session):
+def test_names_are_unique_among_live_computes_and_environments(session):
     org = _org_id(session)
-    backend = SandboxBackend(organization_id=org, name="sbx-1", type="fake", config={}, driver_state={},
+    compute = SandboxCompute(organization_id=org, name="sbx-1", type="fake", config={}, driver_state={},
                              capabilities=[], labels=[], bootstrap_steps=[])
     env = SandboxEnvironment(organization_id=org, name="Default", image="img", allowed_domains=[], env_vars={},
-                             backend_labels=[], ports=[])
-    session.add_all([backend, env])
+                             compute_labels=[], ports=[])
+    session.add_all([compute, env])
     session.flush()
     for duplicate in (
-        SandboxBackend(organization_id=org, name="sbx-1", type="fake", config={}, driver_state={},
+        SandboxCompute(organization_id=org, name="sbx-1", type="fake", config={}, driver_state={},
                        capabilities=[], labels=[], bootstrap_steps=[]),
         SandboxEnvironment(organization_id=org, name="Default", image="other", allowed_domains=[], env_vars={},
-                           backend_labels=[], ports=[]),
+                           compute_labels=[], ports=[]),
     ):
         with pytest.raises(IntegrityError):
             with session.begin_nested():
                 session.add(duplicate)
                 session.flush()
-    # A deleted backend frees its name.
-    backend.deleted_at = datetime.utcnow()
+    # A deleted compute frees its name.
+    compute.deleted_at = datetime.utcnow()
     session.flush()
-    session.add(SandboxBackend(organization_id=org, name="sbx-1", type="fake", config={}, driver_state={},
+    session.add(SandboxCompute(organization_id=org, name="sbx-1", type="fake", config={}, driver_state={},
                                capabilities=[], labels=[], bootstrap_steps=[]))
     session.flush()
 
@@ -187,28 +187,28 @@ def test_secrets_are_ciphertext_at_rest_and_readable_through_the_models(session)
     marker = uuid.uuid4().hex  # unique per run: any plaintext leak is findable
     key, password, secret, token, code, out = (f"{kind}-{marker}" for kind in ("key", "pw", "secret", "tok", "code", "out"))
 
-    backend = SandboxBackend(organization_id=org, name=f"b-{marker[:8]}", type="fake", config={}, driver_state={},
+    compute = SandboxCompute(organization_id=org, name=f"b-{marker[:8]}", type="fake", config={}, driver_state={},
                              capabilities=[], labels=[], bootstrap_steps=[], credentials={"ssh_private_key": key})
     env = SandboxEnvironment(organization_id=org, name=f"e-{marker[:8]}", image="img", allowed_domains=[],
-                             env_vars={}, backend_labels=[], ports=[],
+                             env_vars={}, compute_labels=[], ports=[],
                              registry_password=password, secrets={"API_KEY": secret})
-    session.add_all([backend, env])
+    session.add_all([compute, env])
     session.flush()
     sandbox = Sandbox(organization_id=org, report_id=str(uuid.uuid4()), state="ready", limits={}, token=token,
-                      backend_id=backend.id, environment_id=env.id)
+                      compute_id=compute.id, environment_id=env.id)
     session.add(sandbox)
     session.flush()
     run = SandboxRun(sandbox_id=sandbox.id, organization_id=org, report_id=sandbox.report_id,
                      code=code, stdout=out, stderr=out, input_file_ids=[], artifact_file_ids=[])
     session.add(run)
     session.flush()
-    ids = (backend.id, env.id, sandbox.id, run.id)
+    ids = (compute.id, env.id, sandbox.id, run.id)
     session.expire_all()
 
     raw = " ".join(
         str(value)
         for table, columns, row_id in (
-            ("sandbox_backends", "credentials", ids[0]),
+            ("sandbox_computes", "credentials", ids[0]),
             ("sandbox_environments", "registry_password, secrets", ids[1]),
             ("sandboxes", "token", ids[2]),
             ("sandbox_runs", "code, stdout, stderr", ids[3]),
@@ -218,7 +218,7 @@ def test_secrets_are_ciphertext_at_rest_and_readable_through_the_models(session)
     assert marker not in raw
     assert "API_KEY" not in raw, "secret names are not readable either"
 
-    assert session.get(SandboxBackend, ids[0]).credentials == {"ssh_private_key": key}
+    assert session.get(SandboxCompute, ids[0]).credentials == {"ssh_private_key": key}
     loaded_env = session.get(SandboxEnvironment, ids[1])
     assert loaded_env.registry_password == password and loaded_env.secrets == {"API_KEY": secret}
     assert session.get(Sandbox, ids[2]).token == token

@@ -1,4 +1,4 @@
-"""The four agent-sandbox tools, end to end on the fake backend.
+"""The four agent-sandbox tools, end to end on the fake compute.
 
 Each test calls a tool the way the agent loop does: ``run_stream`` with the
 runtime context of a real report, user and organization. What is checked is
@@ -44,7 +44,7 @@ PNG = "import struct, zlib\n" \
 
 @pytest.fixture
 def world(sandbox_world, enterprise_license):
-    sandbox_world.add_backend("fake-1")
+    sandbox_world.add_compute("fake-1")
     sandbox_world.environment_id = sandbox_world.add_environment("Default", is_default=True)
     return sandbox_world
 

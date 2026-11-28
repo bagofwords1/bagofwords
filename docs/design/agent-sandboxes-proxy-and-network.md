@@ -43,10 +43,10 @@ disagreement is open and is the product owner's to settle before release.
 
 **Need:** the egress proxy must forward through the customer's proxy.
 **Sketch:** the `forwardproxy` plugin has an `upstream` setting. Add a setting on the
-backend (the proxy URL), with its username and password stored as a credential, never
+compute (the proxy URL), with its username and password stored as a credential, never
 in config. Apply it when the egress proxy's config is written at bootstrap.
 **Open questions:**
-- Per backend only, or also overridable per environment?
+- Per compute only, or also overridable per environment?
 - Does `upstream` in the pinned plugin version support authenticated HTTPS upstreams?
   Check before designing around it.
 - With an upstream proxy, our "refuse private ranges" rule sees only the proxy's
@@ -62,7 +62,7 @@ network. This item breaks that promise on purpose. Report data enters a sandbox,
 anything a sandbox can reach is a place data can go, and a place model-written code can
 attack from.
 **Decisions needed before any code:**
-- **Granularity.** Per environment (like the allowlist), per backend, or both? An
+- **Granularity.** Per environment (like the allowlist), per compute, or both? An
   environment-level list keeps "who may reach what" next to "who may use it".
 - **By name, by address range, or both?** A name is what admins think in. But a name
   that is allowed today can resolve to a different private address tomorrow (DNS
@@ -81,7 +81,7 @@ sandbox network itself, and the host's own addresses.
 
 **Need:** TLS-inspecting proxies re-sign every certificate. Without the company's CA,
 `pip`, `npm` and `requests` all fail.
-**Sketch:** the admin uploads a CA bundle (per backend, since it describes that
+**Sketch:** the admin uploads a CA bundle (per compute, since it describes that
 network). The driver writes it on the host and mounts it read-only into every sandbox,
 and sets `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `PIP_CERT`, `NODE_EXTRA_CA_CERTS`
 (and `GIT_SSL_CAINFO`, `CURL_CA_BUNDLE`).

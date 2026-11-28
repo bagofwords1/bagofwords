@@ -12,7 +12,7 @@ export interface SandboxBootstrapStep {
   code?: string | null
 }
 
-export interface SandboxBackend {
+export interface SandboxCompute {
   id: string
   name: string
   type: string
@@ -51,7 +51,7 @@ export interface SandboxFormSchema {
   required?: string[]
 }
 
-export interface SandboxBackendType {
+export interface SandboxComputeType {
   name: string
   title: string
   description?: string
@@ -103,7 +103,7 @@ export interface SandboxFleetRow {
   report_id: string
   report_title?: string | null
   user_name?: string | null
-  backend_name?: string | null
+  compute_name?: string | null
   environment_name?: string | null
   image_digest?: string | null
   state: SandboxState | string

@@ -8,13 +8,13 @@ It serves the same two APIs as the real daemon at the pinned upstream commit:
 
 One :class:`StubHost` serves many sandboxes on one pair of ports, over TLS
 with its own throwaway CA, and picks the sandbox by the ``X-Sandbox-Id``
-header: the same shape a real backend's router has. Each sandbox is a
+header: the same shape a real compute's router has. Each sandbox is a
 directory on local disk, and "processes" are real local subprocesses.
 
 **There is no isolation here at all.** Commands run as the BoW server's own
 user. That is the point (the runtime client and the service are exercised
 against real process and file behaviour without a server), and it is why the
-``fake`` backend type that uses this is only offered under ``TESTING`` or an
+``fake`` compute type that uses this is only offered under ``TESTING`` or an
 explicit opt-in (see ``drivers/registry.fake_driver_enabled``).
 
 The servers run on their own thread and event loop, so they stay up across
@@ -44,11 +44,11 @@ from typing import Dict, Optional
 SANDBOX_HEADER = "x-sandbox-id"
 
 _NET_PROBE = '''#!{python}
-"""Simulated egress for the fake backend: `bow-net-probe <domain>`.
+"""Simulated egress for the fake compute: `bow-net-probe <domain>`.
 
 Exits 0 and prints "allowed" when the sandbox's network policy lets it reach
 the domain, 1 and "refused" otherwise, and records the attempt in the
-sandbox's domain log, as a real backend does.
+sandbox's domain log, as a real compute does.
 """
 import json, os, sys, time
 

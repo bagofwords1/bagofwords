@@ -44,7 +44,7 @@ class SandboxSettings(BaseModel):
     # What the "package registries only" policy allows.
     registry_domains: List[str] = Field(default_factory=lambda: list(DEFAULT_REGISTRY_DOMAINS))
     max_running_per_user: int = Field(default=3, ge=1, le=1000)
-    # None: bounded only by the backends' capacity.
+    # None: bounded only by the computes' capacity.
     max_running_total: Optional[int] = Field(default=None, ge=1, le=100000)
     # Reserved for hosted apps. Stored, unused in v1.
     apps_domain: Optional[str] = None
@@ -117,7 +117,7 @@ async def save_settings(db: AsyncSession, organization_id: str, settings: Sandbo
 async def ensure_instance_id(db: AsyncSession, organization_id: str) -> str:
     """The stable id of this BoW deployment, created once.
 
-    Every resource a driver creates on a backend carries it, and a backend
+    Every resource a driver creates on a compute carries it, and a compute
     remembers which instance owns it, so two BoW instances never clean up each
     other's sandboxes.
     """

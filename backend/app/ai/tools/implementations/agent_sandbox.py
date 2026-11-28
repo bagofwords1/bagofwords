@@ -8,7 +8,7 @@ wrote as report files, and streaming output to the report thread.
 
 The tools ship dark. They are in the planner's catalog only when the
 deployment flag and the organization switch are on, the user holds
-``use_agent_sandbox`` and may use an environment, and a backend can run it
+``use_agent_sandbox`` and may use an environment, and a compute can run it
 (see ``agent_v2`` and ``services/sandbox/access.py``). The service checks all
 of that again on every call, so a tool that is named without being offered
 is refused.

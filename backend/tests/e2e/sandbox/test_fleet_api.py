@@ -28,7 +28,7 @@ SLEEP = RunRequest(language="python", code="import time\nprint('go', flush=True)
 
 @pytest.fixture
 def world(sandbox_world, enterprise_license):
-    sandbox_world.add_backend("fake-1")
+    sandbox_world.add_compute("fake-1")
     sandbox_world.add_environment("Default", is_default=True)
     return sandbox_world
 
@@ -81,14 +81,14 @@ def test_the_list_names_what_an_admin_recognises_and_never_shows_a_token(world, 
     rows = {r["id"]: r for r in listed.json()}
     assert len(rows) == 2
     row = rows[sandbox_id]
-    assert (row["report_title"], row["backend_name"], row["environment_name"], row["state"]) == \
+    assert (row["report_title"], row["compute_name"], row["environment_name"], row["state"]) == \
         ("Quarterly sales", "fake-1", "Default", "ready")
     assert row["user_name"] and row["running_run_id"] is None and row["usage"] is None
     token = world.rows(Sandbox, Sandbox.id == sandbox_id)[0].token
     assert token and token not in listed.text and "driver_ref" not in listed.text
 
     with_usage = {r["id"]: r for r in test_client.get(BASE, params={"usage": "true"}, headers=admin).json()}
-    assert with_usage[sandbox_id]["usage"] is not None, "the fake backend reports usage"
+    assert with_usage[sandbox_id]["usage"] is not None, "the fake compute reports usage"
 
     detail = test_client.get(f"{BASE}/{sandbox_id}", headers=admin).json()
     assert [r["status"] for r in detail["runs"]] == ["succeeded"]

@@ -151,10 +151,10 @@ class ErrorCode(str, Enum):
     SANDBOX_PACKAGES_NEED_NETWORK = "sandbox.packages_need_network"
     SANDBOX_INPUT_NOT_ALLOWED = "sandbox.input_not_allowed"
     SANDBOX_NAME_TAKEN = "sandbox.name_taken"
-    SANDBOX_BACKEND_NOT_READY = "sandbox.backend_not_ready"
-    SANDBOX_BACKEND_IN_USE = "sandbox.backend_in_use"
+    SANDBOX_COMPUTE_NOT_READY = "sandbox.compute_not_ready"
+    SANDBOX_COMPUTE_IN_USE = "sandbox.compute_in_use"
     SANDBOX_BOOTSTRAP_RUNNING = "sandbox.bootstrap_running"
-    SANDBOX_BACKEND_NOT_FOUND = "sandbox.backend_not_found"
+    SANDBOX_COMPUTE_NOT_FOUND = "sandbox.compute_not_found"
     SANDBOX_ENVIRONMENT_NOT_FOUND = "sandbox.environment_not_found"
     # The detail of these is the specific reason (which field, which step), so they
     # have no catalog line on purpose: the frontend then shows the detail.

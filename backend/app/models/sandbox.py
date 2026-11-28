@@ -2,7 +2,7 @@
 
 Eight tables, all new (migration ``agentsbx01`` adds tables and alters none):
 
-``sandbox_backends``        a place sandboxes run (one Linux server for ``docker-ssh``)
+``sandbox_computes``        a place sandboxes run (one Linux server for ``docker-ssh``)
 ``sandbox_environments``    admin-defined templates a sandbox is created from
 ``sandbox_agent_defaults``  an agent's (data source's) default environment
 ``sandboxes``               one per report
@@ -82,7 +82,7 @@ class SecretJSON(TypeDecorator):
 # ── Enumerations (plain strings in the database) ─────────────────────────
 
 BOOTSTRAP_STATUSES = ("none", "running", "ready", "failed")
-BACKEND_STATUSES = ("unknown", "healthy", "unreachable")
+COMPUTE_STATUSES = ("unknown", "healthy", "unreachable")
 NETWORK_POLICIES = ("none", "registries", "allowlist", "full")
 SANDBOX_STATES = ("provisioning", "ready", "busy", "idle", "stopped", "failed", "deleted")
 RUN_STATUSES = ("running", "succeeded", "failed", "timeout", "cancelled", "killed")
@@ -91,18 +91,18 @@ EGRESS_DECISIONS = ("allowed", "refused")
 _LIVE = text("deleted_at IS NULL")
 
 
-class SandboxBackend(BaseSchema):
+class SandboxCompute(BaseSchema):
     """A place sandboxes run. Deployment-wide; one row is one Linux server for ``docker-ssh``."""
 
-    __tablename__ = "sandbox_backends"
+    __tablename__ = "sandbox_computes"
     __table_args__ = (
-        Index("uq_sandbox_backends_live_name", "organization_id", "name", unique=True,
+        Index("uq_sandbox_computes_live_name", "organization_id", "name", unique=True,
               sqlite_where=_LIVE, postgresql_where=_LIVE),
     )
 
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     name = Column(String(120), nullable=False)
-    # Backend type name; resolved to a driver by the driver registry and nowhere else.
+    # Compute type name; resolved to a driver by the driver registry and nowhere else.
     type = Column(String(40), nullable=False)
     # Validated by the type's config schema. docker-ssh: address, ssh_port,
     # ssh_user, ssh_public_key, sandbox_port, bow_address.
@@ -153,7 +153,7 @@ class SandboxEnvironment(BaseSchema):
     env_vars = Column(JSON, nullable=False, default=dict)
     # {NAME: value}; injected as environment variables, never returned by the API.
     secrets = Column(SecretJSON, nullable=True)
-    backend_labels = Column(JSON, nullable=False, default=list)
+    compute_labels = Column(JSON, nullable=False, default=list)
     require_strong_isolation = Column(Boolean, nullable=False, default=False)
     # Ports an app in the sandbox may serve. Empty for now; reserved for hosted apps.
     ports = Column(JSON, nullable=False, default=list)
@@ -189,14 +189,14 @@ class Sandbox(BaseSchema):
     __table_args__ = (
         Index("uq_sandboxes_one_live_per_report", "report_id", unique=True,
               sqlite_where=_LIVE, postgresql_where=_LIVE),
-        Index("ix_sandboxes_backend_state", "backend_id", "state"),
+        Index("ix_sandboxes_compute_state", "compute_id", "state"),
     )
 
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     report_id = Column(String(36), nullable=False, index=True)
     # The user whose action created it. Each later action is attributed separately.
     user_id = Column(String(36), nullable=True, index=True)
-    backend_id = Column(String(36), ForeignKey("sandbox_backends.id"), nullable=True, index=True)
+    compute_id = Column(String(36), ForeignKey("sandbox_computes.id"), nullable=True, index=True)
     environment_id = Column(String(36), ForeignKey("sandbox_environments.id"), nullable=True, index=True)
     image_digest = Column(String(200), nullable=True)
     # Opaque outside the driver. docker-ssh: container name and IP.

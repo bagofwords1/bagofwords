@@ -154,7 +154,7 @@ class SSHHost:
             options.update(password=password, client_keys=None, preferred_auth="password,keyboard-interactive")
         else:
             if not self._private_key:
-                raise SSHError("This backend has no SSH private key", code="invalid_credentials")
+                raise SSHError("This compute has no SSH private key", code="invalid_credentials")
             try:
                 options.update(client_keys=[asyncssh.import_private_key(self._private_key)],
                                preferred_auth="publickey")

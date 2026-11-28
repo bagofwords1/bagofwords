@@ -8,16 +8,16 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable, List, Optional, Sequence
 
 from app.services.sandbox.drivers.base import (
-    BackendContext, SandboxDriver, SandboxHandle, SandboxSpec,
+    ComputeContext, SandboxDriver, SandboxHandle, SandboxSpec,
 )
 from app.services.sandbox.runtime_client import SandboxRuntimeClient
 
 
 @dataclass
 class DriverHarness:
-    # A driver for a backend that has been prepared ("bootstrapped").
+    # A driver for a compute that has been prepared ("bootstrapped").
     driver: SandboxDriver
-    # A second driver instance for the same backend, as another worker would build it.
+    # A second driver instance for the same compute, as another worker would build it.
     make_driver: Callable[[], SandboxDriver]
     # The image sandboxes are created from.
     image: str
@@ -27,13 +27,13 @@ class DriverHarness:
     # Domains to probe: one on the registry list, one public domain off every list.
     registry_domain: str
     other_domain: str
-    # Put a sandbox on the backend that BoW does not know about, owned by
+    # Put a sandbox on the compute that BoW does not know about, owned by
     # `instance_id` (this instance when None); returns its id.
     plant_orphan: Callable[[Optional[str]], Awaitable[str]]
-    # Whether a sandbox with this id exists on the backend, whoever owns it.
-    exists_on_backend: Callable[[str], Awaitable[bool]]
-    # Remove a planted sandbox from the backend, whoever owns it (test cleanup).
-    remove_from_backend: Callable[[str], Awaitable[None]]
+    # Whether a sandbox with this id exists on the compute, whoever owns it.
+    exists_on_compute: Callable[[str], Awaitable[bool]]
+    # Remove a planted sandbox from the compute, whoever owns it (test cleanup).
+    remove_from_compute: Callable[[str], Awaitable[None]]
     memory_mb: int = 1024
     disk_mb: int = 1024
     created: List[SandboxHandle] = field(default_factory=list)

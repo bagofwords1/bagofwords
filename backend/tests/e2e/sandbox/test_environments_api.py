@@ -177,11 +177,11 @@ def test_secrets_are_set_and_removed_one_by_one_and_only_their_names_are_audited
     assert cleared["has_registry_password"] is False
 
 
-def test_a_new_image_is_audited_and_pulled_on_the_backends_that_can_run_it(world, test_client, admin):
-    world.add_backend("plain")
-    world.add_backend("gpu", labels=["gpu"])
-    world.add_backend("not-bootstrapped", bootstrap=False)
-    env = _create(test_client, admin, backend_labels=["gpu"]).json()
+def test_a_new_image_is_audited_and_pulled_on_the_computes_that_can_run_it(world, test_client, admin):
+    world.add_compute("plain")
+    world.add_compute("gpu", labels=["gpu"])
+    world.add_compute("not-bootstrapped", bootstrap=False)
+    env = _create(test_client, admin, compute_labels=["gpu"]).json()
     assert env["image_digest"] is None
 
     edited = test_client.put(f"{BASE}/{env['id']}", json={"image": "registry.example.com/team/python:3.13"}, headers=admin).json()
@@ -189,7 +189,7 @@ def test_a_new_image_is_audited_and_pulled_on_the_backends_that_can_run_it(world
     assert len(_audited(world, "sandbox_environment.image_changed", env["id"])) == 1
 
     pulled = test_client.post(f"{BASE}/{env['id']}/pull", headers=admin)
-    assert pulled.status_code == 200 and pulled.json()["backends"] == {"gpu": "pulled"}, "only the matching, bootstrapped backend"
+    assert pulled.status_code == 200 and pulled.json()["computes"] == {"gpu": "pulled"}, "only the matching, bootstrapped compute"
     after = test_client.get(f"{BASE}/{env['id']}", headers=admin).json()
     assert after["image_digest"].startswith("sha256:"), "the image is pinned by the digest it resolved to"
     # Changing the image again clears the pin until it is pulled again.
@@ -207,14 +207,14 @@ def test_secrets_with_full_internet_get_a_warning(world, test_client, admin):
     assert safe["warnings"] == []
 
 
-def test_an_environment_no_backend_can_run_says_so(world, test_client, admin):
-    assert _create(test_client, admin, require_strong_isolation=True).json()["warnings"] == [], "no backend yet: nothing to compare with"
-    world.add_backend("standard", strong_isolation=False)
+def test_an_environment_no_compute_can_run_says_so(world, test_client, admin):
+    assert _create(test_client, admin, require_strong_isolation=True).json()["warnings"] == [], "no compute yet: nothing to compare with"
+    world.add_compute("standard", strong_isolation=False)
     strict = _create(test_client, admin, require_strong_isolation=True).json()
     assert len(strict["warnings"]) == 1 and "strong isolation" in strict["warnings"][0]
-    labelled = _create(test_client, admin, backend_labels=["gpu"]).json()
+    labelled = _create(test_client, admin, compute_labels=["gpu"]).json()
     assert len(labelled["warnings"]) == 1 and "labels" in labelled["warnings"][0]
-    world.add_backend("strong", labels=["gpu"])
+    world.add_compute("strong", labels=["gpu"])
     assert test_client.get(f"{BASE}/{strict['id']}", headers=admin).json()["warnings"] == []
     assert test_client.get(f"{BASE}/{labelled['id']}", headers=admin).json()["warnings"] == []
 
@@ -225,7 +225,7 @@ def test_an_environment_no_backend_can_run_says_so(world, test_client, admin):
 def test_granting_use_through_the_api_is_what_makes_an_environment_usable(world, test_client, admin, invite_user_to_org,
                                                                         create_role, assign_role):
     owner = world.cast["admin"]
-    world.add_backend("b")
+    world.add_compute("b")
     env = _create(test_client, admin, name="Team env").json()
     member = invite_user_to_org(org_id=world.org_id, admin_token=owner["token"])
     role = create_role(name="Sandbox users", permissions=["use_agent_sandbox"], user_token=owner["token"], org_id=world.org_id).json()
@@ -291,7 +291,7 @@ def test_deleting_an_environment_removes_its_grants_and_is_refused_while_its_san
     from app.services.sandbox import access as access_module
     from app.services.sandbox.service import RunRequest
 
-    world.add_backend("fake-1")
+    world.add_compute("fake-1")
     env = _create(test_client, admin, name="Internet", network_policy="full", is_default=True, image="fake-image").json()
     role = create_role(name="Analysts", permissions=["use_agent_sandbox"], user_token=world.cast["admin"]["token"], org_id=world.org_id)
     role = role if isinstance(role, dict) else role.json()

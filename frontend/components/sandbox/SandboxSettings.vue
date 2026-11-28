@@ -129,7 +129,7 @@ interface SandboxSettingsState {
     max_lifetime_seconds: number
     registry_domains: string[]
     max_running_per_user: number
-    backends_ready: number
+    computes_ready: number
     environments: number
     running_sandboxes: number
 }
@@ -150,7 +150,7 @@ const errorMessage = ref('')
 const state = ref<SandboxSettingsState>({
     enabled: false, default_environment_id: null, idle_timeout_seconds: 0, stopped_retention_seconds: 0,
     max_lifetime_seconds: 0, registry_domains: [], max_running_per_user: 0,
-    backends_ready: 0, environments: 0, running_sandboxes: 0,
+    computes_ready: 0, environments: 0, running_sandboxes: 0,
 })
 const environments = ref<SandboxEnvironment[]>([])
 
@@ -209,7 +209,7 @@ const environmentOptions = computed(() => [
 
 const readiness = computed(() => {
     const missing: string[] = []
-    if (!state.value.backends_ready) missing.push(t('sandbox.settings.missingBackend'))
+    if (!state.value.computes_ready) missing.push(t('sandbox.settings.missingCompute'))
     if (!state.value.environments) missing.push(t('sandbox.settings.missingEnvironment'))
     if (missing.length) {
         return {
@@ -228,7 +228,7 @@ const readiness = computed(() => {
         title: state.value.enabled ? t('sandbox.settings.readyOn') : t('sandbox.settings.readyOff'),
         missing,
         detail: t('sandbox.settings.readyDetail', {
-            backends: state.value.backends_ready,
+            computes: state.value.computes_ready,
             environments: state.value.environments,
             running: state.value.running_sandboxes,
         }),

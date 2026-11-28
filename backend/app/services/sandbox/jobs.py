@@ -7,15 +7,15 @@ flag is on:
                     stopped retention or the maximum lifetime, delete the
                     sandbox of a deleted report, and recover from a worker
                     that died in the middle of a create or a run
-``backend health``  test each backend and each running sandbox; an
-                    unreachable backend gets no new sandboxes, a sandbox that
+``compute health``  test each compute and each running sandbox; an
+                    unreachable compute gets no new sandboxes, a sandbox that
                     is gone is marked failed (recreated on its next run)
-``reconcile``       make each backend match the database: remove orphaned
+``reconcile``       make each compute match the database: remove orphaned
                     sandboxes and routes, repair what a known one is missing
 
 Each ``*_tick`` function does one pass and returns counts. They take ``now``
 so the timeouts can be tested without waiting, and are safe to run from any
-worker; a failure on one sandbox or backend never stops the rest of the pass.
+worker; a failure on one sandbox or compute never stops the rest of the pass.
 """
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ from typing import Dict, List, Optional
 
 from sqlalchemy import func, select, update
 
-from app.models.sandbox import Sandbox, SandboxBackend, SandboxRun
-from app.services.sandbox import backends as backend_service
+from app.models.sandbox import Sandbox, SandboxCompute, SandboxRun
+from app.services.sandbox import computes as compute_service
 from app.services.sandbox import errors
 from app.services.sandbox.drivers.base import (
     CAP_STOP_RESUME, STATUS_MISSING, STATUS_STOPPED, SandboxDriverError, SandboxHandle,
@@ -159,9 +159,9 @@ async def _lifecycle_one(db, service: SandboxService, sandbox: Sandbox, settings
         unused = age(used) or 0
         if unused >= settings.idle_timeout_seconds:
             # Stop, do not delete: the next run resumes it with its files and packages.
-            backend = await db.get(SandboxBackend, sandbox.backend_id) if sandbox.backend_id else None
-            if backend is not None and CAP_STOP_RESUME not in (backend.capabilities or []):
-                return None  # this backend cannot stop; the maximum lifetime still applies
+            compute = await db.get(SandboxCompute, sandbox.compute_id) if sandbox.compute_id else None
+            if compute is not None and CAP_STOP_RESUME not in (compute.capabilities or []):
+                return None  # this compute cannot stop; the maximum lifetime still applies
             try:
                 await service.stop(db, sandbox, None, reason="idle")
             except SandboxError as exc:
@@ -180,42 +180,42 @@ async def _fail_running_runs(db, sandbox_id: str, now: datetime) -> None:
         run.status, run.finished_at = "failed", now
 
 
-# ── backend health ───────────────────────────────────────────────────────
+# ── compute health ───────────────────────────────────────────────────────
 
 
-async def backend_health_tick(session_factory=None, now: Optional[datetime] = None) -> Dict[str, int]:
-    """Test every backend, then every running sandbox on the reachable ones."""
+async def compute_health_tick(session_factory=None, now: Optional[datetime] = None) -> Dict[str, int]:
+    """Test every compute, then every running sandbox on the reachable ones."""
     counts = {"healthy": 0, "unreachable": 0, "sandboxes_failed": 0, "sandboxes_stopped": 0, "errors": 0}
     service = SandboxService(session_factory=session_factory)
     async with _session_factory(session_factory)() as db:
-        rows = await db.execute(select(SandboxBackend.id).where(SandboxBackend.deleted_at.is_(None)))
-        for backend_id in [row[0] for row in rows.all()]:
+        rows = await db.execute(select(SandboxCompute.id).where(SandboxCompute.deleted_at.is_(None)))
+        for compute_id in [row[0] for row in rows.all()]:
             try:
-                backend = await db.get(SandboxBackend, backend_id, populate_existing=True)
-                if backend is None or backend.bootstrap_status != "ready":
+                compute = await db.get(SandboxCompute, compute_id, populate_existing=True)
+                if compute is None or compute.bootstrap_status != "ready":
                     continue
-                health = await backend_service.check_backend(db, backend.organization_id, backend)
+                health = await compute_service.check_compute(db, compute.organization_id, compute)
                 if not health.reachable:
                     counts["unreachable"] += 1
-                    continue  # its sandboxes cannot be judged while the backend is unreachable
+                    continue  # its sandboxes cannot be judged while the compute is unreachable
                 counts["healthy"] += 1 if health.healthy else 0
-                await _check_sandboxes(db, service, backend, counts)
+                await _check_sandboxes(db, service, compute, counts)
             except Exception:  # noqa: BLE001
                 counts["errors"] += 1
                 await db.rollback()
-                logger.exception("sandbox backend health check failed for backend %s", backend_id)
+                logger.exception("sandbox compute health check failed for compute %s", compute_id)
     return counts
 
 
-async def _check_sandboxes(db, service: SandboxService, backend: SandboxBackend, counts: Dict[str, int]) -> None:
+async def _check_sandboxes(db, service: SandboxService, compute: SandboxCompute, counts: Dict[str, int]) -> None:
     rows = await db.execute(
-        select(Sandbox).where(Sandbox.backend_id == backend.id, Sandbox.deleted_at.is_(None),
+        select(Sandbox).where(Sandbox.compute_id == compute.id, Sandbox.deleted_at.is_(None),
                               Sandbox.state.in_(("ready", "idle")))
     )
     sandboxes = list(rows.scalars().all())
     if not sandboxes:
         return
-    driver = await backend_service.build_driver(db, backend)
+    driver = await compute_service.build_driver(db, compute)
     try:
         for sandbox in sandboxes:
             try:
@@ -232,7 +232,7 @@ async def _check_sandboxes(db, service: SandboxService, backend: SandboxBackend,
                     await service._set_state(db, sandbox, "stopped", None, details={"reason": "found stopped"})
                     counts["sandboxes_stopped"] += 1
                 else:
-                    reason = "it is no longer on its backend" if status.state == STATUS_MISSING else "it does not answer"
+                    reason = "it is no longer on its compute" if status.state == STATUS_MISSING else "it does not answer"
                     sandbox.error = f"lost: {reason}"
                     await service._set_state(db, sandbox, "failed", None, details={"reason": f"lost: {reason}"})
                     counts["sandboxes_failed"] += 1
@@ -247,44 +247,44 @@ async def _check_sandboxes(db, service: SandboxService, backend: SandboxBackend,
 
 
 async def reconcile_tick(session_factory=None, now: Optional[datetime] = None) -> Dict[str, int]:
-    """Make every bootstrapped, reachable backend match the database."""
-    counts = {"backends": 0, "removed": 0, "repaired": 0, "lost": 0, "errors": 0}
+    """Make every bootstrapped, reachable compute match the database."""
+    counts = {"computes": 0, "removed": 0, "repaired": 0, "lost": 0, "errors": 0}
     service = SandboxService(session_factory=session_factory)
     async with _session_factory(session_factory)() as db:
-        rows = await db.execute(select(SandboxBackend.id).where(SandboxBackend.deleted_at.is_(None)))
-        for backend_id in [row[0] for row in rows.all()]:
+        rows = await db.execute(select(SandboxCompute.id).where(SandboxCompute.deleted_at.is_(None)))
+        for compute_id in [row[0] for row in rows.all()]:
             try:
-                backend = await db.get(SandboxBackend, backend_id, populate_existing=True)
-                if backend is None or backend.bootstrap_status != "ready" or backend.status == "unreachable":
+                compute = await db.get(SandboxCompute, compute_id, populate_existing=True)
+                if compute is None or compute.bootstrap_status != "ready" or compute.status == "unreachable":
                     continue
-                # Every sandbox the database knows on this backend, including one
+                # Every sandbox the database knows on this compute, including one
                 # being created right now: it must never be taken for an orphan.
                 known_rows = await db.execute(
-                    select(Sandbox).where(Sandbox.backend_id == backend.id, Sandbox.deleted_at.is_(None))
+                    select(Sandbox).where(Sandbox.compute_id == compute.id, Sandbox.deleted_at.is_(None))
                 )
                 known = list(known_rows.scalars().all())
-                driver = await backend_service.build_driver(db, backend)
+                driver = await compute_service.build_driver(db, compute)
                 try:
                     result = await driver.reconcile([service._handle(s) for s in known])
                 finally:
                     await driver.close()
-                counts["backends"] += 1
+                counts["computes"] += 1
                 counts["removed"] += len(result.removed)
                 counts["repaired"] += len(result.repaired)
                 missing = set(result.missing)
                 for sandbox in known:
                     if sandbox.id in missing and sandbox.state in ("ready", "idle", "stopped"):
-                        sandbox.error = "lost: it is no longer on its backend"
+                        sandbox.error = "lost: it is no longer on its compute"
                         await service._set_state(db, sandbox, "failed", None,
-                                                 details={"reason": "lost: it is no longer on its backend"})
+                                                 details={"reason": "lost: it is no longer on its compute"})
                         counts["lost"] += 1
                 if result.removed or result.repaired:
-                    logger.info("sandbox reconcile on %s: removed %s, repaired %s", backend.name, result.removed, result.repaired)
+                    logger.info("sandbox reconcile on %s: removed %s, repaired %s", compute.name, result.removed, result.repaired)
                 await db.commit()
             except Exception:  # noqa: BLE001
                 counts["errors"] += 1
                 await db.rollback()
-                logger.exception("sandbox reconcile failed for backend %s", backend_id)
+                logger.exception("sandbox reconcile failed for compute %s", compute_id)
     return counts
 
 
@@ -295,8 +295,8 @@ async def run_lifecycle_job() -> None:
     await lifecycle_tick()
 
 
-async def run_backend_health_job() -> None:
-    await backend_health_tick()
+async def run_compute_health_job() -> None:
+    await compute_health_tick()
 
 
 async def run_reconcile_job() -> None:
@@ -305,7 +305,7 @@ async def run_reconcile_job() -> None:
 
 _JOBS = (
     ("lifecycle", run_lifecycle_job, LIFECYCLE_INTERVAL_SECONDS),
-    ("backend_health", run_backend_health_job, HEALTH_INTERVAL_SECONDS),
+    ("compute_health", run_compute_health_job, HEALTH_INTERVAL_SECONDS),
     ("reconcile", run_reconcile_job, RECONCILE_INTERVAL_SECONDS),
 )
 
@@ -337,7 +337,7 @@ async def warn_if_sandboxes_exist_while_disabled(session_factory=None) -> int:
         async with _session_factory(session_factory)() as db:
             count = (await db.execute(
                 select(func.count()).select_from(Sandbox).where(
-                    Sandbox.deleted_at.is_(None), Sandbox.state.in_(backend_service.LIVE_STATES),
+                    Sandbox.deleted_at.is_(None), Sandbox.state.in_(compute_service.LIVE_STATES),
                 )
             )).scalar() or 0
     except Exception:  # noqa: BLE001 - e.g. the table does not exist yet during the first migration

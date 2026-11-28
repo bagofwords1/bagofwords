@@ -1,5 +1,5 @@
 <template>
-    <!-- The config fields a backend type fills in itself (schema `readOnly`),
+    <!-- The config fields a compute type fills in itself (schema `readOnly`),
          e.g. the generated SSH public key: shown to copy, never inputs. -->
     <div v-if="rows.length" class="space-y-3">
         <div v-for="row in rows" :key="row.key" :data-testid="`sandbox-readonly-${row.key}`">

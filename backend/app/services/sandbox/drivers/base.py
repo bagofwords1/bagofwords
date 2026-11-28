@@ -4,17 +4,17 @@ sandboxes run on.
 Three layers, one seam:
 
 * the **service** (``service.py``) owns permissions, environments, states,
-  quotas, audit and choosing a backend. It knows nothing about containers;
+  quotas, audit and choosing a compute. It knows nothing about containers;
 * the **runtime client** (``runtime_client.py``) talks to ``sandboxd`` inside
   a sandbox. It only needs an :class:`Endpoint`;
-* a **driver** creates, stops, resumes and deletes sandboxes on one backend,
-  enforces network policy and isolation, prepares the backend, and reports
-  health and live stats. Everything specific to a backend type lives in its
+* a **driver** creates, stops, resumes and deletes sandboxes on one compute,
+  enforces network policy and isolation, prepares the compute, and reports
+  health and live stats. Everything specific to a compute type lives in its
   driver and nowhere else.
 
 The service hands a driver a declarative :class:`SandboxSpec` and gets back
 an opaque :class:`SandboxHandle`. It never sees a container name, an address,
-a route or a firewall rule. Nothing above a driver asks which type a backend
+a route or a firewall rule. Nothing above a driver asks which type a compute
 is: drivers declare :data:`capabilities <ALL_CAPABILITIES>` instead.
 
 This module imports nothing infrastructural, and must stay that way.
@@ -68,9 +68,9 @@ class SandboxDriverError(Exception):
 
 
 class SandboxNotFound(SandboxDriverError):
-    """The sandbox the handle refers to no longer exists on the backend."""
+    """The sandbox the handle refers to no longer exists on the compute."""
 
-    def __init__(self, message: str = "The sandbox no longer exists on its backend"):
+    def __init__(self, message: str = "The sandbox no longer exists on its compute"):
         super().__init__(message, code="not_found")
 
 
@@ -115,7 +115,7 @@ class SandboxSpec:
 
 @dataclass(frozen=True)
 class SandboxHandle:
-    """Opaque reference to a sandbox on its backend.
+    """Opaque reference to a sandbox on its compute.
 
     ``ref`` is JSON the driver chose and BoW stores verbatim in
     ``sandboxes.driver_ref``. Only the driver that made it reads it.
@@ -152,7 +152,7 @@ class Endpoint:
 
 @dataclass(frozen=True)
 class StepSpec:
-    """One step of preparing a backend, as shown on the Backends page."""
+    """One step of preparing a compute, as shown on the Computes page."""
 
     key: str
     title: str
@@ -188,13 +188,13 @@ StepCallback = Callable[[StepResult], Awaitable[None]]
 
 
 @dataclass
-class BackendHealth:
-    """The result of ``check()``: read-only facts about a backend."""
+class ComputeHealth:
+    """The result of ``check()``: read-only facts about a compute."""
 
     reachable: bool
     prepared: bool = False
     healthy: bool = False
-    # Sandboxes currently running on the backend (capacity in use).
+    # Sandboxes currently running on the compute (capacity in use).
     running: int = 0
     capabilities: List[str] = field(default_factory=list)
     # Facts safe to show an admin: isolation level, versions, user mode, fingerprints.
@@ -204,7 +204,7 @@ class BackendHealth:
     error: Optional[str] = None
 
 
-# Status of one sandbox on its backend.
+# Status of one sandbox on its compute.
 STATUS_RUNNING = "running"
 STATUS_STOPPED = "stopped"
 STATUS_MISSING = "missing"
@@ -240,43 +240,43 @@ class ReconcileResult:
 
     removed: List[str] = field(default_factory=list)   # orphaned resources removed
     repaired: List[str] = field(default_factory=list)  # routes / registrations re-created
-    missing: List[str] = field(default_factory=list)   # known sandbox ids not on the backend
+    missing: List[str] = field(default_factory=list)   # known sandbox ids not on the compute
 
 
 @dataclass
-class BackendContext:
-    """What a driver is constructed with: one backend's stored settings.
+class ComputeContext:
+    """What a driver is constructed with: one compute's stored settings.
 
     ``driver_state`` is the driver's own persistent memory (pinned keys,
     detected isolation, ...). The driver mutates it in place and the caller
     stores it back after the operation.
     """
 
-    backend_id: str
+    compute_id: str
     name: str
     # Stable id of this BoW deployment; every resource a driver creates carries it.
     instance_id: str
     config: Dict[str, Any] = field(default_factory=dict)
     credentials: Dict[str, Any] = field(default_factory=dict)
     driver_state: Dict[str, Any] = field(default_factory=dict)
-    # Where this BoW instance is reachable (recorded in a backend's owner marker).
+    # Where this BoW instance is reachable (recorded in a compute's owner marker).
     base_url: Optional[str] = None
 
 
 class SandboxDriver(abc.ABC):
-    """One instance per backend. Every method is async and safe to call from any worker."""
+    """One instance per compute. Every method is async and safe to call from any worker."""
 
-    #: The backend type name this driver is registered under.
+    #: The compute type name this driver is registered under.
     type_name: str = ""
 
-    def __init__(self, ctx: BackendContext):
+    def __init__(self, ctx: ComputeContext):
         self.ctx = ctx
 
-    # ── Describing the backend ──
+    # ── Describing the compute ──
 
     @abc.abstractmethod
     def capabilities(self) -> set:
-        """What this backend can do, given what is known about it (see ``ALL_CAPABILITIES``)."""
+        """What this compute can do, given what is known about it (see ``ALL_CAPABILITIES``)."""
 
     @abc.abstractmethod
     def prepare_steps(self) -> List[StepSpec]:
@@ -285,15 +285,15 @@ class SandboxDriver(abc.ABC):
     @abc.abstractmethod
     async def prepare(self, on_step: Optional[StepCallback] = None, *, take_over: bool = False,
                       images: Sequence[str] = ()) -> List[StepResult]:
-        """Prepare the backend to run sandboxes ("Bootstrap"). Safe to run again:
+        """Prepare the compute to run sandboxes ("Bootstrap"). Safe to run again:
         it skips what is in place and repairs what is missing. Stops at the
         first failed step. ``images`` are extra images to fetch as part of it;
-        the service passes none, because preparing a backend does not depend
+        the service passes none, because preparing a compute does not depend
         on which environments exist."""
 
     @abc.abstractmethod
-    async def check(self) -> BackendHealth:
-        """Read-only health check ("Test connection"). Changes nothing on the backend."""
+    async def check(self) -> ComputeHealth:
+        """Read-only health check ("Test connection"). Changes nothing on the compute."""
 
     # ── Sandbox lifecycle ──
 
@@ -315,7 +315,7 @@ class SandboxDriver(abc.ABC):
 
     @abc.abstractmethod
     async def status(self, handle: SandboxHandle) -> SandboxStatus:
-        """Where the sandbox stands on the backend right now."""
+        """Where the sandbox stands on the compute right now."""
 
     @abc.abstractmethod
     async def stats(self, handles: Sequence[SandboxHandle]) -> Dict[str, SandboxStats]:
@@ -334,29 +334,29 @@ class SandboxDriver(abc.ABC):
 
     @abc.abstractmethod
     async def reconcile(self, known: Sequence[SandboxHandle]) -> ReconcileResult:
-        """Make the backend match ``known``: remove this instance's resources that
+        """Make the compute match ``known``: remove this instance's resources that
         belong to no known sandbox and repair what a known one is missing.
         Never touches another BoW instance's resources."""
 
     @abc.abstractmethod
     async def cleanup(self) -> None:
-        """Remove everything this BoW instance put on the backend (before deleting it)."""
+        """Remove everything this BoW instance put on the compute (before deleting it)."""
 
     async def pull_image(self, image: str, *, registry_username: Optional[str] = None,
                          registry_password: Optional[str] = None) -> Optional[str]:
-        """Pre-pull an image; returns its digest when the backend can tell. Optional."""
+        """Pre-pull an image; returns its digest when the compute can tell. Optional."""
         return None
 
     async def confirm_identity(self, fingerprint: str) -> None:
-        """Trust the backend's identity (e.g. a server's host key) once an admin
+        """Trust the compute's identity (e.g. a server's host key) once an admin
         has confirmed the fingerprint ``check`` reported. Optional."""
-        raise SandboxDriverError("This backend type has nothing to confirm", code="unsupported")
+        raise SandboxDriverError("This compute type has nothing to confirm", code="unsupported")
 
     async def enroll(self, transient: Mapping[str, Any]) -> None:
         """Use one-time credentials (e.g. a password that installs a key) once.
 
         ``transient`` is never stored, logged or put in a step result. Called
-        when a backend is created or edited with such credentials. Optional.
+        when a compute is created or edited with such credentials. Optional.
         """
         return None
 

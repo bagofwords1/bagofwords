@@ -10,9 +10,9 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from app.models.sandbox import Sandbox, SandboxBackend, SandboxEnvironment, SandboxRun
+from app.models.sandbox import Sandbox, SandboxCompute, SandboxEnvironment, SandboxRun
 from app.schemas.sandbox_schema import (
-    SandboxBackendSchema,
+    SandboxComputeSchema,
     SandboxEnvironmentCreate,
     SandboxEnvironmentSchema,
     SandboxEnvironmentSummary,
@@ -27,8 +27,8 @@ def marker():
     return uuid.uuid4().hex
 
 
-def _backend(marker):
-    return SandboxBackend(
+def _compute(marker):
+    return SandboxCompute(
         id="b1", name="sbx-1", type="docker-ssh", config={"address": "host.example"},
         credentials={"ssh_private_key": f"KEY-{marker}", "one_time_password": ""},
         driver_state={"ssh_host_key": f"HOSTKEY-{marker}", "caddy_ca_cert": f"CA-{marker}"},
@@ -43,14 +43,14 @@ def _environment(marker):
         id="e1", name="Default", image="python:3.12-slim", registry_username="bot",
         registry_password=f"PW-{marker}", secrets={"API_KEY": f"SECRET-{marker}"},
         cpus=1.0, memory_mb=1024, disk_mb=1024, run_timeout_seconds=600, network_policy="none",
-        allowed_domains=[], env_vars={"TZ": "UTC"}, backend_labels=[], ports=[],
+        allowed_domains=[], env_vars={"TZ": "UTC"}, compute_labels=[], ports=[],
         require_strong_isolation=False, is_default=True, enabled=True,
     )
 
 
-def test_backend_response_names_stored_credentials_without_their_values(marker):
-    schema = SandboxBackendSchema.from_model(
-        _backend(marker), public_config={"address": "host.example"}, info={"isolation": "gvisor"},
+def test_compute_response_names_stored_credentials_without_their_values(marker):
+    schema = SandboxComputeSchema.from_model(
+        _compute(marker), public_config={"address": "host.example"}, info={"isolation": "gvisor"},
     )
     dumped = schema.model_dump_json()
     assert marker not in dumped

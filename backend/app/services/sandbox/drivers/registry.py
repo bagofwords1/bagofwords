@@ -1,11 +1,11 @@
-"""Backend types and their drivers.
+"""Compute types and their drivers.
 
-The registry is the only place that maps a backend's ``type`` string to code.
+The registry is the only place that maps a compute's ``type`` string to code.
 Everything above it works through :class:`~.base.SandboxDriver` and the
 capabilities a driver declares; nothing else may branch on the type name.
 
 Each type carries its own form: a Pydantic config schema and a credentials
-schema, returned to the UI by ``GET /api/sandbox/backend-types`` so the admin
+schema, returned to the UI by ``GET /api/sandbox/compute-types`` so the admin
 form is rendered from the declaration (the way data source connections work).
 
 Drivers, their schemas and the libraries they need are imported lazily, by
@@ -21,11 +21,11 @@ from typing import Any, Dict, List, Optional, Type
 
 from pydantic import BaseModel, ValidationError
 
-from app.services.sandbox.drivers.base import BackendContext, SandboxDriver, SandboxDriverError
+from app.services.sandbox.drivers.base import ComputeContext, SandboxDriver, SandboxDriverError
 
 
 @dataclass(frozen=True)
-class BackendType:
+class ComputeType:
     name: str
     title: str
     description: str
@@ -38,7 +38,7 @@ class BackendType:
 
 
 def fake_driver_enabled() -> bool:
-    """The ``fake`` backend type runs code on the BoW server itself, with no
+    """The ``fake`` compute type runs code on the BoW server itself, with no
     isolation. It exists for the contract suite, end-to-end tests and UI
     development, and is offered only under ``TESTING`` or when
     ``BOW_AGENT_SANDBOXES_FAKE_DRIVER`` is set explicitly. Never in production.
@@ -50,8 +50,8 @@ def fake_driver_enabled() -> bool:
     return os.getenv("BOW_AGENT_SANDBOXES_FAKE_DRIVER", "").strip().lower() in ("1", "true", "yes", "on")
 
 
-_TYPES: Dict[str, BackendType] = {
-    "docker-ssh": BackendType(
+_TYPES: Dict[str, ComputeType] = {
+    "docker-ssh": ComputeType(
         name="docker-ssh",
         title="Linux server (Docker over SSH)",
         description="One Linux server with Docker that BoW reaches over SSH. gVisor is used when the server has it.",
@@ -59,7 +59,7 @@ _TYPES: Dict[str, BackendType] = {
         config_schema="app.services.sandbox.drivers.docker_ssh.schemas:DockerSSHConfig",
         credentials_schema="app.services.sandbox.drivers.docker_ssh.schemas:DockerSSHCredentials",
     ),
-    "fake": BackendType(
+    "fake": ComputeType(
         name="fake",
         title="Fake (tests and demos only)",
         description="Runs code on the BoW server itself with no isolation. For automated tests and UI development.",
@@ -76,37 +76,37 @@ def _load(path: str) -> Any:
     return getattr(importlib.import_module(module_name), attribute)
 
 
-def _is_available(backend_type: BackendType) -> bool:
-    return backend_type.available is None or bool(backend_type.available())
+def _is_available(compute_type: ComputeType) -> bool:
+    return compute_type.available is None or bool(compute_type.available())
 
 
-def backend_types() -> List[BackendType]:
-    """The backend types this deployment offers."""
+def compute_types() -> List[ComputeType]:
+    """The compute types this deployment offers."""
     return [t for t in _TYPES.values() if _is_available(t)]
 
 
-def get_backend_type(name: str) -> BackendType:
-    backend_type = _TYPES.get(name)
-    if backend_type is None or not _is_available(backend_type):
-        raise SandboxDriverError(f"Unknown sandbox backend type: {name}", code="unknown_type")
-    return backend_type
+def get_compute_type(name: str) -> ComputeType:
+    compute_type = _TYPES.get(name)
+    if compute_type is None or not _is_available(compute_type):
+        raise SandboxDriverError(f"Unknown sandbox compute type: {name}", code="unknown_type")
+    return compute_type
 
 
 def driver_class(name: str) -> Type[SandboxDriver]:
-    return _load(get_backend_type(name).driver)
+    return _load(get_compute_type(name).driver)
 
 
-def create_driver(type_name: str, ctx: BackendContext) -> SandboxDriver:
-    """A driver instance for one backend. Cheap: connections open on first use."""
+def create_driver(type_name: str, ctx: ComputeContext) -> SandboxDriver:
+    """A driver instance for one compute. Cheap: connections open on first use."""
     return driver_class(type_name)(ctx)
 
 
 def config_schema(name: str) -> Type[BaseModel]:
-    return _load(get_backend_type(name).config_schema)
+    return _load(get_compute_type(name).config_schema)
 
 
 def credentials_schema(name: str) -> Type[BaseModel]:
-    return _load(get_backend_type(name).credentials_schema)
+    return _load(get_compute_type(name).credentials_schema)
 
 
 def _validation_message(exc: ValidationError) -> str:
@@ -118,7 +118,7 @@ def _validation_message(exc: ValidationError) -> str:
 
 
 def validate_config(name: str, config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Validate and normalise a backend's ``config`` against its type's schema."""
+    """Validate and normalise a compute's ``config`` against its type's schema."""
     try:
         return config_schema(name)(**(config or {})).model_dump(mode="json")
     except ValidationError as exc:
@@ -126,12 +126,12 @@ def validate_config(name: str, config: Optional[Dict[str, Any]]) -> Dict[str, An
 
 
 def validate_credentials(name: str, credentials: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Validate a backend's ``credentials``; empty values are dropped."""
+    """Validate a compute's ``credentials``; empty values are dropped."""
     try:
         cleaned = credentials_schema(name)(**(credentials or {})).model_dump(mode="json")
     except ValidationError as exc:
         # Never echo the input: it holds secrets.
-        raise SandboxDriverError("The credentials are not valid for this backend type", code="invalid_credentials") from exc
+        raise SandboxDriverError("The credentials are not valid for this compute type", code="invalid_credentials") from exc
     return {k: v for k, v in cleaned.items() if v not in (None, "")}
 
 
@@ -154,7 +154,7 @@ def readonly_config_fields(name: str) -> List[str]:
 
 
 def prepare_credentials(name: str, config: Dict[str, Any], credentials: Dict[str, Any]) -> tuple:
-    """Let the driver complete a backend's settings before they are stored
+    """Let the driver complete a compute's settings before they are stored
     (e.g. generate a key pair when none was given). Returns ``(config, credentials)``."""
     hook = getattr(driver_class(name), "prepare_credentials", None)
     if hook is None:
@@ -162,25 +162,25 @@ def prepare_credentials(name: str, config: Dict[str, Any], credentials: Dict[str
     return hook(config, credentials)
 
 
-def is_another_backend(name: str, previous_config: Dict[str, Any], config: Dict[str, Any]) -> bool:
-    """Whether a settings change points the backend at a different machine or
+def is_another_compute(name: str, previous_config: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    """Whether a settings change points the compute at a different machine or
     cluster, so that what the driver learned about the old one (pinned
     identity, certificates, "prepared") must be forgotten."""
-    hook = getattr(driver_class(name), "is_another_backend", None)
+    hook = getattr(driver_class(name), "is_another_compute", None)
     return bool(hook(previous_config, config)) if hook is not None else False
 
 
 def describe_type(name: str) -> Dict[str, Any]:
     """What the admin form needs for one type: its schemas and what it can offer."""
-    backend_type = get_backend_type(name)
+    compute_type = get_compute_type(name)
     cls = driver_class(name)
     return {
-        "name": backend_type.name,
-        "title": backend_type.title,
-        "description": backend_type.description,
+        "name": compute_type.name,
+        "title": compute_type.title,
+        "description": compute_type.description,
         "config_schema": config_schema(name).model_json_schema(),
         "credentials_schema": credentials_schema(name).model_json_schema(),
-        # The most this type can offer; a given backend may offer less.
+        # The most this type can offer; a given compute may offer less.
         "capabilities": sorted(getattr(cls, "potential_capabilities", frozenset())),
     }
 

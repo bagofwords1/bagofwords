@@ -1,4 +1,4 @@
-"""agent sandboxes: backends, environments, sandboxes, runs, events
+"""agent sandboxes: computes, environments, sandboxes, runs, events
 
 Revision ID: agentsbx01
 Revises: mrgheads12
@@ -10,7 +10,7 @@ flag BOW_AGENT_SANDBOXES_ENABLED and is off by default.
 
 This revision only ADDS tables. It alters no existing table:
 
-  sandbox_backends        a place sandboxes run
+  sandbox_computes        a place sandboxes run
   sandbox_environments    admin-defined templates
   sandbox_agent_defaults  an agent's default environment (a table, so
                           data_sources is not altered)
@@ -47,7 +47,7 @@ TABLES = [
     "sandboxes",
     "sandbox_agent_defaults",
     "sandbox_environments",
-    "sandbox_backends",
+    "sandbox_computes",
 ]
 
 
@@ -79,9 +79,9 @@ def _partial_unique(name: str, table: str, columns) -> None:
 
 
 def upgrade() -> None:
-    if not _has_table("sandbox_backends"):
+    if not _has_table("sandbox_computes"):
         op.create_table(
-            "sandbox_backends",
+            "sandbox_computes",
             *_base_columns(),
             _org(),
             sa.Column("name", sa.String(length=120), nullable=False),
@@ -101,9 +101,9 @@ def upgrade() -> None:
             sa.Column("last_error", sa.Text(), nullable=True),
             sa.Column("created_by", sa.String(length=36), nullable=True),
         )
-    _index("ix_sandbox_backends_id", "sandbox_backends", ["id"], unique=True)
-    _index("ix_sandbox_backends_organization_id", "sandbox_backends", ["organization_id"])
-    _partial_unique("uq_sandbox_backends_live_name", "sandbox_backends", ["organization_id", "name"])
+    _index("ix_sandbox_computes_id", "sandbox_computes", ["id"], unique=True)
+    _index("ix_sandbox_computes_organization_id", "sandbox_computes", ["organization_id"])
+    _partial_unique("uq_sandbox_computes_live_name", "sandbox_computes", ["organization_id", "name"])
 
     if not _has_table("sandbox_environments"):
         op.create_table(
@@ -125,7 +125,7 @@ def upgrade() -> None:
             sa.Column("allowed_domains", sa.JSON(), nullable=False),
             sa.Column("env_vars", sa.JSON(), nullable=False),
             sa.Column("secrets", sa.Text(), nullable=True),
-            sa.Column("backend_labels", sa.JSON(), nullable=False),
+            sa.Column("compute_labels", sa.JSON(), nullable=False),
             sa.Column("require_strong_isolation", sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column("ports", sa.JSON(), nullable=False),
             sa.Column("warm_pool_size", sa.Integer(), nullable=False, server_default="0"),
@@ -157,7 +157,7 @@ def upgrade() -> None:
             _org(),
             sa.Column("report_id", sa.String(length=36), nullable=False),
             sa.Column("user_id", sa.String(length=36), nullable=True),
-            sa.Column("backend_id", sa.String(length=36), sa.ForeignKey("sandbox_backends.id"), nullable=True),
+            sa.Column("compute_id", sa.String(length=36), sa.ForeignKey("sandbox_computes.id"), nullable=True),
             sa.Column("environment_id", sa.String(length=36), sa.ForeignKey("sandbox_environments.id"), nullable=True),
             sa.Column("image_digest", sa.String(length=200), nullable=True),
             sa.Column("driver_ref", sa.JSON(), nullable=True),
@@ -171,9 +171,9 @@ def upgrade() -> None:
             sa.Column("error", sa.Text(), nullable=True),
         )
     _index("ix_sandboxes_id", "sandboxes", ["id"], unique=True)
-    for col in ("organization_id", "report_id", "user_id", "backend_id", "environment_id", "state"):
+    for col in ("organization_id", "report_id", "user_id", "compute_id", "environment_id", "state"):
         _index(f"ix_sandboxes_{col}", "sandboxes", [col])
-    _index("ix_sandboxes_backend_state", "sandboxes", ["backend_id", "state"])
+    _index("ix_sandboxes_compute_state", "sandboxes", ["compute_id", "state"])
     # One non-deleted sandbox per report, enforced by the database.
     _partial_unique("uq_sandboxes_one_live_per_report", "sandboxes", ["report_id"])
 

@@ -117,7 +117,7 @@ from app.models.group_membership import GroupMembership
 from app.models.role_assignment import RoleAssignment
 from app.models.resource_grant import ResourceGrant
 from app.models.sandbox import (
-    SandboxBackend, SandboxEnvironment, SandboxAgentDefault, Sandbox,
+    SandboxCompute, SandboxEnvironment, SandboxAgentDefault, Sandbox,
     SandboxRun, SandboxEvent, SandboxEgressLog, SandboxExposure,
 )
 from app.models.report_share import ReportShare

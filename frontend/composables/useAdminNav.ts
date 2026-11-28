@@ -79,7 +79,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     enabledBySetting: 'agent_sandboxes',
     children: [
       { key: 'sandboxes', label: 'settings.sandboxTabs.sandboxes', icon: 'i-heroicons-queue-list', description: 'settings.adminPages.sandboxSandboxes', width: 'wide' },
-      { key: 'backends', label: 'settings.sandboxTabs.backends', icon: 'i-heroicons-server-stack', description: 'settings.adminPages.sandboxBackends', width: 'wide' },
+      { key: 'computes', label: 'settings.sandboxTabs.computes', icon: 'i-heroicons-server-stack', description: 'settings.adminPages.sandboxComputes', width: 'wide' },
       { key: 'environments', label: 'settings.sandboxTabs.environments', icon: 'i-heroicons-cube', description: 'settings.adminPages.sandboxEnvironments', width: 'wide' },
       { key: 'settings', label: 'settings.sandboxTabs.settings', icon: 'i-heroicons-cog-6-tooth', description: 'settings.adminPages.sandboxSettings', width: 'narrow' },
     ],

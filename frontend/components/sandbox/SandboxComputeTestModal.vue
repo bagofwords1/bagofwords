@@ -9,13 +9,13 @@
             >
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
-            <h3 class="text-lg font-semibold text-ink pe-8">{{ $t('sandbox.backends.test.title', { name: backend?.name || '' }) }}</h3>
-            <p class="text-sm text-ink-muted">{{ $t('sandbox.backends.test.hint') }}</p>
+            <h3 class="text-lg font-semibold text-ink pe-8">{{ $t('sandbox.computes.test.title', { name: compute?.name || '' }) }}</h3>
+            <p class="text-sm text-ink-muted">{{ $t('sandbox.computes.test.hint') }}</p>
             <hr class="my-4 border-line" />
 
             <div v-if="testing && !result" class="flex items-center justify-center gap-2 py-8 text-sm text-ink-muted" role="status">
                 <Spinner class="w-4 h-4" />
-                <span>{{ $t('sandbox.backends.test.running') }}</span>
+                <span>{{ $t('sandbox.computes.test.running') }}</span>
             </div>
 
             <p v-else-if="requestError" class="text-sm text-red-600 dark:text-red-400 break-words" role="alert" data-testid="sandbox-test-error">
@@ -45,14 +45,14 @@
                     <div class="flex items-start gap-3 text-sm text-amber-800 dark:text-amber-200">
                         <UIcon name="i-heroicons-finger-print" class="w-4 h-4 shrink-0 mt-0.5" />
                         <div class="min-w-0">
-                            <div class="font-medium">{{ $t('sandbox.backends.test.hostKeyTitle') }}</div>
-                            <p class="text-xs mt-0.5 leading-relaxed">{{ $t('sandbox.backends.test.hostKeyHint') }}</p>
+                            <div class="font-medium">{{ $t('sandbox.computes.test.hostKeyTitle') }}</div>
+                            <p class="text-xs mt-0.5 leading-relaxed">{{ $t('sandbox.computes.test.hostKeyHint') }}</p>
                         </div>
                     </div>
                     <SandboxCopyBox :value="unpinnedFingerprint" testid="sandbox-host-key-fingerprint" />
                     <div class="flex justify-end">
                         <UButton color="amber" :loading="confirming" data-testid="sandbox-host-key-trust" @click="trust">
-                            {{ $t('sandbox.backends.test.trust') }}
+                            {{ $t('sandbox.computes.test.trust') }}
                         </UButton>
                     </div>
                 </div>
@@ -63,7 +63,7 @@
             <div class="flex justify-end gap-2 pt-5">
                 <UButton variant="ghost" color="gray" @click="open = false">{{ $t('common.close') }}</UButton>
                 <UButton color="gray" :loading="testing" :disabled="confirming" icon="i-heroicons-arrow-path" data-testid="sandbox-test-again" @click="run">
-                    {{ $t('sandbox.backends.test.again') }}
+                    {{ $t('sandbox.computes.test.again') }}
                 </UButton>
             </div>
         </div>
@@ -71,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import type { SandboxBackend } from '~/composables/useSandboxApi'
+import type { SandboxCompute } from '~/composables/useSandboxApi'
 import Spinner from '~/components/Spinner.vue'
 import SandboxStepList from '~/components/sandbox/SandboxStepList.vue'
 import SandboxCopyBox from '~/components/sandbox/SandboxCopyBox.vue'
@@ -82,13 +82,13 @@ interface TestResult {
     healthy: boolean
     error: string | null
     checks: Array<{ key: string; title: string; status: string; detail?: string | null }>
-    backend: SandboxBackend
+    compute: SandboxCompute
 }
 
-const props = defineProps<{ modelValue: boolean; backend: SandboxBackend | null }>()
+const props = defineProps<{ modelValue: boolean; compute: SandboxCompute | null }>()
 const emit = defineEmits<{
     'update:modelValue': [value: boolean]
-    updated: [backend: SandboxBackend]
+    updated: [compute: SandboxCompute]
 }>()
 
 const { t } = useI18n()
@@ -106,7 +106,7 @@ const result = ref<TestResult | null>(null)
 const requestError = ref('')
 
 const unpinnedFingerprint = computed(() => {
-    const info = result.value?.backend?.info
+    const info = result.value?.compute?.info
     return info && info.host_key_pinned === false && info.host_key_seen_fingerprint
         ? String(info.host_key_seen_fingerprint) : ''
 })
@@ -117,50 +117,50 @@ const summary = computed(() => {
         return {
             class: 'border-green-200 dark:border-green-900/60 bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-200',
             icon: 'i-heroicons-check-circle',
-            title: t('sandbox.backends.test.healthy'),
+            title: t('sandbox.computes.test.healthy'),
         }
     }
     if (r?.reachable) {
         return {
             class: 'border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200',
             icon: 'i-heroicons-exclamation-triangle',
-            title: r.prepared ? t('sandbox.backends.test.reachableUnhealthy') : t('sandbox.backends.test.reachableNotPrepared'),
+            title: r.prepared ? t('sandbox.computes.test.reachableUnhealthy') : t('sandbox.computes.test.reachableNotPrepared'),
         }
     }
     return {
         class: 'border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200',
         icon: 'i-heroicons-x-circle',
-        title: t('sandbox.backends.test.unreachable'),
+        title: t('sandbox.computes.test.unreachable'),
     }
 })
 
 async function run() {
-    if (!props.backend || testing.value) return
+    if (!props.compute || testing.value) return
     testing.value = true
     requestError.value = ''
     try {
-        const response = await call<TestResult>(`/backends/${props.backend.id}/test`, { method: 'POST' })
+        const response = await call<TestResult>(`/computes/${props.compute.id}/test`, { method: 'POST' })
         result.value = response
-        if (response.backend) emit('updated', response.backend)
+        if (response.compute) emit('updated', response.compute)
     } catch (error) {
         result.value = null
-        requestError.value = getErrorMessage(error, t('sandbox.backends.test.failed'))
+        requestError.value = getErrorMessage(error, t('sandbox.computes.test.failed'))
     } finally {
         testing.value = false
     }
 }
 
 async function trust() {
-    if (!props.backend || !unpinnedFingerprint.value || confirming.value) return
+    if (!props.compute || !unpinnedFingerprint.value || confirming.value) return
     confirming.value = true
     try {
-        const backend = await call<SandboxBackend>(`/backends/${props.backend.id}/confirm-identity`, {
+        const compute = await call<SandboxCompute>(`/computes/${props.compute.id}/confirm-identity`, {
             method: 'POST',
             body: { fingerprint: unpinnedFingerprint.value },
         })
-        emit('updated', backend)
+        emit('updated', compute)
     } catch (error) {
-        requestError.value = getErrorMessage(error, t('sandbox.backends.test.trustFailed'))
+        requestError.value = getErrorMessage(error, t('sandbox.computes.test.trustFailed'))
         result.value = null
         confirming.value = false
         return

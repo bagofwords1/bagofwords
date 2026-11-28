@@ -80,7 +80,7 @@
 
                                 <!-- The server it runs on -->
                                 <td class="whitespace-nowrap">
-                                    <span v-if="sandbox.backend_name" class="text-sm text-ink-2" dir="auto" data-testid="sandbox-runs-on">{{ sandbox.backend_name }}</span>
+                                    <span v-if="sandbox.compute_name" class="text-sm text-ink-2" dir="auto" data-testid="sandbox-runs-on">{{ sandbox.compute_name }}</span>
                                     <span v-else class="bow-cell-empty">—</span>
                                 </td>
 

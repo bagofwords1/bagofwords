@@ -105,7 +105,7 @@ HIDDEN_PERMISSION_CATEGORIES = {
 #   - `use_agent_sandbox`: this user's agent is offered the agent-sandbox tools
 #     (create_sandbox / run_in_sandbox / ...). Deliberately NOT in
 #     DEFAULT_ON_PERMISSIONS: an admin adds it to the roles that should have it.
-#   - `manage_sandboxes`: sandbox backends, environments, settings and the
+#   - `manage_sandboxes`: sandbox computes, environments, settings and the
 #     fleet view (Settings → Sandbox). Separate from `manage_settings` on
 #     purpose: whoever holds it is effectively root on the sandbox hosts.
 AGENT_SANDBOX_PERMISSION_CATEGORIES = {

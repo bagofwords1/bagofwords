@@ -58,7 +58,7 @@ docker save bagofwords/sandbox:VERSION bagofwords/sandbox-caddy:VERSION \
 docker load -i bow-sandbox-images.tar
 ```
 
-Then tick "Images are preloaded" on the backend. Bootstrap checks that each
+Then tick "Images are preloaded" on the compute. Bootstrap checks that each
 image is present instead of pulling it, and names any that is missing.
 
 ## Building locally

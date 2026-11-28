@@ -34,7 +34,7 @@ RUN = RunRequest(language="bash", code="echo ran")
 
 @pytest.fixture
 def world(sandbox_world, enterprise_license):
-    sandbox_world.add_backend("fake-1")
+    sandbox_world.add_compute("fake-1")
     return sandbox_world
 
 
@@ -239,16 +239,16 @@ def test_each_run_in_a_shared_sandbox_is_checked_and_attributed_to_its_user(worl
     assert world.sandbox_of(rep).user_id == world.admin_id, "the creator stays the creator"
 
 
-def test_the_tools_are_not_offered_without_a_backend_that_can_run_an_environment(sandbox_world, enterprise_license,
+def test_the_tools_are_not_offered_without_a_compute_that_can_run_an_environment(sandbox_world, enterprise_license,
                                                                                invite_user_to_org, create_role, assign_role):
     world = sandbox_world
     env = world.add_environment("Strict", is_default=True, require_strong_isolation=True)
-    assert _offered(world, world.admin_id) is False, "no backend at all"
-    world.add_backend("standard", strong_isolation=False)
-    assert _offered(world, world.admin_id) is False, "no backend with what the environment requires"
-    disabled = world.add_backend("strong-but-disabled", enabled=False)
+    assert _offered(world, world.admin_id) is False, "no compute at all"
+    world.add_compute("standard", strong_isolation=False)
+    assert _offered(world, world.admin_id) is False, "no compute with what the environment requires"
+    disabled = world.add_compute("strong-but-disabled", enabled=False)
     assert _offered(world, world.admin_id) is False
-    world.add_backend("strong")
+    world.add_compute("strong")
     assert _offered(world, world.admin_id) is True
     assert env and disabled
 

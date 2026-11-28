@@ -1,6 +1,6 @@
 <template>
     <UModal v-model="open">
-        <div class="p-6 relative" data-testid="sandbox-delete-backend-modal">
+        <div class="p-6 relative" data-testid="sandbox-delete-compute-modal">
             <button
                 type="button"
                 class="absolute top-4 end-4 text-ink-muted hover:text-ink outline-none"
@@ -9,21 +9,21 @@
             >
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
-            <h3 class="text-lg font-semibold text-ink pe-8">{{ $t('sandbox.backends.delete.title', { name: backend?.name || '' }) }}</h3>
-            <p class="mt-1 text-sm text-ink-muted leading-relaxed">{{ $t('sandbox.backends.delete.hint') }}</p>
+            <h3 class="text-lg font-semibold text-ink pe-8">{{ $t('sandbox.computes.delete.title', { name: compute?.name || '' }) }}</h3>
+            <p class="mt-1 text-sm text-ink-muted leading-relaxed">{{ $t('sandbox.computes.delete.hint') }}</p>
 
             <div class="mt-4">
                 <UCheckbox v-model="cleanup" :disabled="deleting" data-testid="sandbox-delete-cleanup">
                     <template #label>
-                        <span class="text-sm text-ink">{{ $t('sandbox.backends.delete.cleanup') }}</span>
+                        <span class="text-sm text-ink">{{ $t('sandbox.computes.delete.cleanup') }}</span>
                     </template>
                     <template #help>
-                        <span class="text-xs text-ink-muted">{{ $t('sandbox.backends.delete.cleanupHint') }}</span>
+                        <span class="text-xs text-ink-muted">{{ $t('sandbox.computes.delete.cleanupHint') }}</span>
                     </template>
                 </UCheckbox>
             </div>
 
-            <!-- Refused: the backend still has sandboxes. Deleting them with it
+            <!-- Refused: the compute still has sandboxes. Deleting them with it
                  is a second, explicit choice. -->
             <div
                 v-if="inUse"
@@ -33,7 +33,7 @@
                 <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 shrink-0 mt-0.5" />
                 <div class="min-w-0">
                     <div class="font-medium">{{ inUse }}</div>
-                    <p class="text-xs mt-0.5 leading-relaxed">{{ $t('sandbox.backends.delete.inUseHint') }}</p>
+                    <p class="text-xs mt-0.5 leading-relaxed">{{ $t('sandbox.computes.delete.inUseHint') }}</p>
                 </div>
             </div>
             <p v-else-if="errorMessage" class="mt-4 text-sm text-red-600 dark:text-red-400 break-words" role="alert" data-testid="sandbox-delete-error">
@@ -49,10 +49,10 @@
                     data-testid="sandbox-delete-with-sandboxes"
                     @click="remove(true)"
                 >
-                    {{ $t('sandbox.backends.delete.withSandboxes') }}
+                    {{ $t('sandbox.computes.delete.withSandboxes') }}
                 </UButton>
                 <UButton v-else color="red" :loading="deleting" data-testid="sandbox-delete-confirm" @click="remove(false)">
-                    {{ $t('sandbox.backends.delete.confirm') }}
+                    {{ $t('sandbox.computes.delete.confirm') }}
                 </UButton>
             </div>
         </div>
@@ -60,12 +60,12 @@
 </template>
 
 <script setup lang="ts">
-import type { SandboxBackend } from '~/composables/useSandboxApi'
+import type { SandboxCompute } from '~/composables/useSandboxApi'
 
-const props = defineProps<{ modelValue: boolean; backend: SandboxBackend | null }>()
+const props = defineProps<{ modelValue: boolean; compute: SandboxCompute | null }>()
 const emit = defineEmits<{
     'update:modelValue': [value: boolean]
-    deleted: [backend: SandboxBackend]
+    deleted: [compute: SandboxCompute]
 }>()
 
 const { t } = useI18n()
@@ -84,20 +84,20 @@ const inUse = ref('')
 const errorMessage = ref('')
 
 async function remove(withSandboxes: boolean) {
-    if (!props.backend || deleting.value) return
+    if (!props.compute || deleting.value) return
     deleting.value = true
     errorMessage.value = ''
     try {
         const query: Record<string, string> = {}
         if (cleanup.value) query.cleanup = 'true'
         if (withSandboxes) query.delete_sandboxes = 'true'
-        await call(`/backends/${props.backend.id}`, { method: 'DELETE', query })
-        toast.add({ title: t('sandbox.backends.toast.deleted'), color: 'green' })
-        emit('deleted', props.backend)
+        await call(`/computes/${props.compute.id}`, { method: 'DELETE', query })
+        toast.add({ title: t('sandbox.computes.toast.deleted'), color: 'green' })
+        emit('deleted', props.compute)
         open.value = false
     } catch (error) {
-        const message = getErrorMessage(error, t('sandbox.backends.toast.deleteFailed'))
-        if (getErrorCode(error) === 'sandbox.backend_in_use' && !withSandboxes) {
+        const message = getErrorMessage(error, t('sandbox.computes.toast.deleteFailed'))
+        if (getErrorCode(error) === 'sandbox.compute_in_use' && !withSandboxes) {
             inUse.value = message
         } else {
             inUse.value = ''

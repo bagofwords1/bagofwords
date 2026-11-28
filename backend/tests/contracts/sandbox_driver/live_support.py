@@ -11,7 +11,7 @@ import pytest
 import pytest_asyncio
 
 from app.services.sandbox.drivers import registry
-from app.services.sandbox.drivers.base import BackendContext
+from app.services.sandbox.drivers.base import ComputeContext
 from app.services.sandbox.drivers.docker_ssh import layout
 from tests.contracts.sandbox_driver.harness import DriverHarness
 
@@ -35,7 +35,7 @@ _PROBE = (
 )
 
 
-def context(instance_id: str = None, state: dict = None, **config_overrides) -> BackendContext:
+def context(instance_id: str = None, state: dict = None, **config_overrides) -> ComputeContext:
     with open(os.environ["BOW_SANDBOX_TEST_KEY"]) as handle:
         private_key = handle.read()
     config = {
@@ -46,8 +46,8 @@ def context(instance_id: str = None, state: dict = None, **config_overrides) -> 
         "bow_address": os.getenv("BOW_SANDBOX_TEST_BOW_ADDRESS") or None,
     }
     config.update(config_overrides)
-    return BackendContext(
-        backend_id="contract-backend", name="contract", instance_id=instance_id or INSTANCE,
+    return ComputeContext(
+        compute_id="contract-compute", name="contract", instance_id=instance_id or INSTANCE,
         config=registry.validate_config("docker-ssh", config),
         credentials={"ssh_private_key": private_key}, driver_state=_STATE if state is None else state,
         base_url="http://contract-suite",
@@ -94,7 +94,7 @@ async def harness():
         driver=driver, make_driver=make_driver, image=IMAGE,
         probe_command=lambda domain: ["python", "-c", _PROBE, domain],
         registry_domain="pypi.org", other_domain="example.com",
-        plant_orphan=plant_orphan, exists_on_backend=exists, remove_from_backend=remove,
+        plant_orphan=plant_orphan, exists_on_compute=exists, remove_from_compute=remove,
         memory_mb=1024, disk_mb=512,
     )
     yield harness

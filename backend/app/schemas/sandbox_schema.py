@@ -24,7 +24,7 @@ DEFAULT_MEMORY_MB = 2048
 DEFAULT_DISK_MB = 5120
 DEFAULT_RUN_TIMEOUT_SECONDS = 600
 MAX_RUN_TIMEOUT_SECONDS = 3600
-DEFAULT_BACKEND_CAPACITY = 20
+DEFAULT_COMPUTE_CAPACITY = 20
 
 _ENV_NAME = r"^[A-Za-z_][A-Za-z0-9_]*$"
 # An image reference: registry/path:tag or registry/path@sha256:digest. It must
@@ -50,24 +50,24 @@ def _clean_labels(value: Optional[List[str]]) -> List[str]:
     return seen
 
 
-# ── Backends ─────────────────────────────────────────────────────────────
+# ── Computes ─────────────────────────────────────────────────────────────
 
 
-class SandboxBackendCreate(BaseModel):
+class SandboxComputeCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
     type: str = Field(min_length=1, max_length=40)
-    # Validated against the backend type's own schemas by the driver registry.
+    # Validated against the compute type's own schemas by the driver registry.
     config: Dict[str, Any] = Field(default_factory=dict)
     credentials: Dict[str, Any] = Field(default_factory=dict)
     labels: List[str] = Field(default_factory=list)
-    capacity: int = Field(default=DEFAULT_BACKEND_CAPACITY, ge=1, le=1000)
+    capacity: int = Field(default=DEFAULT_COMPUTE_CAPACITY, ge=1, le=1000)
 
     _labels = field_validator("labels")(_clean_labels)
 
 
-class SandboxBackendUpdate(BaseModel):
+class SandboxComputeUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: Optional[str] = Field(default=None, min_length=1, max_length=120)
@@ -94,7 +94,7 @@ class BootstrapStep(BaseModel):
     finished_at: Optional[datetime] = None
 
 
-class SandboxBackendSchema(BaseModel):
+class SandboxComputeSchema(BaseModel):
     id: str
     name: str
     type: str
@@ -119,30 +119,30 @@ class SandboxBackendSchema(BaseModel):
     updated_at: Optional[datetime]
 
     @classmethod
-    def from_model(cls, backend, *, public_config: Dict[str, Any], info: Dict[str, Any],
-                   running_sandboxes: int = 0) -> "SandboxBackendSchema":
+    def from_model(cls, compute, *, public_config: Dict[str, Any], info: Dict[str, Any],
+                   running_sandboxes: int = 0) -> "SandboxComputeSchema":
         """``public_config`` and ``info`` come from the driver registry, which knows
         which config fields and driver-state facts are safe to return."""
         return cls(
-            id=backend.id,
-            name=backend.name,
-            type=backend.type,
+            id=compute.id,
+            name=compute.name,
+            type=compute.type,
             config=public_config,
-            credentials_set=sorted(k for k, v in (backend.credentials or {}).items() if v),
-            capabilities=list(backend.capabilities or []),
-            labels=list(backend.labels or []),
-            capacity=backend.capacity,
-            enabled=bool(backend.enabled),
-            bootstrap_status=backend.bootstrap_status,
-            bootstrap_steps=[BootstrapStep(**s) for s in (backend.bootstrap_steps or [])],
-            bootstrapped_at=backend.bootstrapped_at,
-            status=backend.status,
-            last_checked_at=backend.last_checked_at,
-            last_error=backend.last_error,
+            credentials_set=sorted(k for k, v in (compute.credentials or {}).items() if v),
+            capabilities=list(compute.capabilities or []),
+            labels=list(compute.labels or []),
+            capacity=compute.capacity,
+            enabled=bool(compute.enabled),
+            bootstrap_status=compute.bootstrap_status,
+            bootstrap_steps=[BootstrapStep(**s) for s in (compute.bootstrap_steps or [])],
+            bootstrapped_at=compute.bootstrapped_at,
+            status=compute.status,
+            last_checked_at=compute.last_checked_at,
+            last_error=compute.last_error,
             info=info,
             running_sandboxes=running_sandboxes,
-            created_at=backend.created_at,
-            updated_at=backend.updated_at,
+            created_at=compute.created_at,
+            updated_at=compute.updated_at,
         )
 
 
@@ -155,7 +155,7 @@ class _EnvironmentFields(BaseModel):
     setup_script: Optional[str] = Field(default=None, max_length=20000)
     allowed_domains: Optional[List[str]] = None
     env_vars: Optional[Dict[str, str]] = None
-    backend_labels: Optional[List[str]] = None
+    compute_labels: Optional[List[str]] = None
     ports: Optional[List[int]] = None
 
     @field_validator("env_vars")
@@ -167,7 +167,7 @@ class _EnvironmentFields(BaseModel):
                 raise ValueError(f"'{name}' is not a valid environment variable name")
         return value
 
-    @field_validator("backend_labels")
+    @field_validator("compute_labels")
     @classmethod
     def _labels(cls, value):
         return None if value is None else _clean_labels(value)
@@ -268,7 +268,7 @@ class SandboxEnvironmentSchema(BaseModel):
     env_vars: Dict[str, str]
     # Names only. Values are never returned.
     secret_names: List[str]
-    backend_labels: List[str]
+    compute_labels: List[str]
     require_strong_isolation: bool
     ports: List[int]
     is_default: bool
@@ -295,7 +295,7 @@ class SandboxEnvironmentSchema(BaseModel):
             allowed_domains=list(env.allowed_domains or []),
             env_vars=dict(env.env_vars or {}),
             secret_names=sorted((env.secrets or {}).keys()),
-            backend_labels=list(env.backend_labels or []),
+            compute_labels=list(env.compute_labels or []),
             require_strong_isolation=bool(env.require_strong_isolation),
             ports=list(env.ports or []),
             is_default=bool(env.is_default),
@@ -347,7 +347,7 @@ class SandboxSchema(BaseModel):
     id: str
     report_id: str
     user_id: Optional[str]
-    backend_id: Optional[str]
+    compute_id: Optional[str]
     environment_id: Optional[str]
     image_digest: Optional[str]
     state: str
@@ -366,7 +366,7 @@ class SandboxSchema(BaseModel):
             id=sandbox.id,
             report_id=sandbox.report_id,
             user_id=sandbox.user_id,
-            backend_id=sandbox.backend_id,
+            compute_id=sandbox.compute_id,
             environment_id=sandbox.environment_id,
             image_digest=sandbox.image_digest,
             state=sandbox.state,
@@ -452,7 +452,7 @@ class SandboxEgressSchema(BaseModel):
 
 
 class SandboxUsage(BaseModel):
-    """Live usage of one sandbox, where the backend can report it."""
+    """Live usage of one sandbox, where the compute can report it."""
     cpu_percent: Optional[float] = None
     memory_bytes: Optional[int] = None
     memory_limit_bytes: Optional[int] = None
@@ -465,7 +465,7 @@ class SandboxFleetRow(SandboxSchema):
     the names an admin recognises it by, and what it is doing right now."""
     report_title: Optional[str] = None
     user_name: Optional[str] = None
-    backend_name: Optional[str] = None
+    compute_name: Optional[str] = None
     environment_name: Optional[str] = None
     # The run in progress, if any (never its code or output).
     running_run_id: Optional[str] = None
