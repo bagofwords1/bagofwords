@@ -2735,6 +2735,109 @@
       "matchingOf": "{matched} of {total} columns match {terms}",
       "noMatch": "No column matches {terms}",
       "more": "+{count} more"
+    },
+    "sandbox": {
+      "lang": {
+        "python": "Python",
+        "node": "Node.js",
+        "go": "Go",
+        "bash": "Shell"
+      },
+      "codeOf": "{language} code",
+      "environment": "Environment",
+      "network": "Network",
+      "language": "Language",
+      "packages": "Packages",
+      "inputs": "Report files",
+      "inputFiles": "{count} file copied in | {count} files copied in",
+      "timeLimit": "Time limit",
+      "code": "Code",
+      "command": "Command",
+      "codeHidden": "The code is hidden: your role does not include viewing code.",
+      "stdout": "Output",
+      "stderr": "Errors",
+      "truncated": "Only the end is shown",
+      "noOutputYet": "No output yet.",
+      "noOutput": "The run printed nothing.",
+      "exitCode": "Exit code {code}",
+      "timedOutNote": "The run was stopped at its time limit. The sandbox and its files are still there.",
+      "cancelledNote": "The run was cancelled before it finished.",
+      "fileCount": "{count} file | {count} files",
+      "openFile": "Open {name}",
+      "downloadFile": "Download {name}",
+      "downloadFailed": "The file could not be downloaded.",
+      "skipped": "Not saved to the report",
+      "run": {
+        "awaiting": "Waiting for your approval",
+        "running": "Running",
+        "succeeded": "Completed",
+        "failed": "Failed",
+        "timeout": "Timed out",
+        "cancelled": "Cancelled",
+        "declined": "Not run: declined",
+        "notConfirmed": "Not run: not approved in time",
+        "error": "Could not run"
+      },
+      "stage": {
+        "starting": "Starting the sandbox",
+        "created": "Sandbox created",
+        "resumed": "Sandbox resumed",
+        "installing_packages": "Installing packages",
+        "running": "Running",
+        "collecting_artifacts": "Saving files"
+      },
+      "chip": {
+        "fresh": "Fresh filesystem",
+        "restored": "Restored from a snapshot",
+        "created": "New sandbox",
+        "resumed": "Resumed",
+        "deletion": "Deletion scheduled",
+        "background": "Processes left running"
+      },
+      "create": {
+        "running": "Creating the sandbox",
+        "created": "Created the sandbox",
+        "existing": "Using the existing sandbox",
+        "failed": "Could not create the sandbox",
+        "cancelled": "Sandbox creation cancelled"
+      },
+      "status": {
+        "running": "Checking the sandbox",
+        "exists": "Checked the sandbox",
+        "none": "This report has no sandbox yet",
+        "failed": "Could not check the sandbox",
+        "cancelled": "Sandbox check cancelled"
+      },
+      "delete": {
+        "running": "Deleting the sandbox",
+        "awaiting": "Waiting for your approval to delete the sandbox",
+        "deleted": "Deleted the sandbox",
+        "nothing": "No sandbox to delete",
+        "declined": "Sandbox kept: deletion declined",
+        "notConfirmed": "Sandbox kept: deletion not approved in time",
+        "failed": "Could not delete the sandbox",
+        "cancelled": "Sandbox deletion cancelled"
+      },
+      "detail": {
+        "languages": "Languages",
+        "uptime": "Exists for",
+        "recentRuns": "Recent runs",
+        "environments": "Environments you can use"
+      },
+      "confirm": {
+        "runTitle": "Run this in the sandbox?",
+        "deleteTitle": "Delete this report's sandbox?",
+        "deleteHint": "Its files and installed packages are removed. Files already saved to the report are kept.",
+        "allow": "Allow",
+        "deny": "Deny",
+        "delete": "Delete",
+        "keep": "Keep",
+        "reason": {
+          "always": "This environment asks before every run.",
+          "fullNetwork": "This environment has full internet access and asks before every run.",
+          "packages": "This environment asks before a run installs packages."
+        }
+      }
     }
   },
   "entityCreate": {

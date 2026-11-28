@@ -2694,6 +2694,109 @@
       "matchingOf": "{matched} de {total} columnas coinciden con {terms}",
       "noMatch": "Ninguna columna coincide con {terms}",
       "more": "+{count} más"
+    },
+    "sandbox": {
+      "lang": {
+        "python": "Python",
+        "node": "Node.js",
+        "go": "Go",
+        "bash": "Shell"
+      },
+      "codeOf": "Código {language}",
+      "environment": "Entorno",
+      "network": "Red",
+      "language": "Lenguaje",
+      "packages": "Paquetes",
+      "inputs": "Archivos del informe",
+      "inputFiles": "{count} archivo copiado | {count} archivos copiados",
+      "timeLimit": "Límite de tiempo",
+      "code": "Código",
+      "command": "Comando",
+      "codeHidden": "El código está oculto: tu rol no incluye ver código.",
+      "stdout": "Salida",
+      "stderr": "Errores",
+      "truncated": "Solo se muestra el final",
+      "noOutputYet": "Aún no hay salida.",
+      "noOutput": "La ejecución no imprimió nada.",
+      "exitCode": "Código de salida {code}",
+      "timedOutNote": "La ejecución se detuvo al alcanzar su límite de tiempo. El sandbox y sus archivos siguen ahí.",
+      "cancelledNote": "La ejecución se canceló antes de terminar.",
+      "fileCount": "{count} archivo | {count} archivos",
+      "openFile": "Abrir {name}",
+      "downloadFile": "Descargar {name}",
+      "downloadFailed": "No se pudo descargar el archivo.",
+      "skipped": "No guardados en el informe",
+      "run": {
+        "awaiting": "Esperando tu aprobación",
+        "running": "En ejecución",
+        "succeeded": "Completado",
+        "failed": "Falló",
+        "timeout": "Tiempo agotado",
+        "cancelled": "Cancelado",
+        "declined": "No ejecutado: rechazado",
+        "notConfirmed": "No ejecutado: no se aprobó a tiempo",
+        "error": "No se pudo ejecutar"
+      },
+      "stage": {
+        "starting": "Iniciando el sandbox",
+        "created": "Sandbox creado",
+        "resumed": "Sandbox reanudado",
+        "installing_packages": "Instalando paquetes",
+        "running": "En ejecución",
+        "collecting_artifacts": "Guardando archivos"
+      },
+      "chip": {
+        "fresh": "Sistema de archivos nuevo",
+        "restored": "Restaurado desde una instantánea",
+        "created": "Sandbox nuevo",
+        "resumed": "Reanudado",
+        "deletion": "Eliminación programada",
+        "background": "Procesos aún en ejecución"
+      },
+      "create": {
+        "running": "Creando el sandbox",
+        "created": "Sandbox creado",
+        "existing": "Usando el sandbox existente",
+        "failed": "No se pudo crear el sandbox",
+        "cancelled": "Creación del sandbox cancelada"
+      },
+      "status": {
+        "running": "Comprobando el sandbox",
+        "exists": "Sandbox comprobado",
+        "none": "Este informe aún no tiene sandbox",
+        "failed": "No se pudo comprobar el sandbox",
+        "cancelled": "Comprobación del sandbox cancelada"
+      },
+      "delete": {
+        "running": "Eliminando el sandbox",
+        "awaiting": "Esperando tu aprobación para eliminar el sandbox",
+        "deleted": "Sandbox eliminado",
+        "nothing": "No hay sandbox que eliminar",
+        "declined": "Sandbox conservado: eliminación rechazada",
+        "notConfirmed": "Sandbox conservado: la eliminación no se aprobó a tiempo",
+        "failed": "No se pudo eliminar el sandbox",
+        "cancelled": "Eliminación del sandbox cancelada"
+      },
+      "detail": {
+        "languages": "Lenguajes",
+        "uptime": "Existe desde hace",
+        "recentRuns": "Ejecuciones recientes",
+        "environments": "Entornos que puedes usar"
+      },
+      "confirm": {
+        "runTitle": "¿Ejecutar esto en el sandbox?",
+        "deleteTitle": "¿Eliminar el sandbox de este informe?",
+        "deleteHint": "Se eliminan sus archivos y los paquetes instalados. Los archivos ya guardados en el informe se conservan.",
+        "allow": "Permitir",
+        "deny": "Denegar",
+        "delete": "Eliminar",
+        "keep": "Conservar",
+        "reason": {
+          "always": "Este entorno pregunta antes de cada ejecución.",
+          "fullNetwork": "Este entorno tiene acceso completo a internet y pregunta antes de cada ejecución.",
+          "packages": "Este entorno pregunta antes de que una ejecución instale paquetes."
+        }
+      }
     }
   },
   "entityCreate": {

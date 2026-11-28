@@ -1,9 +1,12 @@
 // Dates, durations and sizes as the Sandboxes list and its dialogs show them,
 // in the active locale.
+import type { Ref } from 'vue'
 import { parseSandboxDate } from '~/composables/useSandboxApi'
 
-export function useSandboxFormat() {
-  const { locale } = useI18n()
+// `inLocale`: format in that locale instead of the app's (a tool block in a
+// report speaks the response's language, see useResponseI18n).
+export function useSandboxFormat(inLocale?: Ref<string>) {
+  const locale = inLocale || useI18n().locale
 
   function formatDate(value?: string | null) {
     if (!value) return ''

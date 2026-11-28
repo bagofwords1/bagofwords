@@ -2694,6 +2694,109 @@
       "matchingOf": "{matched} מתוך {total} עמודות תואמות ל-{terms}",
       "noMatch": "אין עמודה שתואמת ל-{terms}",
       "more": "+{count} נוספות"
+    },
+    "sandbox": {
+      "lang": {
+        "python": "Python",
+        "node": "Node.js",
+        "go": "Go",
+        "bash": "Shell"
+      },
+      "codeOf": "קוד {language}",
+      "environment": "סביבה",
+      "network": "רשת",
+      "language": "שפה",
+      "packages": "חבילות",
+      "inputs": "קובצי הדוח",
+      "inputFiles": "קובץ אחד הועתק | {count} קבצים הועתקו",
+      "timeLimit": "מגבלת זמן",
+      "code": "קוד",
+      "command": "פקודה",
+      "codeHidden": "הקוד מוסתר: התפקיד שלך אינו כולל צפייה בקוד.",
+      "stdout": "פלט",
+      "stderr": "שגיאות",
+      "truncated": "מוצג רק הסוף",
+      "noOutputYet": "עדיין אין פלט.",
+      "noOutput": "ההרצה לא הדפיסה דבר.",
+      "exitCode": "קוד יציאה {code}",
+      "timedOutNote": "ההרצה נעצרה כשהגיעה למגבלת הזמן שלה. ארגז החול והקבצים שבו עדיין קיימים.",
+      "cancelledNote": "ההרצה בוטלה לפני שהסתיימה.",
+      "fileCount": "קובץ אחד | {count} קבצים",
+      "openFile": "פתיחת {name}",
+      "downloadFile": "הורדת {name}",
+      "downloadFailed": "לא ניתן היה להוריד את הקובץ.",
+      "skipped": "לא נשמרו בדוח",
+      "run": {
+        "awaiting": "ממתין לאישורך",
+        "running": "בהרצה",
+        "succeeded": "הושלם",
+        "failed": "נכשל",
+        "timeout": "תם הזמן",
+        "cancelled": "בוטל",
+        "declined": "לא הורץ: נדחה",
+        "notConfirmed": "לא הורץ: לא אושר בזמן",
+        "error": "לא ניתן היה להריץ"
+      },
+      "stage": {
+        "starting": "מפעיל את ארגז החול",
+        "created": "ארגז החול נוצר",
+        "resumed": "ארגז החול חודש",
+        "installing_packages": "מתקין חבילות",
+        "running": "בהרצה",
+        "collecting_artifacts": "שומר קבצים"
+      },
+      "chip": {
+        "fresh": "מערכת קבצים חדשה",
+        "restored": "שוחזר מתמונת מצב",
+        "created": "ארגז חול חדש",
+        "resumed": "חודש",
+        "deletion": "נקבעה מחיקה",
+        "background": "תהליכים עדיין פועלים"
+      },
+      "create": {
+        "running": "יוצר את ארגז החול",
+        "created": "ארגז החול נוצר",
+        "existing": "משתמש בארגז החול הקיים",
+        "failed": "לא ניתן היה ליצור את ארגז החול",
+        "cancelled": "יצירת ארגז החול בוטלה"
+      },
+      "status": {
+        "running": "בודק את ארגז החול",
+        "exists": "ארגז החול נבדק",
+        "none": "לדוח הזה עדיין אין ארגז חול",
+        "failed": "לא ניתן היה לבדוק את ארגז החול",
+        "cancelled": "בדיקת ארגז החול בוטלה"
+      },
+      "delete": {
+        "running": "מוחק את ארגז החול",
+        "awaiting": "ממתין לאישורך למחיקת ארגז החול",
+        "deleted": "ארגז החול נמחק",
+        "nothing": "אין ארגז חול למחיקה",
+        "declined": "ארגז החול נשמר: המחיקה נדחתה",
+        "notConfirmed": "ארגז החול נשמר: המחיקה לא אושרה בזמן",
+        "failed": "לא ניתן היה למחוק את ארגז החול",
+        "cancelled": "מחיקת ארגז החול בוטלה"
+      },
+      "detail": {
+        "languages": "שפות",
+        "uptime": "קיים כבר",
+        "recentRuns": "הרצות אחרונות",
+        "environments": "סביבות שזמינות לך"
+      },
+      "confirm": {
+        "runTitle": "להריץ את זה בארגז החול?",
+        "deleteTitle": "למחוק את ארגז החול של הדוח הזה?",
+        "deleteHint": "הקבצים והחבילות המותקנות שבו יימחקו. קבצים שכבר נשמרו בדוח יישארו.",
+        "allow": "אישור",
+        "deny": "דחייה",
+        "delete": "מחיקה",
+        "keep": "השארה",
+        "reason": {
+          "always": "הסביבה הזו מבקשת אישור לפני כל הרצה.",
+          "fullNetwork": "לסביבה הזו יש גישה מלאה לאינטרנט, והיא מבקשת אישור לפני כל הרצה.",
+          "packages": "הסביבה הזו מבקשת אישור לפני שהרצה מתקינה חבילות."
+        }
+      }
     }
   },
   "entityCreate": {

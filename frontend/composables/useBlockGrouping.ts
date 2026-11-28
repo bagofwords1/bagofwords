@@ -69,6 +69,12 @@ export const GROUPABLE_TOOLS = new Set<string>([
   'browser_snapshot',
   'browser_extract',
   'browser_act',
+  // Agent sandbox bookkeeping: making sure the sandbox is there and looking
+  // at it. run_in_sandbox stays OUT (its output streams in its own block and
+  // the files it saved are links on it), and so does delete_sandbox (it always
+  // asks first, and its outcome must stay in view).
+  'create_sandbox',
+  'sandbox_status',
 ])
 
 // Minimum consecutive chip-class blocks before a group forms. Two or more —
@@ -194,6 +200,8 @@ export function humanToolLabel(toolName: string): string {
     call_tool: 'Calling a tool',
     edit_note: 'Updating notes',
     web_fetch: 'Fetching a page',
+    create_sandbox: 'Creating the sandbox',
+    sandbox_status: 'Checking the sandbox',
   }
   if (toolName?.startsWith('mcp__')) return 'Calling a tool'
   return map[toolName] || 'Working'
