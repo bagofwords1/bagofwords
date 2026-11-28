@@ -327,11 +327,15 @@ async def admit_reader(db, artifact: Artifact, user) -> None:
     """Raise unless `user` may read this dashboard through /d: its editors,
     or -- once published -- whoever its sharing lets in. For what the page
     reaches besides the release (its runtime: forms, records, views)."""
-    from app.services.bow_source_access import assert_read, report_access
-
     from app.services.viewer_data_policy import org_has_company_policy
     if await org_has_company_policy(db, artifact.organization_id):
         raise _not_found()
+    await admit_reader_in_visible_org(db, artifact, user)
+
+
+async def admit_reader_in_visible_org(db, artifact: Artifact, user) -> None:
+    """Apply dashboard-specific checks after checking the workspace hold."""
+    from app.services.bow_source_access import assert_read, report_access
 
     release = await published_release(db, artifact)
     if await can_edit(db, artifact, user):

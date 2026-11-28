@@ -2,7 +2,6 @@
 import json
 import time
 from uuid import UUID
-from datetime import datetime, timedelta
 from typing import Literal
 
 from pydantic import model_validator
@@ -10,7 +9,7 @@ from pydantic import model_validator
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import select, update
 
-from app.data_sources.fabric_company_rls import CompanyPolicy
+from app.data_sources.fabric_company_rls import CompanyPolicy, TableName
 from app.models.membership import Membership
 from app.models.oauth_account import OAuthAccount
 from app.models.user import User
@@ -20,7 +19,7 @@ POLICY_CONNECTORS = {"ms_fabric", "postgresql", "mssql", "oracledb"}
 
 
 class ConnectionCompanyPolicy(CompanyPolicy):
-    inventory: tuple[str, ...] = ()
+    inventory: tuple[TableName, ...] = ()
     tenant_id: UUID | None = None
     reader_source: Literal["entra", "verified_email"] = "entra"
 
@@ -65,11 +64,6 @@ async def policy_identity(db, organization_id, user, policy):
     if identity.is_anonymous:
         raise ValueError("An active workspace member is required")
     identity.email = employee
-    verified = await db.scalar(select(Membership.profile_verified_at).where(
-        Membership.user_id == str(user.id), Membership.organization_id == str(organization_id),
-        Membership.deleted_at.is_(None)))
-    if not verified or verified < datetime.utcnow() - timedelta(days=1):
-        identity.profile_attributes = {}
     return employee, identity
 
 
@@ -90,6 +84,7 @@ async def bind_company_reader(db, connection, client, viewer):
         raise ValueError("Protected connection destination or authentication changed")
     policy = ConnectionCompanyPolicy.model_validate(policy_data)
     employee, identity = await policy_identity(db, connection.organization_id, viewer, policy)
+    client._policy_audit_scope = (str(connection.id), str(connection.organization_id), str(viewer.id))
     client.bind_company_reader(policy, employee, identity)
     return client
 

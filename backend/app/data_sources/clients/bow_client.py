@@ -143,6 +143,10 @@ async def install_bow_client(db, organization, user, report, clients, *, mode=No
     from app.core.console_access import resolve_console_scope
     from app.services.bow_source_access import report_access
     from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlalchemy import inspect
+    state = inspect(organization, raiseerr=False)
+    if state is not None and "withhold_unverified_company_content" in state.unloaded:
+        await db.refresh(organization, ["withhold_unverified_company_content"])
     if getattr(organization, "withhold_unverified_company_content", False) is True:
         return
     if release is not None:

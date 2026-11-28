@@ -3431,7 +3431,7 @@ class DataSourceService:
             return None
 
         identity = None
-        if any(getattr(r, "rls_enabled", False) for r in rows):
+        if any(getattr(r, "rls_enabled", False) or getattr(r, "cls_enabled", False) for r in rows):
             # Only pay for identity resolution when something actually needs it.
             from app.services.rls_identity_service import resolve_identity
             identity = await resolve_identity(

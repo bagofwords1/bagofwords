@@ -3163,6 +3163,7 @@ class ConnectionService:
             await bind_company_reader(db, connection, client, current_user)
         else:
             # Only the privileged draft-preview service supplies this server-resolved tuple.
+            client._policy_audit_scope = (str(connection.id), str(connection.organization_id), str(current_user.id))
             client.bind_company_reader(*policy_preview)
         if connection.type in ("network_dir", "postgresql_multi"):
             client._bow_connection_id = str(connection.id)

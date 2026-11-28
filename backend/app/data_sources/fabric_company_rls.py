@@ -208,7 +208,9 @@ def protect_query(sql: str, policy: CompanyPolicy, employee: str | None, *, iden
                 exact(exp.column(policy.source_column, table="g", quoted=True)).eq(exact(bind(rule.source))),
             )
             if not grant_probe:
-                matches = exp.and_(matches, exp.column(policy.company_column, table="g", quoted=True).eq(key))
+                granted = exp.column(policy.company_column, table="g", quoted=True)
+                same_company = granted.eq(key) if dialect == "fabric" else exact(granted).eq(exact(key))
+                matches = exp.and_(matches, same_company)
             predicate = exp.Exists(this=exp.select(exp.Literal.number(1)).from_(grants).where(matches))
         if grant_probe:
             if len(filters) != 1 or rule.row_attribute:

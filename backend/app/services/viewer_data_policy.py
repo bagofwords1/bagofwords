@@ -673,7 +673,7 @@ async def _any_rls_relation(db: AsyncSession, data_source_ids: list[str]) -> boo
             DataSourceTable.is_active.is_(True),
             DataSourceTable.deleted_at.is_(None),
             ConnectionTable.kind == KIND_BOW,
-            ConnectionTable.rls_enabled.is_(True),
+            (ConnectionTable.rls_enabled.is_(True) | ConnectionTable.cls_enabled.is_(True)),
             ConnectionTable.deleted_at.is_(None),
         )
     )

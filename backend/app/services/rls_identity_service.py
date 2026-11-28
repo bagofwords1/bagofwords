@@ -22,6 +22,7 @@ of truncating them.
 """
 
 import logging
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,7 +46,7 @@ async def resolve_identity(
     lookup that errors leaves the group set empty, which denies rather than
     grants.
     """
-    if user is None or not getattr(user, "id", None):
+    if user is None or not getattr(user, "id", None) or not getattr(user, "is_active", False):
         return ANONYMOUS
 
     from app.models.group import Group
@@ -55,7 +56,7 @@ async def resolve_identity(
     from app.models.role_assignment import RoleAssignment
 
     user_id = str(user.id)
-    identity = Identity(user_id=user_id, email=getattr(user, "email", None))
+    identity = Identity(user_id=user_id, email=user.email if getattr(user, "is_verified", False) else None)
 
     # --- Entra / IdP profile attributes ------------------------------------
     try:
@@ -69,7 +70,8 @@ async def resolve_identity(
         if membership is None:
             return ANONYMOUS
         identity.custom_attributes = dict(membership.custom_attributes or {})
-        if isinstance(membership.profile_attributes, dict):
+        if (membership.profile_verified_at and membership.profile_verified_at >= datetime.utcnow() - timedelta(days=1)
+                and isinstance(membership.profile_attributes, dict)):
             identity.profile_attributes = dict(membership.profile_attributes)
     except Exception:
         logger.warning("rls.identity.profile_lookup_failed", exc_info=True)

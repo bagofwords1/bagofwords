@@ -1,5 +1,8 @@
 # Company filtering on a shared Fabric connection
 
+For current connection configuration, CLS and multi-database checks, see [Enterprise connection access rules](enterprise-sql-access.md).
+
+
 Two signed-in BOW readers use the same Warehouse credential. Each reader must receive only the companies their employee identity can access for the specific source table. A committed grant removal must take effect on their next read, including a previously opened shared report.
 
 ## Why the existing controls were insufficient

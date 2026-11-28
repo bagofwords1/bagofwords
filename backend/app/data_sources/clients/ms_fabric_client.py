@@ -6,6 +6,7 @@ import hashlib
 import json
 import time
 import pandas as pd
+from app.data_sources.policy_history import record_protected_execution
 import struct
 from contextlib import contextmanager
 from functools import cached_property
@@ -239,7 +240,7 @@ class MsFabricClient(DataSourceClient):
 
     @property
     def company_filtered(self):
-        return self._company_reader is not None
+        return getattr(self, "_company_reader", None) is not None
 
     def bind_company_reader(self, policy, employee, identity=None):
         if self.company_filtered:
@@ -302,6 +303,7 @@ class MsFabricClient(DataSourceClient):
             finally:
                 cursor.close()
 
+    @record_protected_execution
     def execute_company_query(self, sql, policy, employee, identity=None):
         """Host-side execution. The authenticated caller supplies the binding."""
         from app.data_sources.fabric_company_rls import protect_query

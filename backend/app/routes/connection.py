@@ -51,6 +51,7 @@ from app.schemas.connection_tool_schema import (
 from app.schemas.custom_query_schema import (
     CustomQueryCreate,
     CustomQueryUpdate,
+    CustomQueryClsUpdate,
     CustomQueryPreviewRequest,
     CustomQueryPreviewResponse,
     CustomQueryRlsOptions,
@@ -2000,6 +2001,54 @@ async def set_custom_query_rls(
     )
 
 
+@router.put("/{connection_id}/custom-queries/{cq_id}/cls", response_model=CustomQuerySchema)
+@requires_resource_permission('connection', 'manage_connection')
+async def set_custom_query_cls(
+    connection_id: str,
+    cq_id: str,
+    payload: CustomQueryClsUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Store which columns each person sees on this relation."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    before = {
+        "cls_enabled": bool(cq.cls_enabled),
+        "cls_policy": cq.cls_policy,
+    }
+    cq = await custom_query_service.set_cls(
+        db, cq,
+        cls_enabled=payload.cls_enabled,
+        cls_policy=payload.cls_policy,
+    )
+    try:
+        # Who changed a column policy, and from what to what — the record an
+        # auditor asks for, carrying both sides rather than just the new one.
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.custom_query.cls_changed",
+            resource_type="connection", resource_id=str(connection.id),
+            details={
+                "connection": connection.name,
+                "name": cq.name,
+                "before": before,
+                "after": {
+                    "cls_enabled": bool(cq.cls_enabled),
+                    "cls_policy": cq.cls_policy,
+                },
+            },
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("audit log failed for connection.custom_query.cls_changed")
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+    )
+
+
 @router.post("/{connection_id}/custom-queries/{cq_id}/rls/preview",
              response_model=CustomQueryRlsPreviewResponse)
 @requires_resource_permission('connection', 'manage_connection')
@@ -2022,6 +2071,8 @@ async def preview_custom_query_as_user(
             "rls_mode": payload.rls_mode,
             "rls_policy": payload.rls_policy,
             "rls_default_deny": payload.rls_default_deny,
+            "cls_enabled": payload.cls_enabled,
+            "cls_policy": payload.cls_policy,
         },
     )
 
@@ -2334,7 +2385,8 @@ async def preview_company_policy_draft(
     if not connection.company_policy:
         raise HTTPException(status_code=404, detail="No saved mapping")
     policy = ConnectionCompanyPolicy.model_validate(connection.company_policy)
-    if table not in {rule.table for rule in policy.tables}:
+    rule = next((r for r in policy.tables if r.table == table), None)
+    if rule is None:
         raise HTTPException(status_code=404, detail="Table unavailable")
     if connection.active_company_policy and policy != ConnectionCompanyPolicy.model_validate(connection.active_company_policy):
         await require_org_permission(db, str(current_user.id), str(organization.id), "full_admin_access")
@@ -2359,7 +2411,7 @@ async def preview_company_policy_draft(
     client = await connection_service.construct_client(db, connection, reader,
                                                         policy_preview=(policy, employee, identity))
     try:
-        await asyncio.to_thread(client.validate_company_policy, policy)
+        await asyncio.to_thread(client.validate_company_policy, policy.model_copy(update={"tables": (rule,)}))
         from sqlglot import exp
         dialect = getattr(client, "policy_dialect", "fabric")
         sql = exp.select("*").from_(exp.to_table(table)).limit(25).sql(dialect=dialect, identify=True)
@@ -2373,7 +2425,6 @@ async def preview_company_policy_draft(
     from fastapi.responses import JSONResponse
     state = "rows"
     if frame.empty:
-        rule = next(r for r in policy.tables if r.table == table)
         state = "empty" if await asyncio.to_thread(client.has_company_grant, rule) else "denied"
     return JSONResponse(content={**json.loads(frame.to_json(orient="split", index=False, date_format="iso")), "access_status": state},
                         headers={"Cache-Control": "no-store"})
@@ -2393,9 +2444,17 @@ async def access_policy_coverage(connection_id: str, search: str = "", status: s
         return {r.table: r for r in ConnectionCompanyPolicy.model_validate(policy).tables} if policy else {}
     live, draft = table_rules(conn.active_company_policy), table_rules(conn.company_policy)
     pending = {n for n in live.keys() | draft.keys() if live.get(n) != draft.get(n)}
+    def shared_settings(policy):
+        return {key: value for key, value in (policy or {}).items() if key not in {"tables", "inventory"}}
+    if shared_settings(conn.active_company_policy) != shared_settings(conn.company_policy):
+        pending.update(live.keys() | draft.keys())
     base = select(ConnectionTable.name).where(ConnectionTable.connection_id == connection_id,
         ConnectionTable.deleted_at.is_(None), ConnectionTable.kind == KIND_TABLE)
     inventory = (conn.company_policy or {}).get("inventory") or []
+    unresolved = set(inventory)
+    for start in range(0, len(inventory), 500):
+        indexed = await db.scalars(base.where(ConnectionTable.name.in_(inventory[start:start + 500])))
+        unresolved.difference_update(indexed)
     if inventory_only:
         base = base.where(ConnectionTable.name.in_(inventory))
     if search:
@@ -2417,7 +2476,7 @@ async def access_policy_coverage(connection_id: str, search: str = "", status: s
     for custom in (False, True):
         keys = await available_attribute_keys(db, str(organization.id), custom=custom)
         properties.extend(("custom." if custom else "profile.") + key for key in keys)
-    return {"counts": counts, "properties": properties, "activation_enabled": settings.bow_config.features.fabric_company_rls_activation,
+    return {"counts": counts, "unresolved_total": len(unresolved), "unresolved": sorted(unresolved)[:50], "properties": properties, "activation_enabled": settings.bow_config.features.fabric_company_rls_activation,
             "active": bool(conn.active_company_policy), "tables": [
                 {"table": name, "protected": name in live, "pending": name in pending,
                  "projected_columns": len(live[name].columns) if name in live and live[name].columns is not None else None}

@@ -557,6 +557,7 @@ async def test_code_override_is_committed_only_when_the_run_succeeds():
         svc._load_step_for_rerun = AsyncMock(return_value=(step, report))
         db = MagicMock()
         db.execute = AsyncMock()
+        db.scalar = AsyncMock(return_value=None)
         db.commit = AsyncMock(side_effect=lambda: committed_code.append(step.code))
         db.refresh = AsyncMock()
         return step, db

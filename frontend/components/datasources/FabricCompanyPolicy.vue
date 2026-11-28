@@ -12,6 +12,7 @@
       </div>
       <input v-model="search" class="field" :placeholder="t('liveAccess.search')" :aria-label="t('liveAccess.search')">
       <label v-if="draft.inventory.length"><input v-model="inventoryOnly" type="checkbox"> {{ t('liveAccess.inventory') }}</label>
+      <p v-if="coverage?.unresolved_total">{{ t('liveAccess.inventory') }} · {{ t('liveAccess.missing') }} ({{ coverage.unresolved_total }})<br>{{ coverage.unresolved.join(', ') }}</p>
       <table class="w-full text-start">
         <thead><tr><th>{{ t('fabricCompany.table') }}</th><th>{{ t('liveAccess.active') }}</th><th>{{ t('liveAccess.pending') }}</th></tr></thead>
         <tbody><tr v-for="row in coverage?.tables" :key="row.table">
@@ -41,7 +42,7 @@
       </details>
       <label>{{ t('fabricCompany.table') }}<input v-model.trim="selected" class="field" list="access-tables"></label>
       <datalist id="access-properties"><option v-for="name in coverage?.properties" :key="name" :value="name" /></datalist>
-      <datalist id="access-tables"><option v-for="r in draft.tables" :key="r.table" :value="r.table" /></datalist>
+      <datalist id="access-tables"><option v-for="r in suggestions" :key="r.table" :value="r.table" /></datalist>
       <UButton v-if="selected && !rule" color="gray" @click="addRule">{{ t('fabricCompany.add') }}</UButton>
       <div v-if="rule" class="space-y-3 rounded border p-3">
         <label>{{ t('fabricCompany.company_column') }}<input v-model.trim="rule.company_column" class="field"></label>
@@ -53,7 +54,7 @@
       </div>
     </fieldset>
     <div class="flex items-center gap-2">
-      <UButton :disabled="busy || loadFailed" @click="save">{{ t('fabricCompany.save') }}</UButton>
+      <UButton :disabled="busy || loadFailed || columnError" @click="save">{{ t('fabricCompany.save') }}</UButton>
       <UButton v-if="coverage?.activation_enabled" color="gray" :disabled="busy || !saved" @click="review = true">{{ t('liveAccess.review') }}</UButton>
     </div>
     <section v-if="review && saved" class="rounded border p-3">
@@ -90,15 +91,18 @@ const mappingFields = ['tenant_id','grants_table','employee_column','company_col
 const draft = reactive({reader_source:'entra',tenant_id:null,grants_table:null,employee_column:null,company_column:null,source_column:null,inventory:[] as string[],tables:[] as Rule[]})
 const selected = ref(''), search = ref(''), filter = ref<Status>('all'), inventoryOnly=ref(false)
 const rule = computed(() => draft.tables.find(r=>r.table === selected.value))
+const suggestions = computed(() => draft.tables.filter(r => r.table.toLowerCase().includes(selected.value.toLowerCase())).slice(0, 50))
+const columnError = ref(false)
+watch(selected, () => { columnError.value = false })
 const columnExample = 'company_id\namount\nmargin | roles | Finance'
 const columnText = computed(() => Object.entries(rule.value?.columns || {}).map(([name,v]) => !v ? name :
   Array.isArray(v) ? [name,'user.email',v.join(',')].join(' | ') : [name,v.source,v.values.join(',')].join(' | ')).join('\n'))
 const busy=ref(false), loadFailed=ref(false), review=ref(false), message=ref(''), bulkText=ref('')
-const savedText=ref(''), saved=computed(()=>savedText.value === JSON.stringify(draft))
+const savedText=ref(''), saved=computed(()=>!columnError.value && savedText.value === JSON.stringify(draft))
 const offset=ref(0), pageSize=12, readers=ref(['',''])
 type Sample={columns:string[],data:unknown[][],access_status:string}
 const samples=ref<(Sample|null)[]>([null,null])
-const coverage=ref<{counts:Record<Status,number>, properties:string[], activation_enabled:boolean,tables:{table:string,protected:boolean,pending:boolean,projected_columns:number|null}[]}|null>(null)
+const coverage=ref<{counts:Record<Status,number>, properties:string[], activation_enabled:boolean,unresolved_total:number,unresolved:string[],tables:{table:string,protected:boolean,pending:boolean,projected_columns:number|null}[]}|null>(null)
 let request=0
 async function refresh() {
   const generation=++request
@@ -122,10 +126,11 @@ function selectTable(name:string){selected.value=name}
 function addRule(){ if(selected.value && !rule.value) draft.tables.push({table:selected.value,company_column:'company_id',source:null,row_attribute:null,columns:null}) }
 function setColumns(value:string) {
   if(!rule.value) return
+  columnError.value=false
   const result:Record<string,ColumnMatch>={}
   for(const line of value.split('\n').map(v=>v.trim()).filter(Boolean)){
     const [column,source,values,...extra]=line.split('|').map(v=>v.trim())
-    if(extra.length || (!!source !== !!values) || Object.hasOwn(result,column)){message.value=t('fabricCompany.failed');return}
+    if(extra.length || (!!source !== !!values) || Object.hasOwn(result,column)){columnError.value=true;message.value=t('fabricCompany.failed');return}
     result[column]=source ? {source,values:values.split(',').map(v=>v.trim())} : null
   }
   rule.value.columns=result

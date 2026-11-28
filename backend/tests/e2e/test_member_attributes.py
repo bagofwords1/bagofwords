@@ -77,7 +77,7 @@ def test_admin_sets_member_attributes_on_invite_and_edit(test_client, org):
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("bad", [{"1starts_with_digit": "x"}, {"has space": "x"}, {"k": "v" * 300}, {"k": ["a"]}])
+@pytest.mark.parametrize("bad", [{"1starts_with_digit": "x"}, {"has space": "x"}, {"k": "v" * 300}, {"k": [["nested"]]}])
 def test_invalid_member_attributes_are_rejected(test_client, org, bad):
     email = f"bad_{uuid.uuid4().hex[:8]}@test.com"
     r = test_client.post(

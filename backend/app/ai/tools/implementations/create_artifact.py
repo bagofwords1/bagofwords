@@ -1649,8 +1649,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 try:
                     parse_error = await parse_check_page_code(code)
                 except ParseCheckUnavailable as exc:
-                    validation_unavailable = True
-                    parse_error = str(exc)
+                    from app.ai.tools.implementations._artifact_refs import file_reference_errors
+                    missing = file_reference_errors(code, artifact_data)
+                    validation_unavailable = not missing
+                    parse_error = "; ".join(missing) if missing else str(exc)
 
             _validate_result: Optional[Dict[str, Any]] = None
             if parse_error is not None:

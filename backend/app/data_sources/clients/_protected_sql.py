@@ -1,5 +1,7 @@
 """Live row and column policy entry points for SQLAlchemy-backed sources."""
+
 import pandas as pd
+from app.data_sources.policy_history import record_protected_execution
 
 from app.data_sources.fabric_company_rls import protect_query
 
@@ -29,33 +31,45 @@ class ProtectedSql:
     def has_company_grant(self, rule):
         from app.data_sources.fabric_company_rls import protect_query
         from app.data_sources.fast.rls import resolve_source
+
         policy, employee, identity = self._company_reader
         if rule.row_attribute:
             return bool(resolve_source(rule.row_attribute, identity))
-        statement, bindings = protect_query(f"SELECT * FROM {rule.table}", policy, employee,
-            identity=identity, dialect=getattr(self, "policy_dialect", "fabric"), grant_probe=True)
+        statement, bindings = protect_query(
+            f"SELECT * FROM {rule.table}",
+            policy,
+            employee,
+            identity=identity,
+            dialect=getattr(self, "policy_dialect", "fabric"),
+            grant_probe=True,
+        )
         with self._read_session() as conn:
             return bool(conn.exec_driver_sql(statement, bindings).scalar_one())
 
+    @record_protected_execution
     def execute_company_query(self, sql, policy, employee, identity=None):
         if self.company_filtered and self._company_reader != (policy, employee, identity):
             raise ValueError("Reader mismatch")
         from app.data_sources.policy_history import record_policy
+
         record_policy(policy)
         try:
             text, bindings = protect_query(sql, policy, employee, identity=identity, dialect=self.policy_dialect)
             with self._read_session() as conn:
                 record_policy(policy, text)
                 result = conn.exec_driver_sql(text, bindings)
-                return pd.DataFrame.from_records(result.fetchall(), columns=list(result.keys()))
+                columns = [field[0] for field in result.cursor.description]
+                return pd.DataFrame.from_records(result.fetchall(), columns=columns)
         except Exception:
             raise ValueError("Protected query unavailable") from None
 
     def validate_company_policy(self, policy):
         from sqlalchemy import inspect
+
         with self._read_session() as conn:
             catalog = inspect(conn)
             schemas = {}
+            base_tables = {}
             for name in [r.table for r in policy.tables] + ([policy.grants_table] if policy.grants_table else []):
                 schema, table = name.split(".")
                 if self.policy_dialect == "oracle":
@@ -63,12 +77,15 @@ class ProtectedSql:
                         "SELECT c.column_name, c.data_type FROM all_tab_columns c "
                         "JOIN all_tables t ON t.owner=c.owner AND t.table_name=c.table_name "
                         "WHERE c.owner=:owner AND c.table_name=:name",
-                        {"owner": schema, "name": table})
+                        {"owner": schema, "name": table},
+                    )
                     schemas[name] = dict(rows.fetchall())
                     if not schemas[name]:
                         raise ValueError("A protected source must be a base table")
                     continue
-                if table not in catalog.get_table_names(schema=schema):
+                if schema not in base_tables:
+                    base_tables[schema] = set(catalog.get_table_names(schema=schema))
+                if table not in base_tables[schema]:
                     raise ValueError("A protected source must be a base table")
                 schemas[name] = {c["name"]: c["type"] for c in catalog.get_columns(table, schema=schema)}
             for rule in policy.tables:
@@ -77,7 +94,9 @@ class ProtectedSql:
                     raise ValueError("Invalid protected columns")
                 if rule.source:
                     grants = schemas[policy.grants_table]
-                    if not all(c in grants for c in (policy.employee_column, policy.source_column, policy.company_column)):
+                    if not all(
+                        c in grants for c in (policy.employee_column, policy.source_column, policy.company_column)
+                    ):
                         raise ValueError("Invalid entitlement columns")
                     if str(grants[policy.company_column]) != str(fields[rule.company_column]):
                         raise ValueError("Incompatible company keys")
