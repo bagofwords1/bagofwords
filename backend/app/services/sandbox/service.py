@@ -82,6 +82,8 @@ TRANSITIONS: Dict[str, frozenset] = {
 KEEP_SNAPSHOT_REASONS = ("recreated", "moved")
 MAX_RESTORED_FILES = 200                  # report files put back into a recreated sandbox
 MAX_RESTORED_BYTES = 500 * 1024 * 1024
+# How long a run waits for a claim that is not a run (a pause or a stop in flight).
+BRIEF_CLAIM_WAIT_SECONDS = 20
 MAX_LISTED_PROCESSES = 20
 KILL_GRACE_SECONDS = 5  # between SIGTERM and SIGKILL when an admin stops a run
 
@@ -508,6 +510,32 @@ class SandboxService:
             mounts=self._mounts(sandbox, env, compute),
         )
 
+    async def _resolve_environment(self, db: AsyncSession, report: ReportRef, actor_id: Optional[str],
+                                   requested: Optional[str], settings: SandboxSettings) -> tuple:
+        """``(environment, snapshot source)`` for a new sandbox of this report.
+
+        The one place that decides it, so that what is confirmed before a run
+        and what the run then creates are the same environment. A sandbox that
+        is coming back from a snapshot (lost, or moved off its compute) comes
+        back as what it was when nothing else was asked for and its environment
+        can still be used. ``snapshot source`` is the sandbox row whose
+        snapshot will be restored: only when the environment is the same one."""
+        usable = await self.access.usable_environments(db, report.organization_id, actor_id)
+        previous = await self._snapshot_source(db, report.id)
+        if not requested and previous is not None and any(
+            e.id == previous.environment_id and e.enabled for e in usable
+        ):
+            requested = previous.environment_id
+        env = environment_service.choose_environment(
+            usable, requested=requested,
+            agent_default_id=await environment_service.agent_default_environment_id(db, report.data_source_ids),
+            org_default_id=settings.default_environment_id,
+        )
+        # A workspace is only put into the environment it was made in: another
+        # one has another image, and its setup script would have been skipped.
+        source = previous if (previous is not None and previous.environment_id == env.id) else None
+        return env, source
+
     async def ensure(self, db: AsyncSession, report: ReportRef, actor_id: Optional[str], *,
                      environment: Optional[str] = None) -> tuple:
         """The report's sandbox, created if there is none. Returns ``(sandbox, flags)``
@@ -528,19 +556,7 @@ class SandboxService:
             await self.access.require_environment(db, report.organization_id, actor_id, existing.environment_id)
             return existing, flags
 
-        usable = await self.access.usable_environments(db, report.organization_id, actor_id)
-        if not environment:
-            # A sandbox that is coming back from a snapshot (lost, or moved off its
-            # compute) comes back as what it was: the same environment, with its
-            # mounts, hooks and network policy, not whatever the default is now.
-            previous = await self._snapshot_source(db, report.id)
-            if previous is not None and any(e.id == previous.environment_id and e.enabled for e in usable):
-                environment = previous.environment_id
-        env = environment_service.choose_environment(
-            usable, requested=environment,
-            agent_default_id=await environment_service.agent_default_environment_id(db, report.data_source_ids),
-            org_default_id=settings.default_environment_id,
-        )
+        env, source = await self._resolve_environment(db, report, actor_id, environment, settings)
         if int(env.hook_failures or 0) >= environment_service.HOOK_FAILURE_CAP:
             raise SandboxError(
                 errors.ENVIRONMENT_BROKEN,
@@ -576,16 +592,70 @@ class SandboxService:
                 raise
             return winner, flags
 
-        restore_from = await self._latest_snapshot(db, report.id)
+        # Placement read what was free without a lock. Now that this sandbox is
+        # recorded, check again: of two created at the same moment, the later
+        # one backs out rather than both landing on memory only one fits in.
+        short = await self._overcommitted_by(db, sandbox, compute, env)
+        if short:
+            await self._set_state(db, sandbox, "deleted", actor_id, details={"reason": "no room after all"})
+            await db.commit()
+            raise SandboxError(
+                errors.NO_COMPUTE,
+                f"Every sandbox compute that fits is at capacity (not enough {capacity.describe_short(short)}). "
+                "Try again when a sandbox has stopped or been deleted.", status=503,
+            )
+
+        restore_from = dict(source.snapshot) if (source is not None and source.snapshot) else None
         await self._provision(db, sandbox, env, compute, settings, token, report, actor_id, restore_from=restore_from)
         if restore_from:
-            # It carries on from the snapshot: say so, and keep the snapshot as this sandbox's own.
+            # It carries on from the snapshot: say so. The snapshot is now this
+            # sandbox's and nobody else's, so one sandbox answers for one file.
             flags["recreated"], flags["snapshot"] = True, restore_from
             sandbox.snapshot = restore_from
             flag_modified(sandbox, "snapshot")
-            await db.commit()
+            source.snapshot = None
+            flag_modified(source, "snapshot")
+        # Whatever older snapshots the report still has are of a workspace that
+        # is not this one any more (another environment, or superseded).
+        await self._drop_report_snapshots(db, report.id, keep=sandbox)
+        await db.commit()
         flags["created"] = True
         return sandbox, flags
+
+    async def _overcommitted_by(self, db: AsyncSession, sandbox: Sandbox, compute: SandboxCompute,
+                                env: SandboxEnvironment) -> List[str]:
+        """What this just-recorded sandbox would be short of on its compute,
+        counting only the sandboxes recorded before it. Empty when it fits."""
+        rows = await db.execute(
+            select(Sandbox).where(Sandbox.compute_id == compute.id, Sandbox.deleted_at.is_(None),
+                                  Sandbox.state.in_(capacity.EXISTING_STATES), Sandbox.id != sandbox.id)
+        )
+        # Every sandbox that is already established counts. Among those still
+        # being created at this moment, exactly one of any two yields: the one
+        # that sorts later by creation time, then id.
+        mine = (sandbox.created_at or _now(), sandbox.id)
+        earlier = [
+            s for s in rows.scalars().all()
+            if s.state != "provisioning" or (s.created_at or mine[0], s.id) < mine
+        ]
+        usage = capacity.usage_by_compute(earlier).get(compute.id)
+        need = {"cpus": env.cpus, "memory_mb": env.memory_mb, "disk_mb": env.disk_mb}
+        return capacity.fits(compute, usage, need).short
+
+    async def _drop_report_snapshots(self, db: AsyncSession, report_id: str, *, keep: Optional[Sandbox] = None) -> None:
+        """Discard the snapshots of this report's sandboxes other than ``keep``:
+        the files and the rows' references. The caller commits."""
+        kept_path = (keep.snapshot or {}).get("path") if keep is not None else None
+        rows = await db.execute(
+            select(Sandbox).where(Sandbox.report_id == str(report_id), Sandbox.snapshot.isnot(None))
+        )
+        for row in rows.scalars().all():
+            if keep is not None and row.id == keep.id:
+                continue
+            if row.snapshot and row.snapshot.get("path") != kept_path:
+                await snapshots.discard(row.snapshot)
+            row.snapshot = None
+            flag_modified(row, "snapshot")
 
     async def _provision(self, db: AsyncSession, sandbox: Sandbox, env: SandboxEnvironment, compute: SandboxCompute,
                          settings: SandboxSettings, token: str, report: ReportRef, actor_id: Optional[str], *,
@@ -627,6 +697,15 @@ class SandboxService:
             except Exception as exc:  # noqa: BLE001 - the runtime client's errors and anything unexpected
                 await self._fail(db, sandbox, actor_id, _reason(exc), driver=driver)
                 raise SandboxError(errors.UNAVAILABLE, f"The sandbox could not be started: {_reason(exc)}", status=503) from exc
+            except asyncio.CancelledError:
+                # The caller's task was cancelled mid-create (the user stopped the
+                # turn during a slow image pull, say). Nothing after this runs in
+                # the cancelled task, so clean up in a fresh session, shielded:
+                # otherwise the row stays "provisioning", every run on the report
+                # answers "still being created" for half an hour, and what was
+                # started on the compute is left there.
+                await asyncio.shield(self._abandon_create(sandbox.id, dict(sandbox.driver_ref or {})))
+                raise
         finally:
             await driver.close()
 
@@ -641,6 +720,36 @@ class SandboxService:
             "compute": compute.name, "network_policy": env.network_policy,
         })
         await db.commit()
+
+    async def _abandon_create(self, sandbox_id: str, driver_ref: Dict[str, Any]) -> None:
+        """Undo a create whose task was cancelled: remove what exists on the
+        compute and mark the sandbox failed, so the next run starts over."""
+        try:
+            async with self._sessions()() as db:
+                sandbox = await db.get(Sandbox, sandbox_id)
+                if sandbox is None or sandbox.state != "provisioning":
+                    return
+                compute = await db.get(SandboxCompute, sandbox.compute_id) if sandbox.compute_id else None
+                if compute is not None and compute.deleted_at is None:
+                    try:
+                        driver = await compute_service.build_driver(db, compute)
+                        try:
+                            # By id: the create may not have got as far as returning a handle.
+                            await driver.delete(SandboxHandle(sandbox_id=sandbox_id, ref=driver_ref))
+                        finally:
+                            await driver.close()
+                    except Exception:  # noqa: BLE001 - reconcile removes whatever is left
+                        logger.warning("could not remove the half-created sandbox %s from its compute", sandbox_id)
+                released = await db.execute(
+                    update(Sandbox).where(Sandbox.id == sandbox_id, Sandbox.state == "provisioning")
+                    .values(state="failed", error="Creation was cancelled")
+                )
+                if released.rowcount:
+                    await self._event(db, sandbox_id, "failed", None,
+                                      {"from": "provisioning", "to": "failed", "reason": "creation was cancelled"})
+                await db.commit()
+        except Exception:  # noqa: BLE001 - the lifecycle job recovers a stuck create as a last resort
+            logger.exception("could not clean up sandbox %s after a cancelled create", sandbox_id)
 
     async def _run_hook(self, db: AsyncSession, runtime, sandbox: Sandbox, hook: str, script: str,
                         actor_id: Optional[str], *, timeout: int, required: bool = True) -> bool:
@@ -819,7 +928,7 @@ class SandboxService:
             await progress("created")
         resumed = False
         try:
-            resumed = await self._ensure_running(db, sandbox, report, actor_id)
+            resumed = await self._when_free(db, sandbox, lambda: self._ensure_running(db, sandbox, report, actor_id))
         except _Lost as lost:
             # The sandbox is gone: recreate it. The caller is told the filesystem is fresh.
             await self._fail(db, sandbox, None, f"lost: {lost}")
@@ -838,13 +947,19 @@ class SandboxService:
             )
 
         # One run at a time: claim the sandbox atomically, across workers.
-        claimed = await db.execute(
-            update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state.in_(("ready", "idle")))
-            .values(state="busy", last_used_at=_now(), stopped_at=None)
-        )
-        if claimed.rowcount != 1:
-            await db.rollback()
-            raise errors.busy()
+        async def claim() -> str:
+            await db.refresh(sandbox, attribute_names=["state"])
+            before = sandbox.state
+            taken = await db.execute(
+                update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state.in_(("ready", "idle")))
+                .values(state="busy", last_used_at=_now(), stopped_at=None)
+            )
+            if taken.rowcount != 1:
+                await db.rollback()
+                raise errors.busy()
+            return before
+
+        claimed_from = await self._when_free(db, sandbox, claim)
         limit = int((sandbox.limits or {}).get("run_timeout_seconds") or (env.run_timeout_seconds if env else 600))
         timeout = min(int(request.timeout_seconds), limit) if request.timeout_seconds else limit
         run = SandboxRun(
@@ -856,7 +971,7 @@ class SandboxService:
             started_at=_now(),
         )
         db.add(run)
-        await self._event(db, sandbox.id, "busy", actor_id, {"from": "ready", "to": "busy"})
+        await self._event(db, sandbox.id, "busy", actor_id, {"from": claimed_from, "to": "busy"})
         await db.commit()
         await db.refresh(sandbox)
         await self._event(db, sandbox.id, "run_started", actor_id, {"run_id": run.id, "language": request.language})
@@ -906,6 +1021,25 @@ class SandboxService:
                 await db.commit()
         except Exception:  # noqa: BLE001 - the lifecycle job recovers an abandoned run as a last resort
             logger.exception("could not release sandbox %s after a cancelled run", sandbox_id)
+
+    async def _when_free(self, db: AsyncSession, sandbox: Sandbox, action):
+        """Do ``action``; if the sandbox is busy but no run is in progress, wait
+        for it and try again. A pause or a stop holds the same claim a run does,
+        for the seconds its command takes; that is not "a run in progress", and
+        a run arriving then should not be turned away for it."""
+        sandbox_id = sandbox.id  # read now: a rollback below expires the loaded row
+        deadline = time.monotonic() + BRIEF_CLAIM_WAIT_SECONDS
+        while True:
+            try:
+                return await action()
+            except SandboxError as exc:
+                if exc.code != errors.BUSY or time.monotonic() >= deadline:
+                    raise
+                await db.rollback()
+                await db.refresh(sandbox)
+                if sandbox.state == "provisioning" or await self.running_run(db, sandbox_id) is not None:
+                    raise  # another call is creating it, or a real run is in progress
+                await asyncio.sleep(0.5)
 
     async def _run_claimed(self, db: AsyncSession, report: ReportRef, actor_id: Optional[str], request: RunRequest,
                            plan: "_Plan", sandbox: Sandbox, run: SandboxRun, outcome: RunOutcome, policy: str,
@@ -1353,16 +1487,16 @@ class SandboxService:
                 if sandbox.state == "stopped":
                     return sandbox
                 raise errors.busy()
-            if previous == "idle" and CAP_PAUSE in driver.capabilities():
-                try:
-                    await driver.unpause(self._handle(sandbox))  # thaw it, so its stop script can run
-                except SandboxDriverError:
-                    pass
-            await self._stop_hook(db, driver, sandbox, actor_id)
-            await self._final_egress(db, driver, sandbox)
-            if snapshot or (await load_settings(db, sandbox.organization_id)).snapshot_on_stop:
-                await self.snapshot(db, sandbox, actor_id, driver=driver, reason=f"stop: {reason}")
             try:
+                if previous == "idle" and CAP_PAUSE in driver.capabilities():
+                    try:
+                        await driver.unpause(self._handle(sandbox))  # thaw it, so its stop script can run
+                    except SandboxDriverError:
+                        pass
+                await self._stop_hook(db, driver, sandbox, actor_id)
+                await self._final_egress(db, driver, sandbox)
+                if snapshot or (await load_settings(db, sandbox.organization_id)).snapshot_on_stop:
+                    await self.snapshot(db, sandbox, actor_id, driver=driver, reason=f"stop: {reason}")
                 await driver.stop(self._handle(sandbox))
             except SandboxNotFound:
                 await self._fail(db, sandbox, None, "lost: it is no longer on its compute")
@@ -1420,14 +1554,20 @@ class SandboxService:
             started = time.monotonic()
             try:
                 taken = await snapshots.take(driver, self._handle(sandbox), max_bytes=settings.snapshot_max_mb * 1024 * 1024)
-            except SandboxDriverError as exc:
-                await self._event(db, sandbox.id, "snapshot_skipped", actor_id, {"reason": exc.message[:300], "for": reason})
+            except Exception as exc:  # noqa: BLE001 - a full disk or a storage error as much as the compute's
+                why = getattr(exc, "message", None) or _reason(exc)
+                logger.warning("snapshot of sandbox %s was not taken: %s", sandbox.id, why)
+                await self._event(db, sandbox.id, "snapshot_skipped", actor_id, {"reason": str(why)[:300], "for": reason})
                 await db.commit()
                 if own:
-                    raise SandboxError(errors.UNAVAILABLE, f"The snapshot was not taken: {exc.message}", status=503) from exc
+                    raise SandboxError(errors.UNAVAILABLE, f"The snapshot was not taken: {why}", status=503) from exc
                 return None
+            superseded = dict(sandbox.snapshot) if sandbox.snapshot else None
             sandbox.snapshot = taken
             flag_modified(sandbox, "snapshot")
+            if superseded and superseded.get("path") != taken.get("path"):
+                await snapshots.discard(superseded)  # the one it was restored from
+            await self._drop_report_snapshots(db, sandbox.report_id, keep=sandbox)
             await self._event(db, sandbox.id, "snapshot", actor_id, {
                 "bytes": taken["bytes"], "for": reason, "duration_seconds": round(time.monotonic() - started, 2),
             })
@@ -1441,13 +1581,48 @@ class SandboxService:
         """Take a sandbox off its compute without losing its workspace: snapshot
         it, then remove it there. The report's next run creates a new sandbox,
         on whichever compute has room, from that snapshot. Refused when the
-        snapshot cannot be taken: nothing is removed without a copy."""
-        if sandbox.state == "busy":
-            raise errors.busy()
-        if sandbox.state not in ("ready", "idle", "stopped"):
+        snapshot cannot be taken: nothing is removed without a copy.
+
+        The sandbox is claimed first, the way a run claims it, so no run can
+        start in it between the snapshot and the removal."""
+        previous, previous_used = sandbox.state, sandbox.last_used_at
+        claimed = await db.execute(
+            update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state.in_(("ready", "idle", "stopped")))
+            .values(state="busy", last_used_at=_now())
+        )
+        await db.commit()
+        await db.refresh(sandbox)
+        if claimed.rowcount != 1:
+            if sandbox.state in ("busy", "provisioning"):
+                raise errors.busy()
             raise SandboxError(errors.INVALID_STATE, f"A {sandbox.state} sandbox cannot be moved", status=409)
-        taken = await self.snapshot(db, sandbox, actor_id, reason="moved")
+
+        async def give_back() -> None:
+            await db.execute(
+                update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state == "busy")
+                .values(state=previous, last_used_at=previous_used)
+            )
+            await db.commit()
+            await db.refresh(sandbox)
+
+        try:
+            _, driver = await self._driver(db, sandbox)
+            try:
+                if previous in ("ready", "idle"):
+                    if previous == "idle" and CAP_PAUSE in driver.capabilities():
+                        try:
+                            await driver.unpause(self._handle(sandbox))
+                        except SandboxDriverError:
+                            pass
+                    await self._stop_hook(db, driver, sandbox, actor_id)
+                taken = await self.snapshot(db, sandbox, actor_id, driver=driver, reason="moved")
+            finally:
+                await driver.close()
+        except BaseException:
+            await give_back()
+            raise
         if not taken:
+            await give_back()
             raise SandboxError(errors.UNAVAILABLE, "The snapshot was not taken, so the sandbox was left where it is.", status=503)
         await self._remove(db, sandbox, actor_id, reason="moved")
 
@@ -1509,6 +1684,10 @@ class SandboxService:
             # moved off its compute, keeps it: that is what the copy is for.)
             await snapshots.discard(sandbox.snapshot)
             sandbox.snapshot = None
+        if reason not in KEEP_SNAPSHOT_REASONS:
+            # ... and so does any older copy this report still has: a deliberate
+            # delete must not be followed by an old workspace coming back.
+            await self._drop_report_snapshots(db, sandbox.report_id)
         await self._set_state(db, sandbox, "deleted", actor_id, details={"reason": reason})
         await audit(db, sandbox.organization_id, "sandbox.deleted", actor_id, "sandbox", sandbox.id,
                     {"title": await self._title(db, sandbox, title), "report_id": sandbox.report_id, "reason": reason})
@@ -1532,19 +1711,15 @@ class SandboxService:
     async def environment_for(self, db: AsyncSession, report: ReportRef, actor_id: Optional[str],
                               requested: Optional[str] = None) -> Optional[SandboxEnvironment]:
         """The environment a run in this report would use: its sandbox's, or
-        the one a new sandbox would be created from. None when that cannot be
-        told (the run itself then reports why)."""
+        the one ``ensure`` would create a new sandbox from (the same resolver).
+        None when that cannot be told (the run itself then reports why)."""
         try:
             existing = await self.get_for_report(db, report.id)
             if existing is not None and existing.state != "failed" and existing.environment_id:
                 return await db.get(SandboxEnvironment, existing.environment_id)
             settings = await load_settings(db, report.organization_id)
-            usable = await self.access.usable_environments(db, report.organization_id, actor_id)
-            return environment_service.choose_environment(
-                usable, requested=requested,
-                agent_default_id=await environment_service.agent_default_environment_id(db, report.data_source_ids),
-                org_default_id=settings.default_environment_id,
-            )
+            env, _ = await self._resolve_environment(db, report, actor_id, requested, settings)
+            return env
         except SandboxError:
             return None
 

@@ -5115,9 +5115,9 @@
       "allowlist": "Solo dominios permitidos",
       "full": "Internet completo",
       "noneHint": "El código del sandbox no puede acceder a la red.",
-      "registriesHint": "Solo se puede acceder a los dominios indicados en Conexiones salientes permitidas, en la configuración de Sandbox. De forma predeterminada son los registros de paquetes de pip, npm y Go, para que las ejecuciones puedan instalar paquetes.",
+      "registriesHint": "Solo se puede acceder a los dominios indicados en Conexiones salientes permitidas, en la configuración de Sandbox. De forma predeterminada son los registros de paquetes de pip, npm y Go, para que las ejecuciones puedan instalar paquetes. Nunca se puede acceder a hosts internos ni a direcciones privadas, y solo funcionan HTTP y HTTPS. Aún no se admiten redes en las que internet solo es accesible a través de un proxy corporativo.",
       "allowlistHint": "Solo se puede acceder a los dominios indicados en este entorno.",
-      "fullHint": "El código del sandbox puede acceder a cualquier dirección de internet."
+      "fullHint": "El código del sandbox puede acceder a cualquier dirección de internet. Nunca se puede acceder a hosts internos ni a direcciones privadas, y solo funcionan HTTP y HTTPS. Aún no se admiten redes en las que internet solo es accesible a través de un proxy corporativo."
     },
     "sandboxes": {
       "refresh": "Actualizar",

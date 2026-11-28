@@ -5192,9 +5192,9 @@
       "allowlist": "Allowed domains only",
       "full": "Full internet",
       "noneHint": "Code in the sandbox cannot reach the network at all.",
-      "registriesHint": "Only the domains listed under Allowed outbound connections in the Sandbox settings can be reached. By default these are the pip, npm and Go package registries, so runs can install packages.",
+      "registriesHint": "Only the domains listed under Allowed outbound connections in the Sandbox settings can be reached. By default these are the pip, npm and Go package registries, so runs can install packages. Internal hosts and private addresses can never be reached, and only HTTP and HTTPS work. Not supported yet: networks where the internet is only reachable through a corporate proxy.",
       "allowlistHint": "Only the domains listed on this environment can be reached.",
-      "fullHint": "Code in the sandbox can reach any address on the internet."
+      "fullHint": "Code in the sandbox can reach any address on the internet. Internal hosts and private addresses can never be reached, and only HTTP and HTTPS work. Not supported yet: networks where the internet is only reachable through a corporate proxy."
     },
     "sandboxes": {
       "refresh": "Refresh",

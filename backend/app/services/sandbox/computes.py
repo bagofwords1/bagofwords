@@ -284,6 +284,14 @@ async def update_compute(db: AsyncSession, organization_id: str, actor_id: Optio
         config, merged = _complete(compute.type, config, merged, previous_config=previous_config)
         if config != previous_config:
             if registry.is_another_compute(compute.type, previous_config, config):
+                if compute.bootstrap_status == "running":
+                    # The bootstrap in flight was started for the old server and
+                    # would write its result (ready, the old host key) onto this row.
+                    raise SandboxError(
+                        errors.BOOTSTRAP_RUNNING,
+                        "This compute is being bootstrapped. Wait for it to finish before pointing it at another server.",
+                        status=409,
+                    )
                 # It now points at a different server. Nothing learned about the
                 # old one holds: not its pinned identity, not its certificate,
                 # not "bootstrapped". Start over, disabled, so no sandbox is
@@ -441,6 +449,7 @@ async def bootstrap_compute(db: AsyncSession, organization_id: str, actor_id: Op
     first sandbox is created)."""
     driver = await build_driver(db, compute)
     await mark_bootstrap_started(db, compute, driver)
+    config_at_start = dict(compute.config or {})
 
     async def on_step(result: StepResult) -> None:
         current = [dict(s) for s in (compute.bootstrap_steps or [])]
@@ -472,6 +481,21 @@ async def bootstrap_compute(db: AsyncSession, organization_id: str, actor_id: Op
     finally:
         await driver.close()
 
+    # Read what is stored now without reloading the row (that would drop what was just learned).
+    stored_config = (await db.execute(
+        select(SandboxCompute.config).where(SandboxCompute.id == compute.id).execution_options(populate_existing=False)
+    )).scalar_one_or_none() or {}
+    if registry.is_another_compute(compute.type, config_at_start, dict(stored_config)):
+        # It was pointed at another server while this ran: what was learned is
+        # about the old one. Store nothing of it; the reset stands.
+        logger.warning("sandbox compute %s changed server during its bootstrap; the result is discarded", compute.id)
+        await db.rollback()  # nothing learned in this run is stored
+        await db.execute(
+            update(SandboxCompute).where(SandboxCompute.id == compute.id, SandboxCompute.bootstrap_status == "running")
+            .values(bootstrap_status="none")
+        )
+        await db.commit()
+        return results
     failed = next((r for r in results if r.status == "failed"), None)
     compute.bootstrap_steps = [r.as_dict() for r in results]
     flag_modified(compute, "bootstrap_steps")

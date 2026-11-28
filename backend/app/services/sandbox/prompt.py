@@ -12,7 +12,7 @@ NETWORK_EXPLANATIONS = {
     "none": "no internet access: nothing can be downloaded and packages cannot be installed; use what is preinstalled",
     "registries": "only the domains the admin allows, by default the package registries (pip, npm and go get work); every other site is refused",
     "allowlist": "only the domains its environment lists; everything else is refused",
-    "full": "the public internet (private networks stay blocked)",
+    "full": "the public internet over HTTP and HTTPS only (no SSH, database or other raw connections; private networks stay blocked)",
 }
 
 SANDBOX_TOOLS = ("create_sandbox", "run_in_sandbox", "sandbox_status", "delete_sandbox")

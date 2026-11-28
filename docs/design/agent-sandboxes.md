@@ -816,3 +816,43 @@ phase 1, the storing is covered on the fake compute).
   reasons. Run notices carry codes (`note_codes`) and are translated; the others are not
   yet.
 - **Evacuation was only exercised on the fake compute**; there is one real test server.
+
+### Second review of the additions
+
+A further review of the commits above found races and leaks in the new paths. All are
+fixed, each with a test in `tests/e2e/sandbox/test_review_fixes.py`:
+
+- The rename had changed Docker's own `FirewallBackend` key, so the check for an
+  unsupported firewall backend could not fire. Restored, with its test fixture.
+- **Evacuation claims the sandbox** before it snapshots, the way a run does, and gives
+  the claim back when the snapshot fails.
+- **One snapshot per report.** A sandbox restored from a snapshot takes it over; its own
+  next snapshot supersedes it; a deliberate delete removes every copy the report has.
+- **A workspace is restored only into the environment it was made in.** In any other
+  environment the sandbox starts fresh and its setup script runs.
+- **One resolver decides the environment** for both the confirmation and the create
+  (`_resolve_environment`), so a run is never confirmed for one environment and created
+  in another.
+- **A create that is cancelled** is cleaned up at once: what was started is removed and
+  the sandbox is marked failed, so the next run starts over.
+- **A stop is never left busy**: a snapshot that fails for any reason (a full disk
+  included) is skipped and recorded, and the stop goes on.
+- **A compute cannot be pointed at another server while it is being bootstrapped**, and
+  a bootstrap that finds its compute changed stores nothing.
+- **Concurrent placement**: after a sandbox is recorded, its fit is checked again
+  against the sandboxes recorded before it; the later of two backs out.
+- **A pause or stop in flight is not "a run in progress"**: a run that arrives then
+  waits up to 20 seconds for the claim to be released.
+
+Still open after this round:
+
+- **Resume under concurrency.** The fit check before a resume is not repeated after it,
+  so two stopped sandboxes resumed at the same moment can exceed a compute's memory.
+  Creation, the common case, is covered.
+- **Error text**: codes whose detail is the useful part (`sandbox.invalid_request`,
+  `sandbox.unavailable`, `sandbox.invalid_state`, `sandbox.no_compute`,
+  `sandbox.package_install_failed`) have no catalog line on purpose, and server-written
+  details stay English in every locale.
+- **Corporate proxies and internal hosts are not supported.** The network policy hints
+  in the UI say so. See `agent-sandboxes-proxy-and-network.md`.
+- **Checkpoint and restore** of a running sandbox's processes is not built.

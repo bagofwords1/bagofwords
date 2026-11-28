@@ -36,6 +36,7 @@ COMPUTE_IN_USE = "sandbox.compute_in_use"
 COMPUTE_NOT_READY = "sandbox.compute_not_ready"
 ENVIRONMENT_IN_USE = "sandbox.environment_in_use"
 ENVIRONMENT_BROKEN = "sandbox.environment_broken"  # its setup or start script keeps failing
+BOOTSTRAP_RUNNING = "sandbox.bootstrap_running"
 NAME_TAKEN = "sandbox.name_taken"
 
 

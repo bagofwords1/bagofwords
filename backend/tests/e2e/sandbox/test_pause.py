@@ -145,3 +145,37 @@ def test_a_sandbox_kept_warm_is_neither_frozen_nor_stopped_until_then(world, rep
     cleared = test_client.post(f"{BASE}/{sandbox_id}/keep-warm", json={"hours": 0}, headers=admin).json()
     assert cleared["keep_warm_until"] is None
     assert test_client.post(f"{BASE}/{sandbox_id}/keep-warm", json={"hours": 1000}, headers=admin).status_code == 422
+
+
+def test_a_run_waits_for_a_pause_in_flight_instead_of_being_refused_as_busy(world, report, monkeypatch):
+    """A pause holds the same claim a run does for the seconds its command
+    takes. That is not "a run in progress"."""
+    import asyncio
+
+    from app.services.sandbox import service as service_module
+
+    monkeypatch.setattr(service_module, "BRIEF_CLAIM_WAIT_SECONDS", 20)
+    world.add_compute("srv", server="srv")
+    rep = report()
+    sandbox_id = world.run_code(rep, world.admin_id, ECHO).sandbox_id
+
+    async def go():
+        async with world.session() as db:  # the lifecycle job has claimed it to pause it
+            (await db.get(Sandbox, sandbox_id)).state = "busy"
+            await db.commit()
+
+        async def release_soon():
+            await asyncio.sleep(1.5)
+            async with world.session() as db:
+                (await db.get(Sandbox, sandbox_id)).state = "idle"
+                await db.commit()
+        releasing = asyncio.ensure_future(release_soon())
+        async with world.session() as db:
+            outcome = await world.service.run(db, world.report_ref(rep), world.admin_id, ECHO)
+        await releasing
+        return outcome
+
+    outcome = run(go())
+    assert outcome.stdout == "ran\n" and outcome.sandbox_id == sandbox_id
+    busy = [e for e in world.rows(SandboxEvent, SandboxEvent.sandbox_id == sandbox_id) if e.type == "busy"]
+    assert busy[-1].details["from"] == "idle", "the real previous state is recorded"

@@ -262,7 +262,7 @@ def test_the_workspace_is_a_size_limited_filesystem_owned_by_the_run_user():
 @pytest.mark.parametrize("info, version, expected", [
     ({"ServerVersion": "29.1", "Runtimes": {"runc": {}}}, "podman version 5.2.0", "Podman"),
     ({"ServerVersion": "29.1", "SecurityOptions": ["name=seccomp", "name=rootless"]}, "Docker version 29.1", "rootless"),
-    ({"ServerVersion": "29.1", "FirewallCompute": {"Driver": "nftables"}}, "Docker version 29.1", "nftables"),
+    ({"ServerVersion": "29.1", "FirewallBackend": {"Driver": "nftables"}}, "Docker version 29.1", "nftables"),
 ])
 def test_unsupported_setups_are_named(info, version, expected):
     facts = commands.describe_docker(info, version)
@@ -271,7 +271,7 @@ def test_unsupported_setups_are_named(info, version, expected):
 
 def test_a_supported_setup_has_no_problems_and_reports_the_strong_runtime():
     facts = commands.describe_docker(
-        {"ServerVersion": "29.10.1", "Driver": "overlayfs", "FirewallCompute": {"Driver": "iptables"},
+        {"ServerVersion": "29.10.1", "Driver": "overlayfs", "FirewallBackend": {"Driver": "iptables"},
          "Runtimes": {"runc": {}, "runsc": {}, "io.containerd.runc.v2": {}}, "SecurityOptions": ["name=apparmor"]},
         "Docker version 29.10.1, build abc",
     )

@@ -145,3 +145,13 @@ def sandbox_world(sandbox_cast, agent_sandboxes_on):
     world.configure(enabled=True)
     yield world
     reset_fake_computes()
+
+
+@pytest.fixture(autouse=True)
+def _short_claim_wait(monkeypatch):
+    """A run waits briefly for a claim that is not a run (a pause or stop in
+    flight). Tests that set ``busy`` by hand have nothing that will release it,
+    so keep that wait short."""
+    from app.services.sandbox import service as service_module
+
+    monkeypatch.setattr(service_module, "BRIEF_CLAIM_WAIT_SECONDS", 1)
