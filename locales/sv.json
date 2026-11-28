@@ -1,4 +1,15 @@
 {
+  "samplePreview": {
+    "filterHelp": "Välj den kolumn som avgör vilka rader en medlem kan se.",
+    "mappingHelp": "Matcha en medlemsegenskap mot en behörighetsrad. Radens tilldelade värde avgör åtkomsten.",
+    "previewHelp": "Visa ett urval av de rader och kolumner medlemmen får läsa med det sparade utkastet.",
+    "summary": "{member} · Exempelrader: {rows} · Synliga kolumner: {columns}",
+    "checkColumn": "Kontrollera en kolumn",
+    "check": "Kontrollera synlighet",
+    "visible": "{column} är synlig för {member}.",
+    "hidden": "{column} är inte synlig för {member}.",
+    "noColumns": "Inga kolumner är synliga för medlemmen."
+  },
   "grantMapping": {
     "previewError": "Förhandsvisningen misslyckades. Kontrollera regeln och anslutningen.",
     "importTyped": "En tabell per rad. Ange tabell, filterkolumn och resurstyp för en regel.",

@@ -47,14 +47,14 @@ class ProtectedSql:
             return bool(conn.exec_driver_sql(statement, bindings).scalar_one())
 
     @record_protected_execution
-    def execute_company_query(self, sql, policy, employee, identity=None):
+    def execute_company_query(self, sql, policy, employee, identity=None, *, preview_columns=None):
         if self.company_filtered and self._company_reader != (policy, employee, identity):
             raise ValueError("Reader mismatch")
         from app.data_sources.policy_history import record_policy
 
         record_policy(policy)
         try:
-            text, bindings = protect_query(sql, policy, employee, identity=identity, dialect=self.policy_dialect)
+            text, bindings = protect_query(sql, policy, employee, identity=identity, dialect=self.policy_dialect, preview_columns=preview_columns)
             with self._read_session() as conn:
                 record_policy(policy, text)
                 result = conn.exec_driver_sql(text, bindings)
@@ -64,6 +64,9 @@ class ProtectedSql:
             raise ValueError("Protected query unavailable") from None
 
     def validate_company_policy(self, policy):
+        self._validated_policy_catalog(policy)
+
+    def _validated_policy_catalog(self, policy):
         from sqlalchemy import inspect
 
         with self._read_session() as conn:
@@ -76,7 +79,7 @@ class ProtectedSql:
                     rows = conn.exec_driver_sql(
                         "SELECT c.column_name, c.data_type FROM all_tab_columns c "
                         "JOIN all_tables t ON t.owner=c.owner AND t.table_name=c.table_name "
-                        "WHERE c.owner=:owner AND c.table_name=:name",
+                        "WHERE c.owner=:owner AND c.table_name=:name ORDER BY c.column_id",
                         {"owner": schema, "name": table},
                     )
                     schemas[name] = dict(rows.fetchall())
@@ -100,3 +103,4 @@ class ProtectedSql:
                         raise ValueError("Invalid entitlement columns")
                     if str(grants[policy.company_column]) != str(fields[rule.company_column]):
                         raise ValueError("Incompatible company keys")
+            return schemas

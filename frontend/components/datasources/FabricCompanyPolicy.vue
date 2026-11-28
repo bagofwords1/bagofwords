@@ -46,7 +46,7 @@
               </div>
               <div v-if="!rule" class="mt-4"><UButton @click="addRule">{{ t('fabricCompany.add') }}</UButton></div>
               <div v-else-if="tab === 'rows'" class="mt-4 space-y-4">
-                <label class="label">{{ t('grantMapping.target') }}<select v-if="physicalColumns.length" v-model="rule.company_column" class="control"><option disabled value="">{{ t('grantMapping.chooseColumn') }}</option><option v-for="name in [...new Set([rule.company_column, ...physicalColumns].filter(Boolean))]" :key="name" :value="name">{{ name }}</option></select><input v-else v-model.trim="rule.company_column" class="control" /></label>
+                <label class="label">{{ t('grantMapping.target') }}<select v-if="physicalColumns.length" v-model="rule.company_column" class="control"><option disabled value="">{{ t('grantMapping.chooseColumn') }}</option><option v-for="name in [...new Set([rule.company_column, ...physicalColumns].filter(Boolean))]" :key="name" :value="name">{{ name }}</option></select><input v-else v-model.trim="rule.company_column" class="control" /><span class="field-hint">{{ t('samplePreview.filterHelp') }}</span></label>
                 <label class="label">{{ t('accessEditor.grantVia') }}
                   <select :value="rule.row_attribute != null ? 'property' : 'table'" class="control" @change="setRowMode(($event.target as HTMLSelectElement).value)">
                     <option value="table">{{ t('fabricCompany.grants_table') }}</option><option value="property">{{ t('accessEditor.property') }}</option>
@@ -62,7 +62,8 @@
                 <label class="flex items-center gap-2 font-medium"><input type="checkbox" :checked="rule.columns != null" @change="toggleColumns(($event.target as HTMLInputElement).checked)" />{{ t('liveAccess.restrict') }}</label>
                 <p class="hint">{{ t(rule.columns == null ? 'accessEditor.allColumns' : 'accessEditor.selectedColumns') }}</p>
                 <template v-if="rule.columns != null">
-                  <div v-for="column in columnChoices" :key="column" class="rounded-lg border border-line p-3">
+                  <UInput v-if="columnChoices.length > editorPageSize" v-model="editorSearch" icon="i-heroicons-magnifying-glass" :placeholder="t('accessEditor.columnName')" :aria-label="t('accessEditor.columnName')" />
+                  <div v-for="column in editorPage" :key="column" class="rounded-lg border border-line p-3">
                     <label class="flex items-center gap-2 font-medium"><input type="checkbox" :checked="Object.hasOwn(rule.columns, column)" @change="setVisible(column, ($event.target as HTMLInputElement).checked)" />{{ column }}</label>
                     <div v-if="Object.hasOwn(rule.columns, column)" class="mt-2 space-y-2">
                       <select class="control" :aria-label="t('accessEditor.audience')" :value="rule.columns[column] == null ? 'all' : 'match'" @change="setAudience(column, ($event.target as HTMLSelectElement).value)">
@@ -74,6 +75,10 @@
                       </div>
                     </div>
                   </div>
+                  <div v-if="editorMatches.length > editorPageSize" class="flex gap-2">
+                    <UButton size="xs" color="white" :disabled="editorOffset === 0" @click="editorOffset -= editorPageSize">{{ t('common.previous') }}</UButton>
+                    <UButton size="xs" color="white" :disabled="editorOffset + editorPageSize >= editorMatches.length" @click="editorOffset += editorPageSize">{{ t('common.next') }}</UButton>
+                  </div>
                   <form v-if="!physicalColumns.length" class="flex items-center gap-2" @submit.prevent="addColumn"><input v-model.trim="newColumn" class="control" :placeholder="t('accessEditor.columnName')" :aria-label="t('accessEditor.columnName')" /><UButton type="submit" color="white" :disabled="!newColumn">{{ t('accessEditor.add') }}</UButton></form>
                 </template>
               </div>
@@ -82,22 +87,34 @@
                 <UButton v-if="rule && draft.tables.length > 1" color="gray" variant="ghost" size="xs" @click="removeRule">{{ t('accessEditor.removeRule') }}</UButton>
               </div>
             </section>
-            <aside class="self-start rounded-lg border border-line bg-surface-subtle p-4">
+            <aside class="min-w-0 self-start rounded-lg border border-line bg-surface-subtle p-4">
               <h4 class="flex items-center gap-2 font-semibold"><UIcon name="i-heroicons-eye" class="size-4 text-ink-muted" />{{ t('accessEditor.previewAs') }}</h4>
-              <p class="hint">{{ t(saved ? 'accessEditor.previewHint' : 'accessEditor.saveFirst') }}</p>
+              <p class="hint">{{ t(saved ? 'samplePreview.previewHelp' : 'accessEditor.saveFirst') }}</p>
               <div class="mt-3 space-y-2">
                 <USelectMenu v-if="canChooseMember" v-model="reader" searchable :options="memberOptions" option-attribute="label" value-attribute="value" :aria-label="t('accessEditor.previewAs')" />
                 <UButton size="xs" color="white" :loading="previewing" :disabled="busy || !saved || !rule" @click="preview()">{{ t('accessEditor.runPreview') }}</UButton>
-                <div v-if="sample" class="overflow-x-auto rounded border border-line bg-surface p-2 text-xs"><strong>{{ t('liveAccess.' + sample.access_status) }}</strong>
-                  <table v-if="sample.data.length" class="mt-2 w-full"><thead><tr><th v-for="col in sample.columns" :key="col">{{ col }}</th></tr></thead><tbody><tr v-for="(row,j) in sample.data" :key="j"><td v-for="(cell,k) in row" :key="k">{{ cell }}</td></tr></tbody></table>
-                </div>
+                <template v-if="sample">
+                  <p class="text-xs font-medium text-ink" role="status">{{ t('samplePreview.summary', { member: readerLabel, rows: sample.data.length, columns: sample.visible_column_count }) }}</p>
+                  <form class="space-y-1.5 border-t border-line pt-2" @submit.prevent="preview(columnSearch.trim())">
+                    <label class="label">{{ t('samplePreview.checkColumn') }}
+                      <input v-model="columnSearch" type="search" list="sample-column-matches" class="control" :placeholder="t('accessEditor.columnName')" />
+                    </label>
+                    <datalist id="sample-column-matches"><option v-for="name in columnMatches" :key="name" :value="name" /></datalist>
+                    <UButton type="submit" size="xs" color="white" :disabled="busy || !columnSearch.trim()">{{ t('samplePreview.check') }}</UButton>
+                  </form>
+                  <p v-if="sample.checked_visible != null" class="text-xs font-medium" role="status">{{ t(sample.checked_visible ? 'samplePreview.visible' : 'samplePreview.hidden', { column: lastChecked, member: readerLabel }) }}</p>
+                  <p v-if="sample.access_status !== 'rows'" class="hint">{{ t(sample.access_status === 'no_columns' ? 'samplePreview.noColumns' : 'liveAccess.' + sample.access_status) }}</p>
+                  <div v-if="sample.data.length" class="max-h-48 overflow-auto rounded border border-line bg-surface p-2 text-xs">
+                    <table class="w-full"><thead class="sticky top-0 bg-surface"><tr><th v-for="col in sample.columns" :key="col">{{ col }}</th></tr></thead><tbody><tr v-for="(row,j) in sample.data" :key="j"><td v-for="(cell,k) in row" :key="k" class="max-w-40 truncate" :title="String(cell ?? '')">{{ cell }}</td></tr></tbody></table>
+                  </div>
+                </template>
               </div>
               <div v-if="coverage?.activation_enabled && saved && hasPending" class="mt-4 border-t border-line pt-3"><UButton size="xs" color="white" @click="openReview">{{ t('liveAccess.review') }}</UButton></div>
             </aside>
           </div>
         </template>
         <section v-if="screen === 'mapping'" class="space-y-4">
-          <h3 class="heading">{{ t('accessEditor.connectionSetup') }}</h3>
+          <div><h3 class="heading">{{ t('accessEditor.connectionSetup') }}</h3><p class="hint">{{ t('samplePreview.mappingHelp') }}</p></div>
           <div class="grid max-w-2xl gap-4 sm:grid-cols-2">
             <label class="label">{{ t('liveAccess.identity') }}<select v-model="draft.reader_source" class="control"><option value="entra">Microsoft Entra</option><option value="verified_email">{{ t('liveAccess.email') }}</option></select></label>
             <label v-if="draft.reader_source === 'entra'" class="label">{{ t('fabricCompany.tenant_id') }}<input v-model.trim="draft.tenant_id" class="control" /></label>
@@ -148,7 +165,7 @@ type Coverage = {
   counts: Record<Status, number>, properties: string[], activation_enabled: boolean,
   pending_total: number, pending_tables: string[], unresolved_total: number, unresolved: string[], tables: {table: string, protected: boolean, pending: boolean}[]
 }
-type Sample = { columns: string[], data: unknown[][], access_status: string }
+type Sample = { columns: string[], data: unknown[][], access_status: string, visible_column_count: number, checked_visible: boolean | null }
 
 const props = defineProps<{ connectionId: string }>()
 const root = '/connections/' + encodeURIComponent(props.connectionId) + '/company-policy'
@@ -172,6 +189,11 @@ const selected = ref(''), physicalColumns = ref<string[]>([]), grantColumns = re
 const grantTables = ref<string[]>([]), newColumn = ref(''), bulkText = ref('')
 const rule = computed(() => draft.tables.find(row => row.table === selected.value))
 const columnChoices = computed(() => [...new Set([...physicalColumns.value, ...Object.keys(rule.value?.columns || {})])])
+const editorPageSize = 12
+const editorSearch = ref(''), editorOffset = ref(0)
+const editorMatches = computed(() => columnChoices.value.filter(name => name.toLowerCase().includes(editorSearch.value.trim().toLowerCase())))
+const editorPage = computed(() => editorMatches.value.slice(editorOffset.value, editorOffset.value + editorPageSize))
+watch(editorSearch, () => { editorOffset.value = 0 })
 const pendingCount = ref(0), pendingNames = ref<string[]>([])
 const hasPending = computed(() => pendingCount.value > 0)
 const message = ref(''), busy = ref(false), loadFailed = ref(false), savedText = ref('')
@@ -179,6 +201,14 @@ const saved = computed(() => savedText.value === JSON.stringify(draft))
 const self = '__current_reader__'
 const reader = ref(self)
 const sample = ref<Sample | null>(null)
+const { data: signedInUser } = useAuth()
+const readerLabel = computed(() => reader.value === self ? (signedInUser.value?.email || t('accessEditor.myself')) : reader.value)
+const columnSearch = ref('')
+const lastChecked = ref('')
+const columnMatches = computed(() => {
+  const term = columnSearch.value.trim().toLowerCase()
+  return columnChoices.value.filter(name => name.toLowerCase().includes(term)).slice(0, 12)
+})
 const previewing = ref(false)
 const members = ref<{email: string, name?: string}[]>([])
 const memberOptions = computed(() => [
@@ -188,6 +218,8 @@ const memberOptions = computed(() => [
 let previewRevision = 0
 function clearPreview() {
   previewRevision++
+  columnSearch.value = ''
+  lastChecked.value = ''
   sample.value = null
 }
 let generation = 0
@@ -257,6 +289,8 @@ async function openTable(name: string) {
   selected.value = name
   screen.value = 'editor'
   tab.value = 'rows'
+  editorSearch.value = ''
+  editorOffset.value = 0
   newColumn.value = ''
   message.value = ''
   clearPreview()
@@ -357,23 +391,32 @@ async function activate() {
   } catch { message.value = t('fabricCompany.failed') }
   finally { busy.value = false }
 }
-async function preview() {
+async function preview(checkedColumn = '') {
   const table = selected.value, email = reader.value, version = savedText.value
   const revision = ++previewRevision
   busy.value = true
   previewing.value = true
-  sample.value = null
+  if (!checkedColumn) columnSearch.value = ''
   try {
-    const {data, error} = await useMyFetch(root + '/draft/preview', {query: {table, member_email: email === self ? undefined : email}})
+    const {data, error} = await useMyFetch(root + '/draft/preview', {query: {table, member_email: email === self ? undefined : email, checked_column: checkedColumn || undefined}})
     if (error.value || !data.value) throw Error()
-    if (revision === previewRevision && table === selected.value && email === reader.value && saved.value && version === savedText.value) sample.value = data.value as Sample
-  } catch { if (revision === previewRevision) message.value = t('grantMapping.previewError') }
+    if (revision === previewRevision && table === selected.value && email === reader.value && saved.value && version === savedText.value) {
+      sample.value = data.value as Sample
+      lastChecked.value = checkedColumn
+    }
+  } catch {
+    if (revision === previewRevision) {
+      sample.value = null
+      message.value = t('grantMapping.previewError')
+    }
+  }
   finally { busy.value = false; previewing.value = false }
 }
 </script>
 <style scoped>
 .heading { @apply text-lg font-semibold tracking-tight text-ink; }
 .hint { @apply mt-1 text-xs leading-5 text-ink-muted; }
+.field-hint { @apply text-xs font-normal leading-5 text-ink-muted; }
 .label { @apply flex min-w-0 flex-col gap-1.5 text-xs font-medium text-ink-2; }
 .control { @apply min-w-0 rounded-md border border-line-strong bg-surface px-2.5 py-1.5 text-sm font-normal text-ink focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500; }
 .catalog-row { @apply grid grid-cols-[minmax(0,1fr)_minmax(7rem,30%)_1rem] items-center gap-2 px-4 py-3; }

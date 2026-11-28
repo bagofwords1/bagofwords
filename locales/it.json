@@ -1,4 +1,15 @@
 {
+  "samplePreview": {
+    "filterHelp": "Scegli la colonna che determina le righe visibili a un membro.",
+    "mappingHelp": "Associa una proprietà del membro a una riga dei permessi. Il valore concesso determina l’accesso.",
+    "previewHelp": "Mostra un campione delle righe e colonne leggibili dal membro con la bozza salvata.",
+    "summary": "{member} · Righe di esempio: {rows} · Colonne visibili: {columns}",
+    "checkColumn": "Verifica una colonna",
+    "check": "Verifica visibilità",
+    "visible": "{column} è visibile a {member}.",
+    "hidden": "{column} non è visibile a {member}.",
+    "noColumns": "Nessuna colonna visibile per questo membro."
+  },
   "grantMapping": {
     "previewError": "Anteprima non riuscita. Verifica regola e connessione.",
     "importTyped": "Una tabella per riga. Per una regola inserisci tabella, colonna filtro e tipo di risorsa.",

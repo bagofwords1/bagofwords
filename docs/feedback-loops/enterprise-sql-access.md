@@ -52,3 +52,16 @@ Run a preview for each member using the same picker. The first read returned P-1
 The first automated regression failed because the policy schema required an email-to-resource mapping with a resource type. The updated compiler and schema passed the legacy email tests, multi-value and missing-property tests, and read/probe bind checks for the four SQL dialects. This follow-up ran live PostgreSQL queries. The other three dialects were checked at compilation in this pass.
 
 [Table catalog](../../media/pr/live-access-rules/catalog-redesign.png) · [Team-to-project mapping](../../media/pr/live-access-rules/grant-property-mapping.png) · [Single member preview](../../media/pr/live-access-rules/single-member-preview.png)
+
+### Preview a wide table as a member
+
+Use a PostgreSQL table with 1,000 columns, a project-level row grant, and 14 matching rows. Give the operations member access to 999 columns, including the row key `project_id` and a late column `review_notes`. Restrict `salary` to finance.
+
+1. Open the table in **Access rules**, select the operations member, and run the preview. The summary reports 10 sampled rows and 999 visible columns. The grid starts with the row key and three other permitted columns.
+2. Check `salary`. The result says the column is hidden. Neither the API response nor the protected statement in connection query history contains salary values. Check `review_notes`. The grid and the warehouse projection now contain just the row key and the requested column.
+3. Point the member’s grant at a project with no activity. The preview reports no matching rows. Remove the grant and run again. The preview reports no grant. Both responses have zero rows.
+4. Switch members and verify the previous result clears. Under **Column access**, search for a late column and check that the list displays at most 12 choices at once.
+
+The regression starts with `cd backend && python -m pytest -q tests/unit/test_fabric_company_rls.py -k wide_preview`. The PostgreSQL browser and API checks above passed. The SQL protection and access-policy regression run passed 1,524 tests and skipped two optional native connector cases. The Hebrew preview also passed at 390 pixels wide.
+
+[Preview flow](../../media/pr/live-access-rules/wide-preview.gif) · [Hidden column](../../media/pr/live-access-rules/wide-preview-hidden.png) · [Visible column](../../media/pr/live-access-rules/wide-preview-column.png) · [Hebrew preview](../../media/pr/live-access-rules/wide-preview-he.png)

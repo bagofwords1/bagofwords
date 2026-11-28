@@ -1,4 +1,15 @@
 {
+  "samplePreview": {
+    "filterHelp": "Wählen Sie die Spalte aus, die bestimmt, welche Zeilen ein Mitglied sieht.",
+    "mappingHelp": "Ordnen Sie eine Mitgliedseigenschaft einer Berechtigungszeile zu. Ihr Wert bestimmt den Zugriff.",
+    "previewHelp": "Zeigt eine Stichprobe der Zeilen und Spalten, die das Mitglied laut gespeichertem Entwurf lesen darf.",
+    "summary": "{member} · Beispielzeilen: {rows} · Sichtbare Spalten: {columns}",
+    "checkColumn": "Spalte prüfen",
+    "check": "Sichtbarkeit prüfen",
+    "visible": "{column} ist für {member} sichtbar.",
+    "hidden": "{column} ist für {member} nicht sichtbar.",
+    "noColumns": "Für dieses Mitglied sind keine Spalten sichtbar."
+  },
   "grantMapping": {
     "previewError": "Vorschau fehlgeschlagen. Regel und Verbindung prüfen.",
     "importTyped": "Eine Tabelle pro Zeile. Für Regeln Tabelle, Filterspalte und Ressourcentyp eingeben.",

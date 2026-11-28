@@ -145,7 +145,20 @@ def _exact_text(value):
     return exp.Collate(this=terminated, expression=exp.Var(this="Latin1_General_100_BIN2_UTF8"))
 
 
-def protect_query(sql: str, policy: CompanyPolicy, employee: str | None, *, identity: Identity | None = None, dialect: str = "fabric", grant_probe: bool = False):
+def preview_projection(schema, rule, employee, identity, checked_column):
+    """Order the sample by the row key, then physical column order, after CLS."""
+    allowed = rule.visible_columns(employee, identity)
+    permitted = set(allowed) if allowed is not None else None
+    visible = [name for name in schema if permitted is None or name in permitted]
+    first = [rule.company_column] if rule.company_column in visible else []
+    if checked_column in visible:
+        selected = dict.fromkeys([*first, checked_column])
+    else:
+        selected = dict.fromkeys([*first, *visible[:4]])
+    return len(visible), tuple(selected)[:4]
+
+
+def protect_query(sql: str, policy: CompanyPolicy, employee: str | None, *, identity: Identity | None = None, dialect: str = "fabric", grant_probe: bool = False, preview_columns: tuple[str, ...] | None = None):
     if dialect not in {"fabric", "tsql", "oracle", "postgres"}:
         raise ValueError("Unsupported policy dialect")
     if not employee or not employee.strip():
@@ -235,6 +248,10 @@ def protect_query(sql: str, policy: CompanyPolicy, employee: str | None, *, iden
                 tree = tree.from_("DUAL")
             break
         columns = rule.visible_columns(employee, identity)
+        if preview_columns is not None:
+            if not 1 <= len(preview_columns) <= 4 or (columns is not None and set(preview_columns).difference(columns)):
+                raise ValueError("Invalid preview projection")
+            columns = list(preview_columns)
         if columns == []:
             raise ValueError("No visible columns")
         projection = ["*"] if columns is None else [exp.column(c, table="r", quoted=True) for c in columns]

@@ -248,6 +248,9 @@ class MsFabricClient(DataSourceClient):
         self._company_reader = (policy, employee, identity)
 
     def validate_company_policy(self, policy):
+        self._validated_policy_catalog(policy)
+
+    def _validated_policy_catalog(self, policy):
         """Check the exact catalog objects and comparable key types before publishing a mapping."""
         expected = [rule.table for rule in policy.tables]
         if policy.grants_table:
@@ -263,7 +266,7 @@ class MsFabricClient(DataSourceClient):
                             SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE
                             FROM INFORMATION_SCHEMA.COLUMNS c JOIN INFORMATION_SCHEMA.TABLES t
                               ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
-                            WHERE t.TABLE_TYPE = 'BASE TABLE' AND c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ?
+                            WHERE t.TABLE_TYPE = 'BASE TABLE' AND c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ? ORDER BY c.ORDINAL_POSITION
                         """, schema, name)
                         catalog[full_name] = {column: dtype.lower() for s, n, column, dtype in cursor.fetchall()
                                               if s == schema and n == name}
@@ -275,7 +278,7 @@ class MsFabricClient(DataSourceClient):
                 if rule.company_column not in catalog[rule.table]:
                     raise ValueError("Invalid row policy column")
             if not any(not r.row_attribute for r in policy.tables):
-                return
+                return catalog
             grants = catalog[policy.grants_table]
             identifier_types = {"tinyint", "smallint", "int", "bigint", "uniqueidentifier"}
             text_types = {"nvarchar", "varchar"}
@@ -285,6 +288,7 @@ class MsFabricClient(DataSourceClient):
                     or any(catalog[r.table].get(r.company_column) != grants[policy.company_column]
                            for r in policy.tables if not r.row_attribute)):
                 raise ValueError("Incompatible grant schema")
+            return catalog
         except Exception:
             raise ValueError("The configured base tables and grant columns could not be verified") from None
 
@@ -304,7 +308,7 @@ class MsFabricClient(DataSourceClient):
                 cursor.close()
 
     @record_protected_execution
-    def execute_company_query(self, sql, policy, employee, identity=None):
+    def execute_company_query(self, sql, policy, employee, identity=None, *, preview_columns=None):
         """Host-side execution. The authenticated caller supplies the binding."""
         from app.data_sources.fabric_company_rls import protect_query
 
@@ -313,7 +317,7 @@ class MsFabricClient(DataSourceClient):
         try:
             if self.company_filtered and (policy, employee, identity) != self._company_reader:
                 raise ValueError("Company reader mismatch")
-            statement, bindings = protect_query(sql, policy, employee, identity=identity)
+            statement, bindings = protect_query(sql, policy, employee, identity=identity, preview_columns=preview_columns)
             with self._session() as conn:
                 cursor = conn.cursor()
                 try:

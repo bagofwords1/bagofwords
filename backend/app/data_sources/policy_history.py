@@ -33,10 +33,10 @@ def record_protected_execution(method):
     from app.data_sources.query_concurrency import DEFAULT_MAX_CONCURRENT_QUERIES
 
     @wraps(method)
-    def execute(client, sql, policy, employee, identity=None):
+    def execute(client, sql, policy, employee, identity=None, *, preview_columns=None):
         scope = getattr(client, "_policy_audit_scope", None)
         if _handle.get() is not None or not scope:
-            return method(client, sql, policy, employee, identity)
+            return method(client, sql, policy, employee, identity, preview_columns=preview_columns)
         connection, organization, user = scope
         handle = query_executions.begin(
             connection_id=connection,
@@ -55,7 +55,7 @@ def record_protected_execution(method):
             raise ValueError("Protected connection unavailable")
         with track_policy(handle):
             try:
-                result = method(client, sql, policy, employee, identity)
+                result = method(client, sql, policy, employee, identity, preview_columns=preview_columns)
             except Exception:
                 query_executions.finish(handle, "error", error="Protected query unavailable")
                 raise

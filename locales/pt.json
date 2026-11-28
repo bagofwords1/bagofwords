@@ -1,4 +1,15 @@
 {
+  "samplePreview": {
+    "filterHelp": "Escolha a coluna que determina que linhas um membro pode ver.",
+    "mappingHelp": "Associe uma propriedade do membro a uma linha de permissões. O valor concedido determina o acesso.",
+    "previewHelp": "Veja uma amostra das linhas e colunas que este membro pode ler com o rascunho guardado.",
+    "summary": "{member} · Linhas de exemplo: {rows} · Colunas visíveis: {columns}",
+    "checkColumn": "Verificar uma coluna",
+    "check": "Verificar visibilidade",
+    "visible": "{column} está visível para {member}.",
+    "hidden": "{column} não está visível para {member}.",
+    "noColumns": "Nenhuma coluna visível para este membro."
+  },
   "grantMapping": {
     "previewError": "Falha na pré-visualização. Verifique a regra e a conexão.",
     "importTyped": "Uma tabela por linha. Para criar uma regra, introduza tabela, coluna de filtro e tipo de recurso.",

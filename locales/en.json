@@ -1,4 +1,15 @@
 {
+  "samplePreview": {
+    "filterHelp": "Choose the column that determines which rows a member can see.",
+    "mappingHelp": "Match a member property to a grant row. Its granted value determines what the member can access.",
+    "previewHelp": "See a sample of the rows and columns this member can read using the saved draft.",
+    "summary": "{member} · Sample rows: {rows} · Visible columns: {columns}",
+    "checkColumn": "Check a column",
+    "check": "Check visibility",
+    "visible": "{column} is visible to {member}.",
+    "hidden": "{column} is not visible to {member}.",
+    "noColumns": "No columns are visible to this member."
+  },
   "grantMapping": {
     "previewError": "Preview failed. Check the saved rule and the connection.",
     "importTyped": "One table per line. To add a rule, enter table, filter column, resource type value.",

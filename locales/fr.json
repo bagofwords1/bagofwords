@@ -1,4 +1,15 @@
 {
+  "samplePreview": {
+    "filterHelp": "Choisissez la colonne qui détermine les lignes visibles pour un membre.",
+    "mappingHelp": "Associez une propriété du membre à une ligne de droits. La valeur accordée détermine son accès.",
+    "previewHelp": "Affichez un échantillon des lignes et colonnes accessibles avec le brouillon enregistré.",
+    "summary": "{member} · Lignes affichées : {rows} · Colonnes visibles : {columns}",
+    "checkColumn": "Vérifier une colonne",
+    "check": "Vérifier la visibilité",
+    "visible": "{column} est visible pour {member}.",
+    "hidden": "{column} est invisible pour {member}.",
+    "noColumns": "Aucune colonne visible pour ce membre."
+  },
   "grantMapping": {
     "previewError": "Échec de l’aperçu. Vérifiez la règle et la connexion.",
     "importTyped": "Une table par ligne. Pour une règle, saisissez table, colonne de filtre, type de ressource.",

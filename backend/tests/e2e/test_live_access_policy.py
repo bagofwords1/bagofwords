@@ -139,16 +139,22 @@ def test_live_preview_and_activation(test_client, access_connection, actors, mon
     )
     assert test_client.put(root + "/draft", headers=headers, json=data).status_code == 200
 
-    def preview(email):
+    def preview(email, checked_column=None):
         response = test_client.get(
-            root + "/draft/preview", headers=headers, params={"table": table, "member_email": email}
+            root + "/draft/preview", headers=headers, params={"table": table, "member_email": email, **({"checked_column": checked_column} if checked_column else {})}
         )
         assert response.status_code == 200, response.text
         return response.json()
 
     sample = preview(member.email)
     assert sample["columns"] == [col("company")] and sorted(sample["data"]) == [["101"], ["202"]]
-    assert preview(admin.email)["access_status"] == "denied"
+    assert sample["visible_column_count"] == 1
+    for restricted in (col("amount"), "unknown_column"):
+        checked = preview(member.email, restricted)
+        assert checked["checked_visible"] is False and restricted not in checked["columns"]
+    checked = preview(admin.email, col("amount"))
+    assert checked["access_status"] == "denied" and checked["data"] == []
+    assert checked["checked_visible"] is True and checked["visible_column_count"] == 2
     response = test_client.post(root + "/activate", headers=headers, json=data)
     assert response.status_code == 204, response.text
     assert test_client.get(root + "/coverage", headers=headers).json()["active"] is True

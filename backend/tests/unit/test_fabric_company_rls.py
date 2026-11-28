@@ -169,3 +169,25 @@ def test_lookup_rejects_incomplete_resource_type_configuration(policy):
     data["tables"][0]["source"] = None
     with pytest.raises(ValueError, match="configured together"):
         CompanyPolicy.model_validate(data)
+
+
+def test_wide_preview_selects_only_visible_sample_columns(policy):
+    from app.data_sources.fabric_company_rls import preview_projection
+    names = ["salary", *(f"field_{i}" for i in range(998)), "company"]
+    rule = policy.tables[0].model_copy(update={"columns": {name: None for name in names if name != "salary"}})
+    configured = policy.model_copy(update={"tables": (rule,)})
+    unrestricted = rule.model_copy(update={"columns": None})
+    assert preview_projection(names, unrestricted, "reader", None, "salary") == (1000, ("company", "salary"))
+    count, columns = preview_projection(names, rule, "reader", None, None)
+    assert count == 999
+    assert columns == ("company", "field_0", "field_1", "field_2")
+    for checked, expected in [("salary", columns), ("field_997", ("company", "field_997"))]:
+        _, chosen = preview_projection(names, rule, "reader", None, checked)
+        assert chosen == expected
+        sql, _ = protect_query("SELECT * FROM demo.sales", configured, "reader", preview_columns=chosen)
+        assert "field_500" not in sql and "salary" not in sql
+    with pytest.raises(ValueError):
+        protect_query("SELECT * FROM demo.sales", configured, "reader", preview_columns=("salary",))
+    hidden_key = rule.model_copy(update={"columns": {"field_997": None}})
+    assert preview_projection(names, hidden_key, "reader", None, None) == (1, ("field_997",))
+    assert preview_projection(names, rule.model_copy(update={"columns": {}}), "reader", None, None) == (0, ())

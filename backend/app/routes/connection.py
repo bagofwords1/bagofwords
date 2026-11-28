@@ -2377,7 +2377,8 @@ async def activate_saved_company_policy(
 @router.get("/{connection_id}/company-policy/draft/preview")
 @requires_resource_permission("connection", "manage_connection")
 async def preview_company_policy_draft(
-    connection_id: str, table: str, member_email: str | None = None, current_user: User = Depends(current_user),
+    connection_id: str, table: str, member_email: str | None = None, checked_column: str | None = None,
+    current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
 ):
     custom_query_service.ensure_rls_licensed()
@@ -2411,22 +2412,32 @@ async def preview_company_policy_draft(
     client = await connection_service.construct_client(db, connection, reader,
                                                         policy_preview=(policy, employee, identity))
     try:
-        await asyncio.to_thread(client.validate_company_policy, policy.model_copy(update={"tables": (rule,)}))
+        import json
         from sqlglot import exp
-        dialect = getattr(client, "policy_dialect", "fabric")
-        sql = exp.select("*").from_(exp.to_table(table)).limit(25).sql(dialect=dialect, identify=True)
-        frame = await asyncio.to_thread(client.execute_company_query, sql, policy, employee, identity)
+        from app.data_sources.fabric_company_rls import preview_projection
+
+        catalog = await asyncio.to_thread(client._validated_policy_catalog, policy.model_copy(update={"tables": (rule,)}))
+        visible_count, columns = preview_projection(catalog[table], rule, employee, identity, checked_column)
+        result = {"columns": [], "data": []}
+        state = "no_columns"
+        if columns:
+            dialect = getattr(client, "policy_dialect", "fabric")
+            sql = exp.select("*").from_(exp.to_table(table)).limit(10).sql(dialect=dialect, identify=True)
+            frame = await asyncio.to_thread(client.execute_company_query, sql, policy, employee, identity,
+                                           preview_columns=columns)
+            result = json.loads(frame.to_json(orient="split", index=False, date_format="iso"))
+            state = "rows"
+            if frame.empty:
+                state = "empty" if await asyncio.to_thread(client.has_company_grant, rule) else "denied"
     except ValueError:
         raise HTTPException(status_code=400, detail="Company-filtered preview unavailable") from None
     await audit_service.log(db, organization_id=str(organization.id), user_id=str(current_user.id),
                             action="connection.company_policy.previewed", resource_type="connection",
                             resource_id=str(connection.id), details={"table": table})
-    import json
     from fastapi.responses import JSONResponse
-    state = "rows"
-    if frame.empty:
-        state = "empty" if await asyncio.to_thread(client.has_company_grant, rule) else "denied"
-    return JSONResponse(content={**json.loads(frame.to_json(orient="split", index=False, date_format="iso")), "access_status": state},
+    checked_visible = checked_column in columns if checked_column else None
+    return JSONResponse(content={**result, "access_status": state, "visible_column_count": visible_count,
+                                 "checked_visible": checked_visible},
                         headers={"Cache-Control": "no-store"})
 
 

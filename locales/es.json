@@ -1,4 +1,15 @@
 {
+  "samplePreview": {
+    "filterHelp": "Elige la columna que determina qué filas puede ver un miembro.",
+    "mappingHelp": "Relaciona una propiedad del miembro con una fila de permisos. El valor concedido determina a qué puede acceder.",
+    "previewHelp": "Consulta una muestra de las filas y columnas que este miembro puede leer con el borrador guardado.",
+    "summary": "{member} · Filas de muestra: {rows} · Columnas visibles: {columns}",
+    "checkColumn": "Comprobar una columna",
+    "check": "Comprobar visibilidad",
+    "visible": "{member} puede ver {column}.",
+    "hidden": "{member} no puede ver {column}.",
+    "noColumns": "Este miembro no puede ver ninguna columna."
+  },
   "grantMapping": {
     "previewError": "No se pudo mostrar la vista previa. Revisa la regla y la conexión.",
     "importTyped": "Una tabla por línea. Para crear una regla, escribe tabla, columna de filtro y tipo de recurso.",
