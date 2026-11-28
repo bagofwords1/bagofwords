@@ -261,6 +261,17 @@ _HAIKU_5_5_LONG_PROMPT_TOKENS = 100_000
 _HAIKU_5_5_LONG_PROMPT_MULTIPLIER = 5.0
 
 
+# Gemini 3.1 Pro (Preview) is tiered by prompt length: over 200K prompt tokens
+# it bills $4.00 / $18.00 instead of $2.00 / $12.00 per MTok (2x input, 1.5x
+# output). The Gemini 4 and Flash models have no such tier.
+# https://ai.google.dev/gemini-api/docs/pricing
+_GEMINI_3_1_PRO_LONG_PROMPT_TOKENS = 200_000
+
+
+def _is_gemini_3_1_pro(model_id: Optional[str]) -> bool:
+    return "gemini-3.1-pro" in (model_id or "").lower()
+
+
 def _is_haiku_5_5(model_id: Optional[str]) -> bool:
     return "haiku-5-5" in (model_id or "").lower()
 
@@ -278,6 +289,10 @@ def long_context_multipliers(
     tokens are added back to measure the prompt's real length.
     """
     if long_context_pricing(model_id, prompt_tokens):
+        return 2.0, 1.5
+    if _is_gemini_3_1_pro(model_id) and int(prompt_tokens or 0) > _GEMINI_3_1_PRO_LONG_PROMPT_TOKENS:
+        # The Gemini client reports no cache split, so prompt_tokens is the
+        # whole prompt.
         return 2.0, 1.5
     if _is_haiku_5_5(model_id):
         total = sum(max(int(n or 0), 0) for n in (prompt_tokens, cache_read_tokens, cache_write_tokens))

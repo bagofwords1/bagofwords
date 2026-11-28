@@ -455,6 +455,73 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 20.00
     },
     {
+        # GA 2026-11-18, $3.00 / $15.00 with no long-prompt tier. Same Gemini 4
+        # surface as Argon (thinking_level only, GEMINI_LEVEL_ONLY_PREFIXES), so
+        # no client changes. Not a default: that is a product call.
+        # https://ai.google.dev/gemini-api/docs/pricing
+        "name": "Gemini 4 Neon",
+        "model_id": "gemini-4-neon",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        "input_cost_per_million_tokens_usd": 3.00,
+        "output_cost_per_million_tokens_usd": 15.00
+    },
+    {
+        # GA 2026-11-10. Like Argon, the standard list price applies from
+        # 2026-12-01; until then Google bills an introductory $2.00 / $10.00.
+        "name": "Gemini 4 Carbon",
+        "model_id": "gemini-4-carbon",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        "input_cost_per_million_tokens_usd": 4.00,
+        "output_cost_per_million_tokens_usd": 20.00
+    },
+    {
+        # GA 2026-11-12, $1.50 / $7.50 (the Flash price point, also on the free
+        # tier). Selectable, not a default.
+        "name": "Gemini 4 Hydrogen",
+        "model_id": "gemini-4-hydrogen",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        "input_cost_per_million_tokens_usd": 1.50,
+        "output_cost_per_million_tokens_usd": 7.50
+    },
+    {
+        # Stable (GA 2026-09-02), already the Vertex default; it was missing on
+        # the Gemini Developer API. Standard price from 2027-01-01, like 3.6
+        # Flash; until then Google bills an introductory $0.75 / $3.75.
+        "name": "Gemini 3.8 Flash",
+        "model_id": "gemini-3.8-flash",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        "input_cost_per_million_tokens_usd": 1.50,
+        "output_cost_per_million_tokens_usd": 7.50
+    },
+    {
         # Preview channel, superseded by the stable Gemini 4 Argon. Selectable,
         # but deliberately not a default: a preview id is what got shut down.
         "name": "Gemini 3.1 Pro Preview",
@@ -467,7 +534,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1048576,
         "max_output_tokens": 65536,
-        # Tiered: $4.00 / $18.00 above a 200k-token prompt.
+        # Tiered: $4.00 / $18.00 above a 200k-token prompt, applied by
+        # pricing.long_context_multipliers.
         "input_cost_per_million_tokens_usd": 2.00,
         "output_cost_per_million_tokens_usd": 12.00
     },
@@ -528,7 +596,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1048576,
         "max_output_tokens": 65536,
-        # Tiered: $4.00 / $18.00 above a 200k-token prompt.
+        # Tiered: $4.00 / $18.00 above a 200k-token prompt, applied by
+        # pricing.long_context_multipliers.
         "input_cost_per_million_tokens_usd": 2.00,
         "output_cost_per_million_tokens_usd": 12.00
     },
