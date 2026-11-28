@@ -170,7 +170,10 @@ class SandboxComputeSchema(BaseModel):
 class _EnvironmentFields(BaseModel):
     description: Optional[str] = Field(default=None, max_length=2000)
     registry_username: Optional[str] = Field(default=None, max_length=200)
+    # Hooks: once at creation; on every start (create and resume); before a stop or delete.
     setup_script: Optional[str] = Field(default=None, max_length=20000)
+    start_script: Optional[str] = Field(default=None, max_length=20000)
+    stop_script: Optional[str] = Field(default=None, max_length=20000)
     allowed_domains: Optional[List[str]] = None
     env_vars: Optional[Dict[str, str]] = None
     compute_labels: Optional[List[str]] = None
@@ -277,6 +280,11 @@ class SandboxEnvironmentSchema(BaseModel):
     registry_username: Optional[str]
     has_registry_password: bool
     setup_script: Optional[str]
+    start_script: Optional[str] = None
+    stop_script: Optional[str] = None
+    # Creations that failed in a row because a hook failed, and the last error.
+    hook_failures: int = 0
+    hook_last_error: Optional[str] = None
     cpus: float
     memory_mb: int
     disk_mb: int
@@ -305,6 +313,10 @@ class SandboxEnvironmentSchema(BaseModel):
             registry_username=env.registry_username,
             has_registry_password=bool(env.registry_password),
             setup_script=env.setup_script,
+            start_script=env.start_script,
+            stop_script=env.stop_script,
+            hook_failures=int(env.hook_failures or 0),
+            hook_last_error=env.hook_last_error,
             cpus=env.cpus,
             memory_mb=env.memory_mb,
             disk_mb=env.disk_mb,
@@ -489,6 +501,10 @@ class SandboxFleetRow(SandboxSchema):
     running_run_id: Optional[str] = None
     running_since: Optional[datetime] = None
     usage: Optional[SandboxUsage] = None
+    # True when the environment's image or setup script changed after this
+    # sandbox was created: it was set up by the old one, and stays that way
+    # until it is deleted and created again.
+    setup_outdated: bool = False
 
 
 class SandboxDetail(SandboxFleetRow):

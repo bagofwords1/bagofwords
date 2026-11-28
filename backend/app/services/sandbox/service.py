@@ -91,6 +91,8 @@ MAX_ARTIFACT_BYTES = 100 * 1024 * 1024
 MAX_RUN_ARTIFACT_BYTES = 500 * 1024 * 1024
 PACKAGE_INSTALL_TIMEOUT_SECONDS = 600
 SETUP_SCRIPT_TIMEOUT_SECONDS = 900
+START_SCRIPT_TIMEOUT_SECONDS = 120   # runs on every start, so it must be quick
+STOP_SCRIPT_TIMEOUT_SECONDS = 30     # best effort: a stop never waits long for it
 HEALTH_DEADLINE_SECONDS = 60
 
 _TRUNCATED_MARK = "[... earlier output truncated ...]\n"
@@ -452,6 +454,13 @@ class SandboxService:
             agent_default_id=await environment_service.agent_default_environment_id(db, report.data_source_ids),
             org_default_id=settings.default_environment_id,
         )
+        if int(env.hook_failures or 0) >= environment_service.HOOK_FAILURE_CAP:
+            raise SandboxError(
+                errors.ENVIRONMENT_BROKEN,
+                f"The environment '{env.name}' cannot start sandboxes right now: its setup or start script failed "
+                f"{env.hook_failures} times in a row. An admin has to fix it. Last error: "
+                f"{(env.hook_last_error or 'unknown')[:300]}", status=503,
+            )
         await self._check_quotas(db, report.organization_id, actor_id, settings)
         compute = await self.choose_compute(db, report.organization_id, env)
 
@@ -463,7 +472,7 @@ class SandboxService:
             limits={
                 "cpus": env.cpus, "memory_mb": env.memory_mb, "disk_mb": env.disk_mb,
                 "run_timeout_seconds": env.run_timeout_seconds, "network_policy": env.network_policy,
-                "environment": env.name,
+                "environment": env.name, "setup": environment_service.setup_fingerprint(env),
             },
         )
         db.add(sandbox)
@@ -493,8 +502,14 @@ class SandboxService:
                     await runtime.make_dir(WORKSPACE_OUTPUTS)
                     await runtime.make_dir(WORKSPACE_INPUTS)
                     if env.setup_script:
-                        await self._run_setup_script(db, runtime, sandbox, env, actor_id)
+                        await self._run_hook(db, runtime, sandbox, "setup", env.setup_script, actor_id,
+                                             timeout=SETUP_SCRIPT_TIMEOUT_SECONDS)
+                    if env.start_script:
+                        await self._run_hook(db, runtime, sandbox, "start", env.start_script, actor_id,
+                                             timeout=START_SCRIPT_TIMEOUT_SECONDS)
             except (SandboxDriverError, SandboxError) as exc:
+                if isinstance(exc, _HookFailed):
+                    await self._count_hook_failure(db, env, exc)
                 await self._fail(db, sandbox, actor_id, getattr(exc, "message", str(exc)), driver=driver)
                 raise SandboxError(
                     errors.UNAVAILABLE, f"The sandbox could not be started: {getattr(exc, 'message', exc)}", status=503,
@@ -505,6 +520,8 @@ class SandboxService:
         finally:
             await driver.close()
 
+        if env.hook_failures:
+            env.hook_failures, env.hook_last_error = 0, None
         sandbox.last_seen_at = sandbox.last_used_at = _now()
         await self._set_state(db, sandbox, "ready", actor_id, event="created", details={
             "environment": env.name, "compute": compute.name, "network_policy": env.network_policy,
@@ -515,19 +532,44 @@ class SandboxService:
         })
         await db.commit()
 
-    async def _run_setup_script(self, db: AsyncSession, runtime, sandbox: Sandbox, env: SandboxEnvironment,
-                                actor_id: Optional[str]) -> None:
-        await runtime.write_file(".bow/setup.sh", env.setup_script.encode("utf-8"))
-        result = await runtime.run(["sh", ".bow/setup.sh"], timeout=SETUP_SCRIPT_TIMEOUT_SECONDS)
-        await self._event(db, sandbox.id, "setup_script", actor_id, {
-            "status": result.status, "exit_code": result.exit_code,
-            "output": _tail(result.stdout + result.stderr, 4000),
+    async def _run_hook(self, db: AsyncSession, runtime, sandbox: Sandbox, hook: str, script: str,
+                        actor_id: Optional[str], *, timeout: int, required: bool = True) -> bool:
+        """Run one of an environment's hook scripts in the sandbox and record
+        how it went in the sandbox's timeline (``<hook>_script``). A required
+        hook that fails raises; a best-effort one returns False."""
+        started = time.monotonic()
+        try:
+            await runtime.write_file(f".bow/{hook}.sh", script.encode("utf-8"))
+            result = await runtime.run(["sh", f".bow/{hook}.sh"], timeout=timeout)
+            status, exit_code = result.status, result.exit_code
+            output, ok = _tail(result.stdout + result.stderr, 4000), result.ok
+        except Exception as exc:  # noqa: BLE001 - recorded like a failing script
+            if required:
+                raise
+            status, exit_code, output, ok = "failed", None, _reason(exc), False
+        await self._event(db, sandbox.id, f"{hook}_script", actor_id, {
+            "status": status, "exit_code": exit_code, "output": output,
+            "duration_seconds": round(time.monotonic() - started, 3),
         })
-        if not result.ok:
-            raise SandboxError(
+        if not ok and required:
+            raise _HookFailed(
                 errors.UNAVAILABLE,
-                f"The environment's setup script failed (exit code {result.exit_code}).", status=503,
+                f"The environment's {hook} script failed ({status}, exit code {exit_code}). "
+                f"Its last output: {output[-600:].strip() or '(none)'}", status=503,
             )
+        return ok
+
+    async def _count_hook_failure(self, db: AsyncSession, env: SandboxEnvironment, exc: SandboxError) -> None:
+        """A creation failed in a hook. At the cap the environment stops creating
+        sandboxes, and the admin is told (audit entry, warning on the environment)."""
+        env.hook_failures = int(env.hook_failures or 0) + 1
+        env.hook_last_error = exc.message[:1000]
+        if env.hook_failures == environment_service.HOOK_FAILURE_CAP:
+            await audit(db, env.organization_id, "sandbox_environment.hook_failing", None, "sandbox_environment",
+                        env.id, {"title": env.name, "failures": env.hook_failures, "error": exc.message[:500]},
+                        outcome="failure")
+            logger.error("sandbox environment %s: hooks failed %s times in a row; new sandboxes are refused",
+                         env.id, env.hook_failures)
 
     async def _fail(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], reason: str, *,
                     driver: Optional[SandboxDriver] = None) -> None:
@@ -591,8 +633,22 @@ class SandboxService:
                 await driver.start(handle)
             except SandboxNotFound as exc:
                 raise _Lost("it is no longer on its compute") from exc
+            env = await db.get(SandboxEnvironment, sandbox.environment_id) if sandbox.environment_id else None
             async with self._runtime(driver, sandbox) as runtime:
                 await runtime.wait_healthy(HEALTH_DEADLINE_SECONDS)
+                if env is not None and env.start_script:
+                    try:
+                        await self._run_hook(db, runtime, sandbox, "start", env.start_script, actor_id,
+                                             timeout=START_SCRIPT_TIMEOUT_SECONDS)
+                    except _HookFailed:
+                        # Not usable as it is. Stop it again so the next run tries
+                        # the script again; its files are kept.
+                        await db.commit()
+                        try:
+                            await driver.stop(handle)
+                        except SandboxDriverError:
+                            logger.warning("could not stop sandbox %s after its start script failed", sandbox.id)
+                        raise
             sandbox.last_seen_at = _now()
             await self._set_state(db, sandbox, "ready", actor_id, event="resumed")
             await audit(db, sandbox.organization_id, "sandbox.resumed", actor_id, "sandbox", sandbox.id,
@@ -1072,6 +1128,7 @@ class SandboxService:
                 if sandbox.state == "stopped":
                     return sandbox
                 raise errors.busy()
+            await self._stop_hook(db, driver, sandbox, actor_id)
             try:
                 await driver.stop(self._handle(sandbox))
             except SandboxNotFound:
@@ -1097,6 +1154,21 @@ class SandboxService:
         await db.commit()
         return sandbox
 
+    async def _stop_hook(self, db: AsyncSession, driver: SandboxDriver, sandbox: Sandbox,
+                         actor_id: Optional[str]) -> None:
+        """Run the environment's stop script before a sandbox is stopped or
+        deleted. Best effort and short: it never holds up or prevents the stop."""
+        env = await db.get(SandboxEnvironment, sandbox.environment_id) if sandbox.environment_id else None
+        if env is None or not env.stop_script:
+            return
+        try:
+            async with self._runtime(driver, sandbox) as runtime:
+                await self._run_hook(db, runtime, sandbox, "stop", env.stop_script, actor_id,
+                                     timeout=STOP_SCRIPT_TIMEOUT_SECONDS, required=False)
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            logger.warning("the stop script of sandbox %s could not be run", sandbox.id)
+
     async def _remove(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], *, reason: str,
                       title: Optional[str] = None) -> None:
         compute = await db.get(SandboxCompute, sandbox.compute_id) if sandbox.compute_id else None
@@ -1107,6 +1179,8 @@ class SandboxService:
             try:
                 driver = await compute_service.build_driver(db, compute)
                 try:
+                    if sandbox.state in ("ready", "idle"):
+                        await self._stop_hook(db, driver, sandbox, actor_id)
                     await driver.delete(self._handle(sandbox))
                 finally:
                     await driver.close()
@@ -1162,6 +1236,10 @@ class SandboxService:
                 for r in runs
             ],
         }
+
+
+class _HookFailed(SandboxError):
+    """A required hook script (setup, start) exited with an error."""
 
 
 class _Lost(Exception):

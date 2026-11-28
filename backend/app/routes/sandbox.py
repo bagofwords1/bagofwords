@@ -567,6 +567,11 @@ async def _fleet_rows(db: AsyncSession, service, sandboxes, *, with_usage: bool)
     users = await names(UserModel, UserModel.name, [s.user_id for s in sandboxes])
     computes = await names(SandboxCompute, SandboxCompute.name, [s.compute_id for s in sandboxes])
     environments = await names(SandboxEnvironment, SandboxEnvironment.name, [s.environment_id for s in sandboxes])
+    env_ids = {s.environment_id for s in sandboxes if s.environment_id}
+    current_setup = {}
+    if env_ids:
+        rows = await db.execute(select(SandboxEnvironment).where(SandboxEnvironment.id.in_(env_ids)))
+        current_setup = {e.id: environment_service.setup_fingerprint(e) for e in rows.scalars().all()}
     running = {}
     busy = [s.id for s in sandboxes if s.state == "busy"]
     if busy:
@@ -588,6 +593,10 @@ async def _fleet_rows(db: AsyncSession, service, sandboxes, *, with_usage: bool)
             compute_name=computes.get(sandbox.compute_id or ""),
             environment_name=environments.get(sandbox.environment_id or "") or (sandbox.limits or {}).get("environment"),
             running_run_id=run_id, running_since=since,
+            setup_outdated=bool(
+                (sandbox.limits or {}).get("setup") and sandbox.environment_id in current_setup
+                and (sandbox.limits or {}).get("setup") != current_setup[sandbox.environment_id]
+            ),
             usage=SandboxUsage(**{k: getattr(stats, k, None) for k in SandboxUsage.model_fields}) if stats else None,
         ))
     return out

@@ -44,6 +44,20 @@ def builtin_image() -> str:
     return f"bagofwords/sandbox:{version}"
 
 
+# After this many creations in a row that failed in a hook, an environment
+# stops creating sandboxes until it is changed: every attempt would fail the
+# same way, each one costing a container and up to the script's time limit.
+HOOK_FAILURE_CAP = 3
+
+
+def setup_fingerprint(env: SandboxEnvironment) -> str:
+    """Identifies what a sandbox was set up with (image and setup script), so a
+    sandbox created before either changed can be told apart."""
+    import hashlib
+
+    return hashlib.sha256(f"{env.image}\n{env.setup_script or ''}".encode("utf-8")).hexdigest()[:16]
+
+
 def pinned_image(env: SandboxEnvironment) -> str:
     """The image reference a sandbox is created from: by digest when one is known."""
     image = env.image
@@ -114,6 +128,16 @@ async def validation_warnings(db: AsyncSession, organization_id: str, env: Sandb
             "This environment has secrets and full internet access: code run in it can read the secrets and "
             "send them anywhere. Restrict the network policy, or who may use the environment."
         )
+    if int(env.hook_failures or 0) >= HOOK_FAILURE_CAP:
+        warnings.append(
+            f"Its setup or start script failed {env.hook_failures} times in a row, so new sandboxes are refused. "
+            f"Last error: {(env.hook_last_error or 'unknown')[:300]} Change the script or the image to try again."
+        )
+    elif env.hook_failures:
+        warnings.append(
+            f"Its setup or start script failed the last {env.hook_failures} time(s): "
+            f"{(env.hook_last_error or 'unknown')[:300]}"
+        )
     rows = await db.execute(
         select(SandboxCompute).where(
             SandboxCompute.organization_id == str(organization_id), SandboxCompute.deleted_at.is_(None),
@@ -150,6 +174,7 @@ async def create_environment(db: AsyncSession, organization_id: str, actor_id: O
         organization_id=str(organization_id), name=data.name.strip(), description=data.description,
         image=data.image.strip(), registry_username=data.registry_username,
         registry_password=data.registry_password or None, setup_script=data.setup_script,
+        start_script=data.start_script, stop_script=data.stop_script, hook_failures=0,
         cpus=data.cpus, memory_mb=data.memory_mb, disk_mb=data.disk_mb,
         run_timeout_seconds=data.run_timeout_seconds, network_policy=data.network_policy,
         allowed_domains=list(data.allowed_domains or []), env_vars=dict(data.env_vars or {}),
@@ -188,10 +213,13 @@ async def update_environment(db: AsyncSession, organization_id: str, actor_id: O
         image_changed = True
         changed.append("image")
 
-    for field in ("description", "registry_username", "setup_script"):
+    for field in ("description", "registry_username", "setup_script", "start_script", "stop_script"):
         if field in changes and changes[field] != getattr(env, field):
             setattr(env, field, changes[field])
             changed.append(field)
+    if image_changed or {"setup_script", "start_script"} & set(changed):
+        # What kept failing was changed: let sandboxes be created again.
+        env.hook_failures, env.hook_last_error = 0, None
     for field in ("cpus", "memory_mb", "disk_mb", "run_timeout_seconds", "network_policy",
                   "require_strong_isolation", "enabled"):
         if changes.get(field) is not None and changes[field] != getattr(env, field):

@@ -148,7 +148,17 @@ class SandboxEnvironment(BaseSchema):
     image_digest = Column(String(200), nullable=True)
     registry_username = Column(String(200), nullable=True)
     registry_password = Column(SecretText, nullable=True)
+    # Hooks. ``setup_script`` runs once, when a sandbox is created;
+    # ``start_script`` on every start (create and resume), to rebuild what a
+    # stop loses (processes, memory, /tmp); ``stop_script`` before a sandbox
+    # is stopped or deleted, best effort.
     setup_script = Column(Text, nullable=True)
+    start_script = Column(Text, nullable=True)
+    stop_script = Column(Text, nullable=True)
+    # Creations that failed in a row because a hook failed. At the cap new
+    # sandboxes are refused until the environment is changed.
+    hook_failures = Column(Integer, nullable=False, default=0)
+    hook_last_error = Column(Text, nullable=True)
     cpus = Column(Float, nullable=False, default=1.0)
     memory_mb = Column(Integer, nullable=False, default=2048)
     disk_mb = Column(Integer, nullable=False, default=5120)
