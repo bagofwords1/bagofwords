@@ -63,7 +63,7 @@ def short_error(e: Exception) -> str:
                 msg += f" (SQLSTATE {d['sql_state']})"
         except Exception:
             pass
-    if "TCP connection failed" in msg or "Connection refused" in msg:
+    if "TCP connection failed" in msg or "Connection refused" in msg or "timed out" in msg:
         msg += " — is the Mapepire server running on the IBM i (sc start mapepire) and the port reachable?"
     return msg[:1000]
 

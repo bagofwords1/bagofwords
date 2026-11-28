@@ -4,6 +4,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
+from app.dependencies import get_async_db
 from app.services import storage
 
 router = APIRouter(tags=["settings"])
@@ -48,7 +49,7 @@ async def get_user_avatar(avatar_key: str):
 
 
 @router.get("/thumbnails/{filename}")
-async def get_thumbnail(filename: str):
+async def get_thumbnail(filename: str, db=Depends(get_async_db)):
     """Serve thumbnail images for artifacts/reports."""
     if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=404, detail="Thumbnail not found")
@@ -59,6 +60,20 @@ async def get_thumbnail(filename: str):
     resolved = os.path.realpath(os.path.join(base_dir, filename))
     if not resolved.startswith(base_dir + os.sep):
         raise HTTPException(status_code=404, detail="Thumbnail not found")
+    from sqlalchemy import select
+    from app.models.artifact import ArtifactVersion
+    from app.models.artifact_release import ArtifactRelease
+    from app.services.viewer_data_policy import org_has_company_policy
+
+    relative_path = f"thumbnails/{filename}"
+    owners = select(ArtifactVersion.organization_id).where(
+        ArtifactVersion.thumbnail_path == relative_path, ArtifactVersion.deleted_at.is_(None)
+    ).union(select(ArtifactRelease.organization_id).where(
+        ArtifactRelease.thumbnail_path == relative_path, ArtifactRelease.deleted_at.is_(None)
+    ))
+    org_ids = (await db.scalars(owners)).all()
+    if not org_ids or len(org_ids) != 1 or await org_has_company_policy(db, org_ids[0]):
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
     if not await storage.aensure_local(resolved):
         raise HTTPException(status_code=404, detail="Thumbnail not found")
-    return FileResponse(resolved, media_type="image/png")
+    return FileResponse(resolved, media_type="image/png", headers={"Cache-Control": "no-store"})

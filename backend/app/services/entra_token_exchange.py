@@ -30,7 +30,7 @@ class ExchangeError(Exception):
         self.error, self.description, self.status = error, description, status
 
 
-def provider_config(name):
+def provider_config(name, *, require_exchange_scope=True):
     cfg = next((p for p in settings.bow_config.oidc_providers if p.name == name and p.enabled), None)
     if cfg is None:
         raise ValueError("Entra provider is unavailable")
@@ -45,7 +45,7 @@ def provider_config(name):
     if not cfg.client_secret:
         raise ValueError("The Entra provider requires a backend credential")
     scope = f"api://{client}/access_as_user"
-    if scope not in cfg.scopes:
+    if require_exchange_scope and scope not in cfg.scopes:
         raise ValueError("Configure access_as_user on the Entra provider first")
     return cfg, tenant, client
 
@@ -109,7 +109,7 @@ async def _json(url, refresh=False):
 
 
 async def verify_token(token, cfg, *, id_token=False):
-    _, tenant, audience = provider_config(cfg.name)
+    _, tenant, audience = provider_config(cfg.name, require_exchange_scope=not id_token)
     if not isinstance(token, str) or len(token) > 32768:
         raise ValueError("Invalid token")
     unverified = jwt.decode(token, options={"verify_signature": False})
@@ -169,7 +169,11 @@ async def link_sso_identity(db, user_id, cfg, account_id, id_token):
         )
     )
     if account:
-        account.entra_identity = {"tenant_id": claims["tid"], "object_id": claims["oid"], "client_id": str(UUID(cfg.client_id))}
+        account.entra_identity = {
+            "tenant_id": claims["tid"], "object_id": claims["oid"],
+            "client_id": str(UUID(cfg.client_id)), "employee_login": claims.get("preferred_username"),
+            "employee_login_exp": claims["exp"],
+        }
         await db.commit()
 
 

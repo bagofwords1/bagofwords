@@ -11,6 +11,7 @@ from typing import Generator, List, Optional
 import duckdb
 import pandas as pd
 
+from app.ai.code_execution.duckdb_guard import check_duckdb_file_query
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
@@ -117,6 +118,13 @@ class CSVClient(DataSourceClient):
 
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+        with self._open() as (con, _views):
+            yield con
+
+    @contextmanager
+    def _open(self) -> Generator[tuple[duckdb.DuckDBPyConnection, list[str]], None, None]:
+        """A locked connection and the views it registered (the tables agent
+        SQL may read on it)."""
         t0 = time.perf_counter()
         files = self._resolve_files()
         logger.info(
@@ -134,11 +142,9 @@ class CSVClient(DataSourceClient):
                     f'CREATE VIEW "{table_name}" AS SELECT * FROM {self._read_expr(filepath)}'
                 )
                 table_map[table_name] = filepath
-
-            # From here the session reads these files and nothing else.
-            lockdown.lock_connection(
-                con, paths=[p for f in files for p in (f, os.path.abspath(f), os.path.realpath(f))]
-            )
+            # The views read their files lazily: from here on the connection
+            # may read those files and nothing else.
+            lockdown.lock_connection(con, paths=list(table_map.values()))
             self._table_map = table_map
             logger.info(
                 "csv.connect.done",
@@ -147,23 +153,27 @@ class CSVClient(DataSourceClient):
                     "csv_elapsed_s": round(time.perf_counter() - t0, 3),
                 },
             )
-            yield con
         except Exception as e:
+            if con is not None:
+                con.close()
             logger.error(
                 "csv.connect.error",
                 extra={"csv_error": str(e), "csv_elapsed_s": round(time.perf_counter() - t0, 3)},
             )
             raise RuntimeError(f"Error connecting to CSV files: {e}")
+        # The yield is outside the try above: an error raised by the caller's
+        # `with` body (a refused query) keeps its type.
+        try:
+            yield con, list(table_map)
         finally:
-            if con is not None:
-                con.close()
+            con.close()
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("csv.query.start", extra={"csv_sql": sql})
-        lockdown.check_user_sql(sql, deferred=True)
         try:
-            with self.connect() as con:
+            with self._open() as (con, views):
+                check_duckdb_file_query(sql, views)
                 lockdown.check_session_sql(con, sql)
                 df = con.execute(sql).df()
             logger.info(

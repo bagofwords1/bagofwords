@@ -29,6 +29,9 @@ class Connection(BaseSchema):
     config = Column(JSON, nullable=False)  # Non-secret connection parameters
     credentials = Column(Text, nullable=True)  # Encrypted credentials
     
+    company_policy = Column(JSON(none_as_null=True), nullable=True)  # authoring draft
+    active_company_policy = Column(JSON(none_as_null=True), nullable=True)
+
     is_active = Column(Boolean, nullable=False, default=True)
     last_synced_at = Column(DateTime, nullable=True)
     
@@ -217,6 +220,8 @@ class Connection(BaseSchema):
 
     def get_client(self):
         """Instantiate and return the appropriate database client."""
+        if self.active_company_policy is not None:
+            raise ValueError("A verified employee identity is required")
         try:
             from app.schemas.data_source_registry import resolve_client_class
             ClientClass = resolve_client_class(self.type)

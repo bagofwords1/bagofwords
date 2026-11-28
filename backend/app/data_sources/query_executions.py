@@ -397,6 +397,8 @@ class QueryHandle:
     queued_at: datetime
     queued_monotonic: float
     started_monotonic: float | None = None
+    policy_version: str | None = None
+    protected_statement: str | None = None
     state: str = "queued"
     kill_event: threading.Event = field(default_factory=threading.Event)
     finished: bool = False
@@ -1035,6 +1037,8 @@ def finish(
         "lease_expires_at": None,
         "updated_at": now,
     }
+    if handle.policy_version:
+        values.update(policy_version=handle.policy_version, protected_statement=handle.protected_statement)
     if handle.started_monotonic is not None:
         values["duration_ms"] = round((time.monotonic() - handle.started_monotonic) * 1000.0, 1)
     else:

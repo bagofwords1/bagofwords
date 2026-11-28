@@ -144,30 +144,18 @@ async def test_enabling_a_row_policy_requires_an_enterprise_license(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_disabling_a_row_policy_needs_no_license(monkeypatch):
-    """A lapsed license must not trap an org behind a policy it can no longer
-    administer — turning RLS off stays open."""
+async def test_lapsed_license_preserves_active_row_policy(monkeypatch):
+    from types import SimpleNamespace
+    from fastapi import HTTPException
     from app.services import custom_query_service as svc_mod
 
     monkeypatch.setattr(svc_mod, "has_feature", lambda feature: False)
-
-    class _Db:
-        async def commit(self):
-            pass
-
-        async def refresh(self, obj):
-            pass
-
-    class _Cq:
-        rls_enabled = True
-        rls_mode = "attribute"
-        rls_policy = {"column": "region"}
-        rls_default_deny = True
-        columns = [{"name": "region"}]
-
-    cq = await svc_mod.custom_query_service.set_rls(_Db(), _Cq(), rls_enabled=False)
-    assert cq.rls_enabled is False
-    assert cq.rls_policy is None
+    table = SimpleNamespace(rls_enabled=True, rls_policy={"column": "region"})
+    with pytest.raises(HTTPException) as error:
+        await svc_mod.custom_query_service.set_rls(None, table, rls_enabled=False)
+    assert error.value.status_code == 402
+    assert table.rls_enabled
+    assert table.rls_policy == {"column": "region"}
 
 
 @pytest.mark.asyncio

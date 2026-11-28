@@ -137,7 +137,8 @@ def test_cancelled_job_requests_source_query_cancellation(monkeypatch):
         (6, "", {}, False),
         (6, "unsupported seccomp architecture: riscv64", {}, True),
         (0, "", {"BOW_SANDBOX_REQUIRE_LANDLOCK": "0"}, False),
-        (0, "", {"BOW_CODE_SANDBOX": "inprocess"}, False),
+        (0, "", {"BOW_CODE_SANDBOX": "inprocess"}, True),
+        (6, "", {"BOW_CODE_SANDBOX": "inprocess"}, True),
     ],
 )
 def test_startup_check_predicts_when_production_refuses_to_execute(monkeypatch, abi, seccomp_reason, env, refuses):

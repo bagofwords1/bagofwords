@@ -30,8 +30,12 @@ _STRUCTURAL_ERROR_NAMES = frozenset({
     "UndefinedColumn", "UndefinedTable", "UndefinedFunction", "UndefinedObject",
     "UndefinedParameter", "AmbiguousColumn", "InsufficientPrivilege",
     "BinderException", "CatalogException",
-    # BOW's own
-    "QueryTimeoutError",
+    # BOW's own. The file-connection guard's fixable error names tables only;
+    # its syntax error (DuckdbSyntaxError) quotes the query text, which may
+    # hold values, and stays cut. Its table refusal reaches redaction as a
+    # TableAccessError, which is cut like any other error: it keeps its
+    # tables list only because the list comes before the name the agent wrote.
+    "QueryTimeoutError", "DuckdbQueryError",
 })
 _WRAPPED_TYPE = re.compile(r"^\s*\(([\w.]+)\)")
 

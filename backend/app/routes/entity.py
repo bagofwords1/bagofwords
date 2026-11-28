@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
@@ -7,6 +8,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
+from app.core.code_visibility import require_run_custom_code
 from app.errors import AppError, ErrorCode
 
 from app.models.entity import Entity
@@ -59,6 +61,63 @@ async def _require_ds_access(db, user, organization, ds_ids: List[str]) -> None:
                 status_code=403,
                 detail=f'No access to agent "{rid}".',
             )
+
+
+def _sends_new_code(code: Optional[str], stored: Optional[str]) -> bool:
+    """Whether a request carries code other than the entity's stored code.
+    Storing or running that code is caller-supplied code, so it takes
+    `run_custom_code`; re-sending the stored code does not."""
+    return code is not None and code.strip() != (stored or "").strip()
+
+
+def _previews_new_code(code: Optional[str], stored: Optional[str]) -> bool:
+    """Whether a preview runs code other than the stored code. An empty
+    preview code runs the stored code."""
+    return bool((code or "").strip()) and _sends_new_code(code, stored)
+
+
+# The answer to a run whose queries found no free slot on their connection.
+_CONNECTION_BUSY = "Too many queries are running on this data source right now. Try again in a moment."
+
+
+def _refusal_http_error(exc: Optional[BaseException]) -> Optional[HTTPException]:
+    """The answer to a run that was refused, or None for any other failure.
+
+    A refusal declines the caller's request; it is neither a missing entity
+    nor a server fault. 403 for the query guard and the code scan, and for
+    in-process execution refused on this host; 429 for a connection rate
+    limit or a usage quota, and with a fixed try-again text for a connection
+    whose query slots are all taken; 503 when this host cannot provide the
+    sandbox (the text tells the operator what to change). Each other refusal
+    carries its own text. What counts as a refusal is `is_run_refusal`'s call, the test
+    the service also applies before it answers a failed viewer run itself."""
+    from app.ai.code_execution.code_execution import CodeSecurityError
+    from app.ai.code_execution.sandbox.runner import (
+        SandboxModeRefused,
+        SandboxUnavailableError,
+    )
+    from app.ai.code_execution.sandbox.runner import SandboxExecutionError
+    from app.data_sources.query_concurrency import ConnectionBusyError
+    from app.routes.usage_limits import _quota_http_error
+    from app.services.connection_rate_limit_service import RateLimitExceeded
+    from app.services.entity_service import is_run_refusal
+    from app.services.usage_policy_service import UsageLimitExceeded
+
+    if not is_run_refusal(exc):
+        return None
+    if isinstance(exc, ConnectionBusyError) or (
+            isinstance(exc, SandboxExecutionError) and exc.exc_type == "ConnectionBusyError"):
+        return HTTPException(status_code=429, detail=_CONNECTION_BUSY)
+    if isinstance(exc, (CodeSecurityError, SandboxModeRefused)):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, SandboxUnavailableError):
+        return HTTPException(status_code=503, detail=exc.message)
+    if isinstance(exc, UsageLimitExceeded):
+        return _quota_http_error(exc)
+    if isinstance(exc, RateLimitExceeded):
+        return HTTPException(status_code=429, detail=exc.detail)
+    # Reported by the sandbox child by type name.
+    return HTTPException(status_code=429, detail=exc.message)
 
 
 # EntityRunPayload fields a run persists onto the entity (besides the data).
@@ -188,6 +247,8 @@ async def create_private_entity(
     agents saves a SUGGESTION — `(published, suggested, draft)` — that an
     admin reviews, regardless of the `status` they sent.
     """
+    # The entity's code is caller-supplied code that later runs.
+    await require_run_custom_code(db, current_user, organization)
     ds_ids = [str(i) for i in (payload.data_source_ids or []) if i]
     can_publish = await _resolve_create_tier(db, current_user, organization, ds_ids)
     _validate_declared_params(payload)
@@ -215,14 +276,7 @@ async def preview_code(
     await _resolve_create_tier(db, current_user, organization, ds_ids)
     # Executes caller-supplied code against the source — same trust boundary as
     # a builder-mode query run, so it takes the same permission.
-    from app.core.permission_resolver import resolve_permissions
-    from app.core.code_visibility import can_run_custom_code
-    _resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-    if not can_run_custom_code(_resolved):
-        raise HTTPException(
-            status_code=403,
-            detail="You do not have permission to edit and run custom code",
-        )
+    await require_run_custom_code(db, current_user, organization)
     if not (payload.code or "").strip():
         raise HTTPException(status_code=400, detail="Code is required")
     _validate_declared_params(payload)
@@ -247,6 +301,7 @@ async def create_global_entity(
     organization: Organization = Depends(get_current_organization),
 ):
     """Create a new global entity (admin only) - Global Draft/Published: null, approved, draft/published"""
+    await require_run_custom_code(db, current_user, organization)
     if payload.data_source_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
@@ -350,6 +405,8 @@ async def update_entity(
     existing = await service.get_entity(db, entity_id, organization, current_user)
     if not existing:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
+    if _sends_new_code(payload.code, existing.code):
+        await require_run_custom_code(db, current_user, organization)
     is_owner_unapproved = (
         str(existing.owner_id) == str(current_user.id)
         and existing.global_status != 'approved'
@@ -514,6 +571,10 @@ async def run_entity(
         await _require_entity_view_access(db, entity_id, organization, current_user)
     else:
         await _require_entity_run_access(db, entity_id, organization, current_user, payload)
+        # Running (and saving) code other than the stored code is custom code.
+        existing = await service.get_entity(db, entity_id, organization, current_user)
+        if _sends_new_code(payload.code, existing.code):
+            await require_run_custom_code(db, current_user, organization)
     from app.ai.code_execution.query_params import ParamError
     try:
         entity = await service.run_entity_with_update(db, entity_id, payload, organization, current_user=current_user)
@@ -523,7 +584,36 @@ async def run_entity(
         # missing, wrong type) are a client error, not a missing entity.
         raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # A builder run reports a failed execution as ValueError, caused by
+        # the original error, which keeps its own status: a refusal its
+        # refusal status, a typed error (query timeout 408, swallowed query
+        # failure 422, ...) the one its handler gives. Any other failure of
+        # the code or its queries is a 422 with its reason. For a warehouse
+        # client's SQLAlchemy error the reason is the driver's own text,
+        # without the [SQL: ...] and [parameters: ...] SQLAlchemy appends;
+        # the driver's text itself may quote the statement, which is the
+        # builder's own query, shown only to them and never logged. (A failed
+        # save of the result is not a ValueError: the service answers it
+        # itself.)
+        cause = e.__cause__
+        refusal = _refusal_http_error(cause)
+        if refusal is not None:
+            raise refusal from e
+        if isinstance(cause, AppError):
+            raise cause
+        if isinstance(cause, StatementError) and cause.orig is not None:
+            raise HTTPException(status_code=422, detail=f"{type(cause).__name__}: {cause.orig}") from e
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        # A viewer run (params) answers a failure of the saved code's
+        # execution itself (422 entity.run_failed, without the error's text):
+        # that keeps the owner's code error, and the SQL and values it can
+        # quote, out of another reader's answer and out of the log. A refusal
+        # reaches here unchanged and gets its own status.
+        refusal = _refusal_http_error(e)
+        if refusal is not None:
+            raise refusal from e
+        raise
 
 
 @router.post("/{entity_id}/preview")
@@ -541,15 +631,8 @@ async def preview_entity(
     # same trust boundary as /preview-code and builder-mode query runs, so it
     # takes the same permission. Previewing the stored code stays at the run tier.
     existing = await service.get_entity(db, entity_id, organization, current_user)
-    if (payload.code or "").strip() and (payload.code or "").strip() != (existing.code or "").strip():
-        from app.core.permission_resolver import resolve_permissions
-        from app.core.code_visibility import can_run_custom_code
-        _resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-        if not can_run_custom_code(_resolved):
-            raise HTTPException(
-                status_code=403,
-                detail="You do not have permission to edit and run custom code",
-            )
+    if _previews_new_code(payload.code, existing.code):
+        await require_run_custom_code(db, current_user, organization)
     _validate_declared_params(payload)
     from app.ai.code_execution.query_params import ParamError
     try:

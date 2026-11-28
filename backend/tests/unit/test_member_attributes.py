@@ -25,7 +25,7 @@ def test_values_are_trimmed_and_blanks_dropped(raw, expected):
     {"": "x"},
     {"k" * 65: "x"},
     {"k": "v" * 257},
-    {"k": ["list"]},
+    {"k": [{"nested": "object"}]},
     {"k": {"nested": "dict"}},
     {f"k{i}": "v" for i in range(51)},
     ["not", "a", "mapping"],
@@ -52,3 +52,10 @@ def test_admin_values_win_over_idp_synced_values():
     assert effective_member_attributes(membership) == {"department": "Sales", "employeeId": "admin"}
     assert effective_member_attributes(None) == {}
     assert effective_member_attributes(SimpleNamespace(profile_attributes=None, custom_attributes=None)) == {}
+
+
+def test_multivalue_policy_property_is_separate_from_external_credential_fields():
+    attrs = normalize_custom_attributes({"regions": [" East ", "West", "East"]})
+    assert attrs == {"regions": ["East", "West"]}
+    assert "regions" not in effective_member_attributes(SimpleNamespace(
+        profile_attributes={"regions": "legacy"}, custom_attributes=attrs))

@@ -26,6 +26,8 @@ from app.schemas.stream_delivery_schema import StreamDeliveryReport, StreamDeliv
 from app.streaming.delivery import analyze_client_delivery, instrument_stream
 from app.errors import AppError, ErrorCode
 
+from app.routes.company_content import require_stored_company_content
+
 router = APIRouter(tags=["completions"])
 
 completion_service = CompletionService()
@@ -55,7 +57,7 @@ async def estimate_completion_tokens(
         organization,
     )
 
-@router.get("/api/reports/{report_id}/context/summary")
+@router.get("/api/reports/{report_id}/context/summary", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=Report, owner_only=True)
 async def get_report_context_summary(
     report_id: str,
@@ -83,7 +85,7 @@ async def get_report_context_summary(
     }
 
 
-@router.post("/api/reports/{report_id}/context/compact")
+@router.post("/api/reports/{report_id}/context/compact", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('create_reports', model=Report, owner_only=True)
 async def compact_report_context(
     report_id: str,
@@ -179,7 +181,7 @@ class RewindRequest(BaseModel):
     dry_run: bool = False
 
 
-@router.post("/api/reports/{report_id}/rewind")
+@router.post("/api/reports/{report_id}/rewind", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('create_reports', model=Report, owner_only=True)
 async def rewind_report(
     report_id: str,
@@ -264,7 +266,7 @@ async def create_completion(
         return_on_answer=True,
     )
 
-@router.get("/api/reports/{report_id}/completions/{completion_id}/stream")
+@router.get("/api/reports/{report_id}/completions/{completion_id}/stream", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=Report, owner_only=True)
 async def watch_completion_stream(
     report_id: str,
@@ -316,7 +318,7 @@ async def report_stream_delivery(
     ))
 
 
-@router.get("/api/reports/{report_id}/completions.legacy")
+@router.get("/api/reports/{report_id}/completions.legacy", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=Report, owner_only=True)
 async def get_completions(report_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.get_completions(db, report_id, organization, current_user)
@@ -326,13 +328,13 @@ async def get_completions(report_id: str, current_user: User = Depends(current_u
 # and the per-completion SSE watch stream, both of which are authenticated
 # and correct across uvicorn workers.
 
-@router.get("/api/completions/{completion_id}/plans")
+@router.get("/api/completions/{completion_id}/plans", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('manage_settings')
 async def get_completion_plans(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.get_completion_plans(db, current_user, organization, completion_id)
 
 
-@router.get("/api/reports/{report_id}/completions")
+@router.get("/api/reports/{report_id}/completions", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=Report, owner_only=True)
 async def get_completions_v2(
     report_id: str,
@@ -353,7 +355,7 @@ async def get_completions_v2(
     return await completion_service.get_completions_v2(db, report_id, organization, current_user, limit=limit, before=before, until=until)
 
 
-@router.get("/api/reports/{report_id}/completions/search", response_model=list[CompletionSearchHit])
+@router.get("/api/reports/{report_id}/completions/search", dependencies=[Depends(require_stored_company_content)], response_model=list[CompletionSearchHit])
 @requires_permission('view_reports', model=Report, owner_only=True)
 async def search_report_completions(
     report_id: str,

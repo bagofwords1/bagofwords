@@ -570,12 +570,13 @@ async def startup_event():
 
     # With BOW_SANDBOX_REQUIRE_LANDLOCK (the production default) the code
     # sandbox refuses to run on a host without the kernel confinement it
-    # needs. Say so once, at startup, instead of through every user request.
+    # needs, and production refuses in-process mode. Say so once, at startup,
+    # instead of through every user request.
     try:
-        from app.ai.code_execution.sandbox.runner import CONFINEMENT_REMEDY, required_confinement_problem
-        problem = required_confinement_problem()
+        from app.ai.code_execution.sandbox.runner import startup_sandbox_problem
+        problem, remedy = startup_sandbox_problem()
         if problem:
-            logger.error(f"Code execution is disabled on this host: {problem}. {CONFINEMENT_REMEDY}")
+            logger.error(f"Code execution is disabled on this host: {problem}. {remedy}")
     except Exception:
         logger.exception("Code sandbox confinement check failed; continuing startup")
 

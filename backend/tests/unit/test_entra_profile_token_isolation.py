@@ -202,6 +202,11 @@ def test_directory_auth_fallbacks_preserve_login_and_existing_profile(monkeypatc
                 assert (await sync_profile_on_login(db, user, org.id, ["department"], original))[
                     "department"
                 ] == "New department"
+                from app.ee.oidc.profile_service import store_profile_attributes
+                from app.services.rls_identity_service import resolve_identity
+                assert (await resolve_identity(db, user, org.id)).profile_attributes["department"] == "New department"
+                await store_profile_attributes(db, user, org.id, {})
+                assert (await resolve_identity(db, user, org.id)).profile_attributes == {}
             else:
                 with pytest.raises(EntraReauthRequired):
                     await sync_profile_on_login(db, user, org.id, ["department"], original)

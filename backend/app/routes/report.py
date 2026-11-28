@@ -40,6 +40,8 @@ class StarResponse(BaseModel):
 import logging
 logger = logging.getLogger(__name__)
 
+from app.routes.company_content import require_stored_company_content
+
 router = APIRouter(tags=["reports"])
 report_service = ReportService()
 
@@ -101,7 +103,7 @@ async def create_report(
     )
     return result
 
-@router.get("/reports", response_model=ReportListResponse)
+@router.get("/reports", dependencies=[Depends(require_stored_company_content)], response_model=ReportListResponse)
 @requires_permission('view_reports')
 async def get_reports(
     page: int = Query(1, ge=1, description="Page number"),
@@ -124,7 +126,7 @@ async def get_reports(
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
 
-@router.get("/reports/activity", response_model=ReportActivityResponse)
+@router.get("/reports/activity", dependencies=[Depends(require_stored_company_content)], response_model=ReportActivityResponse)
 @requires_permission('view_reports')
 async def get_reports_activity(
     ids: str = Query(..., description="Comma-separated report ids (max 100)"),
@@ -138,7 +140,7 @@ async def get_reports_activity(
     await release_request_db(db)
     return result
 
-@router.get("/reports/activity/stream")
+@router.get("/reports/activity/stream", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports')
 async def stream_reports_activity(
     current_user: User = Depends(current_user),
@@ -199,7 +201,7 @@ async def update_report(report_id: str, report: ReportUpdate, current_user: User
     updated = await report_service.update_report(db, report_id, report, current_user, organization)
     return await conversation_dashboard.as_report_schema(db, updated)
 
-@router.get("/reports/{report_id}", response_model=ReportSchema)
+@router.get("/reports/{report_id}", dependencies=[Depends(require_stored_company_content)], response_model=ReportSchema)
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
 async def get_report(report_id: str, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
     result = await report_service.get_report(db, report_id, current_user, organization)
@@ -237,7 +239,7 @@ async def delete_report(
     return result
 
 
-@router.get("/reports/{report_id}/delete_preview")
+@router.get("/reports/{report_id}/delete_preview", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('delete_reports', model=Report, owner_only=True)
 async def delete_report_preview(
     report_id: str,
@@ -267,7 +269,7 @@ async def bulk_archive_reports(
     """
     return await report_service.bulk_archive_reports(db, report_ids, current_user, organization)
 
-@router.post("/reports/{report_id}/rerun", response_model=ReportRerunResultSchema)
+@router.post("/reports/{report_id}/rerun", dependencies=[Depends(require_stored_company_content)], response_model=ReportRerunResultSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
 async def rerun_report(
     report_id: str,
@@ -279,7 +281,7 @@ async def rerun_report(
     return await report_service.rerun_report_steps(db, report_id, current_user, organization, artifact_id=artifact_id,
                                                   refresh_trigger="manual", triggered_by_user_id=str(current_user.id))
 
-@router.post("/reports/{report_id}/publish", response_model=ReportSchema)
+@router.post("/reports/{report_id}/publish", dependencies=[Depends(require_stored_company_content)], response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)
 async def publish_report(
     report_id: str,
@@ -342,7 +344,7 @@ async def set_report_visibility(
     )
 
 
-@router.get("/reports/{report_id}/shares/{share_type}")
+@router.get("/reports/{report_id}/shares/{share_type}", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('publish_reports', model=Report, owner_only=True)
 async def get_report_shares(
     report_id: str,
@@ -357,7 +359,7 @@ async def get_report_shares(
     return await report_service.get_shares(db, report_id, share_type, current_user=current_user)
 
 
-@router.get("/reports/{report_id}/artifact_chat/agents")
+@router.get("/reports/{report_id}/artifact_chat/agents", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('publish_reports', model=Report, owner_only=True)
 async def get_artifact_chat_agents(
     report_id: str,
@@ -393,7 +395,7 @@ async def get_artifact_chat_agents(
     return {"agents": agents}
 
 
-@router.post("/reports/{report_id}/fork", response_model=ForkResponse)
+@router.post("/reports/{report_id}/fork", dependencies=[Depends(require_stored_company_content)], response_model=ForkResponse)
 @requires_permission('create_reports')
 async def fork_report(
     report_id: str,
@@ -457,7 +459,7 @@ async def fork_report(
     )
 
 
-@router.get("/reports/{report_id}/fork_status")
+@router.get("/reports/{report_id}/fork_status", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=Report)
 async def get_fork_status(
     report_id: str,
@@ -475,7 +477,7 @@ async def get_fork_status(
     return {"hydrating": await fork_service.is_hydrating(db, report_id)}
 
 
-@router.post("/reports/{report_id}/notify", response_model=NotifyResponse)
+@router.post("/reports/{report_id}/notify", dependencies=[Depends(require_stored_company_content)], response_model=NotifyResponse)
 @requires_permission('publish_reports', model=Report, owner_only=True)
 async def notify_report(
     report_id: str,
@@ -1215,7 +1217,7 @@ async def refresh_public_report_on_view(
     return await report_service.refresh_on_view_rerun(db, report_id, user=user, artifact_id=artifact_id)
 
 
-@router.post("/reports/{report_id}/schedule", response_model=ReportSchema)
+@router.post("/reports/{report_id}/schedule", dependencies=[Depends(require_stored_company_content)], response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)
 async def schedule_report(
     report_id: str,
@@ -1234,7 +1236,7 @@ async def schedule_report(
 
 # --- Sub-agents (docs/design/sub-agents.md) ---
 
-@router.get("/reports/{report_id}/sub-agents")
+@router.get("/reports/{report_id}/sub-agents", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
 async def list_report_sub_agents(
     report_id: str,
@@ -1248,7 +1250,7 @@ async def list_report_sub_agents(
     return await sub_agent_service.list_for_report(db, report_id)
 
 
-@router.get("/reports/{report_id}/sub-agents/{sub_agent_id}")
+@router.get("/reports/{report_id}/sub-agents/{sub_agent_id}", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
 async def get_report_sub_agent(
     report_id: str,
@@ -1305,7 +1307,7 @@ async def stop_report_sub_agent_wave(
 
 # --- Report Summary ---
 
-@router.get("/reports/{report_id}/notes")
+@router.get("/reports/{report_id}/notes", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
 async def get_report_notes(
     report_id: str,
@@ -1326,7 +1328,7 @@ async def get_report_notes(
     return [NoteSchema.model_validate(n) for n in notes]
 
 
-@router.get("/reports/{report_id}/summary")
+@router.get("/reports/{report_id}/summary", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=Report, owner_only=True)
 async def get_report_summary(
     report_id: str,
@@ -1344,7 +1346,7 @@ async def get_report_summary(
 
 # --- Training Mode Instructions ---
 
-@router.get("/reports/{report_id}/instructions")
+@router.get("/reports/{report_id}/instructions", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=Report, owner_only=True)
 async def get_report_instructions(
     report_id: str,

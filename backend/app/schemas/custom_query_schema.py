@@ -97,16 +97,33 @@ class CustomQueryRlsUpdate(BaseModel):
     rls_default_deny: bool = True
 
 
+class CustomQueryClsUpdate(BaseModel):
+    """Column-level security on one relation.
+
+    Its own payload and route, parallel to `CustomQueryRlsUpdate`: enabling or
+    editing which columns a person can see is a security-relevant assertion and
+    is audited as `connection.custom_query.cls_changed`, which only works if it
+    cannot ride along inside an unrelated edit.
+    """
+
+    cls_enabled: bool
+    # {restricted_columns: [...], grants: [{principal_type, principal_id, columns}]}
+    cls_policy: Optional[dict] = None
+
+
 class CustomQueryRlsPreviewRequest(BaseModel):
     """Preview the relation as a specific member would see it."""
 
     user_id: str
     # The policy to try, so an admin can see the effect BEFORE saving. Omitted
-    # means preview what is currently stored.
+    # means preview what is currently stored. Row and column policies can be
+    # tried together — the preview runs the same path that serves an agent.
     rls_enabled: Optional[bool] = None
     rls_mode: Optional[str] = None
     rls_policy: Optional[dict] = None
     rls_default_deny: Optional[bool] = None
+    cls_enabled: Optional[bool] = None
+    cls_policy: Optional[dict] = None
 
 
 class CustomQueryRlsPreviewResponse(BaseModel):
@@ -119,6 +136,12 @@ class CustomQueryRlsPreviewResponse(BaseModel):
     denied: bool = False
     column: Optional[str] = None
     allowed_values: List[str] = []
+    # Column-level verdict, kept separate from the row verdict above so neither
+    # is mislabelled as the other. `columns` already reflects the projection;
+    # `hidden_columns` names what is gone, `column_denied` means none are visible.
+    column_filtered: bool = False
+    column_denied: bool = False
+    hidden_columns: List[str] = []
     reason: str = ""
 
 
@@ -131,6 +154,7 @@ class CustomQueryRlsOptions(BaseModel):
     """What the policy editor can offer, drawn from what the org actually has."""
 
     attribute_keys: List[str] = []
+    custom_attribute_keys: List[str] = []
     groups: List[RlsPrincipal] = []
     roles: List[RlsPrincipal] = []
     members: List[RlsPrincipal] = []
@@ -249,6 +273,8 @@ class CustomQuerySchema(BaseModel):
     rls_mode: Optional[str] = None
     rls_policy: Optional[dict] = None
     rls_default_deny: bool = True
+    cls_enabled: bool = False
+    cls_policy: Optional[dict] = None
     target: Optional[dict] = None
     refresh_mode: str = "full"
     refresh_config: Optional[dict] = None
@@ -311,6 +337,8 @@ class CustomQuerySchema(BaseModel):
             rls_mode=getattr(cq, "rls_mode", None),
             rls_policy=getattr(cq, "rls_policy", None),
             rls_default_deny=bool(getattr(cq, "rls_default_deny", True)),
+            cls_enabled=bool(getattr(cq, "cls_enabled", False)),
+            cls_policy=getattr(cq, "cls_policy", None),
             target=target or None,
             refresh_mode=getattr(cq, "refresh_mode", None) or "full",
             refresh_config=config if isinstance(config, dict) else None,

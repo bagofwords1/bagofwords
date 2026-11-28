@@ -10,6 +10,7 @@ from app.data_sources.engine_pool import get_engine
 from app.data_sources.fk_reflection import attach_foreign_keys
 from app.data_sources.query_cancellation import capture_identity, track
 from sqlalchemy import text
+from app.data_sources.clients._exact_sql import read_sql_exact
 from contextlib import contextmanager
 from typing import Generator, List, Optional, Tuple
 from app.ai.prompt_formatters import Table, TableColumn
@@ -168,7 +169,11 @@ def _session_setup_hook(sql: str):
     return hook
 
 
-class MSSQLClient(DataSourceClient):
+from app.data_sources.clients._protected_sql import ProtectedSql
+
+
+class MSSQLClient(ProtectedSql, DataSourceClient):
+    policy_dialect = "tsql"
 
     # T-SQL: '' only, backslash is ordinary (sqlglot tsql).
     sql_literal_style = "standard"
@@ -359,7 +364,7 @@ class MSSQLClient(DataSourceClient):
         return manager.service_ccache(self.kerberos_principal)
 
     @contextmanager
-    def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
+    def _policy_session(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to a SQL Server database."""
         conn = None
         try:
@@ -438,11 +443,13 @@ class MSSQLClient(DataSourceClient):
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""
+        if self.company_filtered:
+            return self.execute_company_query(sql, *self._company_reader)
         attempt = 0
         while True:
             try:
                 with self.connect() as conn:
-                    df = pd.read_sql(text(sql), conn)
+                    df = read_sql_exact(sql, conn)
                 return df
             except Exception as e:
                 code = _sql_server_error_code(e)

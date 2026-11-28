@@ -1,7 +1,10 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from typing import List, Dict, Optional
+import re
+import unicodedata
 import requests
 from app.core.egress import pinned_session
 import pandas as pd
@@ -21,6 +24,154 @@ _NS = {
     "rs": XMLA_ROWSET_NS,
     "xsd": XSD_NS,
 }
+
+
+# Logical SQL, as the Oracle BI Logical SQL Reference (12c, E77717) states it:
+# the BI Server accepts SELECT statements (with subqueries and UNION / UNION
+# ALL / INTERSECT / EXCEPT; a WITH ... SELECT is let through for the server
+# to read or reject); comments are /* */, // and # (to the line end);
+# character literals are in single quotes and names with spaces in double
+# quotes. `SET VARIABLE ...;` or `...:` may lead a SELECT, so ';' and ':' end
+# a statement. Rules the reference does not settle are refused rather than
+# guessed at: a backslash in a literal or a quoted name, '--', and a line
+# end other than LF or CR (CR LF and a lone CR reach the server as LF: the
+# text travels inside XML), '#' in code anywhere but at the start of the text
+# or right after a space, a tab or a line end (a reader that allows '#' in
+# names would not start a comment there), and '@{' anywhere
+# (presentation variables are substituted before the BI Server reads the
+# text, inside literals and comments too).
+_LOGICAL_READ_VERBS = frozenset({"SELECT", "WITH"})
+# EXECUTE PHYSICAL sends its text to a physical connection pool as it is and
+# SELECT_PHYSICAL (also printed SELECT PHYSICAL) reads physical tables, so
+# PHYSICAL is refused as a word of its own (a column of that name must be
+# quoted); CALL runs a procedure, in a subquery or a WITH item too; the
+# EVALUATE functions (every word starting with EVALUATE, EVALUATE_SCRIPT and
+# later ones included) insert physical SQL expressions or run scripts (the
+# reference's Database Functions section); AGGREGATES is the word of
+# CREATE / DELETE AGGREGATES. INSERT is not refused: in Logical SQL it is a
+# string function.
+_LOGICAL_REFUSED_WORDS = frozenset({"EXECUTE", "SELECT_PHYSICAL", "PHYSICAL", "CALL", "AGGREGATES"})
+# '#' starts a comment only at the start of the text or right after one of these.
+_LOGICAL_HASH_COMMENT_AFTER = " \t\r\n"
+_LOGICAL_REFUSED_PREFIX = "EVALUATE"
+_LOGICAL_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
+_LOGICAL_LINE_ENDS = "\n\r"
+_LOGICAL_AMBIGUOUS_LINE_ENDS = re.compile("[\x0b\x0c\x85\N{LINE SEPARATOR}\N{PARAGRAPH SEPARATOR}]")
+
+
+def _logical_refuse(reason: str) -> ReadOnlyViolation:
+    return ReadOnlyViolation(f"Logical SQL refused: {reason}.")
+
+
+def _skip_logical_quoted(statement: str, i: int, close: str) -> int:
+    """Index after the literal or quoted name that opens at i (a doubled
+    `close` stands for itself)."""
+    j = i + 1
+    while True:
+        k = statement.find(close, j)
+        if k < 0:
+            raise _logical_refuse("unterminated string or quoted name")
+        if "\\" in statement[j:k]:
+            raise _logical_refuse("a backslash in a string or a quoted name")
+        if statement.startswith(close * 2, k):
+            j = k + 2
+            continue
+        return k + 1
+
+
+def check_logical_sql(statement) -> None:
+    """Refuse Logical SQL that is not one SELECT, before it is sent.
+
+    The statement must be an exact str. '@{' is refused anywhere. Comments
+    and literals are skipped by the rules above; the first word (after any
+    opening parentheses) must be SELECT or WITH; a WITH statement must reach
+    a SELECT after its list of named subqueries; no word of
+    `_LOGICAL_REFUSED_WORDS` and no word starting with EVALUATE may appear in
+    code; '#' in code must start the text or follow a space, a tab or a line
+    end; nothing but comments may follow a ';' or a ':'.
+    """
+    if type(statement) is not str:
+        raise _logical_refuse("the statement must be text (a plain str)")
+    if _LOGICAL_AMBIGUOUS_LINE_ENDS.search(statement):
+        raise _logical_refuse("use only LF or CR LF line ends")
+    if "\x00" in statement:
+        raise _logical_refuse("a NUL character")
+    if "@{" in statement:
+        raise _logical_refuse("'@{' (a presentation variable) is not allowed")
+    first = None
+    ended = False
+    depth = 0
+    # For a WITH statement: the depth of its list of named subqueries, and
+    # where the scan stands in it ("list"; "closed": a subquery's parenthesis
+    # just closed; "open": the main statement opened with a parenthesis;
+    # "select": the main SELECT reached).
+    with_depth, with_state = None, None
+    i, n = 0, len(statement)
+    while i < n:
+        ch = statement[i]
+        if ch == "#" and i > 0 and statement[i - 1] not in _LOGICAL_HASH_COMMENT_AFTER:
+            raise _logical_refuse("'#' not after a space or a line end; put a space before a '#' comment")
+        if statement.startswith(("//", "#"), i):
+            while i < n and statement[i] not in _LOGICAL_LINE_ENDS:
+                i += 1
+            continue
+        if statement.startswith("/*", i):
+            end = statement.find("*/", i + 2)
+            if end < 0 or "/*" in statement[i + 2:end]:
+                raise _logical_refuse("unterminated or nested block comment")
+            i = end + 2
+            continue
+        if statement.startswith("--", i):
+            raise _logical_refuse("'--' is not a Logical SQL comment; use /* */ or //")
+        if ch.isspace() or unicodedata.category(ch) in ("Cc", "Cf", "Zs", "Zl", "Zp"):
+            i += 1
+            continue
+        if ended:
+            raise _logical_refuse("only one statement may be sent")
+        if first is None and ch == "(":
+            depth += 1
+            i += 1
+            continue
+        word = _LOGICAL_WORD.match(statement, i)
+        upper = word.group().upper() if word else ch
+        if first is None:
+            first = upper
+            if first not in _LOGICAL_READ_VERBS:
+                raise _logical_refuse("only SELECT and WITH statements are allowed")
+            if first == "WITH":
+                with_depth, with_state = depth, "list"
+        elif with_state in ("closed", "open"):
+            if upper == "SELECT":
+                with_state = "select"
+            elif ch == "(":
+                with_state = "open"
+            elif with_state == "closed" and upper in ("AS", ","):
+                with_state = "list"
+            else:
+                raise _logical_refuse("a WITH statement must end in a SELECT")
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if with_state == "list" and depth == with_depth:
+                with_state = "closed"
+            elif with_state != "select" and with_depth is not None and depth < with_depth:
+                raise _logical_refuse("a WITH statement must end in a SELECT")
+        if word:
+            if upper in _LOGICAL_REFUSED_WORDS or upper.startswith(_LOGICAL_REFUSED_PREFIX):
+                raise _logical_refuse(f"{upper} is not allowed")
+            i = word.end()
+        elif ch in "'\"":
+            i = _skip_logical_quoted(statement, i, ch)
+        elif ch in ";:":
+            ended = True
+            i += 1
+        else:
+            i += 1
+    if first is None:
+        raise _logical_refuse("no statement")
+    if first == "WITH" and with_state != "select":
+        raise _logical_refuse("a WITH statement must end in a SELECT")
 
 
 class OracleBIClient(DataSourceClient):
@@ -264,8 +415,9 @@ class OracleBIClient(DataSourceClient):
                         is named directly in the Logical SQL.
             max_rows: maximum rows per page passed to the BI Server.
         """
-        if not query or not query.strip():
+        if not query or (isinstance(query, str) and not query.strip()):
             raise ValueError("Logical SQL query is required")
+        check_logical_sql(query)
 
         self.connect()
 

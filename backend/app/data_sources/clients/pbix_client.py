@@ -16,6 +16,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from app.ai.code_execution.duckdb_guard import check_duckdb_file_query
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients import _duckdb_lockdown as lockdown
@@ -118,7 +119,7 @@ class PBIXClient(DataSourceClient):
     @staticmethod
     def _cache_key(filepath: str) -> tuple[str, Path]:
         """Return (file_hash, cache_dir) for the given file + its current mtime."""
-        abs_path = os.path.abspath(filepath)
+        abs_path = os.path.realpath(filepath)
         file_hash = hashlib.sha256(abs_path.encode("utf-8")).hexdigest()[:16]
         mtime_ns = os.stat(abs_path).st_mtime_ns
         return file_hash, _CACHE_DIR / f"{file_hash}_{mtime_ns}_v{_CACHE_SCHEMA_VERSION}"
@@ -253,8 +254,32 @@ class PBIXClient(DataSourceClient):
     # Query execution
     # ------------------------------------------------------------------
 
+    def _cached_model_tables(self, cache_dir: Path) -> list[str]:
+        """Model table names from the schema discovery cached for a file
+        (no decode); [] when none is cached or it cannot be read."""
+        from app.services import storage
+        schema_path = cache_dir / "schema.json"
+        try:
+            if not storage.ensure_local(schema_path, fresh=False):
+                return []
+            with schema_path.open("r", encoding="utf-8") as f:
+                return [t["name"] for t in (json.load(f).get("tables") or [])]
+        except Exception as e:
+            # Only names for a refusal message: without them the message
+            # says less, nothing else changes.
+            logger.debug(f"pbix schema cache read failed for {cache_dir}: {e}")
+            return []
+
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+        with self._open() as (con, _views, _not_ready):
+            yield con
+
+    @contextmanager
+    def _open(self) -> Generator[tuple[duckdb.DuckDBPyConnection, list[str], list[str]], None, None]:
+        """A locked connection, the views it registered (the tables agent SQL
+        may read on it), and the tables discovery lists that it could not
+        register because their Parquet cache could not be built."""
         t0 = time.perf_counter()
         files = self._resolve_files()
         logger.info(
@@ -265,6 +290,7 @@ class PBIXClient(DataSourceClient):
         try:
             con = duckdb.connect(database=":memory:")
             per_file_manifest: dict[str, tuple[Path, dict[str, str]]] = {}
+            pending: dict[str, list[str]] = {}
             skipped = 0
             for filepath in files:
                 file_hash, fresh_dir = self._cache_key(filepath)
@@ -292,25 +318,35 @@ class PBIXClient(DataSourceClient):
                         extra={"pbix_file": filepath, "pbix_error": str(e)},
                     )
                     skipped += 1
+                    # Discovery still lists its tables: name them as not
+                    # ready rather than unknown.
+                    tables = self._cached_model_tables(fresh_dir)
+                    if tables:
+                        pending[filepath] = tables
 
-            views = self._view_names(
-                {f: sorted(m.keys()) for f, (_, m) in per_file_manifest.items()}
-            )
-            parquets: list[str] = []
+            views = self._view_names({
+                **{f: sorted(m.keys()) for f, (_, m) in per_file_manifest.items()},
+                **pending,
+            })
+            registered: list[str] = []
+            parquet_paths: list[str] = []
+            not_ready = [views[(f, t)] for f, tables in pending.items() for t in tables]
             for filepath, (cache_dir, manifest) in per_file_manifest.items():
                 for tname, fname in manifest.items():
                     ppath = cache_dir / fname
-                    if not ppath.exists():
-                        continue
                     view = views[(filepath, tname)]
+                    if not ppath.exists():
+                        not_ready.append(view)
+                        continue
                     parquet_sql = str(ppath).replace("'", "''")
                     con.execute(
                         f'CREATE VIEW "{view}" AS SELECT * FROM read_parquet(\'{parquet_sql}\')'
                     )
-                    parquets.append(str(ppath))
-
-            # From here the session reads this connection's caches only.
-            lockdown.lock_connection(con, paths=parquets)
+                    registered.append(view)
+                    parquet_paths.append(str(ppath))
+            # The views read their Parquet caches lazily: from here on the
+            # connection may read those files and nothing else.
+            lockdown.lock_connection(con, paths=parquet_paths)
             logger.info(
                 "pbix.connect.done",
                 extra={
@@ -319,23 +355,27 @@ class PBIXClient(DataSourceClient):
                     "pbix_elapsed_s": round(time.perf_counter() - t0, 3),
                 },
             )
-            yield con
         except Exception as e:
+            if con is not None:
+                con.close()
             logger.error(
                 "pbix.connect.error",
                 extra={"pbix_error": str(e), "pbix_elapsed_s": round(time.perf_counter() - t0, 3)},
             )
             raise RuntimeError(f"Error connecting to PBIX files: {e}")
+        # The yield is outside the try above: an error raised by the caller's
+        # `with` body (a refused query) keeps its type.
+        try:
+            yield con, registered, not_ready
         finally:
-            if con is not None:
-                con.close()
+            con.close()
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("pbix.query.start", extra={"pbix_sql": sql})
-        lockdown.check_user_sql(sql, deferred=True)
         try:
-            with self.connect() as con:
+            with self._open() as (con, views, not_ready):
+                check_duckdb_file_query(sql, views, not_ready=not_ready)
                 lockdown.check_session_sql(con, sql)
                 df = con.execute(sql).df()
             logger.info(

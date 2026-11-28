@@ -387,7 +387,7 @@ class CreateDataMCPTool(MCPTool):
 
         # Update step with code and data
         await project_manager.update_step_with_code(db, step, generated_code)
-        await project_manager.update_step_with_data(db, step, formatted)
+        await project_manager.update_step_with_data(db, step, formatted, organization_id=organization.id)
         await project_manager.update_step_with_data_model(db, step, data_model)
         await project_manager.update_step_status(db, step, "success")
 

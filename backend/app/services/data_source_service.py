@@ -1,3 +1,4 @@
+from app.services.fabric_company_policy import bind_company_reader
 from app.data_sources.client_parameters import merge_client_credentials, filter_client_parameters
 import asyncio
 import copy
@@ -2950,7 +2951,8 @@ class DataSourceService:
         allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(conn.type, params)
         from app.data_sources.clients._duckdb_lockdown import bind_organization
-        return bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
+        client = bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
+        return await bind_company_reader(db, conn, client, current_user)
 
     @staticmethod
     def is_execution_live(ds) -> bool:
@@ -3272,6 +3274,8 @@ class DataSourceService:
                 await _acheck_connection_destination(conn.type, params)
                 from app.data_sources.clients._duckdb_lockdown import bind_organization
                 client = bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
+                viewer = current_user if row_filter_user is SAME_AS_CURRENT_USER else row_filter_user
+                await bind_company_reader(db, conn, client, viewer)
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
                 await self._attach_table_scope(db, client, data_source, conn)
@@ -3399,6 +3403,8 @@ class DataSourceService:
         anonymous identity, which sees nothing from a protected relation. A
         background path that legitimately needs rows must name a real user.
         """
+        if getattr(connection, "active_company_policy", None) is not None:
+            return None
         from app.models.connection_table import ConnectionTable, KIND_BOW
         from app.services.custom_query_service import CustomQueryService
 
@@ -3425,7 +3431,7 @@ class DataSourceService:
             return None
 
         identity = None
-        if any(getattr(r, "rls_enabled", False) for r in rows):
+        if any(getattr(r, "rls_enabled", False) or getattr(r, "cls_enabled", False) for r in rows):
             # Only pay for identity resolution when something actually needs it.
             from app.services.rls_identity_service import resolve_identity
             identity = await resolve_identity(
@@ -3577,11 +3583,14 @@ class DataSourceService:
         Covers the rows of THIS connection plus unlinked legacy rows, the same
         set `_attach_stored_table_metadata` reads. Nothing is attached when the
         data source has no table rows (never indexed: there is no selection to
-        enforce) or the client is not a SQL dialect the check can parse.
+        enforce) or the client is not SQL. SQL without a sqlglot dialect
+        (guard profile "nonparsing_sql") gets the scope too: its queries are
+        checked while the selection disables any table.
 
         Errors propagate: a client that should be scoped must not be handed
         out unscoped.
         """
+        from app.ai.code_execution.client_profiles import guard_profile
         from app.ai.code_execution.sql_guard import dialect_for_client
         from app.ai.code_execution.table_scope import TABLE_SCOPE_ATTR, TableScope
         from app.models.datasource_table import DataSourceTable
@@ -3609,7 +3618,8 @@ class DataSourceService:
             ))).all()
             attach_catalog(client, selected, files)
             return
-        if not dialect_for_client(client):
+        profile = guard_profile(client)
+        if not dialect_for_client(client) and not (profile is not None and profile.kind == "nonparsing_sql"):
             return
         rows = (await db.execute(
             select(DataSourceTable.name, DataSourceTable.is_active)
@@ -4005,6 +4015,11 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
         
+        if getattr(organization, "withhold_unverified_company_content", False) is True:
+            from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+            context = await SchemaContextBuilder(db, [data_source], organization, None, user=current_user).build()
+            return [table for source in context.data_sources for table in source.tables]
+
         # Per-connection identity scoping. This used to read auth_policy off
         # `connections[0]` and then return EITHER the caller's overlay OR the
         # canonical catalog for the whole agent. On a mixed agent (delegated
@@ -4534,6 +4549,11 @@ class DataSourceService:
         data_source = result.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
+
+        if getattr(organization, "withhold_unverified_company_content", False) is True:
+            # This selector includes indexed values, usage stats and unselected tables.
+            # The schema endpoint above serves the live reader's column-only projection.
+            raise HTTPException(status_code=403, detail="Stored table catalog unavailable")
 
         # Deselected tables are the agent manager's working set, not part of the
         # agent: they are names the manager considered and turned off. Someone
@@ -5473,7 +5493,8 @@ class DataSourceService:
         allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(connection.type, params)
         from app.data_sources.clients._duckdb_lockdown import bind_organization
-        return bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
+        return await bind_company_reader(db, connection, client, user)
 
     async def get_user_data_source_schema(
         self,
@@ -7063,6 +7084,11 @@ class DataSourceService:
         third time.
         """
         from app.ai.prompt_formatters import TableFormatter
+
+        if getattr(organization, "withhold_unverified_company_content", False) is True:
+            tables = await self.get_data_source_schema(db, str(data_source.id), organization=organization,
+                                                      current_user=current_user)
+            return TableFormatter(tables).table_str
 
         delegated = [
             c for c in (getattr(data_source, "connections", None) or [])

@@ -496,7 +496,8 @@ class StepService:
         )
 
         # Update existing step instead of creating new one
-        step.data = df
+        from app.services.viewer_data_policy import org_has_company_policy
+        step.data = {} if await org_has_company_policy(db, report.organization_id) else df
         # Record what this run actually executed with, not what the previous
         # one did: resolution fills in defaults, drops params the query no
         # longer declares, and re-derives identity values. applied_params is

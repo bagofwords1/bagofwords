@@ -61,6 +61,8 @@ TWO_SOURCES = '''def generate_df(ds_clients, excel_files):
 @pytest.mark.parametrize("total,cap", [(30, 5), (1200, 1000)])
 async def test_truncation_notice_reaches_the_observation(monkeypatch, mode, total, cap):
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     done = await _execute(ONE_SOURCE, {"a": _RowCappedSource(total, cap, "Graph")})
 
     observation = _observation(len(done["df"]))
@@ -77,6 +79,8 @@ async def test_truncation_notice_reaches_the_observation(monkeypatch, mode, tota
 @pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
 async def test_every_source_notice_is_kept_once_in_order(monkeypatch, mode):
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     done = await _execute(TWO_SOURCES, {"a": _RowCappedSource(9, 4, "Alpha"),
                                         "b": _RowCappedSource(7, 2, "Beta")})
 
@@ -92,6 +96,8 @@ async def test_every_source_notice_is_kept_once_in_order(monkeypatch, mode):
 @pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
 async def test_a_complete_result_carries_no_notice(monkeypatch, mode):
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     done = await _execute(ONE_SOURCE, {"a": _RowCappedSource(3, 50, "Graph")})
 
     observation = _observation(len(done["df"]))

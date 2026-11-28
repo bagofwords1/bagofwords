@@ -164,3 +164,23 @@ def test_made_with_bow_shows_only_when_the_dashboard_and_the_organization_allow_
     assert credit() is False  # the organization's setting turns it off everywhere
     org_credit(True)
     assert credit() is True
+
+@pytest.mark.e2e
+def test_creator_identity_is_refused_for_a_cls_only_source(corpus, corpus_rows, test_client):
+    dashboard = own(corpus_rows, corpus, "rls/dash")
+    source = corpus.cast.data_sources["מחסן RLS"]
+    with corpus_rows.engine.begin() as connection:
+        table = connection.execute(text(
+            "SELECT connection_table_id FROM datasource_tables WHERE datasource_id = :source"
+        ), {"source": source}).scalar_one()
+        connection.execute(text(
+            "UPDATE connection_tables SET cls_enabled = true, rls_enabled = false WHERE id = :id"
+        ), {"id": table})
+    try:
+        response = _put(test_client, corpus, dashboard, {"shared_run_identity": "creator"})
+        assert response.status_code == 400
+    finally:
+        with corpus_rows.engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE connection_tables SET cls_enabled = false, rls_enabled = true WHERE id = :id"
+            ), {"id": table})
