@@ -646,3 +646,158 @@ bootstrap:
 Not built: a place in the UI that shows an environment whose image could not
 be fetched. Today that is visible only in the audit log and when a first run
 fails.
+
+## Changes after the design review
+
+A second, design-level review (PR #1941, "Design feedback", ten points) changed and
+added the following. Everything here is built and tested unless it says otherwise.
+Sections above that describe the earlier state are superseded by this one where they
+differ. Point 10 (corporate proxies, internal hosts, custom CAs) is parked in
+`agent-sandboxes-proxy-and-network.md`.
+
+### 1. "Backend" is now "Compute"
+
+The place sandboxes run is a **compute** everywhere: table `sandbox_computes`, columns
+`compute_id` and `compute_labels`, API `/api/sandbox/computes` and
+`/api/sandbox/compute-types`, error codes `sandbox.compute_*`, audit actions
+`sandbox_compute.*`, code (`services/sandbox/computes.py`), UI text and locale keys.
+The migration was changed in place, because the tables had not shipped. "Docker's
+firewall backend" keeps its name: that is Docker's term.
+
+### 2. Capacity is counted in resources
+
+`services/sandbox/capacity.py`. A compute reports what it has (`ComputeHealth.resources`:
+CPUs and memory from its runtime, the size of the workspace disk) at bootstrap and on
+every health check. Placement and resume count each sandbox's own limits against it.
+
+| Resource | Held by | Default rule |
+|---|---|---|
+| CPU | running sandboxes | 4 CPUs of limits per real CPU (`cpu_overcommit`) |
+| Memory | running sandboxes | limits must fit, less 1 GB kept free (`reserve_memory_mb`, `memory_overcommit`) |
+| Disk | every sandbox that still exists, stopped ones too | workspace disk less 5 GB kept free (`reserve_disk_mb`) |
+
+The policy (`allocation`) is per compute. A resource a compute did not report is not
+counted. The plain count (`capacity`) stays as an upper bound. New sandboxes go to the
+compute whose fullest resource would be least full. The API returns `resources`,
+`allocatable` and `allocated` per compute.
+
+### 3. Hooks
+
+An environment has three scripts: `setup_script` (once, at creation), `start_script`
+(every start: creation and resume, 120 s) and `stop_script` (before a stop or delete,
+best effort, 30 s). Each run of a hook is an event in the sandbox's timeline
+(`setup_script`, `start_script`, `stop_script`) with its status and the end of its
+output.
+
+- A start script that fails on resume leaves the sandbox **stopped**, with its files,
+  and the run reports the script's output. It is not marked failed, which would lose
+  the workspace.
+- After three creations in a row that fail in a hook, the environment refuses new
+  sandboxes (`sandbox.environment_broken`) until its image or scripts change. The admin
+  gets an audit entry (`sandbox_environment.hook_failing`) and a warning on the
+  environment.
+- A sandbox created before the image or setup script changed is marked
+  (`setup_outdated`) in the admin list. It is not rebuilt automatically.
+
+### 4. Durability
+
+- **What is durable is said plainly**, to the agent (prompt and tool description) and
+  in this document: only `outputs/` is durable, because it is saved to the report. The
+  rest of a workspace is a cache.
+- **A recreated sandbox gets the report's files back**: the newest version of every
+  earlier output under `outputs/`, and earlier inputs under `inputs/` (up to 200 files
+  and 500 MB). Files put back are not saved to the report a second time.
+- **Snapshots** (`services/sandbox/snapshots.py`, capability `snapshot`): a gzip tar of
+  the whole workspace in BoW's file store (`uploads/sandbox_snapshots/`, mirrored to the
+  object store when one is configured). Taken on stop when `snapshot_on_stop` is on (off
+  by default), or on request; skipped above `snapshot_max_mb`. When a sandbox has to be
+  recreated, the report's newest snapshot is restored into the new one: the setup
+  script is not run again, the start script is. A deliberate delete removes the
+  snapshot too.
+- **Evacuating a compute** (`POST /computes/{id}/evacuate`, the compute must be
+  disabled): each sandbox is snapshotted and removed there, and its report's next run
+  recreates it elsewhere from the snapshot. A sandbox whose snapshot fails is left where
+  it is.
+- **Deletions are announced**: a day before a retention or lifetime deletion
+  (`delete_warning_seconds`) there is a timeline event, an audit entry, a `deletes_at`
+  on the admin list, and a notice in the next run's result.
+- **Pin and extend**: an admin can pin a sandbox (retention and lifetime skip it; it
+  still goes with its report) or push its deletion later. `max_lifetime_seconds = 0`
+  turns the maximum lifetime off.
+
+Not built: moving a *running* sandbox live; incremental snapshots; encrypting snapshot
+files beyond what the file store does.
+
+### 5. Between runs: pause, stop, start, keep warm
+
+- **Pause** (capability `pause`): when a sandbox is marked idle, its processes are
+  frozen in memory where the compute can (`docker pause`; works under gVisor). It uses
+  no CPU, still holds its memory, and the next run thaws it in under a second with its
+  processes intact. It is done under the same claim a run takes, so a run can never
+  start in a sandbox that is about to be frozen. The health check does not take a
+  frozen sandbox for a dead one.
+- **Stop** remains the step after: at the idle timeout the container is stopped, which
+  frees memory and loses processes.
+- **Manual controls** for an admin: stop, start (resume now, ahead of the next run),
+  keep warm for some hours (neither paused nor stopped for being idle).
+
+Not built: checkpoint and restore of a running sandbox's processes (`runsc checkpoint`,
+CRIU). It needs its own spike: it interacts with open network connections and with the
+loop-mounted workspace.
+
+### 6. Admin switches
+
+`/api/sandbox/sandboxes`: list (with live CPU, memory, disk), one sandbox with its runs,
+timeline and domain log, stop, start, stop the run in progress (works from any worker:
+the process id is recorded when the program starts), delete, pin, extend, keep warm,
+snapshot. The Sandboxes tab is first in Settings → Sandbox.
+
+### 7. Logs
+
+- **Domain log**: the health job stores which domains each sandbox reached or was
+  refused in `sandbox_egress_log` (every two minutes, and once more on stop and
+  delete). The sandbox detail returns it, refused first.
+- **Commands on a compute**: every command BoW runs on a server is one line on the
+  `bow.sandbox.commands` logger (the command, exit status, duration). Secrets are never
+  on a command line, so none are logged.
+- **Processes that outlive a run** are listed in the run's `run_finished` event and
+  told to the agent.
+- Run history, code and output are read by the sandbox detail view (code and output
+  only with `view_code`).
+
+### 8. In the report
+
+`run_in_sandbox` can ask the person in the chat first, by the environment's
+`confirm_runs` policy: `never` (default), `always`, `full_network`, `packages`.
+`delete_sandbox` always asks. A run nobody answers within four minutes does not happen.
+The tool blocks in the chat are described in the PR.
+
+### 9. Volumes
+
+A compute declares named volumes (`volumes: [{name, source, description}]`; for a server
+`source` is a directory the operator mounts themselves: a local disk, NFS, an object
+store). An environment mounts them (`mounts: [{volume, path, read_only, shared}]`).
+
+- Read-only by default.
+- A writable mount gets each report its own directory inside the volume
+  (`reports/<report id>`), because isolation is per report. `shared: true` mounts the
+  volume's root writable for everyone, and the environment carries a warning.
+- A compute must have every volume an environment mounts to run it.
+- System directories, Docker's own and BoW's cannot be volumes; a volume cannot be
+  mounted over `/workspace`, `/tmp` or a system path.
+- Volumes do not count against a sandbox's disk limit. `MountSpec` is in the
+  driver-neutral spec.
+
+Not built: BoW mounting NFS or object stores on the server itself; that stays the
+operator's.
+
+### Verified on a real server
+
+`tools/agent/agent_sandbox_live.py` covers phase 1. The additions above were checked on
+the same Ubuntu and gVisor host with throwaway data: detected resources; a read-only and
+a per-report writable volume; setup, start and stop hooks; the record of a process left
+running; pause and thaw with processes intact; snapshot on stop; a sandbox removed
+behind BoW's back coming back from its snapshot; and the admin stop, kill-run, start
+and delete. Not verified on a real server: evacuating to a second compute (there is one
+test server), and the domain log collection job end to end (its parser was exercised in
+phase 1, the storing is covered on the fake compute).
