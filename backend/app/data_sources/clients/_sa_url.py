@@ -174,14 +174,15 @@ _dropped_seen: set = set()
 
 
 def path_allowed(path: str) -> bool:
-    """Local path policy for a file an option names; allowed when the policy
-    helper is not available."""
+    """Local path policy for a file an option names, where the driver opens
+    it (`opened_path`: `~` is not the home directory to it); allowed when
+    the policy helper is not available."""
     try:
-        from app.data_sources.clients._duckdb_lockdown import check_local_path
+        from app.data_sources.clients._duckdb_lockdown import check_local_path, opened_path
     except Exception:
         return True
     try:
-        check_local_path(str(path))
+        check_local_path(opened_path(str(path)))
         return True
     except Exception:
         return False

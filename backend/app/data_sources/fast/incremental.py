@@ -588,10 +588,10 @@ def dialect_for(client) -> str | None:
     declared = getattr(client, "INCREMENTAL_DIALECT", None)
     if declared:
         return str(declared)
-    from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
+    from app.ai.code_execution.sql_guard import dialect_for_client
     from app.data_sources.fast import sql_dialect
 
-    return CLIENT_DIALECTS.get(type(client).__name__) or sql_dialect.dialect_of(client) or None
+    return dialect_for_client(client) or sql_dialect.dialect_of(client) or None
 
 
 def window_writer(client):

@@ -224,6 +224,7 @@ class TestSendScheduledReportResults:
         mock_fm = AsyncMock()
 
         mock_db = AsyncMock()
+        mock_db.scalar.return_value = None  # No protected report or dashboard in this mail fixture.
         mock_session_ctx = AsyncMock()
         mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
         mock_session_ctx.__aexit__ = AsyncMock(return_value=False)

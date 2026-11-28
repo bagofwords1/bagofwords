@@ -499,6 +499,10 @@ async def get_file_embed(
     )).scalar_one_or_none()
     if not file or str(file.organization_id) != str(claims["org"]):
         raise HTTPException(status_code=404, detail="File not found")
+    from app.services.viewer_data_policy import org_has_company_policy
+    if (claims.get("rid") or claims.get("rel") or file.source_kind in ("artifact", "artifact_resource")):
+        if await org_has_company_policy(db, file.organization_id):
+            raise HTTPException(status_code=404, detail="File not found")
     if claims.get("uid"):
         viewer = await db.get(User, claims["uid"])
         org = await db.get(Organization, file.organization_id)

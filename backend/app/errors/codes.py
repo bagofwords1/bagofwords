@@ -94,6 +94,7 @@ class ErrorCode(str, Enum):
     REWIND_RUN_IN_PROGRESS = "rewind.run_in_progress"
     REVIEW_ITEM_NOT_FOUND = "review_item.not_found"
     ENTITY_NOT_FOUND = "entity.not_found"
+    ENTITY_RUN_FAILED = "entity.run_failed"
     ARTIFACT_NOT_FOUND = "artifact.not_found"
     DASHBOARD_NOT_PUBLISHED = "dashboard.not_published"
     DASHBOARD_SHARE_REQUIRES_PUBLISH = "dashboard.share_requires_publish"

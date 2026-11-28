@@ -64,6 +64,8 @@ async def list_apps(
 
     workspace = await has_workspace_access(db, user, str(organization.id))
     requested = False if workspace else await app_launcher.access_requested(db, user, organization)
+    if getattr(organization, "withhold_unverified_company_content", False) is True:
+        return AppLauncherSchema(apps=[], next=None, workspace_access=workspace, access_requested=requested)
     apps, following = await app_launcher.list_apps(db, user, organization, search=q, kind=kind,
                                                     after=after, limit=limit)
     return AppLauncherSchema(apps=[AppCard(**a) for a in apps], next=following, workspace_access=workspace,

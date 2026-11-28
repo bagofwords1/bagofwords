@@ -185,6 +185,51 @@ class TestQuery:
             c.execute_query("", "0D_NW_C01/0D_NW_C01_Q001")
 
 
+class TestReadOnlyStatements:
+    """Only a statement led by a read verb (SELECT, WITH, EVALUATE, DEFINE)
+    reaches the XMLA endpoint, and a caller catalog must name the catalog the
+    query would use anyway."""
+
+    @staticmethod
+    def _refused(c, *args, **kwargs):
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+        session = _install_post(c, [EXECUTE_OK])
+        error = None
+        try:
+            c.execute_query(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - the type is asserted below
+            error = exc
+        assert session.post.call_args_list == [], "request sent"
+        assert isinstance(error, ReadOnlyViolation), f"not refused: {error!r}"
+
+    @pytest.mark.parametrize("statement", [
+        "UPDATE CUBE [0D_NW_C01_Q001] SET ([Measures].[4GBQ8]) = 1",
+        "Drop Member [0D_NW_C01_Q001].[Measures].[X]",
+        "-- SELECT\nCREATE SET [0D_NW_C01_Q001].[S] AS {}",
+        "/* WITH */ ALTER CUBE [0D_NW_C01_Q001] CREATE DIMENSION MEMBER [X]",
+        "SELECT {} ON 0 FROM [0D_NW_C01_Q001]; DROP MEMBER [0D_NW_C01_Q001].[Measures].[X]",
+    ])
+    def test_non_read_statement_refused(self, statement):
+        self._refused(_client(), statement, "0D_NW_C01/0D_NW_C01_Q001")
+
+    def test_catalog_override_refused(self):
+        self._refused(_client(catalog="0D_NW_C01"),
+                      "SELECT {} ON 0 FROM [0D_NW_C01_Q001]", catalog="0D_OTHER")
+
+    @pytest.mark.parametrize("statement", [
+        "select {[Measures].[4GBQ8]} on columns from [0D_NW_C01_Q001]",
+        "// BW\nWITH MEMBER [Measures].[X] AS 1 SELECT {[Measures].[X]} ON 0 FROM [0D_NW_C01_Q001]",
+    ])
+    def test_read_statement_sent(self, statement):
+        c = _client()
+        session = _install_post(c, [EXECUTE_OK])
+        c.execute_query(statement, "0D_NW_C01/0D_NW_C01_Q001", catalog="0d_nw_c01")
+        assert session.post.call_count == 1
+        body = session.post.call_args.kwargs["data"].decode()
+        assert "<Catalog>0D_NW_C01</Catalog>" in body
+
+
 # --------------------------------------------------------------------------
 # test_connection & prompt
 # --------------------------------------------------------------------------

@@ -167,6 +167,8 @@ dev = [
     "ruff>=0.15.18,<0.16",
     "ty>=0.0.51,<0.1",
     "moto[s3]>=5.2.5,<5.3",
+    # Postgres's own parser, as a test oracle only: never imported by app/.
+    "pglast>=8.7,<9",
 ]
 pii = [
     "en-core-web-sm",

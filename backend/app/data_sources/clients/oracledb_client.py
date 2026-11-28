@@ -12,6 +12,7 @@ import sqlalchemy
 from app.data_sources.engine_pool import get_engine
 from app.data_sources.query_cancellation import track
 from sqlalchemy import text
+from app.data_sources.clients._exact_sql import read_sql_exact
 from contextlib import contextmanager
 from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
@@ -72,7 +73,11 @@ def init_thick_mode_if_available() -> bool:
         return False
 
 
-class OracledbClient(DataSourceClient):
+from app.data_sources.clients._protected_sql import ProtectedSql
+
+
+class OracledbClient(ProtectedSql, DataSourceClient):
+    policy_dialect = "oracle"
 
     # Oracle: '' only (sqlglot oracle).
     sql_literal_style = "standard"
@@ -148,7 +153,7 @@ class OracledbClient(DataSourceClient):
         return args
 
     @contextmanager
-    def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
+    def _policy_session(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to an Oracle database."""
         conn = None
         try:
@@ -187,9 +192,11 @@ class OracledbClient(DataSourceClient):
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""
+        if self.company_filtered:
+            return self.execute_company_query(sql, *self._company_reader)
         try:
             with self.connect() as conn:
-                df = pd.read_sql(text(sql), conn)
+                df = read_sql_exact(sql, conn)
             return df
         except Exception as e:
             print(f"Error executing SQL: {e}")

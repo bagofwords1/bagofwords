@@ -25,6 +25,18 @@ from app.schemas.view_schema import AxisOptions
 from app.models.entity import Entity
 
 
+def _llm_may_see_data(organization_settings) -> bool:
+    """The organization's allow_llm_see_data. Settings that cannot be read
+    hide the data: the setting exists to keep rows and code from the LLM."""
+    if not organization_settings:
+        return True
+    try:
+        cfg = organization_settings.get_config("allow_llm_see_data")
+        return bool(cfg.value) if cfg is not None else True
+    except Exception:
+        return False
+
+
 class DescribeEntityTool(Tool):
     """Tool to describe a catalog entity and optionally create a visualization from it."""
 
@@ -300,6 +312,12 @@ class DescribeEntityTool(Tool):
         # snapshot's own record until a run below replaces it.
         applied_params = dict(getattr(entity, "applied_params", None) or {}) or None
         request_values = dict(data.params or {})
+        # What the output and the observation report about the entity.
+        allow_llm_see_data = _llm_may_see_data(organization_settings)
+        described = {
+            "entity_id": str(entity.id), "entity_type": entity.type, "title": entity.title,
+            "description": entity.description, "code": entity.code,
+        }
 
         if request_values or data.should_rerun or snapshot_withheld:
             # Viewer-mode run of the SAVED code: defaults <- the requested
@@ -307,11 +325,12 @@ class DescribeEntityTool(Tool):
             # user, values). No code generation anywhere on this path; a
             # repeat with the same values is served from the cache.
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "code_execution"})
+            snapshot = entity_data
+            from app.services.entity_service import CallerTransactionLost, EntityService
             try:
                 if not (entity.code or "").strip():
                     errors.append("Entity has no code to execute")
                 else:
-                    from app.services.entity_service import EntityService
                     run = await EntityService().run_entity_for_user(
                         db, entity, organization, user, request_values,
                         force_refresh=bool(data.should_rerun),
@@ -322,21 +341,16 @@ class DescribeEntityTool(Tool):
                         "served from the per-user cache" if run.get("cached")
                         else "executed the entity's saved code"
                     )
+            except CallerTransactionLost:
+                # The agent's own writes are gone with its transaction: it
+                # cannot go on as if only this run had failed.
+                raise
             except Exception as e:
                 errors.append(f"Code execution failed: {str(e)}")
                 # Fall back to cached data — but never to a snapshot the
                 # policy withholds from this reader, and never to a snapshot
                 # that answers different parameter values than asked.
-                entity_data = {} if (snapshot_withheld or request_values) else (entity.data or {})
-
-        # Build data profile
-        allow_llm_see_data = True
-        if organization_settings:
-            try:
-                cfg = organization_settings.get_config("allow_llm_see_data")
-                allow_llm_see_data = bool(cfg.value) if cfg is not None else True
-            except Exception:
-                pass
+                entity_data = {} if request_values else snapshot
 
         # UI card keeps the compact column profile; the PLANNER gets the same
         # budgeted preview create_data/read_query emit — small results (an
@@ -432,11 +446,11 @@ class DescribeEntityTool(Tool):
         # Success only if no errors occurred - having cached data doesn't mean the operation succeeded
         output = DescribeEntityOutput(
             success=len(errors) == 0,
-            entity_id=str(entity.id),
-            entity_type=entity.type,
-            title=entity.title,
-            description=entity.description,
-            code=entity.code if allow_llm_see_data else "[code hidden]",
+            entity_id=described["entity_id"],
+            entity_type=described["entity_type"],
+            title=described["title"],
+            description=described["description"],
+            code=described["code"] if allow_llm_see_data else "[code hidden]",
             data_profile=data_profile,
             data_preview=data_preview,
             stats=stats,
@@ -454,10 +468,10 @@ class DescribeEntityTool(Tool):
             output["data"] = entity_data
             # The step persists the REAL code regardless of the LLM-facing
             # redaction below: the created query must be re-runnable.
-            output["code"] = entity.code
+            output["code"] = described["code"]
 
         # Build observation
-        summary_parts = [f"Described entity '{entity.title}' (type={entity.type})"]
+        summary_parts = [f"Described entity '{described['title']}' (type={described['entity_type']})"]
         if request_values:
             summary_parts.append(
                 "ran with parameters " + ", ".join(f"{k}={v!r}" for k, v in (applied_params or {}).items())
@@ -469,10 +483,10 @@ class DescribeEntityTool(Tool):
 
         observation: Dict[str, Any] = {
             "summary": ", ".join(summary_parts) + ".",
-            "entity_id": str(entity.id),
-            "entity_type": entity.type,
-            "title": entity.title,
-            "description": entity.description[:200] if entity.description else None,
+            "entity_id": described["entity_id"],
+            "entity_type": described["entity_type"],
+            "title": described["title"],
+            "description": described["description"][:200] if described["description"] else None,
             "data_preview": with_column_sums(data_preview, entity_data, call_id=runtime_ctx.get("tool_call_id")),
             "stats": stats,
             "analysis_complete": False,

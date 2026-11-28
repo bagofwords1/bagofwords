@@ -62,6 +62,7 @@ class DeploymentConfig(BaseModel):
 class FeatureFlags(BaseModel):
     allow_uninvited_signups: bool = False
     allow_multiple_organizations: bool = False
+    fabric_company_rls_activation: bool = False
     verify_emails: bool = False
 
 class OTELConfig(BaseModel):
@@ -364,6 +365,16 @@ class LDAPConfig(BaseModel):
     user_search_filter: str = "(objectClass=person)"
     user_email_attribute: str = "mail"
     user_name_attribute: str = "displayName"
+    policy_attributes: list[str] = Field(default_factory=list)
+
+    @field_validator("policy_attributes")
+    @classmethod
+    def valid_policy_attributes(cls, values):
+        import re
+        if len(values) > 50 or any(not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9-]{0,63}", v) for v in values):
+            raise ValueError("Invalid directory attribute")
+        return list(dict.fromkeys(values))
+
     group_search_base: Optional[str] = None            # defaults to base_dn
     group_search_filter: str = "(objectClass=group)"
     group_name_attribute: str = "cn"
@@ -583,11 +594,14 @@ class SecurityConfig(BaseModel):
                     raise ValueError(f"organization_file_roots[{org_id}]: {root!r} is not an absolute path")
             out[str(org_id).strip()] = list(roots)
         return out
-    # UNSAFE. Restores the old behaviour: no path policy, no session lock, no
-    # read-only check for csv/qvd/pbix, SQLite opened read-write. Anyone who
-    # can query such a connection can then read and write any file the app
-    # user can. Only for a single-tenant install that depends on it (e.g. a
-    # .duckdb file whose views read files elsewhere) while it migrates.
+    # UNSAFE. Restores the old behaviour. It lifts the path policy; the
+    # session lock on DuckDB, CSV, QVD, PBIX, Report Server and Iceberg
+    # connections; the file connections' statement checks; and the in-process
+    # DuckDB checks for Iceberg and network folders. SQLite is opened
+    # read-write. Accelerated (FAST) tables and network folders stay locked.
+    # Anyone who can query such a connection can then read and write any file
+    # the app user can. Only for a single-tenant install that depends on it
+    # (e.g. a .duckdb file whose views read files elsewhere) while it migrates.
     # Env: BOW_UNSAFE_ALLOW_UNRESTRICTED_FILE_CONNECTORS (true/1/yes/on).
     unsafe_allow_unrestricted_file_connectors: bool = Field(
         default_factory=lambda: (os.getenv("BOW_UNSAFE_ALLOW_UNRESTRICTED_FILE_CONNECTORS") or "").strip().lower()

@@ -21,6 +21,7 @@ external IdP token, so there is no on-behalf-of / delegated variant.
 """
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 import json
+import re
 from contextlib import contextmanager
 from typing import Generator, List, Optional
 
@@ -29,10 +30,12 @@ import requests
 from app.core.egress import pinned_session
 
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
 
 
 MAX_ROWS = 50_000          # hard cap per execute_query
+_READ_METHOD = re.compile(r"[a-z]+\.get", re.ASCII)
 DEFAULT_LIMIT = 500        # when the query spec omits `limit`
 ITEM_ENRICH_LIMIT = 2_000  # items sampled to enrich the `items` virtual table
 HTTP_TIMEOUT = 120         # seconds per JSON-RPC request
@@ -346,13 +349,21 @@ class ZabbixClient(DataSourceClient):
 
         `table` maps to a Zabbix `*.get` method; `params` are passed through
         verbatim (filter/search/hostids/itemids/time_from/…). Escape hatch:
-        pass `method` to call any Zabbix API method directly.
+        pass `method` to call another read (`<object>.get`) method directly.
         """
         spec = self._parse_spec(query)
         method = spec.get("method")
         if not method:
             table = spec["table"]
             method = _CATALOG[table]["method"]
+        # Zabbix lower-cases the method and keeps the first two dot-separated
+        # parts (ui/include/classes/core/CJsonRpc.php), so only an exact
+        # lower-case `<object>.get` is a read.
+        if not (isinstance(method, str) and _READ_METHOD.fullmatch(method)):
+            raise ReadOnlyViolation(
+                f"Zabbix method {method!r} refused: only read methods "
+                "(<object>.get, in lower case) are allowed."
+            )
 
         limit = min(int(spec.get("limit") or DEFAULT_LIMIT), MAX_ROWS)
         params = dict(spec.get("params") or {})
@@ -419,8 +430,9 @@ class ZabbixClient(DataSourceClient):
           `sortorder`, `selectHosts`, etc.
         - `output` (optional): fields to return; omit for all ("extend").
         - `limit` (optional): max rows, default 500.
-        - `method` (escape hatch): call any Zabbix API method directly instead
-          of a virtual table, e.g. {"method": "trigger.get", "params": {...}}.
+        - `method` (escape hatch): call another read method (`<object>.get`,
+          lower case) directly instead of a virtual table, e.g.
+          {"method": "trigger.get", "params": {...}}. Other methods are refused.
 
         IMPORTANT specifics:
         - Timestamps (`clock`, `lastchange`, `lastclock`, `r_clock`) are UNIX

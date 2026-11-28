@@ -114,3 +114,59 @@ async def test_repair_stops_when_fix_returns_same_code(tool, tmp_path, monkeypat
     result, _ = await _run_loop(tool, BAD_CODE, out, {})
     assert result["ok"] is False
     assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_terminal_refusal_is_not_sent_for_repair(tool, tmp_path, monkeypatch):
+    """Rewriting the code cannot lift a refusal of the host (here in-process
+    mode in production): no repair round is spent, the refusal is returned."""
+    from app.ai.code_execution.sandbox.runner import INPROCESS_REMEDY
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("BOW_CODE_SANDBOX", "inprocess")
+    out = tmp_path / "deck.pptx"
+    calls = {"n": 0}
+
+    async def fake_fix(code, error, runtime_ctx):
+        calls["n"] += 1
+        return code + f"\n# attempt {calls['n']}"
+
+    monkeypatch.setattr(tool, "_fix_pptx_code", fake_fix)
+    result, _ = await _run_loop(tool, GOOD_CODE, out, {})
+    assert calls["n"] == 0
+    assert result["ok"] is False
+    assert result["repair_attempts"] == 0
+    assert result["code"] == GOOD_CODE
+    assert INPROCESS_REMEDY in result["error"]
+    assert not out.exists()
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_met_by_a_repaired_attempt_is_the_error_reported(tool, tmp_path, monkeypatch):
+    """The first run fails in the code, the repaired code is then refused by
+    the host: the refusal is what the caller has to act on, so it is the
+    error returned, not the first run's code error."""
+    from app.ai.code_execution import pptx_executor
+    from app.ai.code_execution.sandbox.runner import CONFINEMENT_REMEDY, SandboxUnavailableError
+
+    def no_confinement(job, *args, **kwargs):
+        # The child process refuses before running anything.
+        raise SandboxUnavailableError("Landlock TCP confinement is required but unavailable")
+
+    out = tmp_path / "deck.pptx"
+    calls = {"n": 0}
+
+    async def fake_fix(code, error, runtime_ctx):
+        calls["n"] += 1
+        # The host stops providing the sandbox before the repaired run.
+        monkeypatch.setattr(pptx_executor, "run_sandbox_job", no_confinement)
+        return GOOD_CODE
+
+    monkeypatch.setattr(tool, "_fix_pptx_code", fake_fix)
+    result, _ = await _run_loop(tool, BAD_CODE, out, {})
+    assert calls["n"] == 1
+    assert result["ok"] is False
+    assert result["code"] == BAD_CODE
+    assert CONFINEMENT_REMEDY in result["error"]
+    assert "AttributeError" not in result["error"]
+    assert not out.exists()

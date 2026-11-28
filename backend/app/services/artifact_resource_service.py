@@ -177,6 +177,9 @@ class ArtifactResources:
         from app.services import dashboard_access
         from app.services.report_service import ReportService
 
+        from app.services.viewer_data_policy import org_has_company_policy
+        if await org_has_company_policy(db, artifact.organization_id):
+            fail("NOT_FOUND", "Artifact not found", 404)
         live = report is not None and report.status != "archived"
         # A dashboard with an owner (collab01) whose conversation owner is no
         # longer one of its editors: the conversation they keep lets them in

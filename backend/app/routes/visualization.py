@@ -16,6 +16,8 @@ from app.services.step_service import StepService
 from app.services.visualization_service import VisualizationService
 
 
+from app.routes.company_content import require_stored_company_content
+
 router = APIRouter(prefix="/visualizations", tags=["visualizations"])
 service = VisualizationService()
 
@@ -45,7 +47,7 @@ async def _get_visualization_and_report(db: AsyncSession, visualization_id: str,
     return v, report
 
 
-@router.get("/{visualization_id}", response_model=VisualizationSchema)
+@router.get("/{visualization_id}", dependencies=[Depends(require_stored_company_content)], response_model=VisualizationSchema)
 @requires_permission('view_reports')
 async def get_visualization(
     visualization_id: str,
@@ -60,7 +62,7 @@ async def get_visualization(
     return VisualizationSchema.model_validate(v)
 
 
-@router.patch("/{visualization_id}", response_model=VisualizationSchema)
+@router.patch("/{visualization_id}", dependencies=[Depends(require_stored_company_content)], response_model=VisualizationSchema)
 @requires_permission('update_reports')
 async def patch_visualization(
     visualization_id: str,

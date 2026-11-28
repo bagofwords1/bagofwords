@@ -2643,6 +2643,9 @@ class ReportService:
 
         # Check artifact visibility (replaces old status == 'published' check)
         await self._check_visibility(db, report, 'artifact_visibility', user)
+        from app.services.viewer_data_policy import report_has_company_policy
+        if await report_has_company_policy(db, report.id, report.organization_id):
+            raise HTTPException(status_code=404, detail="Stored report unavailable")
         
         schema = ReportSchema.from_orm(report)
         # Enrich fork lineage
@@ -2680,6 +2683,9 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Not found")
         await self._check_visibility(db, report, 'artifact_visibility', user)
+        from app.services.viewer_data_policy import report_has_company_policy
+        if await report_has_company_policy(db, report.id, report.organization_id):
+            raise HTTPException(status_code=404, detail="Stored report unavailable")
 
         # If artifact_id provided, filter to only queries used by that artifact
         query_ids_filter = None
@@ -2742,6 +2748,9 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Not found")
         await self._check_visibility(db, report, 'artifact_visibility', user)
+        from app.services.viewer_data_policy import report_has_company_policy
+        if await report_has_company_policy(db, report.id, report.organization_id):
+            raise HTTPException(status_code=404, detail="Stored report unavailable")
 
         # Fetch query and verify it belongs to this report
         query_result = await db.execute(
@@ -2889,6 +2898,9 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Not found")
         await self._check_visibility(db, report, 'artifact_visibility', user)
+        from app.services.viewer_data_policy import report_has_company_policy
+        if await report_has_company_policy(db, report.id, report.organization_id):
+            raise HTTPException(status_code=404, detail="Stored report unavailable")
 
         # Fetch artifacts for this report
         from app.models.artifact import ArtifactVersion
@@ -2913,6 +2925,9 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Not found")
         await self._check_visibility(db, report, 'artifact_visibility', user)
+        from app.services.viewer_data_policy import report_has_company_policy
+        if await report_has_company_policy(db, report.id, report.organization_id):
+            raise HTTPException(status_code=404, detail="Stored report unavailable")
 
         # Fetch the artifact and verify it belongs to this report
         from app.models.artifact import ArtifactVersion
@@ -4283,6 +4298,9 @@ class ReportService:
 
         # Check conversation visibility
         await self._check_visibility(db, report, 'conversation_visibility', user)
+        from app.services.viewer_data_policy import report_has_company_policy
+        if await report_has_company_policy(db, report.id, report.organization_id):
+            raise HTTPException(status_code=404, detail="Stored report unavailable")
 
         # PII display redaction: the same org redactor + helpers the owner's
         # timeline (CompletionService.get_completions_v2 → completion_v2

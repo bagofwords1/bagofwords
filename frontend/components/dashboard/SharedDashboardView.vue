@@ -14,6 +14,15 @@
             </UButton>
         </div>
     </main>
+    <main v-else-if="companyTables" class="min-h-dvh bg-surface p-6 md:px-12">
+        <section v-for="(table, tableIndex) in companyTables" :key="tableIndex" class="mb-6 overflow-x-auto">
+            <table class="w-full border-collapse text-start text-sm">
+                <thead><tr><th v-for="field in table.columns" :key="field" class="border-b p-2 text-start">{{ field }}</th></tr></thead>
+                <tbody><tr v-for="(row, i) in table.rows" :key="i"><td v-for="field in table.columns" :key="field" class="border-b p-2">{{ row[field] }}</td></tr></tbody>
+            </table>
+            <p v-if="!table.rows.length" class="p-2 text-ink-muted">{{ t('queries.noRows') }}</p>
+        </section>
+    </main>
     <div v-else-if="accessError === 'denied'" class="min-h-dvh w-full flex items-center justify-center bg-surface">
         <div class="text-center max-w-sm mx-auto px-6" data-testid="dashboard-access-request">
             <Icon name="heroicons:shield-exclamation" class="w-8 h-8 mx-auto mb-4 text-ink-muted" />
@@ -1040,6 +1049,19 @@ const pageTitle = computed(() => {
 useHead(() => ({ title: pageTitle.value }));
 
 // Access error state
+const companyTables = ref<Array<{ columns: string[], rows: Record<string, unknown>[] }> | null>(null);
+function reloadCompanyView() {
+    if (companyTables.value !== null) {
+        companyTables.value = null;
+        emit('reload');
+    }
+}
+watch(apiAuthorization, reloadCompanyView, { flush: 'sync' });
+function onCompanyPageShow(event: PageTransitionEvent) {
+    if (event.persisted) reloadCompanyView();
+}
+onMounted(() => window.addEventListener('pageshow', onCompanyPageShow));
+onUnmounted(() => window.removeEventListener('pageshow', onCompanyPageShow));
 const accessError = ref<'login' | 'denied' | null>(null);
 
 // ── Request-to-view (access requests) ────────────────────────────────────
@@ -1166,6 +1188,12 @@ async function loadReport() {
                 return;
             }
             navigateTo('/not_found');
+            return;
+        }
+        if (props.source === 'dashboard' && (data.value as any).company_filtered === true) {
+            if (sent !== apiAuthorization.value) { emit('reload'); return; }
+            companyTables.value = (data.value as any).tables;
+            if (inHostApplication.value) emit('opened');
             return;
         }
         report.value = asReport(data.value);

@@ -346,6 +346,82 @@ async def test_a_load_that_fails_part_way_resumes_instead_of_starting_over(lab):
     assert not lab.files("*.tmp")
 
 
+@contextmanager
+def texts_sent(fail_after: int | None = None):
+    """Record every row-loading text the source is sent, in order; fail
+    every send after the first `fail_after`, once it has the text."""
+    from app.data_sources.fast.sources import SqlAlchemySource
+    original, sent = SqlAlchemySource.stream_batches, []
+
+    def recording(self, sql, batch_rows):
+        sent.append(sql)
+        if fail_after is not None and len(sent) > fail_after:
+            raise ConnectionError("source went away")
+        return original(self, sql, batch_rows)
+
+    with patch.object(SqlAlchemySource, "stream_batches", recording):
+        yield sent
+
+
+async def test_a_windowed_load_records_the_text_of_its_last_window(lab):
+    lab.shop.add(40)
+    await lab.table()
+    with small_chunks(10), texts_sent() as sent:
+        await lab.refresh()
+    run = (await lab.runs())[0]
+    assert run["status"] == "success" and run["chunks_done"] >= 3
+    assert len(set(sent)) == len(sent) and run["rendered_query"] == sent[-1]
+
+
+async def test_a_load_whose_first_window_fails_records_the_text_that_window_was_sent(lab):
+    lab.shop.add(40)
+    await lab.table()
+    with small_chunks(10), texts_sent(fail_after=0) as sent, pytest.raises(HTTPException):
+        await lab.refresh()
+    failed = (await lab.runs())[0]
+    assert failed["status"] == "failed" and failed["chunks_done"] == 0
+    assert sent and failed["rendered_query"] == sent[-1]
+
+
+async def test_a_rebuild_after_the_columns_change_records_the_rebuild_s_text(lab):
+    lab.shop.add(8)
+    await lab.table()
+    await lab.refresh()
+    with lab.shop.db() as db:
+        db.execute("ALTER TABLE orders ADD COLUMN region TEXT DEFAULT 'emea'")
+    lab.shop.add(1)
+    with texts_sent() as sent:
+        await lab.refresh()
+    run = (await lab.runs())[0]
+    assert run["mode"] == "full" and run["status"] == "success"
+    increment, rebuild = sent[0], sent[-1]
+    assert increment != rebuild and run["rendered_query"] == rebuild
+
+
+async def test_a_rebuild_that_fails_before_sending_keeps_the_text_the_increment_sent(lab):
+    lab.shop.add(8)
+    await lab.table()
+    await lab.refresh()
+    with lab.shop.db() as db:
+        db.execute("ALTER TABLE orders ADD COLUMN region TEXT DEFAULT 'emea'")
+    lab.shop.add(1)
+    original, sized = extractor.estimate, []
+
+    def estimate(client, sql):
+        # The increment is sized first; the rebuild that follows fails
+        # while it is sized, before it sends anything.
+        sized.append(sql)
+        if len(sized) > 1:
+            raise ConnectionError("source went away")
+        return original(client, sql)
+
+    with texts_sent() as sent, patch.object(extractor, "estimate", estimate), pytest.raises(HTTPException):
+        await lab.refresh()
+    failed = (await lab.runs())[0]
+    assert failed["status"] == "failed" and len(sized) == 2
+    assert len(sent) == 1 and failed["rendered_query"] == sent[0]
+
+
 async def test_a_load_over_its_time_budget_pauses_and_the_next_run_continues_it(lab):
     lab.shop.add(50)
     await lab.table()

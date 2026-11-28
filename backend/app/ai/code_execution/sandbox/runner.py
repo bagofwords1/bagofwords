@@ -105,14 +105,45 @@ class SandboxUnavailableError(SandboxExecutionError):
         super().__init__("SandboxUnavailable", f"{message}. {CONFINEMENT_REMEDY}")
 
 
-def required_confinement_problem(limits: Optional[SandboxLimits] = None) -> str:
-    """What would make every sandboxed execution refuse to run on this host,
-    or "" when nothing would. Probes the same kernel facts the child checks
-    (Landlock ABI, seccomp support) without starting one, so startup can say
-    so once instead of every user request failing with it."""
-    from app.ai.code_execution.sandbox import landlock, seccomp
-    from app.ai.code_execution.sandbox.config import MODE_SUBPROCESS, sandbox_mode
+INPROCESS_REMEDY = (
+    "Unset BOW_CODE_SANDBOX (or set it to subprocess): in-process mode is for "
+    "local development only."
+)
 
+
+class SandboxModeRefused(SandboxExecutionError):
+    """BOW_CODE_SANDBOX asks for in-process execution where it is refused
+    (production), so nothing was executed. Terminal for the retry loop like
+    SandboxUnavailableError, with the remedy that fits: leave in-process
+    mode, not change the kernel."""
+
+    terminal_execution_error = True
+
+    def __init__(self, reason: str):
+        super().__init__("SandboxModeRefused", f"{reason}. {INPROCESS_REMEDY}")
+
+
+def refuse_inprocess_if_not_allowed() -> None:
+    """Raise SandboxModeRefused when in-process execution is refused here."""
+    from app.ai.code_execution.sandbox.config import inprocess_refusal_reason
+
+    reason = inprocess_refusal_reason()
+    if reason:
+        raise SandboxModeRefused(reason)
+
+
+def required_confinement_problem(limits: Optional[SandboxLimits] = None) -> str:
+    """What would make every execution refuse to run on this host, or ""
+    when nothing would: in-process mode where it is refused, or, in subprocess
+    mode, missing kernel confinement. Probes the same kernel facts the child
+    checks (Landlock ABI, seccomp support) without starting one, so startup
+    can say so once instead of every user request failing with it."""
+    from app.ai.code_execution.sandbox import landlock, seccomp
+    from app.ai.code_execution.sandbox.config import MODE_SUBPROCESS, inprocess_refusal_reason, sandbox_mode
+
+    refused = inprocess_refusal_reason()
+    if refused:
+        return refused
     limits = limits or SandboxLimits.from_env()
     if sandbox_mode() != MODE_SUBPROCESS or not limits.require_landlock:
         return ""
@@ -126,6 +157,21 @@ def required_confinement_problem(limits: Optional[SandboxLimits] = None) -> str:
     if reason:
         return f"process creation restriction is required but unavailable: {reason}"
     return ""
+
+
+def startup_sandbox_problem() -> tuple[str, str]:
+    """What startup should report about code execution on this host, as
+    (problem, remedy), or ("", "") when code can run. The remedy matches the
+    problem, so the in-process refusal never gets kernel advice."""
+    from app.ai.code_execution.sandbox.config import inprocess_refusal_reason
+
+    refused = inprocess_refusal_reason()
+    if refused:
+        return refused, INPROCESS_REMEDY
+    problem = required_confinement_problem()
+    if problem:
+        return problem, CONFINEMENT_REMEDY
+    return "", ""
 
 
 @dataclass

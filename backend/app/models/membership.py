@@ -50,6 +50,7 @@ class Membership(BaseSchema):
     # <user_profile> context block alongside ``note``/``memory``. JSON object of
     # attribute name -> value ({} / NULL when nothing is synced).
     profile_attributes = Column(JSON, nullable=True)
+    profile_verified_at = Column(DateTime, nullable=True)
     # Per-user, per-org attributes an org admin sets by hand (invite, member
     # edit, CSV import) — e.g. the member's account id in another system.
     # Separate from ``profile_attributes`` because the IdP sync replaces that

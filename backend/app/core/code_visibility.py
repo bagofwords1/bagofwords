@@ -109,6 +109,26 @@ def can_run_custom_code(resolved) -> bool:
     return resolved.has_org_permission(RUN_CUSTOM_CODE)
 
 
+async def require_run_custom_code(db, user, organization) -> None:
+    """Gate caller-supplied code execution behind ``run_custom_code``.
+
+    This is the check the removed ``enable_code_editing`` org setting never
+    performed: it lived only in two Vue components, so the API accepted
+    arbitrary caller-supplied SQL/Python from any member regardless of the
+    toggle. Hiding an editor is not a permission check.
+    """
+    from fastapi import HTTPException
+
+    from app.core.permission_resolver import resolve_permissions
+
+    resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+    if not can_run_custom_code(resolved):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to edit and run custom code",
+        )
+
+
 def redact_step_dict(step: dict, allowed: bool) -> dict:
     """Strip generated code from a serialized step mapping (in place)."""
     if allowed or not isinstance(step, dict):

@@ -944,7 +944,8 @@ class ContextHub:
             self.schema_builder.hide_mcp_tools,
         )
         now = time.monotonic()
-        cached = _SCHEMA_CACHE.get(cache_key)
+        held = getattr(self.organization, "withhold_unverified_company_content", False) is True
+        cached = None if held else _SCHEMA_CACHE.get(cache_key)
 
         async def _build_or_get_schemas():
             if cached is not None and (now - cached[0]) < _SCHEMA_CACHE_TTL_S:
@@ -957,7 +958,8 @@ class ContextHub:
             _hub_logger.info(
                 f"[context_hub:prime_static] schemas done (cache miss) +{(time.monotonic()-t)*1000:.0f}ms"
             )
-            _SCHEMA_CACHE[cache_key] = (time.monotonic(), built)
+            if not held:
+                _SCHEMA_CACHE[cache_key] = (time.monotonic(), built)
             return built
 
         # Enrich the instruction-search query with recent user prompts from this

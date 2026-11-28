@@ -168,6 +168,8 @@ async def _serialize(
             "connection_id": str(r.connection_id),
             "status": status,
             "query_text": r.query_text,
+            "policy_version": r.policy_version,
+            "protected_statement": r.protected_statement,
             "query_truncated": bool(r.query_truncated),
             "source": r.source,
             "client_type": r.client_type,
@@ -214,6 +216,7 @@ async def list_queries(
     limit: int = 50,
     offset: int = 0,
     viewer: User | None = None,
+    policy_only: bool = False,
 ) -> dict[str, Any]:
     """Live queries, or a page of finished ones, plus the connection's slot summary."""
     connection = await _connection(db, organization, connection_id)
@@ -221,17 +224,25 @@ async def list_queries(
     offset = max(0, int(offset or 0))
 
     async def serialize(rows):
-        return await _serialize(db, rows, viewer=viewer, organization=organization)
+        items = await _serialize(db, rows, viewer=viewer, organization=organization)
+        if policy_only:
+            for item in items:
+                for key in ("agent", "report", "error", "completion_id", "report_id", "step_id"):
+                    item[key] = None
+        return items
 
     now = await _db_now(db)
     base = select(QueryExecution).where(
         QueryExecution.connection_id == str(connection.id),
         QueryExecution.organization_id == str(organization.id),
     )
+    if policy_only:
+        base = base.where(QueryExecution.policy_version.is_not(None))
     counts = (await db.execute(
         select(QueryExecution.status, func.count()).where(
             QueryExecution.connection_id == str(connection.id),
             QueryExecution.organization_id == str(organization.id),
+            *([QueryExecution.policy_version.is_not(None)] if policy_only else []),
             *_live_filter(now),
         ).group_by(QueryExecution.status)
     )).all()

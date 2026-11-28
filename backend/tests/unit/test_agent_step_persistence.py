@@ -155,3 +155,58 @@ def test_completion_bus_event_carries_stop_and_steering_fields(message_type, has
         assert key in data
     assert ("prompt" in data) is has_prompt
     assert "completion" not in data
+
+
+@pytest.mark.asyncio
+async def test_company_filtered_chat_omits_the_stored_sales_snapshot(ctx):
+    from app.models.organization import Organization
+
+    pm = ProjectManager()
+    async with ctx.maker() as db:
+        report = await _report(db, ctx.ids.report)
+        org = await db.get(Organization, report.organization_id)
+        org.withhold_unverified_company_content = True
+        _, step, _ = await pm.create_query_step_visualization(db, report, "Sales")
+        await pm.finalize_tool_step(db, step, code="select 1", data={"rows": [{"company": 101}]})
+        async with ctx.maker() as reader:
+            stored = await reader.get(Step, str(step.id))
+            assert stored.data == {} and stored.status == "success"
+
+
+@pytest.mark.asyncio
+async def test_detached_step_storage_requires_trusted_workspace(ctx):
+    from app.services.viewer_data_policy import withhold_step_storage
+    step = SimpleNamespace(widget_id=None, query_id=None)
+    async with ctx.maker() as db:
+        assert await withhold_step_storage(db, step)
+        assert await withhold_step_storage(db, step, organization_id=str(uuid.uuid4()))
+        assert not await withhold_step_storage(db, step, organization_id=ctx.ids.org)
+        org = await db.get(Organization, ctx.ids.org)
+        org.withhold_unverified_company_content = True
+        await db.flush()
+        assert await withhold_step_storage(db, step, organization_id=ctx.ids.org)
+
+
+@pytest.mark.asyncio
+async def test_release_step_storage_uses_release_workspace(ctx):
+    from app.models.artifact import Artifact
+    from app.models.artifact_release import ArtifactRelease
+    from app.services.viewer_data_policy import withhold_step_storage
+
+    async with ctx.maker() as db:
+        artifact = Artifact(organization_id=ctx.ids.org, created_by=ctx.ids.user)
+        db.add(artifact)
+        await db.flush()
+        release = ArtifactRelease(artifact_id=artifact.id, organization_id=ctx.ids.org)
+        db.add(release)
+        await db.flush()
+        query = Query(title="Published copy", artifact_release_id=release.id)
+        db.add(query)
+        await db.flush()
+        step = SimpleNamespace(widget_id=None, query_id=query.id)
+        assert not await withhold_step_storage(db, step)
+        assert await withhold_step_storage(db, step, organization_id=str(uuid.uuid4()))
+        org = await db.get(Organization, ctx.ids.org)
+        org.withhold_unverified_company_content = True
+        await db.flush()
+        assert await withhold_step_storage(db, step)

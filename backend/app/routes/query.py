@@ -6,6 +6,7 @@ from sqlalchemy.orm import lazyload
 from app.dependencies import get_async_db, get_current_organization
 from app.core.auth import current_user as current_user_dep
 from app.core.permissions_decorator import requires_permission
+from app.core.code_visibility import require_run_custom_code
 
 from app.models.user import User
 from app.models.organization import Organization
@@ -14,6 +15,8 @@ from app.models.report import Report
 from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest, QueryLastRunSchema, QueryStepStatusSchema
 from app.services.query_service import QueryService
 
+
+from app.routes.company_content import require_stored_company_content
 
 router = APIRouter(prefix="/queries", tags=["queries"])
 
@@ -48,25 +51,6 @@ async def _audit_query_execution(db, organization, current_user, query_id, *, mo
         import logging
         logging.getLogger(__name__).debug("query.executed audit failed", exc_info=True)
 service = QueryService()
-
-
-async def _require_run_custom_code(db, current_user, organization) -> None:
-    """Gate caller-supplied code execution behind ``run_custom_code``.
-
-    This is the check the removed ``enable_code_editing`` org setting never
-    performed: it lived only in two Vue components, so the API accepted
-    arbitrary caller-supplied SQL/Python from any member regardless of the
-    toggle. Hiding an editor is not a permission check.
-    """
-    from app.core.permission_resolver import resolve_permissions
-    from app.core.code_visibility import can_run_custom_code
-
-    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-    if not can_run_custom_code(resolved):
-        raise HTTPException(
-            status_code=403,
-            detail="You do not have permission to edit and run custom code",
-        )
 
 
 async def _require_query_owner(db, query_id: str, current_user, organization) -> None:
@@ -149,7 +133,7 @@ async def _require_query_read(db, query_id: str, current_user, organization) -> 
         raise HTTPException(status_code=404, detail="Query not found")
 
 
-@router.get("", response_model=list[QuerySchema])
+@router.get("", dependencies=[Depends(require_stored_company_content)], response_model=list[QuerySchema])
 @requires_permission('view_reports')
 async def list_queries(
     report_id: str | None = None,
@@ -192,7 +176,7 @@ async def list_queries(
         result.append(schema)
     return result
 
-@router.get("/statuses", response_model=list[QueryStepStatusSchema])
+@router.get("/statuses", dependencies=[Depends(require_stored_company_content)], response_model=list[QueryStepStatusSchema])
 @requires_permission('view_reports')
 async def list_query_step_statuses(
     report_id: str,
@@ -279,7 +263,7 @@ async def create_query(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/{query_id}", response_model=QuerySchema)
+@router.get("/{query_id}", dependencies=[Depends(require_stored_company_content)], response_model=QuerySchema)
 @requires_permission('view_reports', model=Query)
 async def get_query(
     query_id: str,
@@ -334,7 +318,7 @@ async def run_query_new_step(
 ):
     if (payload.mode or "builder") != "viewer":
         # Builder mode executes caller-supplied `code`: an edit, owner-only.
-        await _require_run_custom_code(db, current_user, organization)
+        await require_run_custom_code(db, current_user, organization)
         await _require_query_owner(db, query_id, current_user, organization)
     # Every mode reads the stored query and its data. Viewer mode runs the
     # stored step with parameter values only (ordinary report usage), so it is
@@ -377,7 +361,7 @@ async def run_query_new_step(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/steps/{step_id}/run", response_model=dict)
+@router.post("/steps/{step_id}/run", dependencies=[Depends(require_stored_company_content)], response_model=dict)
 @requires_permission('view_reports')
 async def run_existing_step(
     step_id: str,
@@ -410,7 +394,7 @@ async def run_existing_step(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{query_id}/default_step", response_model=dict)
+@router.get("/{query_id}/default_step", dependencies=[Depends(require_stored_company_content)], response_model=dict)
 @requires_permission('view_reports', model=Query)
 async def get_default_step(
     query_id: str,
@@ -442,7 +426,7 @@ async def preview_query_code(
     try:
         # Previewing runs caller-supplied code against the source, same trust
         # boundary as a builder-mode run.
-        await _require_run_custom_code(db, current_user, organization)
+        await require_run_custom_code(db, current_user, organization)
         await _require_query_read(db, query_id, current_user, organization)
         result = await service.preview_query_code(
             db,

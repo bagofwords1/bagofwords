@@ -1310,7 +1310,7 @@ const inviteForm = ref({
     role_ids: [] as string[],
     group_ids: [] as string[],
     quota_policy_id: null as string | null,
-    custom_attributes: {} as Record<string, string>,
+    custom_attributes: {} as Record<string, string | string[]>,
     organization_id: organizationId
 })
 // The modal opens with the org default role picked; the admin can add more
@@ -1335,7 +1335,7 @@ const knownAttributeKeys = computed(() => {
 })
 const attributesModalOpen = ref(false)
 const attributesTarget = ref<Member | null>(null)
-const attributesDraft = ref<Record<string, string>>({})
+const attributesDraft = ref<Record<string, string | string[]>>({})
 const attributesDraftValid = ref(true)
 const savingAttributes = ref(false)
 function openAttributesModal(member: Member) {

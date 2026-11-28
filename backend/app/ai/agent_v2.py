@@ -6095,8 +6095,8 @@ class AgentV2:
           request) per call, and same-source queries already run
           concurrently across completions with no coordination — so the
           lock guarded nothing and made single-source workspaces (the
-          common case) fully serial. Any genuinely stateful client (e.g.
-          verticapy's module-level connection) must guard internally.
+          common case) fully serial. Any genuinely stateful client (one
+          that keeps a connection shared between calls) must guard internally.
         - a crashed action becomes an error outcome, never a lost one.
         """
         concurrency = 1
@@ -11448,6 +11448,7 @@ class AgentV2:
                         # fetches the step after tool.finished; this commit precedes it.
                         await self.project_manager.finalize_tool_step(
                             fresh_db, step_obj,
+                            organization_id=self.organization.id if self.organization else None,
                             code=code,
                             data=widget_data,
                             data_model=merged,

@@ -60,6 +60,15 @@ def test_unreachable_server_mentions_mapepire():
     assert "Mapepire" in result["message"]
 
 
+@pytest.mark.parametrize("error", [TimeoutError("timed out"), OSError("The read operation timed out")])
+def test_a_timed_out_connection_mentions_mapepire(error):
+    # Where the port is filtered rather than closed, the connection times
+    # out instead of being refused.
+    from app.data_sources.clients.ibmi_client import short_error
+
+    assert "Mapepire" in short_error(error)
+
+
 def test_discovers_ibmi_catalog(server):
     tables = {t.name: t for t in _client(server).get_schemas()}
     assert {"SALES.CUSTOMERS", "SALES.ORDERS", "SALES.V_BIG_ORDERS", "OPS.JOBS"} <= set(tables)

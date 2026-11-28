@@ -142,9 +142,7 @@ def test_iceberg_extra_properties_refuse_classes_from_outside_pyiceberg(key, val
 
 
 @pytest.mark.parametrize("key, value", [
-    ("py-io-impl", "pyiceberg.io.fsspec.FsspecFileIO"),
-    ("py-io-impl", "pyiceberg.io.pyarrow.PyArrowFileIO"),
-    ("py-catalog-impl", "pyiceberg.catalog.sql.SqlCatalog"),
+    ("py-location-provider.impl", "pyiceberg.table.locations.ObjectStoreLocationProvider"),
     ("auth", {"type": "basic", "basic": {"username": "u", "password": "p"}}),
 ])
 def test_iceberg_built_in_implementations_keep_working(key, value):
@@ -152,9 +150,9 @@ def test_iceberg_built_in_implementations_keep_working(key, value):
 
 
 def test_iceberg_extra_properties_stay_free_form():
-    """Catalog type, warehouse, credentials, endpoints and tuning all pass through."""
+    """Credentials, endpoints and tuning all pass through."""
     extra = {
-        "type": "glue", "warehouse": "s3://bucket/wh", "credential": "id:secret",
+        "credential": "id:secret",
         "s3.region": "eu-west-1", "s3.connect-timeout": 30, "adls.account-name": "acme",
         "header.X-Custom": "1", "scope": "catalog", "s3.endpoint": "https://minio.example.test:9000",
         "client.profile-name": "analytics", "some.future-option": "x",
@@ -164,22 +162,43 @@ def test_iceberg_extra_properties_stay_free_form():
         assert props[key] == str(value)
 
 
-@pytest.mark.parametrize("key", ["uri", "s3.endpoint", "glue.endpoint", "oauth2-server-uri", "gcs.service.host", "s3.signer.uri"])
+@pytest.mark.parametrize("key", ["uri", "s3.endpoint", "glue.endpoint", "oauth2-server-uri", "gcs.service.host",
+                                 "s3.signer.uri"])
 def test_iceberg_endpoint_properties_get_the_outbound_check(monkeypatch, key):
+    # The URI is set in the extra properties by a saved SQL catalog only.
+    def extra(value):
+        return {"type": "sql", key: value} if key == "uri" else {key: value}
+
     with pytest.raises(ValueError) as exc:
-        _iceberg({key: "http://imds.corp.invalid/latest"})._properties()
+        _iceberg(extra("http://imds.corp.invalid/latest"))._properties()
     assert key in str(exc.value)
 
     # A private endpoint (MinIO on the LAN) is the operator's call.
-    assert _iceberg({key: "http://internal.corp.invalid:9000"})._properties()[key]
+    assert _iceberg(extra("http://internal.corp.invalid:9000"))._properties()[key]
     monkeypatch.setattr(egress, "block_private_outbound", lambda: True)
     with pytest.raises(ValueError):
-        _iceberg({key: "http://internal.corp.invalid:9000"})._properties()
+        _iceberg(extra("http://internal.corp.invalid:9000"))._properties()
+
+
+@pytest.mark.parametrize("uri_field", ["extra", "field"])
+def test_iceberg_sql_catalog_server_gets_the_outbound_check(uri_field):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    server = f"postgresql://u:p@{METADATA}:5432/db"
+    if uri_field == "extra":
+        client = _iceberg({"type": "sql", "uri": server})
+    else:
+        client = IcebergClient(catalog_type="sql", uri=server)
+    for check in (client.check_locations, client._properties):
+        with pytest.raises(ValueError) as exc:
+            check()
+        assert "uri" in str(exc.value) and METADATA in str(exc.value)
 
 
 def test_iceberg_sql_catalog_file_follows_the_local_path_policy(tmp_path):
     ok = {"type": "sql", "uri": f"sqlite:///{tmp_path}/catalog.db", "warehouse": f"file://{tmp_path}"}
-    assert _iceberg(ok)._properties()["uri"] == ok["uri"]
+    # The catalog database is opened read-only, at the path that was checked.
+    assert _iceberg(ok)._properties()["uri"] == f"sqlite:///file:{tmp_path.resolve()}/catalog.db?mode=ro&uri=true"
 
     for extra in ({"type": "sql", "uri": "sqlite:////etc/passwd"},
                   {"type": "sql", "uri": "sqlite:////etc/ssl/x.db"},

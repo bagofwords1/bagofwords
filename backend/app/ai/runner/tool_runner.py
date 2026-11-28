@@ -174,6 +174,13 @@ class ToolRunner:
         runtime_ctx: dict[str, Any],
         emit,
     ) -> dict[str, Any]:
+        org = runtime_ctx.get("organization") or getattr(runtime_ctx.get("context_hub"), "organization", None)
+        protected_run = any(getattr(client, "company_filtered", False) is True
+                            for client in (runtime_ctx.get("ds_clients") or {}).values())
+        if protected_run and getattr(org, "withhold_unverified_company_content", False) is True:
+            if tool.name not in {"create_data", "describe_tables"}:
+                return {"output": {"success": False},
+                        "observation": {"success": False, "summary": "Only live company queries are available"}}
         validation_round = self._validation_round(runtime_ctx)
         # Runtime mode access control - check if tool is allowed in current mode.
         # Prefer `spec` (class-cached metadata) over `metadata` (rebuilds tool
@@ -435,6 +442,18 @@ class ToolRunner:
                 last_error_type = err_type
             except Exception as e:
                 await emit({"type": "tool.error", "payload": {"message": str(e)}})
+                if getattr(e, "terminal_execution_error", False):
+                    # No retry can repair it (e.g. the caller's transaction
+                    # is gone): end the run with the error's fixed message,
+                    # as create_data does for such a failure.
+                    return {
+                        "summary": f"Execution failed for '{tool.name}'",
+                        "success": False,
+                        "error": {"type": "infrastructure_failure", "message": str(e), "attempts": attempt},
+                        "terminal_execution_error": True,
+                        "analysis_complete": True,
+                        "final_answer": str(e),
+                    }
                 err_type = "runtime_error"
                 last_error = str(e)
                 last_error_type = err_type

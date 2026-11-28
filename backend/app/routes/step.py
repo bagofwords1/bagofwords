@@ -13,7 +13,9 @@ import logging
 from urllib.parse import quote
 from app.schemas.step_schema import StepSchema
 
-router = APIRouter(tags=["steps"])
+from app.routes.company_content import require_stored_company_content
+
+router = APIRouter(dependencies=[Depends(require_stored_company_content)], tags=["steps"])
 step_service = StepService()
 
 # (maintype/subtype, file extension) per supported export format.

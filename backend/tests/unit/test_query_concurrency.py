@@ -371,6 +371,31 @@ def test_each_query_leaves_a_history_row_with_the_text_sent(connection_id):
 
 
 @pytest.mark.db
+def test_a_failure_after_the_source_returns_still_frees_the_slot(connection_id):
+    """A step between the source returning and the history row closing can
+    fail (here, a result whose length cannot be read): the slot is still
+    given back and the row is closed."""
+    class Unsized:
+        def __len__(self):
+            raise RuntimeError("no length")
+
+    class Source:
+        _bow_connection_id = connection_id
+
+        def execute_query(self, query):
+            return Unsized()
+
+    wrapper = QueryCapturingClientWrapper(Source(), [], [], query_timeout_seconds=30, max_concurrent_queries=1)
+    with pytest.raises(RuntimeError):
+        wrapper.execute_query("SELECT 1")
+    rows = _rows(connection_id)
+    assert [r["status"] for r in rows] == ["error"]
+    assert rows[0]["lease_expires_at"] is None
+    handle = _begin(connection_id, limit=1, wait=1.0)  # the one slot is free again
+    qe.finish(handle, "success")
+
+
+@pytest.mark.db
 def test_a_timed_out_query_is_recorded_and_frees_its_slot(connection_id, monkeypatch):
     from app.data_sources import query_cancellation
 

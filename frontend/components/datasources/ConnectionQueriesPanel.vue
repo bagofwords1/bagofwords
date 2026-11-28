@@ -143,6 +143,8 @@ import Spinner from '~/components/Spinner.vue'
 interface QueryItem {
   id: string
   status: string
+  policy_version?: string | null
+  protected_statement?: string | null
   query_text: string | null
   query_truncated: boolean
   source: string | null
@@ -442,7 +444,13 @@ const QueryDetail = defineComponent({
       if (q.cancel_outcome) facts.push([t('connectionQueries.sourceCancel'), q.cancel_outcome])
       return h('div', { class: 'space-y-2', 'data-testid': 'query-detail' }, [
         h('div', { class: 'relative' }, [
+          q.policy_version ? h('span', {class:'font-medium'}, t('liveAccess.submitted')) : null,
           h('pre', { class: 'max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-muted p-3 pe-16 font-mono text-xs text-ink', dir: 'ltr', 'data-testid': 'query-full-text' }, q.query_text || ''),
+          q.policy_version ? h('div', {class:'space-y-1'}, [
+            h('strong', t(q.protected_statement ? 'liveAccess.sent' : 'liveAccess.blocked')),
+            q.protected_statement ? h('pre', {class:'overflow-x-auto whitespace-pre-wrap'}, q.protected_statement) : null,
+            h('code', q.policy_version)
+          ]) : null,
           h('button', { type: 'button', class: 'absolute end-2 top-2 rounded border border-line bg-surface px-2 py-0.5 text-2xs text-ink-2 hover:text-ink', onClick: (e: Event) => { e.stopPropagation(); copy() } },
             copied.value ? t('connectionQueries.copied') : t('connectionQueries.copy')),
         ]),

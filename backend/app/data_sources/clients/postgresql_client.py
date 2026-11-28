@@ -2,9 +2,13 @@ from app.data_sources.clients.progress import discovery_progress, discovery_phas
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import make_reporter, IndexingCancelled
 
+import logging
+
 import pandas as pd
 import sqlalchemy
 
+from app.data_sources.clients._exact_sql import read_sql_exact
+from app.data_sources.clients._pg_session import prepare_pg_session, verify_pg_session_after
 from app.data_sources.engine_pool import get_engine
 from app.data_sources.fk_reflection import attach_foreign_keys
 from app.data_sources.query_cancellation import track
@@ -20,8 +24,14 @@ from app.data_sources.clients._sa_url import (
     effective_url, render, split_database_options,
 )
 
+logger = logging.getLogger(__name__)
 
-class PostgresqlClient(DataSourceClient):
+
+from app.data_sources.clients._protected_sql import ProtectedSql
+
+
+class PostgresqlClient(ProtectedSql, DataSourceClient):
+    policy_dialect = "postgres"
 
     # Postgres with standard_conforming_strings on (the default since 9.1): ''
     # only (sqlglot postgres).
@@ -97,21 +107,49 @@ class PostgresqlClient(DataSourceClient):
         return render(effective_url(self._sa_url))
 
     @contextmanager
-    def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
-        """Yield a connection to a Postgres db."""
+    def _policy_session(self, *, read_only: bool = False) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
+        """Yield a connection to a Postgres db.
+
+        `read_only=True` is for reads of agent and custom-table SQL: the
+        server refuses any write that the single checked statement makes in
+        the connection's transaction (the guard's single-statement check is
+        what keeps a text from holding more than one), and the transaction
+        always ends in a rollback, never a commit, so what a read could
+        still change inside it (a large object, say) does not last. Only the
+        transaction is read-only; the pooled session keeps no read-only
+        default: on checkin the connection returns to the session default
+        (engine_pool), so the next user's plain transaction starts the way
+        the server's own default says, on a read replica too.
+        """
         conn = None
         try:
             conn = connect_with_legacy_decoding(
                 self._sa_url,
                 lambda url: get_engine(url, connect_args={"sslmode": self.sslmode}).connect(),
             )
+            if read_only:
+                # Before the first statement: it applies from the BEGIN.
+                conn.execution_options(postgresql_readonly=True)
             # Set search_path if schemas are provided
             if self._schemas:
                 search_path = ", ".join(self._schemas)
                 try:
                     conn.execute(text(f"SET search_path TO {search_path}"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    # The type only: the error text holds the schema names.
+                    logger.warning("postgresql.schema_setting_failed setting=schema error=%s", type(e).__name__)
+                    try:
+                        conn.rollback()
+                    except Exception as rollback_error:
+                        # The connection is closed below either way; the
+                        # schema error stays the one raised.
+                        logger.warning("postgresql.schema_setting_rollback_failed error=%s",
+                                       type(rollback_error).__name__)
+                    raise RuntimeError(
+                        "The connection's schema setting could not be applied on the server "
+                        f"(SET search_path failed: {type(e).__name__}). Check the schema names in the "
+                        "connection settings; write a name that needs quoting in double quotes."
+                    ) from e
         except Exception as e:
             if conn is not None:
                 conn.close()
@@ -126,15 +164,31 @@ class PostgresqlClient(DataSourceClient):
             with track(self, conn):
                 yield conn
         finally:
+            if read_only:
+                try:
+                    conn.rollback()
+                except Exception:
+                    # A session that cannot roll back is not reused; the
+                    # server ends its open transaction without committing.
+                    logger.warning("postgresql.read_only_rollback_failed; the connection is dropped", exc_info=True)
+                    conn.invalidate()
             conn.close()
         # NB: no engine.dispose() — the engine is pooled and shared
         # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
-        """Execute SQL statement and return the result as a DataFrame."""
+        """Execute SQL statement and return the result as a DataFrame.
+
+        `sql` is sent exactly as given (the read-only guard returned it), in
+        a read-only transaction on a session that reads literals as the
+        guard did."""
+        if self.company_filtered:
+            return self.execute_company_query(sql, *self._company_reader)
         try:
-            with self.connect() as conn:
-                df = pd.read_sql(text(sql), conn)
+            with self.connect(read_only=True) as conn:
+                prepare_pg_session(conn, sql)
+                df = read_sql_exact(sql, conn)
+                verify_pg_session_after(conn)
             return df
         except Exception as e:
             print(f"Error executing SQL: {e}")

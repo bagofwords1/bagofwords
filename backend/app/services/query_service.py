@@ -1,6 +1,7 @@
 from typing import Optional, List, Tuple
 from types import SimpleNamespace
 import copy
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import lazyload, selectinload
@@ -25,7 +26,30 @@ from app.ai.code_execution.query_params import (
 )
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
+from app.errors.redact import describe_for_log
 from app.services.row_owner import query_report_id, step_report_id
+
+logger = logging.getLogger(__name__)
+
+
+async def flush_usage(usage_context: Optional[UsageLimitContext]) -> None:
+    """Persist a run's buffered data-plane metering (queries/bytes are
+    enqueued by the execute_query wrapper, not written synchronously).
+
+    Called from a `finally`: a failure is logged with the run's usage source
+    and the error's type and frames, never raised, so it cannot mask the run's
+    own result or error. Never the error's text: a failed insert quotes the
+    usage event's bound values, and its metadata carries the rendered SQL."""
+    if usage_context is None:
+        return
+    try:
+        await usage_context.flush()
+    except Exception as e:
+        logger.warning(
+            "Usage metering for source %s was not persisted: %s",
+            getattr(usage_context, "source", None), describe_for_log(e),
+        )
+
 
 def _report_execution_loads():
     """Loader options for the report graph a code run needs, eagerly.
@@ -638,6 +662,8 @@ class QueryService:
         from app.models.organization import Organization
         org = await db.get(Organization, str(organization_id or report.organization_id)) if (organization_id or getattr(report, "organization_id", None)) else None
         usage_context = self._usage_context(organization_id, user_id, source="query_run", source_ref_id=query_id)
+        from app.services.viewer_data_policy import report_has_company_policy
+        company_filtered = await report_has_company_policy(db, report.id, report.organization_id)
         # Pass organization_settings so widget serialization honors the org's
         # limit_row_count instead of falling back to the hardcoded 1000-row cap.
         org_settings = await org.get_settings(db) if org else None
@@ -667,7 +693,7 @@ class QueryService:
                 raise ParamError(identity_err)
             df = executor.format_df_for_widget(exec_df)
             # Persist results on the new step
-            step.data = df
+            step.data = {} if company_filtered else df
             step.status = "success"
         except Exception as e:
             # Mark step as error and surface message to client
@@ -680,13 +706,7 @@ class QueryService:
             db.add(step)
             await db.commit()
             await db.refresh(step)
-            # Persist buffered data-plane metering (queries/bytes are enqueued
-            # by the execute_query wrapper, not written synchronously).
-            if usage_context is not None:
-                try:
-                    await usage_context.flush()
-                except Exception:
-                    pass
+            await flush_usage(usage_context)
 
         # If this save originated from a tool execution, update it to point to the latest step
         try:
@@ -730,6 +750,8 @@ class QueryService:
                 pass
 
         step_schema = _enrich_step_schema(step, StepSchema.from_orm(step))
+        if company_filtered and step.status == "success":
+            step_schema.data = df
         return (QuerySchema.model_validate(q).model_dump(), step_schema.model_dump() if hasattr(step_schema, 'model_dump') else step_schema.dict())
 
     async def run_query_viewer(
@@ -802,7 +824,12 @@ class QueryService:
         from datetime import datetime as _dt
 
         from app.services.viewer_result_store import find_viewer_result
-        existing = await find_viewer_result(
+        from app.services.viewer_data_policy import report_has_company_policy
+        company_filtered = await report_has_company_policy(db, step_report, organization_id)
+        if company_filtered and specs:
+            # Persisted parameter defaults and option labels can contain the publisher's data.
+            raise ValueError("Stored parameters are unavailable on a company-filtered report")
+        existing = None if company_filtered else await find_viewer_result(
             db, step_id=step.id, user_id=caller.id, params_fingerprint=fingerprint)
 
         # Freshness: a cached slice is stale once the step OR any loadable
@@ -937,8 +964,12 @@ class QueryService:
         )
         captured_queries: list = []
         try:
+            code = step.code
+            if company_filtered:
+                from app.data_sources.fabric_company_rls import shared_query_code
+                code = shared_query_code(code, ds_clients)
             exec_df, execution_log, _ = await executor.execute_code_async(
-                code=step.code,
+                code=code,
                 ds_clients=ds_clients,
                 excel_files=report.files,
                 loadables=loadables,
@@ -965,25 +996,22 @@ class QueryService:
             elif needs_credentials(e):
                 status_reason = CREDENTIALS_REQUIRED_REASON
         finally:
-            if usage_context is not None:
-                try:
-                    await usage_context.flush()
-                except Exception:
-                    pass
+            await flush_usage(usage_context)
 
         # Upsert the per-viewer cached result. Errors are not cached — a
         # failed run must not pin a viewer to an error until force_refresh.
         if status == "success":
-            from app.services.viewer_result_store import store_viewer_result
-            await store_viewer_result(
-                db, step_id=str(step.id), user_id=str(caller.id),
-                organization_id=str(organization_id or report.organization_id),
-                report_id=str(report.id), params_fingerprint=fingerprint,
-                status="success", status_reason=None, data=df,
-                applied_params=dict(resolved) if resolved else None,
-                executed_as="creator" if str(credential_user.id) != str(caller.id) else "viewer",
-                last_run_at=_dt.utcnow(),
-            )
+            if not company_filtered:
+                from app.services.viewer_result_store import store_viewer_result
+                await store_viewer_result(
+                    db, step_id=str(step.id), user_id=str(caller.id),
+                    organization_id=str(organization_id or report.organization_id),
+                    report_id=str(report.id), params_fingerprint=fingerprint,
+                    status="success", status_reason=None, data=df,
+                    applied_params=dict(resolved) if resolved else None,
+                    executed_as="creator" if str(credential_user.id) != str(caller.id) else "viewer",
+                    last_run_at=_dt.utcnow(),
+                )
             return {
                 "data": df or {},
                 "applied_params": resolved,
@@ -1302,13 +1330,7 @@ class QueryService:
             # Surface error to client for preview display
             return {"preview": None, "error": str(e)}
         finally:
-            # Persist buffered data-plane metering (queries/bytes are enqueued
-            # by the execute_query wrapper, not written synchronously).
-            if usage_context is not None:
-                try:
-                    await usage_context.flush()
-                except Exception:
-                    pass
+            await flush_usage(usage_context)
 
     def _usage_context(
         self,

@@ -127,6 +127,14 @@ class LDAPGroupSyncService:
                 group.deleted_at = datetime.utcnow()
                 result.groups_removed += 1
 
+        directory = {email_to_user_id.get(u["email"]): u.get("policy_attributes", {}) for u in ldap_users}
+        for membership in (await db.scalars(select(Membership).where(
+                Membership.organization_id == str(organization_id),
+                Membership.directory_provider == self.connection.provider_id,
+                Membership.deleted_at.is_(None)))).all():
+            membership.profile_attributes = directory.get(str(membership.user_id), {})
+            membership.profile_verified_at = datetime.utcnow()
+
         # Deactivate org membership for users removed from ALL LDAP groups
         await self._cleanup_org_memberships(
             db, organization_id, users_in_any_ldap_group

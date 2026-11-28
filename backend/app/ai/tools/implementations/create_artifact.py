@@ -790,6 +790,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         sigkill_event = runtime_ctx.get("sigkill_event")
         executor = PptxCodeExecutor(logger=logger)
+        # Set when a run fails with an error no rewrite of the code can fix
+        # (e.g. the host refuses to run deck code): repairing is pointless.
+        terminal = {"hit": False}
 
         def _try(candidate_code: str) -> Optional[str]:
             """Run once; returns None on success, trimmed error text on failure."""
@@ -804,6 +807,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 return None
             except Exception as e:
                 logger.error(f"PPTX execution failed: {e}")
+                terminal["hit"] = bool(getattr(e, "terminal_execution_error", False))
                 return self._pptx_error_text(e)
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "executing_pptx_code"})
@@ -817,6 +821,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         while (
             error
+            and not terminal["hit"]
             and attempts < _pptx_repair_budget
             and _time_left()
             and not (sigkill_event and sigkill_event.is_set())
@@ -858,7 +863,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             yield {
                 "code": original_code,
                 "ok": False,
-                "error": original_error,
+                # A refusal met on a repaired attempt is what the caller has
+                # to act on; the first run's code error no longer matters.
+                "error": error if terminal["hit"] else original_error,
                 "repair_attempts": attempts,
             }
 
@@ -1819,8 +1826,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 try:
                     parse_error = await parse_check_page_code(code)
                 except ParseCheckUnavailable as exc:
-                    validation_unavailable = True
-                    parse_error = str(exc)
+                    from app.ai.tools.implementations._artifact_refs import file_reference_errors
+                    missing = file_reference_errors(code, artifact_data)
+                    validation_unavailable = not missing
+                    parse_error = "; ".join(missing) if missing else str(exc)
 
             _validate_result: Optional[Dict[str, Any]] = None
             if parse_error is not None:

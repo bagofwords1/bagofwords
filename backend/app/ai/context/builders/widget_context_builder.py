@@ -48,6 +48,8 @@ class WidgetContextBuilder:
         Returns:
             Formatted widget context string with observation data
         """
+        if getattr(self.organization, "withhold_unverified_company_content", False) is True:
+            return ""
         context = []
         
         # Get all widgets and their latest steps
@@ -78,6 +80,8 @@ class WidgetContextBuilder:
         include_data_preview: bool = True
     ) -> WidgetsSection:
         """Build object-based widgets section using existing helpers."""
+        if getattr(self.organization, "withhold_unverified_company_content", False) is True:
+            return WidgetsSection(items=[])
         items: List[WidgetObservation] = []
         widgets_and_steps = await self._get_report_widgets_and_steps(self.report.id)
         if len(widgets_and_steps) > max_widgets:

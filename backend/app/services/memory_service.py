@@ -78,6 +78,9 @@ class MemoryService:
         *,
         statuses: Sequence[str] = ("active",),
     ) -> List[MemoryEntry]:
+        from app.services.viewer_data_policy import org_has_company_policy
+        if await org_has_company_policy(db, organization_id):
+            return []
         rows = await db.execute(
             select(MemoryEntry)
             .where(
@@ -107,6 +110,9 @@ class MemoryService:
     async def get_entry(
         self, db: AsyncSession, organization_id: str, user_id: str, entry_id: str
     ) -> Optional[MemoryEntry]:
+        from app.services.viewer_data_policy import org_has_company_policy
+        if await org_has_company_policy(db, organization_id):
+            return None
         row = await db.execute(
             select(MemoryEntry).where(
                 MemoryEntry.id == str(entry_id),
@@ -120,6 +126,9 @@ class MemoryService:
         self, db: AsyncSession, organization_id: str, user_id: str, handle: str
     ) -> Optional[MemoryEntry]:
         """The active entry a handle ("m7") refers to, or None."""
+        from app.services.viewer_data_policy import org_has_company_policy
+        if await org_has_company_policy(db, organization_id):
+            return None
         h = (handle or "").strip().lower().lstrip("[").rstrip("]")
         if not h:
             return None

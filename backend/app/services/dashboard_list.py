@@ -856,13 +856,17 @@ async def list_dashboards(db, user, organization, query: ListQuery) -> dict:
     # check then guards only the cards returned (a card it refuses -- a
     # monitoring dashboard the reader lacks the scope for, a release not
     # ready -- is left out of this page).
-    total = (await db.execute(select(func.count()).select_from(Artifact).where(*where))).scalar() or 0
+    from app.services.viewer_data_policy import org_has_company_policy
+    if await org_has_company_policy(db, str(organization.id)):
+        total, candidates = 0, []
+    else:
+        total = (await db.execute(select(func.count()).select_from(Artifact).where(*where))).scalar() or 0
+        candidates = (await db.execute(page_query(scope, query))).all()
     total_pages = (total + limit - 1) // limit if total else 0
-    candidates = (await db.execute(page_query(scope, query))).all()
     shown = []
     for row in candidates:
         try:
-            await dashboard_access.admit_reader(db, row.Artifact, user)
+            await dashboard_access.admit_reader_in_visible_org(db, row.Artifact, user)
         except (AppError, HTTPException) as refused:
             # By id only: a title would say what the reader may not see.
             logger.debug("dashboards list: candidate %s refused by admit_reader (%s)",

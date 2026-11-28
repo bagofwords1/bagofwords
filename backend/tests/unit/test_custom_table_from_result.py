@@ -95,6 +95,10 @@ async def test_a_query_timing_names_the_connection_that_answered(monkeypatch, mo
     """The result's viewer decides whether to offer caching from the timing
     record alone, so it has to say where the query ran."""
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        # In-process code runs only in a development environment; the test
+        # suite runs with ENVIRONMENT=production, so the test names it.
+        monkeypatch.setenv("ENVIRONMENT", "development")
     source = _Source()
     source._bow_connection_id = CONN
     source._bow_data_source_id = OTHER

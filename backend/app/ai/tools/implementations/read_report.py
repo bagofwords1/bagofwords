@@ -130,6 +130,11 @@ class ReadReportTool(Tool):
             )
             return
 
+        from app.services.viewer_data_policy import org_has_company_policy
+        if await org_has_company_policy(db, organization.id):
+            yield ToolErrorEvent(type="tool.error", payload={"error": "Stored report unavailable"})
+            return
+
         try:
             # Access: own reports OR reports in a project the caller can view
             # (mirrors the UI's read-only collaborator access exactly).
