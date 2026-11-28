@@ -160,7 +160,8 @@ def resolve_family(provider_type: Optional[str], model_id: Optional[str] = None)
 # refreshes on Claude Fable 5.1 and Claude Mythos 5.1 are priced at 0.025x the
 # base input price. All other models use the standard 0.1x multiplier."
 _ANTHROPIC_READ_RATE_OVERRIDES = (
-    (("fable-5-1", "mythos-5-1"), 0.025),
+    # Fable/Mythos 5.2: $0.20/MTok against an $8 base — also 0.025x.
+    (("fable-5-1", "mythos-5-1", "fable-5-2", "mythos-5-2"), 0.025),
     # Claude Opus 5.5: $0.20/MTok cache reads against a $4 base. Tagged
     # "opus-5-5" so Claude Opus 5 (0.1x) is not swept in.
     (("opus-5-5",), 0.05),
@@ -250,6 +251,56 @@ def long_context_pricing(model_id: Optional[str], prompt_tokens: int) -> bool:
     return prompt_tokens > 272_000 and is_gpt62_chat(model_id)
 
 
+# Claude Haiku 5.5 is priced by prompt length: a request whose prompt is over
+# 100,000 tokens pays 5x on everything — input, output, cache reads and cache
+# writes ($0.10/$0.50 -> $0.50/$2.50 per MTok). "Prompt length" counts every
+# input token, cache reads and writes included, and each request is priced on
+# its own. Matched on the version tag so Haiku 4.5 (flat) is not swept in.
+# https://platform.claude.com/docs/en/about-claude/pricing#long-context-pricing
+_HAIKU_5_5_LONG_PROMPT_TOKENS = 100_000
+_HAIKU_5_5_LONG_PROMPT_MULTIPLIER = 5.0
+
+
+# Gemini 3.1 Pro (Preview) is tiered by prompt length: over 200K prompt tokens
+# it bills $4.00 / $18.00 instead of $2.00 / $12.00 per MTok (2x input, 1.5x
+# output). The Gemini 4 and Flash models have no such tier.
+# https://ai.google.dev/gemini-api/docs/pricing
+_GEMINI_3_1_PRO_LONG_PROMPT_TOKENS = 200_000
+
+
+def _is_gemini_3_1_pro(model_id: Optional[str]) -> bool:
+    return "gemini-3.1-pro" in (model_id or "").lower()
+
+
+def _is_haiku_5_5(model_id: Optional[str]) -> bool:
+    return "haiku-5-5" in (model_id or "").lower()
+
+
+def long_context_multipliers(
+    model_id: Optional[str],
+    prompt_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+) -> tuple[float, float]:
+    """(input, output) price multipliers for a long prompt; (1, 1) otherwise.
+
+    ``prompt_tokens`` is the provider's uncached-input count. For OpenAI it
+    already includes cached tokens; for Anthropic it does not, so the cache
+    tokens are added back to measure the prompt's real length.
+    """
+    if long_context_pricing(model_id, prompt_tokens):
+        return 2.0, 1.5
+    if _is_gemini_3_1_pro(model_id) and int(prompt_tokens or 0) > _GEMINI_3_1_PRO_LONG_PROMPT_TOKENS:
+        # The Gemini client reports no cache split, so prompt_tokens is the
+        # whole prompt.
+        return 2.0, 1.5
+    if _is_haiku_5_5(model_id):
+        total = sum(max(int(n or 0), 0) for n in (prompt_tokens, cache_read_tokens, cache_write_tokens))
+        if total > _HAIKU_5_5_LONG_PROMPT_TOKENS:
+            return _HAIKU_5_5_LONG_PROMPT_MULTIPLIER, _HAIKU_5_5_LONG_PROMPT_MULTIPLIER
+    return 1.0, 1.0
+
+
 def cached_input_cost(
     rate_per_million: float,
     prompt_tokens: int,
@@ -273,8 +324,14 @@ def cached_input_cost(
     rates = rates_for(provider_type, model_id)
     per_token = float(rate_per_million) / 1_000_000
 
-    if long_context_pricing(model_id, prompt_tokens):
-        per_token *= 2
+    writes = max(
+        int(cache_creation_tokens or 0),
+        sum(max(int(n or 0), 0) for n in (cache_write_5m_tokens, cache_write_1h_tokens, cache_write_12h_tokens)),
+    )
+    input_multiplier, _ = long_context_multipliers(
+        model_id, int(prompt_tokens or 0), int(cache_read_tokens or 0), writes
+    )
+    per_token *= input_multiplier
 
     cost = max(int(prompt_tokens or 0), 0) * per_token
 

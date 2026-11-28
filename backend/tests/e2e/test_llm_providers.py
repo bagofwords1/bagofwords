@@ -287,7 +287,8 @@ def test_preset_openai_sync_migrates_to_gpt_56_models(test_client, create_user, 
 
     # The 2.5 image models replace gpt-image-1 and arrive flagged as image
     # models (the sync used to add them unflagged); the retired id is disabled.
-    for image_id in ("gpt-image-2.5-sunburst", "gpt-image-2.5-flare"):
+    for image_id in ("gpt-image-2.6-sunburst", "gpt-image-2.6-flare",
+                     "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"):
         assert by_model_id[image_id]["is_enabled"] is True
         assert by_model_id[image_id]["supports_image_generation"] is True
         assert by_model_id[image_id]["is_default"] is False

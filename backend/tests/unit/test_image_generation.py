@@ -62,8 +62,10 @@ def test_facade_gate_rejects_non_image_model():
 def test_catalog_has_image_model():
     imgs = [m for m in LLM_MODEL_DETAILS if m.get("supports_image_generation")]
     ids = [m["model_id"] for m in imgs]
-    # gpt-image-1 shuts down 2026-12-01; the 2.5 models replace it.
-    assert ids == ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]
+    # gpt-image-1 is retired; newest first, since catalog order is the
+    # generate_image preference.
+    assert ids == ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare",
+                   "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]
     for m in imgs:
         assert m["provider_type"] == "openai"
         assert not m.get("is_default") and not m.get("is_small_default")
@@ -221,6 +223,10 @@ def test_image_tool_prefers_catalog_models_over_retired_ones():
 
     rows[:] = [_row("gpt-image-1"), _row("gpt-image-2.5-flare")]
     assert asyncio.run(GenerateImageTool()._find_image_model(db, "org")).model_id == "gpt-image-2.5-flare"
+
+    # The 2.6 models outrank 2.5 when both are enabled.
+    rows[:] = [_row("gpt-image-2.5-sunburst"), _row("gpt-image-2.6-flare"), _row("gpt-image-2.6-sunburst")]
+    assert asyncio.run(GenerateImageTool()._find_image_model(db, "org")).model_id == "gpt-image-2.6-sunburst"
 
     rows[:] = []
     assert asyncio.run(GenerateImageTool()._find_image_model(db, "org")) is None

@@ -1985,7 +1985,9 @@ class LLM:
                 cache_write_12h_tokens=cache_write_12h_tokens,
             )
             output_cost = LLMUsageRecorderService._calc_output_cost(
-                self.model, completion_tokens or 0, prompt_tokens or 0
+                self.model, completion_tokens or 0, prompt_tokens or 0,
+                cache_read_tokens=cache_read_tokens or 0,
+                cache_write_tokens=cache_creation_tokens or 0,
             )
         except Exception:
             return 0

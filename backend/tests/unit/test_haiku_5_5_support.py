@@ -49,3 +49,49 @@ def test_haiku_5_5_catalog_entry():
     assert entry["output_cost_per_million_tokens_usd"] == 0.50
     assert entry["is_default"] is False
     assert not entry.get("is_small_default")
+
+
+# --- prompt-length pricing --------------------------------------------------
+# Over 100K prompt tokens (cache reads and writes included) every category
+# bills at 5x: $0.50/$2.50 input/output, $0.05 cache read, per Anthropic's
+# pricing page. At exactly 100K it is still the base tier.
+
+def _input(prompt, read=0, write_5m=0, model="claude-haiku-5-5"):
+    return pricing.cached_input_cost(
+        rate_per_million=0.10, prompt_tokens=prompt, cache_read_tokens=read,
+        cache_write_5m_tokens=write_5m, cache_write_1h_tokens=0,
+        provider_type="anthropic", model_id=model,
+    )
+
+
+def test_haiku_5_5_base_tier_up_to_100k():
+    assert _input(100_000) == pytest.approx(0.01)
+    assert pricing.long_context_multipliers("claude-haiku-5-5", 100_000) == (1.0, 1.0)
+
+
+def test_haiku_5_5_long_prompt_bills_5x_on_input_and_output():
+    assert _input(1_000_000) == pytest.approx(0.50)
+    assert pricing.long_context_multipliers("claude-haiku-5-5", 100_001) == (5.0, 5.0)
+
+
+def test_haiku_5_5_cache_tokens_count_toward_the_threshold():
+    # 10K uncached + 95K read = 105K prompt: long tier, reads at $0.05/MTok.
+    cost = _input(10_000, read=95_000)
+    assert cost == pytest.approx(10_000 * 0.50 / 1e6 + 95_000 * 0.05 / 1e6)
+    assert pricing.long_context_multipliers("claude-haiku-5-5", 10_000, 95_000) == (5.0, 5.0)
+    assert pricing.long_context_multipliers("claude-haiku-5-5", 10_000, 0, 95_000) == (5.0, 5.0)
+
+
+def test_haiku_5_5_long_prompt_applies_to_output_cost():
+    from types import SimpleNamespace
+    from app.services.llm_usage_recorder import LLMUsageRecorderService
+    model = SimpleNamespace(model_id="claude-haiku-5-5", get_output_cost_rate=lambda: 0.50)
+    short = LLMUsageRecorderService._calc_output_cost(model, 1_000_000, 50_000)
+    long = LLMUsageRecorderService._calc_output_cost(model, 1_000_000, 50_000, cache_read_tokens=60_000)
+    assert short == pytest.approx(0.50)
+    assert long == pytest.approx(2.50)
+
+
+@pytest.mark.parametrize("model", ["claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"])
+def test_other_claude_models_have_no_prompt_length_tier(model):
+    assert pricing.long_context_multipliers(model, 900_000) == (1.0, 1.0)
