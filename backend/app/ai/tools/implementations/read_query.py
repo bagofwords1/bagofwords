@@ -423,6 +423,10 @@ class ReadQueryTool(Tool):
         organization = context_hub.organization if context_hub else runtime_ctx.get("organization")
         report = context_hub.report if context_hub else runtime_ctx.get("report")
 
+        if getattr(organization, "withhold_unverified_company_content", False) is True:
+            yield ToolEndEvent(type="tool.end", payload={"observation": {"summary": "Stored report unavailable"},
+                                                        "output": {"success": False}})
+            return
         if not db or not organization:
             yield ToolEndEvent(
                 type="tool.end",

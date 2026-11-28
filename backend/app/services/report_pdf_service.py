@@ -812,6 +812,9 @@ class ReportPdfService:
                     logger.warning(f"No artifact found for report {report_id}")
                     return None
 
+                from app.services.viewer_data_policy import org_has_company_policy
+                if await org_has_company_policy(db, artifact.organization_id):
+                    return None
                 viewer = await self._attach_viewer(db, viewer)
                 return await self._render_artifact_pdf(db, artifact, viewer=viewer, out_key=out_key)
 
@@ -839,6 +842,9 @@ class ReportPdfService:
                     logger.warning(f"No usable artifact found for id {artifact_id}")
                     return None
 
+                from app.services.viewer_data_policy import org_has_company_policy
+                if await org_has_company_policy(db, artifact.organization_id):
+                    return None
                 viewer = await self._attach_viewer(db, viewer)
                 return await self._render_artifact_pdf(db, artifact, viewer=viewer, out_key=out_key)
 
@@ -851,7 +857,8 @@ class ReportPdfService:
         (dashboard_data.ReleaseRender: the release's content and the rows that
         reader may see). Returns the absolute path, or None on failure."""
         try:
-            if not render.content:
+            from app.services.viewer_data_policy import org_has_company_policy
+            if not render.content or await org_has_company_policy(db, render.organization_id):
                 return None
             return await self._render_artifact_pdf(db, render)
         except Exception as e:
@@ -999,6 +1006,9 @@ class ReportPdfService:
             ROWS_PERSONAL, ROWS_WITHHELD, viewer_rows_state,
         )
 
+        from app.services.viewer_data_policy import org_has_company_policy
+        if await org_has_company_policy(db, getattr(artifact, "organization_id", None)):
+            return None
         state = await viewer_rows_state(db, artifact, viewer)
         if state == ROWS_WITHHELD:
             logger.info("Refusing deck for %s: rows withheld from this viewer", artifact.id)

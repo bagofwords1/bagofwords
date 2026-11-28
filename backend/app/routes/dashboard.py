@@ -57,6 +57,8 @@ from app.schemas.query_schema import QueryRunRequest
 from app.services import dashboard_access, dashboard_settings_service
 from app.services.dashboard_list import ListQuery
 
+from app.routes.company_content import require_stored_company_content
+
 router = APIRouter(tags=["dashboards"])
 
 
@@ -226,7 +228,7 @@ def dashboard_list_query(
         status=status, starred=starred, attention=attention, sort=sort, page=page, limit=limit, new_since=new_since)
 
 
-@router.get("/artifacts", response_model=DashboardListResponse)
+@router.get("/artifacts", dependencies=[Depends(require_stored_company_content)], response_model=DashboardListResponse)
 @requires_permission("view_reports")
 async def list_dashboards(
     query: ListQuery = Depends(dashboard_list_query),
@@ -244,7 +246,7 @@ async def list_dashboards(
 # Before every /artifacts/{id} route: "facets" is never taken for an id. That
 # includes artifact.py's GET /artifacts/{artifact_id}, whose router main.py
 # mounts after this one.
-@router.get("/artifacts/facets", response_model=DashboardListFacets)
+@router.get("/artifacts/facets", dependencies=[Depends(require_stored_company_content)], response_model=DashboardListFacets)
 @requires_permission("view_reports")
 async def dashboard_list_facets(
     query: ListQuery = Depends(dashboard_list_query),
@@ -587,7 +589,7 @@ async def get_dashboard_publish_status(
     return await dashboard_publish.publish_status(db, artifact)
 
 
-@router.post("/artifacts/{dashboard_id}/edit")
+@router.post("/artifacts/{dashboard_id}/edit", dependencies=[Depends(require_stored_company_content)])
 @requires_permission("publish_reports")
 async def edit_dashboard(
     dashboard_id: str,

@@ -2382,7 +2382,15 @@ class StreamingCodeExecutor:
             _params_fmt_error = check_params_not_formatted(code)
             if _params_fmt_error:
                 raise UnsafePythonError(_params_fmt_error)
-            _missing = missing_helper_error(code, self.sandbox_helpers, self.organization_settings)
+            protected_clients = {name: client for name, client in ds_clients.items()
+                                 if getattr(client, "company_filtered", False) is True}
+            company_filtered = bool(protected_clients)
+            if company_filtered:
+                ds_clients = protected_clients
+                excel_files = []
+                loadables = None
+            helpers = None if company_filtered else self.sandbox_helpers
+            _missing = missing_helper_error(code, helpers, self.organization_settings)
             if _missing is not None:
                 raise _missing
 
@@ -2411,9 +2419,8 @@ class StreamingCodeExecutor:
             # Inject a sync HTTP client when the org allows web fetch in code.
             # The client owns concurrency internally so model code never
             # imports asyncio/threading/socket (all of which are AST-forbidden).
-            helpers = self.sandbox_helpers
-            http_client = self._build_http_client()
-            load_step_enabled = self._load_step_enabled()
+            http_client = None if company_filtered else self._build_http_client()
+            load_step_enabled = not company_filtered and self._load_step_enabled()
 
             if self.logger:
                 self.logger.debug(f"Executing code:\n{code}")
@@ -2421,7 +2428,7 @@ class StreamingCodeExecutor:
                 helpers.begin_attempt()
             try:
                 if sandbox_mode() == MODE_INPROCESS:
-                    if any(getattr(c, "company_filtered", False) is True for c in ds_clients.values()):
+                    if company_filtered:
                         raise ValueError("Company-filtered queries require sandbox isolation")
                     # In-process mode is for local development only.
                     refuse_inprocess_if_not_allowed()
@@ -2434,7 +2441,7 @@ class StreamingCodeExecutor:
                     df, output_log = self._execute_sandboxed(
                         code, wrapped_clients, excel_files, http_client,
                         loadables=loadables, params=params, load_step_enabled=load_step_enabled,
-                        cancel_event=cancel_event, span=span,
+                        cancel_event=cancel_event, span=span, company_filtered=company_filtered,
                     )
             finally:
                 if helpers is not None:
@@ -2466,7 +2473,7 @@ class StreamingCodeExecutor:
 
     def _execute_sandboxed(self, code: str, wrapped_clients: Dict, excel_files: List,
                            http_client: Optional[SafeHttpClient], *, loadables, params,
-                           load_step_enabled: bool, cancel_event=None, span=None):
+                           load_step_enabled: bool, cancel_event=None, span=None, company_filtered=False):
         """Run the code in a fresh sandboxed interpreter (see sandbox/).
 
         The wrapped clients never leave this process: the child sees a proxy
@@ -2474,7 +2481,7 @@ class StreamingCodeExecutor:
         per-query timeout, rate limits, quotas and SQL validation all run on
         the trusted side exactly as they did in-process.
         """
-        helpers = self.sandbox_helpers
+        helpers = None if company_filtered else self.sandbox_helpers
         lists_sink = getattr(helpers, "lists", None)
         browser = getattr(helpers, "browser", None)
 

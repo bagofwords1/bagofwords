@@ -90,7 +90,7 @@ class NotificationService:
         errors: list[ChannelResult] = []
         skipped: list[ChannelResult] = []
 
-        if report_id:
+        if report_id or attachment_builder is not None:
             from app.dependencies import async_session_maker
             from app.services.viewer_data_policy import delivery_has_company_policy
             async with async_session_maker() as policy_db:
@@ -190,6 +190,10 @@ class NotificationService:
         ``message_id`` / ``in_reply_to`` / ``references`` thread the message so a
         reply can be re-attached to a report (SMTP-config path only).
         """
+        if attachments and db is not None and organization_id:
+            from app.services.viewer_data_policy import org_has_company_policy
+            if await org_has_company_policy(db, organization_id):
+                return SendOutcome(ok=False, source="none", error="Unverified attachment withheld")
         resolved = None
         if db is not None and organization_id:
             try:

@@ -174,6 +174,13 @@ class ToolRunner:
         runtime_ctx: dict[str, Any],
         emit,
     ) -> dict[str, Any]:
+        org = runtime_ctx.get("organization") or getattr(runtime_ctx.get("context_hub"), "organization", None)
+        protected_run = any(getattr(client, "company_filtered", False) is True
+                            for client in (runtime_ctx.get("ds_clients") or {}).values())
+        if protected_run and getattr(org, "withhold_unverified_company_content", False) is True:
+            if tool.name not in {"create_data", "describe_tables"}:
+                return {"output": {"success": False},
+                        "observation": {"success": False, "summary": "Only live company queries are available"}}
         validation_round = self._validation_round(runtime_ctx)
         # Runtime mode access control - check if tool is allowed in current mode.
         # Prefer `spec` (class-cached metadata) over `metadata` (rebuilds tool

@@ -14,7 +14,7 @@ from typing import Any, List, Optional
 from uuid import UUID
 import uuid as uuid_module
 
-from sqlalchemy import delete, func
+from sqlalchemy import delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, lazyload
@@ -969,6 +969,15 @@ class ConnectionService:
         _reject_unsafe_oauth_urls(updates.get("config"), updates.get("credentials"))
         _reject_unsafe_google_keys(updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
+        if connection.active_company_policy is not None and {"config", "auth_policy"}.intersection(updates):
+            raise HTTPException(409, "The destination and authentication mode of a protected connection are fixed")
+        if connection.type == "ms_fabric" and {"config", "auth_policy"}.intersection(updates):
+            # Serialize destination changes against activation, including on SQLite.
+            reserved = await db.execute(update(Connection).where(
+                Connection.id == connection.id, Connection.updated_at == connection.updated_at,
+            ).values(updated_at=datetime.utcnow()))
+            if reserved.rowcount != 1:
+                raise HTTPException(409, "Reload the connection before updating it")
         _validate_connection_config(connection.type, updates.get("config"))
         _reject_athena_mode_switch(connection, updates.get("config"))
 

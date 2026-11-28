@@ -329,6 +329,10 @@ async def admit_reader(db, artifact: Artifact, user) -> None:
     reaches besides the release (its runtime: forms, records, views)."""
     from app.services.bow_source_access import assert_read, report_access
 
+    from app.services.viewer_data_policy import org_has_company_policy
+    if await org_has_company_policy(db, artifact.organization_id):
+        raise _not_found()
+
     release = await published_release(db, artifact)
     if await can_edit(db, artifact, user):
         # As the doors do: /d checks the release's monitoring access, the

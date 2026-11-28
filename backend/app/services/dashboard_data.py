@@ -82,6 +82,8 @@ async def release_snapshot_withheld(db, artifact: Artifact, release: ArtifactRel
     than the owner must not get the copied snapshot."""
     from app.services.viewer_data_policy import _any_rls_relation, _any_user_scoped_connection
 
+    if await release_has_company_policy(db, release):
+        return True
     ds_ids = await release_copy_data_source_ids(db, release, code)
     if await _any_rls_relation(db, ds_ids):
         return True
@@ -125,9 +127,8 @@ async def release_creator_result_holds_owner_slice(db, row, release: ArtifactRel
 
 
 async def release_has_company_policy(db, release):
-    from app.services.viewer_data_policy import has_company_policy, org_has_company_policy
-    return (await org_has_company_policy(db, getattr(release, "organization_id", None))
-            and await has_company_policy(db, await release_run_data_source_ids(db, release)))
+    from app.services.viewer_data_policy import org_has_company_policy
+    return await org_has_company_policy(db, release.organization_id)
 
 
 async def resolve_release_step(db, step: Step, artifact: Artifact, release: ArtifactRelease,

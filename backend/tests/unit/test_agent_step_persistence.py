@@ -155,3 +155,19 @@ def test_completion_bus_event_carries_stop_and_steering_fields(message_type, has
         assert key in data
     assert ("prompt" in data) is has_prompt
     assert "completion" not in data
+
+
+@pytest.mark.asyncio
+async def test_company_filtered_chat_omits_the_stored_sales_snapshot(ctx):
+    from app.models.organization import Organization
+
+    pm = ProjectManager()
+    async with ctx.maker() as db:
+        report = await _report(db, ctx.ids.report)
+        org = await db.get(Organization, report.organization_id)
+        org.withhold_unverified_company_content = True
+        _, step, _ = await pm.create_query_step_visualization(db, report, "Sales")
+        await pm.finalize_tool_step(db, step, code="select 1", data={"rows": [{"company": 101}]})
+        async with ctx.maker() as reader:
+            stored = await reader.get(Step, str(step.id))
+            assert stored.data == {} and stored.status == "success"

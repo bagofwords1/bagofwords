@@ -593,23 +593,37 @@ async def has_company_policy(db, data_source_ids) -> bool:
 async def org_has_company_policy(db, organization_id) -> bool:
     if not organization_id:
         return False
-    return (await db.scalar(select(Connection.id).where(
-        Connection.organization_id == str(organization_id),
-        Connection.active_company_policy.is_not(None)).limit(1))) is not None
+    from app.models.organization import Organization
+
+    active_connection = select(Connection.id).where(
+        Connection.organization_id == Organization.id,
+        Connection.active_company_policy.is_not(None),
+    ).exists()
+    return bool(await db.scalar(select(Organization.id).where(
+        Organization.id == str(organization_id),
+        Organization.withhold_unverified_company_content.is_(True) | active_connection,
+    )))
+
+
+async def withhold_step_storage(db, step):
+    from app.models.query import Query
+    from app.models.report import Report
+    from app.services.row_owner import step_report_id
+
+    org = await db.scalar(select(Query.organization_id).where(Query.id == str(step.query_id))) if step.query_id else None
+    if not org:
+        report_id = await step_report_id(db, step)
+        org = await db.scalar(select(Report.organization_id).where(Report.id == str(report_id)))
+    return not org or await org_has_company_policy(db, org)
 
 
 async def entity_has_company_policy(db, entity):
-    if not await org_has_company_policy(db, getattr(entity, "organization_id", None)):
-        return False
-    ids = await _entity_data_source_ids(db, str(entity.id))
-    if not ids:
-        ids = await _org_fallback_ds_ids(db, entity.organization_id, getattr(entity, "code", None))
-    return await has_company_policy(db, ids)
+    return await org_has_company_policy(db, getattr(entity, "organization_id", None))
 
 
 async def report_has_company_policy(db, report_id, organization_id):
-    return (await org_has_company_policy(db, organization_id)
-            and await has_company_policy(db, await report_run_data_source_ids(db, report_id)))
+    # Current source links cannot establish the origin of already-rendered content.
+    return await org_has_company_policy(db, organization_id)
 
 
 async def delivery_has_company_policy(db, subject_id, organization_id=None):
@@ -619,9 +633,9 @@ async def delivery_has_company_policy(db, subject_id, organization_id=None):
     from app.services.dashboard_access import published_release
     from app.services.dashboard_data import release_has_company_policy
 
+    if organization_id and await org_has_company_policy(db, organization_id):
+        return True
     if not subject_id:
-        return False
-    if organization_id and not await org_has_company_policy(db, organization_id):
         return False
     report_org = await db.scalar(select(Report.organization_id).where(Report.id == str(subject_id)))
     if report_org and await report_has_company_policy(db, subject_id, report_org):
@@ -835,6 +849,8 @@ async def report_snapshot_withheld(
     )).first()
     if row is None:
         return False
+    if await org_has_company_policy(db, row[1]):
+        return True
     return await snapshot_withheld_for_viewers(
         db, report_id, row[0], fallback_org_id=row[1], code=code
     )

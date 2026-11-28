@@ -70,6 +70,7 @@ from app.services import custom_table_runs
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
 from app.services.table_preview_service import table_preview_service, is_previewable_table
 from app.errors import AppError, ErrorCode
+from app.routes.company_content import require_stored_company_content
 from app.services.fabric_company_policy import ConnectionCompanyPolicy, employee_for, visible_company_tables
 from app.services.member_attributes import require_attribute_admin
 from app.services.member_identity import (
@@ -803,6 +804,8 @@ async def test_connection_tool(
         # Edit mode: the form doesn't hold the saved secret, so merge the
         # stored connection underneath what the form sent.
         connection = await connection_service.get_connection(db, data.connection_id, organization)
+        if connection.active_company_policy is not None:
+            raise HTTPException(status_code=403, detail="Tool testing unavailable on a protected connection")
         stored_config = connection.config
         if isinstance(stored_config, str):
             stored_config = _json.loads(stored_config or "{}")
@@ -2180,7 +2183,7 @@ async def update_tool(
 # org-level manage_connections permission). See app/data_sources/query_executions.py.
 
 
-@router.get("/{connection_id}/queries")
+@router.get("/{connection_id}/queries", dependencies=[Depends(require_stored_company_content)])
 @requires_resource_permission('connection', 'manage_connection')
 async def list_connection_queries(
     connection_id: str,
@@ -2294,6 +2297,22 @@ async def save_company_policy_draft(
                             resource_id=str(connection.id), details={"tables": len(payload.tables)}, commit=False)
     await db.commit()
     return payload
+
+
+@router.post("/{connection_id}/company-policy/activate", status_code=204)
+@requires_resource_permission("connection", "manage_connection")
+async def activate_saved_company_policy(
+    connection_id: str, payload: ConnectionCompanyPolicy, current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
+):
+    from app.services.fabric_company_policy import activate_company_policy
+    from app.settings.config import settings
+
+    if not settings.bow_config.features.fabric_company_rls_activation:
+        raise HTTPException(404, "Activation unavailable")
+    await require_org_permission(db, str(current_user.id), str(organization.id), "manage_connections")
+    custom_query_service.ensure_rls_licensed()
+    await activate_company_policy(db, organization, connection_id, payload, current_user)
 
 
 @router.get("/{connection_id}/company-policy/draft/preview")

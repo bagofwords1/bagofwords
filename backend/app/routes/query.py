@@ -16,6 +16,8 @@ from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest, 
 from app.services.query_service import QueryService
 
 
+from app.routes.company_content import require_stored_company_content
+
 router = APIRouter(prefix="/queries", tags=["queries"])
 
 
@@ -131,7 +133,7 @@ async def _require_query_read(db, query_id: str, current_user, organization) -> 
         raise HTTPException(status_code=404, detail="Query not found")
 
 
-@router.get("", response_model=list[QuerySchema])
+@router.get("", dependencies=[Depends(require_stored_company_content)], response_model=list[QuerySchema])
 @requires_permission('view_reports')
 async def list_queries(
     report_id: str | None = None,
@@ -174,7 +176,7 @@ async def list_queries(
         result.append(schema)
     return result
 
-@router.get("/statuses", response_model=list[QueryStepStatusSchema])
+@router.get("/statuses", dependencies=[Depends(require_stored_company_content)], response_model=list[QueryStepStatusSchema])
 @requires_permission('view_reports')
 async def list_query_step_statuses(
     report_id: str,
@@ -261,7 +263,7 @@ async def create_query(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/{query_id}", response_model=QuerySchema)
+@router.get("/{query_id}", dependencies=[Depends(require_stored_company_content)], response_model=QuerySchema)
 @requires_permission('view_reports', model=Query)
 async def get_query(
     query_id: str,
@@ -359,7 +361,7 @@ async def run_query_new_step(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/steps/{step_id}/run", response_model=dict)
+@router.post("/steps/{step_id}/run", dependencies=[Depends(require_stored_company_content)], response_model=dict)
 @requires_permission('view_reports')
 async def run_existing_step(
     step_id: str,
@@ -392,7 +394,7 @@ async def run_existing_step(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{query_id}/default_step", response_model=dict)
+@router.get("/{query_id}/default_step", dependencies=[Depends(require_stored_company_content)], response_model=dict)
 @requires_permission('view_reports', model=Query)
 async def get_default_step(
     query_id: str,

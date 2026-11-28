@@ -179,6 +179,8 @@ class FilesContextBuilder:
         return forced
 
     async def build(self) -> FilesSchemaContext:
+        if getattr(self.organization, "withhold_unverified_company_content", False) is True:
+            return FilesSchemaContext(files=[])
         files = list(getattr(self.report, 'files', []) or [])
 
         # Project files are inherited LIVE (not copied at report creation):

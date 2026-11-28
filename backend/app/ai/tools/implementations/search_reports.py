@@ -111,6 +111,11 @@ class SearchReportsTool(Tool):
             )
             return
 
+        from app.services.viewer_data_policy import org_has_company_policy
+        if await org_has_company_policy(db, organization.id):
+            yield ToolErrorEvent(type="tool.error", payload={"error": "Stored report unavailable"})
+            return
+
         try:
             # Scope: the caller's own reports, plus reports in projects the
             # caller can view (a project is a sharing boundary — the agent

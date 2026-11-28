@@ -4015,6 +4015,11 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
         
+        if getattr(organization, "withhold_unverified_company_content", False) is True:
+            from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+            context = await SchemaContextBuilder(db, [data_source], organization, None, user=current_user).build()
+            return [table for source in context.data_sources for table in source.tables]
+
         # Per-connection identity scoping. This used to read auth_policy off
         # `connections[0]` and then return EITHER the caller's overlay OR the
         # canonical catalog for the whole agent. On a mixed agent (delegated
@@ -4544,6 +4549,11 @@ class DataSourceService:
         data_source = result.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
+
+        if getattr(organization, "withhold_unverified_company_content", False) is True:
+            # This selector includes indexed values, usage stats and unselected tables.
+            # The schema endpoint above serves the live reader's column-only projection.
+            raise HTTPException(status_code=403, detail="Stored table catalog unavailable")
 
         # Deselected tables are the agent manager's working set, not part of the
         # agent: they are names the manager considered and turned off. Someone
@@ -7074,6 +7084,11 @@ class DataSourceService:
         third time.
         """
         from app.ai.prompt_formatters import TableFormatter
+
+        if getattr(organization, "withhold_unverified_company_content", False) is True:
+            tables = await self.get_data_source_schema(db, str(data_source.id), organization=organization,
+                                                      current_user=current_user)
+            return TableFormatter(tables).table_str
 
         delegated = [
             c for c in (getattr(data_source, "connections", None) or [])

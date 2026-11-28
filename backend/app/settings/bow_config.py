@@ -62,6 +62,7 @@ class DeploymentConfig(BaseModel):
 class FeatureFlags(BaseModel):
     allow_uninvited_signups: bool = False
     allow_multiple_organizations: bool = False
+    fabric_company_rls_activation: bool = False
     verify_emails: bool = False
 
 class OTELConfig(BaseModel):

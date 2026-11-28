@@ -311,3 +311,83 @@ def test_company_policy_withholds_an_existing_release_including_the_publishers_c
     for reader in ("owner", "member"):
         for path in (step, content, f"/api/d/{aid}/queries/{copy['id']}/export"):
             assert _get(test_client, corpus, path, reader).status_code == 404
+
+
+@pytest.mark.e2e
+def test_workspace_withholds_detached_outputs_after_connection_removal(corpus, corpus_rows, test_client):
+    aid, release = _published(corpus, corpus_rows, test_client, "user_required/dash")
+    path = f"/api/d/{aid}"
+    assert _get(test_client, corpus, path + "/content", "owner").status_code == 200
+    association = corpus_rows.table("artifact_release_data_source_association")
+    with corpus_rows.engine.begin() as connection:
+        connection.execute(association.delete().where(association.c.artifact_release_id == release))
+    # At this point even the connection that triggered the rollout may be gone.
+    corpus_rows.update("organizations", corpus.cast.org_id, withhold_unverified_company_content=True)
+    for reader in ("owner", "member"):
+        for suffix in ("", "/content", "/export/html", "/export/pdf", "/previews/0"):
+            assert _get(test_client, corpus, path + suffix, reader).status_code == 404
+
+
+@pytest.mark.e2e
+def test_held_share_and_schedule_never_reach_mail(corpus, corpus_rows, test_client, monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+    from app.schemas.notification_schema import NotificationChannel, NotificationType
+    from app.services.notification_service import NotificationService
+
+    corpus_rows.update("organizations", corpus.cast.org_id, withhold_unverified_company_content=True)
+    service = NotificationService()
+    send = AsyncMock(side_effect=AssertionError("Protected mail reached its transport"))
+    attachment = AsyncMock(side_effect=AssertionError("Protected attachment was built"))
+    monkeypatch.setattr(service, "_resolved_send", send)
+
+    async def deliver():
+        result = await service.dispatch(
+            NotificationType.SHARE_DASHBOARD, [NotificationChannel.EMAIL], ["reader@example.invalid"],
+            "https://example.invalid/report", "Stored title", "Publisher",
+            organization_id=str(corpus.cast.org_id), attachment_builder=attachment,
+        )
+        assert result.skipped and not result.dispatched
+        await service.send_scheduled_prompt_results(
+            str(uuid.uuid4()), "Stored title", [{"type": "email", "address": "reader@example.invalid"}],
+            "https://example.invalid/report", {"last_content": "stored"}, organization_id=str(corpus.cast.org_id),
+        )
+    asyncio.run(deliver())
+    attachment.assert_not_awaited()
+    send.assert_not_awaited()
+
+
+@pytest.mark.e2e
+def test_protected_agent_schema_excludes_cached_values_and_uncategorized_tables(
+        corpus, corpus_rows, test_client):
+    import asyncio
+    from sqlalchemy import select
+    from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+    from app.dependencies import async_session_maker
+    from app.models.data_source import DataSource
+    from app.models.organization import Organization
+
+    row = _rows(corpus_rows, """
+        SELECT dt.datasource_id, ct.id AS table_id, ct.name, ct.connection_id
+        FROM datasource_tables dt JOIN connection_tables ct ON ct.id = dt.connection_table_id
+        WHERE dt.is_active AND dt.deleted_at IS NULL AND ct.deleted_at IS NULL LIMIT 1
+    """)[0]
+    qualified = "warehouse.sales"
+    corpus_rows.update("organizations", corpus.cast.org_id, withhold_unverified_company_content=True)
+    corpus_rows.update("connections", row["connection_id"], active_company_policy={
+        "tenant_id": str(uuid.uuid4()), "grants_table": "security.grants", "employee_column": "employee",
+        "source_column": "source", "company_column": "company", "tables": [
+            {"table": qualified, "source": "sales", "company_column": "company_id"}]})
+    corpus_rows.update("connection_tables", row["table_id"], name=qualified, description="PRIVATE_OLD_SAMPLE",
+                       columns=[{"name": "company_id", "dtype": "int", "metadata": {"sample": "PRIVATE_OLD_SAMPLE"}}])
+
+    async def render():
+        async with async_session_maker() as db:
+            org = await db.get(Organization, corpus.cast.org_id)
+            source = await db.get(DataSource, row["datasource_id"])
+            schema = await SchemaContextBuilder(db, [source], org, None).build()
+            assert [t.name for s in schema.data_sources for t in s.tables] == [qualified]
+            rendered = schema.render()
+            assert "company_id" in rendered and "PRIVATE_OLD_SAMPLE" not in rendered
+
+    asyncio.run(render())

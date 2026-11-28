@@ -97,6 +97,10 @@ class ReadArtifactActivityTool(Tool):
             out = ReadArtifactActivityOutput(error="No conversation in context")
             yield ToolEndEvent(type="tool.end", payload={"output": out.model_dump(), "observation": {"summary": out.error}})
             return
+        if getattr((hub.organization if hub else runtime_ctx.get("organization")), "withhold_unverified_company_content", False) is True:
+            yield ToolEndEvent(type="tool.end", payload={"observation": {"summary": "Stored report unavailable"},
+                                                        "output": {"success": False}})
+            return
         report_id = str(report.id)
         # Payloads are private to whose session made them, and data-gated
         # like step results: the org's "allow the model to see data" switch.

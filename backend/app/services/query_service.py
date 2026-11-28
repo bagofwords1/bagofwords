@@ -826,6 +826,9 @@ class QueryService:
         from app.services.viewer_result_store import find_viewer_result
         from app.services.viewer_data_policy import report_has_company_policy
         company_filtered = await report_has_company_policy(db, step_report, organization_id)
+        if company_filtered and specs:
+            # Persisted parameter defaults and option labels can contain the publisher's data.
+            raise ValueError("Stored parameters are unavailable on a company-filtered report")
         existing = None if company_filtered else await find_viewer_result(
             db, step_id=step.id, user_id=caller.id, params_fingerprint=fingerprint)
 
