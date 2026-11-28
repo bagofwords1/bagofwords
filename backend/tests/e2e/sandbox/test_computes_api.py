@@ -210,7 +210,7 @@ def test_bootstrap_runs_the_types_steps_and_a_compute_can_only_be_enabled_after_
     assert done["bootstrap_status"] == "ready" and done["bootstrapped_at"] and done["status"] == "healthy"
     assert [s["status"] for s in done["bootstrap_steps"]] == ["ok"] * 5
     assert all(s["title"] and s["started_at"] and s["finished_at"] for s in done["bootstrap_steps"])
-    assert set(done["capabilities"]) == {"stop_resume", "strong_isolation", "domain_allowlist", "live_stats"}
+    assert set(done["capabilities"]) == {"stop_resume", "strong_isolation", "domain_allowlist", "live_stats", "snapshot", "pause"}
     assert done["info"]["isolation"] == "strong" and done["enabled"] is False, "bootstrap does not enable it by itself"
 
     enabled = test_client.put(f"{BASE}/{compute['id']}", json={"enabled": True}, headers=admin).json()

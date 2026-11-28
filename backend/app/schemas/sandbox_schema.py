@@ -593,6 +593,9 @@ class SandboxFleetRow(SandboxSchema):
     deletes_at: Optional[datetime] = None
     delete_reason: Optional[str] = None
     keep_warm_until: Optional[datetime] = None
+    # Its last workspace snapshot, when there is one.
+    snapshot_at: Optional[datetime] = None
+    snapshot_bytes: Optional[int] = None
 
 
 class SandboxDetail(SandboxFleetRow):

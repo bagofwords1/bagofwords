@@ -44,6 +44,12 @@ class SandboxSettings(BaseModel):
     # How long before a retention or lifetime deletion it is announced (in the
     # sandbox's timeline, to the admin, and to the agent on the next run).
     delete_warning_seconds: int = Field(default=24 * 3600, ge=0, le=30 * 24 * 3600)
+    # Copy a sandbox's workspace into BoW's file store each time it is stopped,
+    # so it survives the loss of its compute. Off by default: it takes time and
+    # space in proportion to what sandboxes hold.
+    snapshot_on_stop: bool = False
+    # A workspace whose snapshot would be larger than this is not snapshotted.
+    snapshot_max_mb: int = Field(default=2048, ge=1, le=1024 * 1024)
     # What the "package registries only" policy allows.
     registry_domains: List[str] = Field(default_factory=lambda: list(DEFAULT_REGISTRY_DOMAINS))
     max_running_per_user: int = Field(default=3, ge=1, le=1000)
@@ -90,6 +96,8 @@ class SandboxSettingsUpdate(BaseModel):
     stopped_retention_seconds: Optional[int] = Field(default=None, ge=60, le=365 * 24 * 3600)
     max_lifetime_seconds: Optional[int] = Field(default=None, ge=0, le=365 * 24 * 3600)
     delete_warning_seconds: Optional[int] = Field(default=None, ge=0, le=30 * 24 * 3600)
+    snapshot_on_stop: Optional[bool] = None
+    snapshot_max_mb: Optional[int] = Field(default=None, ge=1, le=1024 * 1024)
     registry_domains: Optional[List[str]] = None
     max_running_per_user: Optional[int] = Field(default=None, ge=1, le=1000)
     max_running_total: Optional[int] = Field(default=None, ge=1, le=100000)

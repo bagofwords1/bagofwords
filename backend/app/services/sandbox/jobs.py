@@ -29,7 +29,7 @@ from app.models.sandbox import Sandbox, SandboxCompute, SandboxRun
 from app.services.sandbox import computes as compute_service
 from app.services.sandbox import errors
 from app.services.sandbox.drivers.base import (
-    CAP_STOP_RESUME, STATUS_MISSING, STATUS_STOPPED, SandboxDriverError, SandboxHandle,
+    CAP_PAUSE, CAP_STOP_RESUME, STATUS_MISSING, STATUS_RUNNING, STATUS_STOPPED, SandboxDriverError, SandboxHandle,
 )
 from app.services.sandbox.errors import SandboxError
 from app.services.sandbox.feature import sandbox_feature_enabled
@@ -167,6 +167,8 @@ async def _lifecycle_one(db, service: SandboxService, sandbox: Sandbox, settings
         return "deleted"
 
     if sandbox.state in ("ready", "idle"):
+        if sandbox.keep_warm_until and sandbox.keep_warm_until > now:
+            return None  # kept warm by an admin: neither paused nor stopped for being idle
         unused = age(used) or 0
         if unused >= settings.idle_timeout_seconds:
             # Stop, do not delete: the next run resumes it with its files and packages.
@@ -252,13 +254,21 @@ async def _check_sandboxes(db, service: SandboxService, compute: SandboxCompute,
         return
     driver = await compute_service.build_driver(db, compute)
     try:
+        can_pause = CAP_PAUSE in driver.capabilities()
         for sandbox in sandboxes:
             try:
-                async with service._runtime(driver, sandbox) as runtime:
-                    if await runtime.health():
-                        sandbox.last_seen_at = datetime.utcnow()
-                        continue
+                # An idle sandbox on a compute that can pause is frozen: its daemon
+                # cannot answer, and that is not a fault. Only its container is checked.
+                frozen = can_pause and sandbox.state == "idle"
+                if not frozen:
+                    async with service._runtime(driver, sandbox) as runtime:
+                        if await runtime.health():
+                            sandbox.last_seen_at = datetime.utcnow()
+                            continue
                 status = await driver.status(service._handle(sandbox))
+                if frozen and status.state == STATUS_RUNNING:
+                    sandbox.last_seen_at = datetime.utcnow()
+                    continue
                 # Re-read: a run may have claimed or resumed it while we were checking.
                 await db.refresh(sandbox)
                 if sandbox.state not in ("ready", "idle"):

@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from app.services.sandbox.drivers.base import (
     CAP_DOMAIN_ALLOWLIST,
+    CAP_PAUSE,
+    CAP_SNAPSHOT,
     CAP_LIVE_STATS,
     CAP_STOP_RESUME,
     CAP_STRONG_ISOLATION,
@@ -64,7 +66,8 @@ def _bytes(text: str) -> Optional[int]:
 
 class DockerSSHDriver(SandboxDriver):
     type_name = "docker-ssh"
-    potential_capabilities = frozenset({CAP_STOP_RESUME, CAP_STRONG_ISOLATION, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS})
+    potential_capabilities = frozenset({CAP_STOP_RESUME, CAP_STRONG_ISOLATION, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS,
+                                        CAP_SNAPSHOT, CAP_PAUSE})
 
     def __init__(self, ctx: ComputeContext):
         super().__init__(ctx)
@@ -195,7 +198,7 @@ class DockerSSHDriver(SandboxDriver):
     # ── describing the compute ──
 
     def capabilities(self) -> set:
-        caps = {CAP_STOP_RESUME, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS}
+        caps = {CAP_STOP_RESUME, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS, CAP_SNAPSHOT, CAP_PAUSE}
         if self.ctx.driver_state.get("isolation") == "gvisor":
             caps.add(CAP_STRONG_ISOLATION)
         return caps
@@ -284,7 +287,7 @@ class DockerSSHDriver(SandboxDriver):
                 line(f"volume:{volume.get('name')}", f"Volume {volume.get('name')}", "ok" if found.ok else "warning",
                      None if found.ok else f"{volume.get('source')} does not exist on the server yet. "
                                            "Sandboxes that mount it cannot start until it does.")
-            running = sum(1 for c in containers.values() if c.get("sandbox") and c.get("state") == "running")
+            running = sum(1 for c in containers.values() if c.get("sandbox") and c.get("state") in ("running", "paused"))
             return ComputeHealth(
                 reachable=True, prepared=prepared, healthy=prepared and not down, running=running,
                 resources=await self._resources(facts),
@@ -399,7 +402,9 @@ class DockerSSHDriver(SandboxDriver):
         return state
 
     async def stop(self, handle: SandboxHandle) -> None:
-        await self._state_of(handle)
+        if await self._state_of(handle) == "paused":
+            # A frozen process cannot receive the stop signal.
+            await self.host.docker("unpause", layout.sandbox_container(handle.sandbox_id), check=False, timeout=60)
         await self.host.docker("stop", "-t", "5", layout.sandbox_container(handle.sandbox_id), timeout=60)
         await self.host.ssh.run(["umount", layout.workspace_mount(handle.sandbox_id)], check=False)
 
@@ -421,6 +426,33 @@ class DockerSSHDriver(SandboxDriver):
             if egress is not None and egress["@id"] not in set(await self.host.route_ids(layout.EGRESS_DIR, "egress")):
                 await self.host.set_route(layout.EGRESS_DIR, "egress", egress)
 
+    async def pause(self, handle: SandboxHandle) -> None:
+        await self._state_of(handle)
+        paused = await self.host.docker("pause", layout.sandbox_container(handle.sandbox_id), check=False, timeout=60)
+        if not paused.ok and "already paused" not in paused.detail(300).lower():
+            raise SandboxDriverError("The sandbox could not be paused: " + _clean_docker_error(paused.detail(400)),
+                                     code="command_failed")
+
+    async def unpause(self, handle: SandboxHandle) -> None:
+        await self._state_of(handle)
+        resumed = await self.host.docker("unpause", layout.sandbox_container(handle.sandbox_id), check=False, timeout=60)
+        if not resumed.ok and "not paused" not in resumed.detail(300).lower():
+            raise SandboxDriverError("The sandbox could not be unpaused: " + _clean_docker_error(resumed.detail(400)),
+                                     code="command_failed")
+
+    async def export_workspace(self, handle: SandboxHandle, write, *, max_bytes: int) -> int:
+        """The workspace as a gzip tar, read from its mount on the server. The
+        sandbox may be running; files being written at that moment may be
+        captured half-written."""
+        await self._state_of(handle)
+        await self.host.mount_workspace(handle.sandbox_id)
+        return await self.host.ssh.stream_out(commands.workspace_export(handle.sandbox_id), write, max_bytes=max_bytes)
+
+    async def import_workspace(self, handle: SandboxHandle, chunks) -> None:
+        await self._state_of(handle)
+        await self.host.mount_workspace(handle.sandbox_id)
+        await self.host.ssh.stream_in(commands.workspace_import(handle.sandbox_id), chunks)
+
     async def delete(self, handle: SandboxHandle) -> None:
         await self.host.remove_sandbox(handle.sandbox_id)
         try:
@@ -432,8 +464,8 @@ class DockerSSHDriver(SandboxDriver):
         state = await self.host.container_state(layout.sandbox_container(handle.sandbox_id))
         if state is None:
             return SandboxStatus(STATUS_MISSING)
-        if state == "running":
-            return SandboxStatus(STATUS_RUNNING)
+        if state in ("running", "paused"):  # paused: its processes are frozen, it still holds its memory
+            return SandboxStatus(STATUS_RUNNING, detail=state)
         return SandboxStatus(STATUS_STOPPED, detail=state)
 
     async def stats(self, handles: Sequence[SandboxHandle]) -> Dict[str, SandboxStats]:

@@ -310,10 +310,17 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
                 f" These files of the report were put back: {', '.join(outcome.restored_files[:20])}"
                 + (f" and {len(outcome.restored_files) - 20} more." if len(outcome.restored_files) > 20 else ".")
             ) if outcome.restored_files else ""
-            notes.append(
-                "The sandbox had to be recreated: its filesystem is fresh. Installed packages and files outside "
-                "outputs/ are gone." + restored
-            )
+            if outcome.restored_snapshot_at:
+                notes.append(
+                    f"The sandbox had to be recreated and was restored from a snapshot taken at "
+                    f"{outcome.restored_snapshot_at[:16].replace('T', ' ')} UTC: files and packages are as they were "
+                    "then. Anything changed after that, outside outputs/, is gone." + restored
+                )
+            else:
+                notes.append(
+                    "The sandbox had to be recreated: its filesystem is fresh. Installed packages and files outside "
+                    "outputs/ are gone." + restored
+                )
         elif outcome.created:
             notes.append("A new sandbox was created for this report.")
         elif outcome.resumed:

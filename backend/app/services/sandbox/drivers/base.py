@@ -24,7 +24,7 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
 
 # ── Capabilities ─────────────────────────────────────────────────────────
 # What a driver can do. The UI and environment validation read these.
@@ -35,9 +35,12 @@ CAP_DOMAIN_ALLOWLIST = "domain_allowlist"  # the registries / custom allowlist p
 CAP_LIVE_STATS = "live_stats"              # live CPU, memory and disk per sandbox
 CAP_WARM_POOL = "warm_pool"                # pre-started sandboxes per environment
 CAP_PORTS = "ports"                        # serving declared ports (hosted apps)
+CAP_SNAPSHOT = "snapshot"                  # copy a sandbox's workspace out, and into a new one
+CAP_PAUSE = "pause"                        # freeze a sandbox's processes in memory, and thaw them
 
 ALL_CAPABILITIES = frozenset({
     CAP_STOP_RESUME, CAP_STRONG_ISOLATION, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS, CAP_WARM_POOL, CAP_PORTS,
+    CAP_SNAPSHOT, CAP_PAUSE,
 })
 
 # ── Network policies ─────────────────────────────────────────────────────
@@ -340,6 +343,29 @@ class SandboxDriver(abc.ABC):
     @abc.abstractmethod
     async def status(self, handle: SandboxHandle) -> SandboxStatus:
         """Where the sandbox stands on the compute right now."""
+
+    # Optional abilities. A driver that has one names it in ``capabilities()``
+    # and overrides the methods; the service never calls them otherwise.
+
+    async def pause(self, handle: SandboxHandle) -> None:
+        """Freeze every process in a running sandbox. They keep their memory and
+        use no CPU until ``unpause``. Needs ``CAP_PAUSE``."""
+        raise SandboxDriverError("This compute cannot pause sandboxes", code="unsupported")
+
+    async def unpause(self, handle: SandboxHandle) -> None:
+        """Let a paused sandbox's processes run again. Idempotent."""
+        raise SandboxDriverError("This compute cannot pause sandboxes", code="unsupported")
+
+    async def export_workspace(self, handle: SandboxHandle, write: Callable[[bytes], Awaitable[None]], *,
+                               max_bytes: int) -> int:
+        """Copy the sandbox's workspace out as a gzip-compressed tar, in pieces
+        given to ``write``. Returns the size written. Raises ``too_large`` once
+        more than ``max_bytes`` would be written. Needs ``CAP_SNAPSHOT``."""
+        raise SandboxDriverError("This compute cannot snapshot sandboxes", code="unsupported")
+
+    async def import_workspace(self, handle: SandboxHandle, chunks: AsyncIterator[bytes]) -> None:
+        """Unpack an ``export_workspace`` archive into a (new) sandbox's workspace."""
+        raise SandboxDriverError("This compute cannot snapshot sandboxes", code="unsupported")
 
     @abc.abstractmethod
     async def stats(self, handles: Sequence[SandboxHandle]) -> Dict[str, SandboxStats]:

@@ -34,13 +34,16 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.sandbox import Sandbox, SandboxCompute, SandboxEgressLog, SandboxEnvironment, SandboxEvent, SandboxRun
 from app.services.sandbox import computes as compute_service
 from app.services.sandbox import environments as environment_service
-from app.services.sandbox import capacity, errors
+from app.services.sandbox import capacity, errors, snapshots
 from app.services.sandbox.audit import audit
 from app.services.sandbox.drivers.base import (
+    CAP_PAUSE,
+    CAP_SNAPSHOT,
     CAP_STOP_RESUME,
     MountSpec,
     DOMAIN_FILTERED_POLICIES,
@@ -75,6 +78,8 @@ TRANSITIONS: Dict[str, frozenset] = {
     "deleted": frozenset(),
 }
 
+# Reasons a sandbox row is deleted while its workspace is meant to live on.
+KEEP_SNAPSHOT_REASONS = ("recreated", "moved")
 MAX_RESTORED_FILES = 200                  # report files put back into a recreated sandbox
 MAX_RESTORED_BYTES = 500 * 1024 * 1024
 MAX_LISTED_PROCESSES = 20
@@ -184,6 +189,8 @@ class RunOutcome:
     # After a recreation: files of the report put back into the new sandbox
     # (earlier outputs under outputs/, earlier inputs under inputs/).
     restored_files: List[str] = field(default_factory=list)
+    # Set when the new sandbox started from a snapshot: when it was taken (ISO).
+    restored_snapshot_at: Optional[str] = None
     # Things the caller should pass on, e.g. "this sandbox is deleted on <date>".
     notices: List[str] = field(default_factory=list)
 
@@ -308,15 +315,49 @@ class SandboxService:
 
     async def mark_idle(self, db: AsyncSession, sandbox: Sandbox) -> bool:
         """ready → idle, only if it is still ready: a run may have claimed it
-        since the caller read it. Returns whether it was marked."""
-        marked = await db.execute(
-            update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state == "ready").values(state="idle")
+        since the caller read it. Returns whether it was marked.
+
+        Where the compute can, an idle sandbox is also paused: its processes are
+        frozen in memory and use no CPU, and the next run thaws them in
+        milliseconds. (A stop, later, frees the memory too and loses the
+        processes.) The pause happens under the same claim a run takes, so a
+        run can never start in a sandbox that is about to be frozen."""
+        compute = await db.get(SandboxCompute, sandbox.compute_id) if sandbox.compute_id else None
+        if compute is None or CAP_PAUSE not in (compute.capabilities or []):
+            marked = await db.execute(
+                update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state == "ready").values(state="idle")
+            )
+            if marked.rowcount == 1:
+                await self._event(db, sandbox.id, "idle", None, {"from": "ready", "to": "idle", "paused": False})
+            await db.commit()
+            await db.refresh(sandbox)
+            return marked.rowcount == 1
+
+        claimed = await db.execute(
+            update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state == "ready").values(state="busy")
         )
-        if marked.rowcount == 1:
-            await self._event(db, sandbox.id, "idle", None, {"from": "ready", "to": "idle"})
+        await db.commit()
+        if claimed.rowcount != 1:
+            await db.refresh(sandbox)
+            return False
+        paused = False
+        try:
+            driver = await compute_service.build_driver(db, compute)
+            try:
+                await driver.pause(self._handle(sandbox))
+                paused = True
+            finally:
+                await driver.close()
+        except (SandboxDriverError, SandboxError) as exc:
+            logger.warning("could not pause idle sandbox %s: %s", sandbox.id, getattr(exc, "message", exc))
+        released = await db.execute(
+            update(Sandbox).where(Sandbox.id == sandbox.id, Sandbox.state == "busy").values(state="idle")
+        )
+        if released.rowcount == 1:
+            await self._event(db, sandbox.id, "idle", None, {"from": "ready", "to": "idle", "paused": paused})
         await db.commit()
         await db.refresh(sandbox)
-        return marked.rowcount == 1
+        return released.rowcount == 1
 
     async def _driver(self, db: AsyncSession, sandbox: Sandbox) -> tuple:
         compute = await db.get(SandboxCompute, sandbox.compute_id) if sandbox.compute_id else None
@@ -528,12 +569,20 @@ class SandboxService:
                 raise
             return winner, flags
 
-        await self._provision(db, sandbox, env, compute, settings, token, report, actor_id)
+        restore_from = await self._latest_snapshot(db, report.id)
+        await self._provision(db, sandbox, env, compute, settings, token, report, actor_id, restore_from=restore_from)
+        if restore_from:
+            # It carries on from the snapshot: say so, and keep the snapshot as this sandbox's own.
+            flags["recreated"], flags["snapshot"] = True, restore_from
+            sandbox.snapshot = restore_from
+            flag_modified(sandbox, "snapshot")
+            await db.commit()
         flags["created"] = True
         return sandbox, flags
 
     async def _provision(self, db: AsyncSession, sandbox: Sandbox, env: SandboxEnvironment, compute: SandboxCompute,
-                         settings: SandboxSettings, token: str, report: ReportRef, actor_id: Optional[str]) -> None:
+                         settings: SandboxSettings, token: str, report: ReportRef, actor_id: Optional[str], *,
+                         restore_from: Optional[Dict[str, Any]] = None) -> None:
         driver = await compute_service.build_driver(db, compute)
         try:
             try:
@@ -541,9 +590,21 @@ class SandboxService:
                 sandbox.driver_ref = dict(handle.ref)
                 async with self._runtime(driver, sandbox) as runtime:
                     await runtime.wait_healthy(HEALTH_DEADLINE_SECONDS)
+                    if restore_from:
+                        # The workspace as it was when the snapshot was taken, setup included:
+                        # the setup script is not run again, the start script is.
+                        try:
+                            await driver.import_workspace(handle, snapshots.chunks(restore_from))
+                            await self._event(db, sandbox.id, "snapshot_restored", actor_id, {
+                                "bytes": restore_from.get("bytes"), "taken_at": restore_from.get("at"),
+                            })
+                        except SandboxDriverError as exc:
+                            logger.warning("could not restore the snapshot into sandbox %s: %s", sandbox.id, exc.message)
+                            await self._event(db, sandbox.id, "snapshot_restore_failed", actor_id, {"reason": exc.message[:300]})
+                            restore_from = None
                     await runtime.make_dir(WORKSPACE_OUTPUTS)
                     await runtime.make_dir(WORKSPACE_INPUTS)
-                    if env.setup_script:
+                    if env.setup_script and not restore_from:
                         await self._run_hook(db, runtime, sandbox, "setup", env.setup_script, actor_id,
                                              timeout=SETUP_SCRIPT_TIMEOUT_SECONDS)
                     if env.start_script:
@@ -645,10 +706,26 @@ class SandboxService:
         resumed = False
         try:
             if sandbox.state != "stopped":
+                can_pause = CAP_PAUSE in driver.capabilities()
+                async def thaw() -> None:
+                    try:
+                        await driver.unpause(handle)
+                    except SandboxNotFound:
+                        pass  # gone: the status check below says so
+
+                if can_pause and sandbox.state == "idle":
+                    await thaw()  # an idle sandbox is frozen: thaw it first
                 async with self._runtime(driver, sandbox) as runtime:
                     if await runtime.health():
                         sandbox.last_seen_at = _now()
                         return False
+                    if can_pause:
+                        # It may be frozen whatever the state says (a pause that was
+                        # recorded late). A frozen sandbox is not a lost one.
+                        await thaw()
+                        if await runtime.health():
+                            sandbox.last_seen_at = _now()
+                            return False
                 status = await driver.status(handle)
                 # Re-read: a run may have claimed it while the checks above were in flight.
                 await db.refresh(sandbox)
@@ -739,8 +816,8 @@ class SandboxService:
         except _Lost as lost:
             # The sandbox is gone: recreate it. The caller is told the filesystem is fresh.
             await self._fail(db, sandbox, None, f"lost: {lost}")
-            sandbox, _ = await self.ensure(db, report, actor_id, environment=request.environment)
-            flags = {"created": False, "recreated": True}
+            sandbox, new = await self.ensure(db, report, actor_id, environment=request.environment)
+            flags = {"created": False, "recreated": True, "snapshot": new.get("snapshot")}
         if resumed:
             await progress("resumed")
 
@@ -782,6 +859,7 @@ class SandboxService:
             run_id=run.id, sandbox_id=sandbox.id, status="failed", exit_code=None,
             environment=(sandbox.limits or {}).get("environment"), network_policy=policy,
             created=flags["created"], resumed=resumed, recreated=flags["recreated"],
+            restored_snapshot_at=(flags.get("snapshot") or {}).get("at"),
         )
         try:
             return await self._run_claimed(
@@ -1239,7 +1317,7 @@ class SandboxService:
     # ── stop, delete, status ──
 
     async def stop(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], *, reason: str = "requested",
-                   title: Optional[str] = None) -> Sandbox:
+                   title: Optional[str] = None, snapshot: bool = False) -> Sandbox:
         """Stop the container, keeping its files. Not possible while a run is in progress."""
         if sandbox.state == "stopped":
             return sandbox
@@ -1268,8 +1346,15 @@ class SandboxService:
                 if sandbox.state == "stopped":
                     return sandbox
                 raise errors.busy()
+            if previous == "idle" and CAP_PAUSE in driver.capabilities():
+                try:
+                    await driver.unpause(self._handle(sandbox))  # thaw it, so its stop script can run
+                except SandboxDriverError:
+                    pass
             await self._stop_hook(db, driver, sandbox, actor_id)
             await self._final_egress(db, driver, sandbox)
+            if snapshot or (await load_settings(db, sandbox.organization_id)).snapshot_on_stop:
+                await self.snapshot(db, sandbox, actor_id, driver=driver, reason=reason)
             try:
                 await driver.stop(self._handle(sandbox))
             except SandboxNotFound:
@@ -1310,6 +1395,66 @@ class SandboxService:
         except Exception:  # noqa: BLE001
             logger.warning("the stop script of sandbox %s could not be run", sandbox.id)
 
+    async def snapshot(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], *,
+                       driver: Optional[SandboxDriver] = None, reason: str = "requested") -> Optional[Dict[str, Any]]:
+        """Copy the sandbox's workspace into BoW's file store, replacing its
+        previous snapshot. Returns the snapshot, or None when it was skipped
+        (the compute cannot, or the workspace is over the size limit); the
+        reason is in the sandbox's timeline either way."""
+        own = driver is None
+        if own:
+            _, driver = await self._driver(db, sandbox)
+        try:
+            if CAP_SNAPSHOT not in driver.capabilities():
+                if own:
+                    raise SandboxError(errors.INVALID_STATE, "This compute cannot snapshot sandboxes", status=409)
+                return None
+            settings = await load_settings(db, sandbox.organization_id)
+            started = time.monotonic()
+            try:
+                taken = await snapshots.take(driver, self._handle(sandbox), max_bytes=settings.snapshot_max_mb * 1024 * 1024)
+            except SandboxDriverError as exc:
+                await self._event(db, sandbox.id, "snapshot_skipped", actor_id, {"reason": exc.message[:300], "for": reason})
+                await db.commit()
+                if own:
+                    raise SandboxError(errors.UNAVAILABLE, f"The snapshot was not taken: {exc.message}", status=503) from exc
+                return None
+            sandbox.snapshot = taken
+            flag_modified(sandbox, "snapshot")
+            await self._event(db, sandbox.id, "snapshot", actor_id, {
+                "bytes": taken["bytes"], "for": reason, "duration_seconds": round(time.monotonic() - started, 2),
+            })
+            await db.commit()
+            return taken
+        finally:
+            if own:
+                await driver.close()
+
+    async def move_off(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str]) -> None:
+        """Take a sandbox off its compute without losing its workspace: snapshot
+        it, then remove it there. The report's next run creates a new sandbox,
+        on whichever compute has room, from that snapshot. Refused when the
+        snapshot cannot be taken: nothing is removed without a copy."""
+        if sandbox.state == "busy":
+            raise errors.busy()
+        if sandbox.state not in ("ready", "idle", "stopped"):
+            raise SandboxError(errors.INVALID_STATE, f"A {sandbox.state} sandbox cannot be moved", status=409)
+        taken = await self.snapshot(db, sandbox, actor_id, reason="moved")
+        if not taken:
+            raise SandboxError(errors.UNAVAILABLE, "The snapshot was not taken, so the sandbox was left where it is.", status=503)
+        await self._remove(db, sandbox, actor_id, reason="moved")
+
+    async def _latest_snapshot(self, db: AsyncSession, report_id: str) -> Optional[Dict[str, Any]]:
+        """The newest snapshot any sandbox of this report left behind, if its file is still there."""
+        rows = await db.execute(
+            select(Sandbox).where(Sandbox.report_id == str(report_id), Sandbox.snapshot.isnot(None))
+            .order_by(Sandbox.created_at.desc())
+        )
+        for row in rows.scalars().all():
+            if row.snapshot and await snapshots.available(row.snapshot):
+                return dict(row.snapshot)
+        return None
+
     async def _final_egress(self, db: AsyncSession, driver: SandboxDriver, sandbox: Sandbox) -> None:
         """Collect the domain log one last time before a sandbox goes away."""
         try:
@@ -1329,6 +1474,11 @@ class SandboxService:
             try:
                 driver = await compute_service.build_driver(db, compute)
                 try:
+                    if sandbox.state == "idle" and CAP_PAUSE in driver.capabilities():
+                        try:
+                            await driver.unpause(self._handle(sandbox))
+                        except SandboxDriverError:
+                            pass
                     if sandbox.state in ("ready", "idle"):
                         await self._stop_hook(db, driver, sandbox, actor_id)
                     if sandbox.state in ("ready", "idle", "busy"):
@@ -1343,6 +1493,11 @@ class SandboxService:
                     raise SandboxError(
                         errors.UNAVAILABLE, f"The sandbox could not be deleted: {exc.message}", status=503,
                     ) from exc
+        if sandbox.snapshot and reason not in KEEP_SNAPSHOT_REASONS:
+            # Deleted on purpose: its copy goes too. (A sandbox that was lost, or
+            # moved off its compute, keeps it: that is what the copy is for.)
+            await snapshots.discard(sandbox.snapshot)
+            sandbox.snapshot = None
         await self._set_state(db, sandbox, "deleted", actor_id, details={"reason": reason})
         await audit(db, sandbox.organization_id, "sandbox.deleted", actor_id, "sandbox", sandbox.id,
                     {"title": await self._title(db, sandbox, title), "report_id": sandbox.report_id, "reason": reason})
@@ -1369,6 +1524,40 @@ class SandboxService:
         settings = await load_settings(db, sandbox.organization_id)
         at, reason = deletion_due(sandbox, settings)
         return {"pinned": bool(sandbox.pinned), "deletes_at": at.isoformat() if at else None, "delete_reason": reason}
+
+    async def start(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str]) -> Sandbox:
+        """Resume a stopped sandbox now, without waiting for a run (so the next
+        run does not pay for the start). Quotas are those of the sandbox's own user."""
+        if sandbox.state in ("ready", "idle", "busy"):
+            return sandbox
+        if sandbox.state != "stopped":
+            raise SandboxError(errors.INVALID_STATE, f"A {sandbox.state} sandbox cannot be started", status=409)
+        report = ReportRef(id=sandbox.report_id, organization_id=sandbox.organization_id, title=await self._title(db, sandbox))
+        try:
+            await self._ensure_running(db, sandbox, report, sandbox.user_id or actor_id)
+        except _Lost as lost:
+            await self._fail(db, sandbox, None, f"lost: {lost}")
+            raise SandboxError(
+                errors.UNAVAILABLE, f"The sandbox is gone from its compute ({lost}). It is recreated on the next run.",
+                status=409,
+            )
+        sandbox.last_used_at = _now()  # the idle clock starts now, or it would be stopped again at once
+        await db.commit()
+        return sandbox
+
+    async def keep_warm(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], seconds: int) -> Sandbox:
+        """Do not pause or stop this sandbox for being idle for the next
+        ``seconds`` (0 clears it). It still holds its CPU and memory meanwhile."""
+        if sandbox.state in ("deleted", "failed"):
+            raise SandboxError(errors.INVALID_STATE, f"A {sandbox.state} sandbox cannot be kept warm", status=409)
+        sandbox.keep_warm_until = (_now() + timedelta(seconds=int(seconds))) if seconds else None
+        await self._event(db, sandbox.id, "keep_warm", actor_id, {
+            "until": sandbox.keep_warm_until.isoformat() if sandbox.keep_warm_until else None,
+        })
+        await audit(db, sandbox.organization_id, "sandbox.keep_warm", actor_id, "sandbox", sandbox.id,
+                    {"title": await self._title(db, sandbox), "report_id": sandbox.report_id, "seconds": int(seconds)})
+        await db.commit()
+        return sandbox
 
     async def set_pinned(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], pinned: bool) -> Sandbox:
         """Pin: the retention and lifetime deletions skip this sandbox until it is unpinned."""

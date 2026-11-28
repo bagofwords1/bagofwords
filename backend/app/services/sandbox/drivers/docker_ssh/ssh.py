@@ -256,6 +256,82 @@ class SSHHost:
             )
         return result
 
+    async def _stream_command(self, argv: Sequence[str]) -> str:
+        command = shlex.join([str(part) for part in argv])
+        if await self.detect_mode() == MODE_SUDO:
+            command = "sudo -n -- " + command
+        return command
+
+    async def stream_out(self, argv: Sequence[str], write, *, max_bytes: int, timeout: float = 3600) -> int:
+        """Run a command and hand its (binary) standard output to ``write`` piece
+        by piece. Stops with ``too_large`` once more than ``max_bytes`` came out."""
+        import asyncssh
+
+        command = await self._stream_command(argv)
+        conn = await self.connect()
+        started, total = time.monotonic(), 0
+        try:
+            async with conn.create_process(command, encoding=None) as process:
+                async def pump() -> int:
+                    size = 0
+                    while True:
+                        chunk = await process.stdout.read(256 * 1024)
+                        if not chunk:
+                            return size
+                        size += len(chunk)
+                        if size > max_bytes:
+                            process.kill()
+                            raise SSHError(
+                                f"It is larger than the limit of {max_bytes // (1024 * 1024)} MB.", code="too_large",
+                            )
+                        await write(chunk)
+                total = await asyncio.wait_for(pump(), timeout=timeout)
+                await process.wait()
+                status = process.exit_status if process.exit_status is not None else 255
+                stderr = (await process.stderr.read() or b"").decode("utf-8", "replace")
+        except asyncio.TimeoutError as exc:
+            raise SSHError(f"A command on the server did not finish within {int(timeout)} seconds", code="timeout") from exc
+        except (OSError, asyncssh.Error) as exc:
+            self._conn = None
+            raise SSHError(f"The SSH connection failed ({_why(exc)})", code="unreachable") from exc
+        commands_log.info("sandbox command on %s: %s -> exit %s, %s bytes out in %.2fs",
+                          self.address, _summary(command), status, total, time.monotonic() - started)
+        if status != 0:
+            raise SSHError(f"`{argv[0]}` failed on the server (exit {status}): {stderr.strip()[-300:]}", code="command_failed")
+        return total
+
+    async def stream_in(self, argv: Sequence[str], chunks, *, timeout: float = 3600) -> int:
+        """Run a command and feed it ``chunks`` (binary) on standard input."""
+        import asyncssh
+
+        command = await self._stream_command(argv)
+        conn = await self.connect()
+        started, total = time.monotonic(), 0
+        try:
+            async with conn.create_process(command, encoding=None) as process:
+                async def pump() -> int:
+                    size = 0
+                    async for chunk in chunks:
+                        process.stdin.write(chunk)
+                        await process.stdin.drain()
+                        size += len(chunk)
+                    process.stdin.write_eof()
+                    return size
+                total = await asyncio.wait_for(pump(), timeout=timeout)
+                await asyncio.wait_for(process.wait(), timeout=timeout)
+                status = process.exit_status if process.exit_status is not None else 255
+                stderr = (await process.stderr.read() or b"").decode("utf-8", "replace")
+        except asyncio.TimeoutError as exc:
+            raise SSHError(f"A command on the server did not finish within {int(timeout)} seconds", code="timeout") from exc
+        except (OSError, asyncssh.Error) as exc:
+            self._conn = None
+            raise SSHError(f"The SSH connection failed ({_why(exc)})", code="unreachable") from exc
+        commands_log.info("sandbox command on %s: %s -> exit %s, %s bytes in in %.2fs",
+                          self.address, _summary(command), status, total, time.monotonic() - started)
+        if status != 0:
+            raise SSHError(f"`{argv[0]}` failed on the server (exit {status}): {stderr.strip()[-300:]}", code="command_failed")
+        return total
+
     async def write_file(self, path: str, content: Union[str, bytes], *, mode: str = "600") -> None:
         """Create or replace a root-owned file. The content travels on standard input."""
         await self.run(["install", "-D", "-m", mode, "/dev/stdin", path], input=content)

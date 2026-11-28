@@ -29,6 +29,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.sandbox.drivers.base import (
     CAP_DOMAIN_ALLOWLIST,
+    CAP_PAUSE,
+    CAP_SNAPSHOT,
     CAP_LIVE_STATS,
     CAP_STOP_RESUME,
     CAP_STRONG_ISOLATION,
@@ -61,6 +63,8 @@ class FakeConfig(BaseModel):
     stop_resume: bool = Field(default=True, title="Stop and resume")
     domain_allowlist: bool = Field(default=True, title="Domain allowlists")
     live_stats: bool = Field(default=True, title="Live stats")
+    snapshot: bool = Field(default=True, title="Snapshots")
+    pause: bool = Field(default=True, title="Pause")
     unreachable: bool = Field(default=False, title="Unreachable", description="Make every call to the compute fail as if it were down.")
     fail_step: Optional[str] = Field(default=None, title="Failing bootstrap step", description="Key of a bootstrap step that should fail.")
     cpus: Optional[float] = Field(default=None, title="CPUs", description="What the pretend server has. Empty: unknown.")
@@ -93,6 +97,8 @@ class _FakeSandbox:
 @dataclass
 class _FakeCompute:
     """What "the server" remembers, shared by every driver instance in this process."""
+
+    paused: set = field(default_factory=set)
 
     prepared: bool = False
     owner: Optional[str] = None
@@ -133,7 +139,8 @@ def _stub_id(sandbox_id: str) -> str:
 
 class FakeDriver(SandboxDriver):
     type_name = "fake"
-    potential_capabilities = frozenset({CAP_STOP_RESUME, CAP_STRONG_ISOLATION, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS})
+    potential_capabilities = frozenset({CAP_STOP_RESUME, CAP_STRONG_ISOLATION, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS,
+                                        CAP_SNAPSHOT, CAP_PAUSE})
 
     @staticmethod
     def validate_volumes(volumes):
@@ -186,6 +193,10 @@ class FakeDriver(SandboxDriver):
             caps.add(CAP_DOMAIN_ALLOWLIST)
         if self.config.live_stats:
             caps.add(CAP_LIVE_STATS)
+        if self.config.snapshot:
+            caps.add(CAP_SNAPSHOT)
+        if self.config.pause:
+            caps.add(CAP_PAUSE)
         return caps
 
     def prepare_steps(self) -> List[StepSpec]:
@@ -357,6 +368,38 @@ class FakeDriver(SandboxDriver):
             ca_cert=host.ca_pem,
             headers={"X-Sandbox-Id": (handle.ref or {}).get("stub_id") or _stub_id(handle.sandbox_id)},
         )
+
+    async def pause(self, handle: SandboxHandle) -> None:
+        self._require(handle)
+        self._compute.paused.add(handle.sandbox_id)
+
+    async def unpause(self, handle: SandboxHandle) -> None:
+        self._require(handle)
+        self._compute.paused.discard(handle.sandbox_id)
+
+    async def export_workspace(self, handle: SandboxHandle, write, *, max_bytes: int) -> int:
+        import io
+        import tarfile
+
+        stub = self._require(handle)
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            archive.add(str(stub.root), arcname=".")
+        data = buffer.getvalue()
+        if len(data) > max_bytes:
+            raise SandboxDriverError(f"It is larger than the limit of {max_bytes // (1024 * 1024)} MB.", code="too_large")
+        for start in range(0, len(data), 64 * 1024):
+            await write(data[start:start + 64 * 1024])
+        return len(data)
+
+    async def import_workspace(self, handle: SandboxHandle, chunks) -> None:
+        import io
+        import tarfile
+
+        stub = self._require(handle)
+        data = b"".join([chunk async for chunk in chunks])
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+            archive.extractall(str(stub.root), filter="data")
 
     async def egress_log(self, handle: SandboxHandle, since: Optional[datetime] = None) -> List[EgressRecord]:
         stub = self._require(handle)

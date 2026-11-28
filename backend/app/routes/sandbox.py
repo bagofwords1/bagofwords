@@ -227,6 +227,8 @@ class SandboxSettingsResponse(BaseModel):
     stopped_retention_seconds: int
     max_lifetime_seconds: int
     delete_warning_seconds: int = 24 * 3600
+    snapshot_on_stop: bool = False
+    snapshot_max_mb: int = 2048
     registry_domains: List[str]
     max_running_per_user: int
     max_running_total: Optional[int]
@@ -512,6 +514,41 @@ async def bootstrap_compute(
     return await _compute_response(db, organization.id, compute)
 
 
+@router.post("/computes/{compute_id}/evacuate")
+@requires_permission("manage_sandboxes")
+async def evacuate_compute(
+    compute_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Move every sandbox off a compute, for maintenance or to retire it. Each
+    one is snapshotted and removed there; its report's next run recreates it,
+    from the snapshot, on another compute. The compute must be disabled first
+    (otherwise new sandboxes would land on it again). A sandbox that is
+    running something, or whose snapshot fails, is left where it is and listed."""
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    moved, left = [], []
+    try:
+        compute = await compute_service.get_compute(db, organization.id, compute_id)
+        if compute.enabled:
+            raise SandboxError("sandbox.invalid_state", "Disable this compute before evacuating it.", status=409)
+        for sandbox in await compute_service.live_sandboxes(db, compute.id):
+            if sandbox.state == "failed":
+                continue
+            try:
+                await service.move_off(db, sandbox, str(current_user.id))
+                moved.append(sandbox.id)
+            except SandboxError as exc:
+                await db.rollback()
+                left.append({"sandbox_id": sandbox.id, "report_id": sandbox.report_id, "reason": exc.message})
+    except SandboxError as exc:
+        raise _http(exc)
+    return {"moved": moved, "left": left}
+
+
 @router.delete("/computes/{compute_id}")
 @requires_permission("manage_sandboxes")
 async def delete_compute(
@@ -599,6 +636,7 @@ async def _fleet_rows(db: AsyncSession, service, sandboxes, *, with_usage: bool)
             environment_name=environments.get(sandbox.environment_id or "") or (sandbox.limits or {}).get("environment"),
             running_run_id=run_id, running_since=since,
             pinned=bool(sandbox.pinned), keep_warm_until=sandbox.keep_warm_until,
+            snapshot_at=(sandbox.snapshot or {}).get("at"), snapshot_bytes=(sandbox.snapshot or {}).get("bytes"),
             **dict(zip(("deletes_at", "delete_reason"), deletion_due(sandbox, settings))),
             setup_outdated=bool(
                 (sandbox.limits or {}).get("setup") and sandbox.environment_id in current_setup
@@ -708,6 +746,78 @@ async def kill_sandbox_run(
     except SandboxError as exc:
         raise _http(exc)
     await db.refresh(sandbox)
+    return (await _fleet_rows(db, service, [sandbox], with_usage=False))[0]
+
+
+@router.post("/sandboxes/{sandbox_id}/snapshot", response_model=SandboxFleetRow)
+@requires_permission("manage_sandboxes")
+async def snapshot_sandbox(
+    sandbox_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Copy a sandbox's workspace into BoW's file store now. It must be at rest
+    (not running anything) and on its compute (ready, idle or stopped)."""
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    try:
+        sandbox = await service.get(db, organization.id, sandbox_id)
+        if sandbox.state not in ("ready", "idle", "stopped"):
+            raise SandboxError(
+                "sandbox.busy" if sandbox.state == "busy" else "sandbox.invalid_state",
+                "Stop the run first." if sandbox.state == "busy" else f"A {sandbox.state} sandbox cannot be snapshotted.",
+                status=409,
+            )
+        await service.snapshot(db, sandbox, str(current_user.id))
+    except SandboxError as exc:
+        raise _http(exc)
+    return (await _fleet_rows(db, service, [sandbox], with_usage=False))[0]
+
+
+class KeepWarmRequest(BaseModel):
+    hours: float = Field(default=4, ge=0, le=7 * 24)
+
+
+@router.post("/sandboxes/{sandbox_id}/start", response_model=SandboxFleetRow)
+@requires_permission("manage_sandboxes")
+async def start_sandbox(
+    sandbox_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Resume a stopped sandbox now, so that its next run does not wait for the start."""
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    try:
+        sandbox = await service.get(db, organization.id, sandbox_id)
+        await service.start(db, sandbox, str(current_user.id))
+    except SandboxError as exc:
+        raise _http(exc)
+    return (await _fleet_rows(db, service, [sandbox], with_usage=False))[0]
+
+
+@router.post("/sandboxes/{sandbox_id}/keep-warm", response_model=SandboxFleetRow)
+@requires_permission("manage_sandboxes")
+async def keep_sandbox_warm(
+    sandbox_id: str,
+    data: KeepWarmRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Keep a sandbox from being paused or stopped for being idle, for some hours (0 clears it)."""
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    try:
+        sandbox = await service.get(db, organization.id, sandbox_id)
+        await service.keep_warm(db, sandbox, str(current_user.id), int(data.hours * 3600))
+    except SandboxError as exc:
+        raise _http(exc)
     return (await _fleet_rows(db, service, [sandbox], with_usage=False))[0]
 
 

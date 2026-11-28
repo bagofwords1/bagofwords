@@ -189,6 +189,20 @@ def workspace_create(sandbox_id: str, disk_mb: int) -> List[List[str]]:
     ]
 
 
+def workspace_export(sandbox_id: str) -> List[str]:
+    """The workspace as a gzip tar on standard output. Numeric owners, so it
+    unpacks the same on another server. ``lost+found`` is the filesystem's own."""
+    return ["tar", "-C", layout.workspace_mount(sandbox_id), "--numeric-owner", "--exclude=./lost+found",
+            "--warning=no-file-changed", "--ignore-failed-read", "-czf", "-", "."]
+
+
+def workspace_import(sandbox_id: str) -> List[str]:
+    """Unpack a ``workspace_export`` archive from standard input into a workspace.
+    Absolute names and ``..`` are refused by tar itself; nothing is unpacked
+    outside the workspace mount."""
+    return ["tar", "-C", layout.workspace_mount(sandbox_id), "--numeric-owner", "--no-overwrite-dir", "-xzf", "-"]
+
+
 def workspace_mount(sandbox_id: str) -> List[str]:
     return ["mount", "-o", "loop,nosuid,nodev", layout.workspace_image(sandbox_id), layout.workspace_mount(sandbox_id)]
 
