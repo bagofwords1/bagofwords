@@ -247,13 +247,10 @@ async def store_profile_attributes(
     """Store fetched profile attributes on the user's Membership for this org.
 
     Provider-agnostic half of the on-login sync — the Entra and Google services
-    both feed their fetched attributes through here. Empty attrs are a no-op so
-    a failed fetch never wipes previously synced values.
+    both feed their fetched attributes through here. An empty response invalidates
+    these values for authorization while preserving the last display profile.
     """
     from app.models.membership import Membership
-
-    if not attrs:
-        return {}
 
     membership = (
         await db.execute(
@@ -265,6 +262,12 @@ async def store_profile_attributes(
         )
     ).scalar_one_or_none()
     if not membership:
+        return {}
+
+    if not attrs:
+        if membership.profile_verified_at is not None:
+            membership.profile_verified_at = None
+            await db.commit()
         return {}
 
     from datetime import datetime

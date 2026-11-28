@@ -25,7 +25,7 @@ An Enterprise administrator can give two authenticated readers access to the sam
 | Fabric warehouse | Two signed-in Entra readers used Claude chat, previews and a shared report. Committed revocation affected fresh reads in an existing chat. A separate native query on the sales table confirmed company and column scope together. |
 | Encrypted accelerated relations | Cached RLS and CLS, schema projection and related dashboard regressions passed in the local suite. |
 | Configuration screenshots | Playwright drove the production access-rules component with synthetic API responses, compared two readers and activated the draft. Native API checks above exercised the server independently. |
-| Rollout | Activation defaults to off. Directory attribute policies need a fresh sync. Production identity-provider configuration, license issuance, large customer catalogs and revocation during an already executing statement require deployment-specific acceptance. |
+| Rollout | Activation defaults to off. Directory attribute policies need a fresh sync. An empty profile sync invalidates the prior profile for policy evaluation. The local suite covers loss of that grant and refusal of creator-identity sharing for a CLS-only cached source. Production identity-provider configuration, license issuance, large customer catalogs and revocation during an already executing statement require deployment-specific acceptance. |
 
 The initial regression failed at policy validation because a table rule could not express a projection. Native Oracle checks then exposed two driver-specific issues: base table reflection in the SYSTEM tablespace and uppercase cursor metadata. The verified client queries Oracle's base-table catalog and preserves physical column names.
 
