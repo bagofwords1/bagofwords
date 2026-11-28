@@ -79,6 +79,19 @@ def required_capabilities(env: SandboxEnvironment) -> set:
     return needed
 
 
+def needs_confirmation(env: Optional[SandboxEnvironment], *, installs_packages: bool) -> Optional[str]:
+    """Why a run in this environment must be confirmed by the person in the
+    chat first, or None when it need not be."""
+    policy = (getattr(env, "confirm_runs", None) or "never") if env is not None else "never"
+    if policy == "always":
+        return "This environment asks before every run."
+    if policy == "full_network" and env.network_policy == POLICY_FULL:
+        return "This environment has full internet access and asks before every run."
+    if policy == "packages" and installs_packages:
+        return "This environment asks before a run installs packages."
+    return None
+
+
 def mounted_volumes(env: SandboxEnvironment) -> set:
     return {m.get("volume") for m in (env.mounts or []) if m.get("volume")}
 
@@ -197,7 +210,7 @@ async def create_environment(db: AsyncSession, organization_id: str, actor_id: O
         run_timeout_seconds=data.run_timeout_seconds, network_policy=data.network_policy,
         allowed_domains=list(data.allowed_domains or []), env_vars=dict(data.env_vars or {}),
         secrets=dict(data.secrets) if data.secrets else None,
-        compute_labels=list(data.compute_labels or []), mounts=[m.model_dump() for m in (data.mounts or [])], require_strong_isolation=data.require_strong_isolation,
+        compute_labels=list(data.compute_labels or []), confirm_runs=data.confirm_runs or "never", mounts=[m.model_dump() for m in (data.mounts or [])], require_strong_isolation=data.require_strong_isolation,
         ports=list(data.ports or []), is_default=data.is_default, enabled=data.enabled, created_by=actor_id,
     )
     db.add(env)
@@ -239,7 +252,7 @@ async def update_environment(db: AsyncSession, organization_id: str, actor_id: O
         # What kept failing was changed: let sandboxes be created again.
         env.hook_failures, env.hook_last_error = 0, None
     for field in ("cpus", "memory_mb", "disk_mb", "run_timeout_seconds", "network_policy",
-                  "require_strong_isolation", "enabled"):
+                  "require_strong_isolation", "enabled", "confirm_runs"):
         if changes.get(field) is not None and changes[field] != getattr(env, field):
             setattr(env, field, changes[field])
             changed.append(field)

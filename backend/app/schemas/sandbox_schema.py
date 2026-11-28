@@ -247,6 +247,9 @@ class _EnvironmentFields(BaseModel):
     allowed_domains: Optional[List[str]] = None
     env_vars: Optional[Dict[str, str]] = None
     compute_labels: Optional[List[str]] = None
+    # Ask the person in the chat before a run: never / always / only when this
+    # environment has full internet access / only when the run installs packages.
+    confirm_runs: Optional[Literal["never", "always", "full_network", "packages"]] = None
     # The whole list of volumes to mount.
     mounts: Optional[List[EnvironmentMount]] = Field(default=None, max_length=10)
     ports: Optional[List[int]] = None
@@ -375,6 +378,7 @@ class SandboxEnvironmentSchema(BaseModel):
     # Names only. Values are never returned.
     secret_names: List[str]
     compute_labels: List[str]
+    confirm_runs: str = "never"
     mounts: List[EnvironmentMount] = []
     require_strong_isolation: bool
     ports: List[int]
@@ -407,6 +411,7 @@ class SandboxEnvironmentSchema(BaseModel):
             env_vars=dict(env.env_vars or {}),
             secret_names=sorted((env.secrets or {}).keys()),
             compute_labels=list(env.compute_labels or []),
+            confirm_runs=env.confirm_runs or "never",
             mounts=[EnvironmentMount(**m) for m in (env.mounts or [])],
             require_strong_isolation=bool(env.require_strong_isolation),
             ports=list(env.ports or []),

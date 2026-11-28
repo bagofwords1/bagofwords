@@ -1518,6 +1518,25 @@ class SandboxService:
         await self.delete(db, sandbox, actor_id, reason=reason, title=report.title)
         return True
 
+    async def environment_for(self, db: AsyncSession, report: ReportRef, actor_id: Optional[str],
+                              requested: Optional[str] = None) -> Optional[SandboxEnvironment]:
+        """The environment a run in this report would use: its sandbox's, or
+        the one a new sandbox would be created from. None when that cannot be
+        told (the run itself then reports why)."""
+        try:
+            existing = await self.get_for_report(db, report.id)
+            if existing is not None and existing.state != "failed" and existing.environment_id:
+                return await db.get(SandboxEnvironment, existing.environment_id)
+            settings = await load_settings(db, report.organization_id)
+            usable = await self.access.usable_environments(db, report.organization_id, actor_id)
+            return environment_service.choose_environment(
+                usable, requested=requested,
+                agent_default_id=await environment_service.agent_default_environment_id(db, report.data_source_ids),
+                org_default_id=settings.default_environment_id,
+            )
+        except SandboxError:
+            return None
+
     async def _deletion_facts(self, db: AsyncSession, sandbox: Sandbox) -> Dict[str, Any]:
         """When this sandbox will be deleted on its own, and why. What is under
         ``outputs/`` is already saved to the report; everything else goes with it."""

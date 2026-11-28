@@ -244,6 +244,15 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
             files={f.path: f.content for f in data.files}, packages=list(data.packages), inputs=inputs,
             timeout_seconds=data.timeout_seconds,
         )
+
+        # An environment can ask the person in the chat before a run starts.
+        decision: Dict[str, Any] = {}
+        async for event in _confirm_run(runtime_ctx, ref, actor_id, data, decision):
+            yield event
+        if decision.get("refused"):
+            yield _declined(RunInSandboxOutput, decision)
+            return
+
         events: asyncio.Queue = asyncio.Queue()
         saved_files: List[Any] = []
 
@@ -492,6 +501,20 @@ Use when:
                     await service.access.require_environment(db, ref.organization_id, actor_id, existing.environment_id)
                     if existing.state == "busy":
                         raise errors.busy()
+            if existing is not None:
+                # Deleting loses everything outside outputs/: always ask first.
+                decision: Dict[str, Any] = {}
+                async for event in _ask(runtime_ctx, "delete_sandbox", {
+                    "action": "delete_sandbox",
+                    "environment": (existing.limits or {}).get("environment"),
+                    "reason": "Deleting the sandbox removes its files and installed packages. "
+                              "Files already saved to the report are kept.",
+                }, decision):
+                    yield event
+                if decision.get("refused"):
+                    yield _declined(DeleteSandboxOutput, decision, noun="deletion")
+                    return
+            async with _session_maker(runtime_ctx)() as db:
                 deleted = await service.delete_for_report(db, ref, actor_id, reason="requested by the agent")
         except SandboxError as exc:
             yield _failure(DeleteSandboxOutput, "delete_sandbox", exc)
@@ -501,6 +524,65 @@ Use when:
             "output": DeleteSandboxOutput(success=True, deleted=deleted).model_dump(),
             "observation": {"summary": summary, "success": True, "deleted": deleted},
         })
+
+
+# ── asking the person in the chat first ──────────────────────────────────
+
+
+async def _ask(runtime_ctx: Dict[str, Any], tool_name: str, payload: Dict[str, Any], decision: Dict[str, Any]):
+    """Pause for an Allow / Deny in the chat. Yields the tool events and fills
+    ``decision``: ``refused`` (bool), ``timed_out`` (bool), ``feedback``."""
+    from app.ai.tools.confirmation import KIND_BUILTIN_TOOL, stream_user_confirmation
+
+    result: Dict[str, Any] = {}
+    async for event in stream_user_confirmation(
+        runtime_ctx, kind=KIND_BUILTIN_TOOL, tool_name=tool_name, payload=payload, result=result,
+    ):
+        yield event
+    answer = (result.get("response") or {}).get("response") or {}
+    decision.update(
+        refused=not result.get("approved"), timed_out=bool(result.get("timed_out")),
+        feedback=((answer.get("feedback") or "").strip() or None) if isinstance(answer, dict) else None,
+    )
+
+
+async def _confirm_run(runtime_ctx: Dict[str, Any], ref: Any, actor_id: Optional[str], data: Any, decision: Dict[str, Any]):
+    """Ask before a run when the environment's policy says so. The card shows
+    what will run; the code is on it only for someone who may see code."""
+    from app.core.code_visibility import code_visible_now
+    from app.services.sandbox import environments as environment_service
+    from app.services.sandbox.service import SandboxService
+
+    try:
+        async with _session_maker(runtime_ctx)() as db:
+            env = await SandboxService().environment_for(db, ref, actor_id)
+    except Exception:  # noqa: BLE001 - the run itself reports what is wrong
+        return
+    reason = environment_service.needs_confirmation(env, installs_packages=bool(data.packages))
+    if not reason:
+        return
+    show_code = code_visible_now()
+    async for event in _ask(runtime_ctx, "run_in_sandbox", {
+        "action": "run_in_sandbox", "reason": reason,
+        "environment": env.name, "network_policy": env.network_policy,
+        "language": data.language, "packages": list(data.packages),
+        "input_files": len(data.input_file_ids),
+        "code": (data.code if show_code else None), "command": (data.command if show_code else None),
+    }, decision):
+        yield event
+
+
+def _declined(output_model: Type[BaseModel], decision: Dict[str, Any], noun: str = "run") -> ToolEndEvent:
+    if decision.get("timed_out"):
+        message = f"The {noun} was not confirmed in time, so nothing happened. Ask the user whether to try again."
+    else:
+        message = f"The user declined the {noun}; nothing happened."
+        if decision.get("feedback"):
+            message += f" Their feedback: \"{decision['feedback']}\"."
+    return ToolEndEvent(type="tool.end", payload={
+        "output": output_model(success=False, error_code="sandbox.declined", error_message=message).model_dump(),
+        "observation": {"summary": message, "success": False, "error": {"code": "sandbox.declined", "message": message}},
+    })
 
 
 # ── report files in, artifacts out ───────────────────────────────────────

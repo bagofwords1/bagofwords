@@ -172,6 +172,10 @@ class SandboxEnvironment(BaseSchema):
     env_vars = Column(JSON, nullable=False, default=dict)
     # {NAME: value}; injected as environment variables, never returned by the API.
     secrets = Column(SecretJSON, nullable=True)
+    # When a run asks the person in the chat before it starts: "never",
+    # "always", "full_network" (only if this environment has full internet
+    # access), "packages" (only when the run installs packages).
+    confirm_runs = Column(String(20), nullable=False, default="never")
     compute_labels = Column(JSON, nullable=False, default=list)
     # Volumes to mount: [{"volume", "path", "read_only", "shared"}]. A compute
     # must have every volume named here to run this environment.

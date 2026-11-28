@@ -132,6 +132,7 @@ def upgrade() -> None:
             sa.Column("allowed_domains", sa.JSON(), nullable=False),
             sa.Column("env_vars", sa.JSON(), nullable=False),
             sa.Column("secrets", sa.Text(), nullable=True),
+            sa.Column("confirm_runs", sa.String(length=20), nullable=False, server_default="never"),
             sa.Column("compute_labels", sa.JSON(), nullable=False),
             sa.Column("mounts", sa.JSON(), nullable=False),
             sa.Column("require_strong_isolation", sa.Boolean(), nullable=False, server_default=sa.false()),
