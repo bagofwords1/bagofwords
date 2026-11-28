@@ -217,17 +217,6 @@ async def revoke_member_org_access(db: AsyncSession, organization_id: str, user_
 
     org_id, uid = str(organization_id), str(user_id)
 
-    # Their cached copies of custom tables stop being servable in the same
-    # transaction; the daily cleanup deletes the files (it removes any copy
-    # whose user is no longer a member).
-    from app.models.custom_table_user_copy import CustomTableUserCopy
-    await db.execute(
-        update(CustomTableUserCopy).where(
-            CustomTableUserCopy.organization_id == org_id,
-            CustomTableUserCopy.user_id == uid,
-        ).values(invalidated_at=datetime.utcnow()).execution_options(synchronize_session=False)
-    )
-
     await db.execute(
         delete(RoleAssignment).where(
             RoleAssignment.organization_id == org_id,

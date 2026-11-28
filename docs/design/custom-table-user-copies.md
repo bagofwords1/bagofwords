@@ -140,7 +140,7 @@ written against one person's session cannot attach another person's file.
 | Admin deletes the table | every copy and file removed |
 | Admin deletes copies in the dialog | files removed; rebuilt on next use |
 | A person disconnects / removes their login | their copies on that connection removed |
-| A person leaves the organization | copies invalidated in the same transaction; files removed by the hourly cleanup |
+| A person leaves the organization | files removed by the hourly cleanup. Not served meanwhile: `construct_clients` refuses anyone without access to the agent before any copy is looked up |
 | Connection switched to shared credentials | copies removed; tables go back on their schedules |
 | Connection switched to per-user | shared artifacts removed; schedules dropped |
 | Not used for `custom_table_user_copy_idle_days` (7) | removed by the hourly cleanup |
