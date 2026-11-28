@@ -112,6 +112,11 @@ class SandboxCompute(BaseSchema):
     # Owned by the driver, opaque above it. docker-ssh: pinned SSH host key,
     # pinned Caddy CA, docker version, isolation, user mode.
     driver_state = Column(JSON, nullable=False, default=dict)
+    # What the compute has in total, as its driver last reported it:
+    # {"cpus", "memory_mb", "disk_mb"}. Empty until the first check.
+    resources = Column(JSON, nullable=False, default=dict)
+    # How much of it sandboxes may be given (see services/sandbox/capacity.py).
+    allocation = Column(JSON, nullable=False, default=dict)
     # Cached from the driver: stop_resume, strong_isolation, domain_allowlist, ...
     capabilities = Column(JSON, nullable=False, default=list)
     labels = Column(JSON, nullable=False, default=list)

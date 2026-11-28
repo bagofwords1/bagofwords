@@ -234,7 +234,7 @@ CA; (7) start the egress proxy; (8) apply the firewall rules; (9) verify with a
 throwaway sandbox: run a command in it over TLS, confirm it cannot reach the host, the
 internet or the metadata address, remove it.
 
-Reported as unsupported: Podman, rootless Docker, a firewall compute other than
+Reported as unsupported: Podman, rootless Docker, a firewall backend other than
 iptables, and a host where bridge traffic does not pass the packet filter. With
 `images_preloaded` set on the compute, bootstrap checks that each image is present
 instead of pulling it (air-gapped hosts).

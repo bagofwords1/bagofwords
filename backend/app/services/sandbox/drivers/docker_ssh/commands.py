@@ -363,14 +363,14 @@ def describe_docker(info: Mapping[str, Any], version_text: str) -> Dict[str, Any
     firewall = ((info.get("FirewallCompute") or {}).get("Driver") or "").lower()
     if firewall and firewall != "iptables":
         problems.append(
-            f"Docker uses the '{firewall}' firewall compute on this server. Only Docker's default iptables "
+            f"Docker uses the '{firewall}' firewall backend on this server. Only Docker's default iptables "
             "compute is supported."
         )
     runtimes = sorted((info.get("Runtimes") or {}).keys())
     return {
         "docker_version": info.get("ServerVersion"),
         "storage_driver": info.get("Driver"),
-        "firewall_compute": firewall or None,
+        "firewall_backend": firewall or None,
         "cgroup_version": info.get("CgroupVersion"),
         "runtimes": runtimes,
         "strong_runtime_registered": layout.RUNTIME_STRONG in runtimes,

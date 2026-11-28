@@ -83,7 +83,7 @@ class Api:
 
 
 async def _db(fn):
-    """Run ``await fn(db)`` against the app database (the script runs inside the compute's environment)."""
+    """Run ``await fn(db)`` against the app database (the script runs inside the backend's environment)."""
     from app.dependencies import async_session_maker
 
     async with async_session_maker() as db:

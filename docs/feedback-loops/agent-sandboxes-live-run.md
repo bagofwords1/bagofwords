@@ -38,7 +38,7 @@ uv run --no-sync python ../tools/agent/agent_sandbox_live.py
 The backend it talks to must run with `BOW_AGENT_SANDBOXES_ENABLED=1`. No sandbox
 image is published yet, so this run used images built on the host
 (`BOW_SANDBOX_IMAGE`, `BOW_SANDBOX_CADDY_IMAGE`, `BOW_SANDBOX_FIREWALL_IMAGE`,
-`BOW_SANDBOX_TOOLS_IMAGE` set for both the compute and the script, and
+`BOW_SANDBOX_TOOLS_IMAGE` set for both the backend and the script, and
 `BOW_SANDBOX_TEST_PRELOADED=1`). Sandboxes get a 1 GB memory limit. At the end
 the script deletes its sandboxes, environments and compute, and removes what
 BoW put on the server. `--keep` skips that.

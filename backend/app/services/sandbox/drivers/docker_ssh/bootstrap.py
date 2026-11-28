@@ -91,7 +91,7 @@ class Bootstrap:
         mode = await self.host.ssh.detect_mode()
         self.state["user_mode"] = mode
         facts = await self.host.docker_info()
-        self.state["docker"] = {k: facts[k] for k in ("docker_version", "storage_driver", "firewall_compute", "cgroup_version", "cpus", "memory_bytes")}
+        self.state["docker"] = {k: facts[k] for k in ("docker_version", "storage_driver", "firewall_backend", "cgroup_version", "cpus", "memory_bytes")}
         if facts["problems"]:
             raise SandboxDriverError(" ".join(facts["problems"]), code="unsupported")
         self._facts = facts

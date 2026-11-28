@@ -17,7 +17,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.sandbox import Sandbox, SandboxCompute, SandboxEnvironment
 from app.schemas.sandbox_schema import SandboxComputeCreate, SandboxComputeSchema, SandboxComputeUpdate
-from app.services.sandbox import errors
+from app.services.sandbox import capacity, errors
 from app.services.sandbox.audit import audit
 from app.services.sandbox.drivers import registry
 from app.services.sandbox.drivers.base import (
@@ -78,6 +78,16 @@ async def store_driver_state(db: AsyncSession, compute: SandboxCompute, driver: 
     await db.flush()
 
 
+async def usage_by_compute(db: AsyncSession, organization_id: str) -> Dict[str, capacity.Usage]:
+    """What the organization's sandboxes hold on each compute, by their limits
+    (CPU and memory for the running ones, disk for every one that still exists)."""
+    rows = await db.execute(
+        select(Sandbox).where(Sandbox.organization_id == str(organization_id), Sandbox.deleted_at.is_(None),
+                              Sandbox.state.in_(capacity.EXISTING_STATES))
+    )
+    return capacity.usage_by_compute(rows.scalars().all())
+
+
 async def running_counts(db: AsyncSession, organization_id: str) -> Dict[str, int]:
     """Sandboxes occupying capacity, per compute id."""
     rows = await db.execute(
@@ -89,14 +99,34 @@ async def running_counts(db: AsyncSession, organization_id: str) -> Dict[str, in
     return {compute_id: count for compute_id, count in rows.all() if compute_id}
 
 
-def to_schema(compute: SandboxCompute, running: int = 0) -> SandboxComputeSchema:
+def to_schema(compute: SandboxCompute, running: int = 0, usage: Optional[capacity.Usage] = None) -> SandboxComputeSchema:
     try:
         info = registry.public_info(compute.type, compute.driver_state)
     except SandboxDriverError:
         info = {}
+    usage = usage or capacity.Usage()
     return SandboxComputeSchema.from_model(
-        compute, public_config=dict(compute.config or {}), info=info, running_sandboxes=running,
+        compute, public_config=dict(compute.config or {}), info=info,
+        running_sandboxes=usage.running or running,
+        allocation=capacity.allocation_of(compute).model_dump(),
+        allocatable=capacity.allocatable(compute), allocated=usage.as_dict(),
     )
+
+
+def _validated_allocation(current: Optional[Dict[str, Any]], changes: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The stored allocation policy after applying ``changes`` (only the keys given)."""
+    merged = dict(current or {})
+    merged.update(changes or {})
+    try:
+        policy = capacity.Allocation(**merged)
+    except ValueError as exc:
+        detail = "; ".join(
+            f"{'.'.join(str(p) for p in e.get('loc', ()))}: {e.get('msg')}" for e in getattr(exc, "errors", lambda: [])()
+        ) or str(exc)
+        raise SandboxError(errors.INVALID, f"allocation: {detail}") from exc
+    # Store only what differs from the defaults, so a later change of a default reaches it.
+    defaults = capacity.Allocation().model_dump()
+    return {k: v for k, v in policy.model_dump().items() if v != defaults[k]}
 
 
 async def get_compute(db: AsyncSession, organization_id: str, compute_id: str) -> SandboxCompute:
@@ -202,7 +232,8 @@ async def create_compute(db: AsyncSession, organization_id: str, actor_id: Optio
     compute = SandboxCompute(
         organization_id=str(organization_id), name=data.name.strip(), type=data.type, config=config,
         credentials=stored or None, driver_state={}, capabilities=[], labels=list(data.labels),
-        capacity=data.capacity, enabled=False, bootstrap_status="none", bootstrap_steps=[],
+        capacity=data.capacity, allocation=_validated_allocation({}, data.allocation), resources={},
+        enabled=False, bootstrap_status="none", bootstrap_steps=[],
         status="unknown", created_by=actor_id,
     )
     db.add(compute)
@@ -274,6 +305,12 @@ async def update_compute(db: AsyncSession, organization_id: str, actor_id: Optio
     if changes.get("capacity") is not None and changes["capacity"] != compute.capacity:
         compute.capacity = changes["capacity"]
         changed.append("capacity")
+    if changes.get("allocation") is not None:
+        allocation = _validated_allocation(compute.allocation, changes["allocation"])
+        if allocation != dict(compute.allocation or {}):
+            compute.allocation = allocation
+            flag_modified(compute, "allocation")
+            changed.append("allocation")
 
     if changed:
         await audit(db, organization_id, "sandbox_compute.updated", actor_id, "sandbox_compute", compute.id,
@@ -309,6 +346,9 @@ def _apply_health(compute: SandboxCompute, health: ComputeHealth) -> None:
     else:
         compute.status = "healthy" if health.healthy else "unknown"
         compute.last_error = None if health.healthy else health.error
+        if health.resources and dict(health.resources) != dict(compute.resources or {}):
+            compute.resources = dict(health.resources)
+            flag_modified(compute, "resources")
 
 
 async def check_compute(db: AsyncSession, organization_id: str, compute: SandboxCompute) -> ComputeHealth:
@@ -397,6 +437,16 @@ async def bootstrap_compute(db: AsyncSession, organization_id: str, actor_id: Op
 
     try:
         results = await driver.prepare(on_step, take_over=take_over)
+        if not any(r.status == "failed" for r in results):
+            # Learn what the compute has (CPU, memory, disk) now, so placement
+            # can count against it from the first sandbox on.
+            try:
+                found = (await driver.check()).resources
+                if found:
+                    compute.resources = dict(found)
+                    flag_modified(compute, "resources")
+            except Exception:  # noqa: BLE001 - the next health check fills it in
+                logger.warning("could not read the resources of sandbox compute %s", compute.id)
     except SandboxDriverError as exc:
         results = [StepResult(key="prepare", title="Prepare the compute", status="failed", detail=exc.message)]
     except Exception as exc:  # noqa: BLE001 - a driver bug must not leave "running" forever

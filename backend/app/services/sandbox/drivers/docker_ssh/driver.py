@@ -238,7 +238,7 @@ class DockerSSHDriver(SandboxDriver):
                  else f"Logged in as {self.config.ssh_user}; commands run through sudo -n.")
 
             facts = await self.host.docker_info()
-            state["docker"] = {k: facts[k] for k in ("docker_version", "storage_driver", "firewall_compute", "cgroup_version", "cpus", "memory_bytes")}
+            state["docker"] = {k: facts[k] for k in ("docker_version", "storage_driver", "firewall_backend", "cgroup_version", "cpus", "memory_bytes")}
             if facts["problems"]:
                 line("docker", "Docker", "failed", " ".join(facts["problems"]))
                 return ComputeHealth(reachable=True, capabilities=sorted(self.capabilities()), info=self.public_info(state),
@@ -276,6 +276,7 @@ class DockerSSHDriver(SandboxDriver):
             running = sum(1 for c in containers.values() if c.get("sandbox") and c.get("state") == "running")
             return ComputeHealth(
                 reachable=True, prepared=prepared, healthy=prepared and not down, running=running,
+                resources=await self._resources(facts),
                 capabilities=sorted(self.capabilities()), info=self.public_info(state), checks=checks,
                 error=None if (prepared and not down) else next((c["detail"] for c in checks if c["status"] == "failed"), None),
             )
@@ -286,6 +287,25 @@ class DockerSSHDriver(SandboxDriver):
                                  checks=checks, error=exc.message)
 
     # ── sandbox lifecycle ──
+
+    async def _resources(self, facts: Dict[str, Any]) -> Dict[str, float]:
+        """What this server has: CPUs and memory as Docker reports them, and the
+        size of the filesystem the sandbox workspaces are stored on."""
+        resources: Dict[str, float] = {}
+        if facts.get("cpus"):
+            resources["cpus"] = float(facts["cpus"])
+        if facts.get("memory_bytes"):
+            resources["memory_mb"] = int(facts["memory_bytes"]) // (1024 * 1024)
+        # The workspace directory exists only after bootstrap; before that its
+        # nearest existing parent is on the same filesystem in every normal setup.
+        disk = await self.ssh.run(
+            ["sh", "-c", 'p="$1"; while [ ! -e "$p" ]; do p=$(dirname "$p"); done; df -Pk "$p" | tail -1', "sh",
+             layout.WORKSPACES], check=False,
+        )
+        fields = disk.stdout.split() if disk.ok else []
+        if len(fields) >= 2 and fields[1].isdigit():
+            resources["disk_mb"] = int(fields[1]) // 1024
+        return resources
 
     async def _free_address(self, records: Dict[str, Dict[str, Any]]) -> str:
         used = {r.get("ip") for r in records.values()}

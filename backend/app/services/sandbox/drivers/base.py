@@ -196,6 +196,10 @@ class ComputeHealth:
     healthy: bool = False
     # Sandboxes currently running on the compute (capacity in use).
     running: int = 0
+    # What the compute has in total, where it can tell: {"cpus", "memory_mb",
+    # "disk_mb"}. ``disk_mb`` is the size of the storage sandbox workspaces
+    # live on. A missing key means "unknown": placement then does not count it.
+    resources: Dict[str, float] = field(default_factory=dict)
     capabilities: List[str] = field(default_factory=list)
     # Facts safe to show an admin: isolation level, versions, user mode, fingerprints.
     info: Dict[str, Any] = field(default_factory=dict)

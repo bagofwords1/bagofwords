@@ -89,6 +89,8 @@ def upgrade() -> None:
             sa.Column("config", sa.JSON(), nullable=False),
             sa.Column("credentials", sa.Text(), nullable=True),
             sa.Column("driver_state", sa.JSON(), nullable=False),
+            sa.Column("resources", sa.JSON(), nullable=False),
+            sa.Column("allocation", sa.JSON(), nullable=False),
             sa.Column("capabilities", sa.JSON(), nullable=False),
             sa.Column("labels", sa.JSON(), nullable=False),
             sa.Column("capacity", sa.Integer(), nullable=False, server_default="20"),

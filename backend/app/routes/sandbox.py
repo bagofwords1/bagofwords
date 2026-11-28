@@ -311,8 +311,8 @@ BOOTSTRAP_STALE_SECONDS = 30 * 60
 
 
 async def _compute_response(db: AsyncSession, organization_id: str, compute) -> SandboxComputeSchema:
-    counts = await compute_service.running_counts(db, organization_id)
-    return compute_service.to_schema(compute, counts.get(compute.id, 0))
+    usage = await compute_service.usage_by_compute(db, organization_id)
+    return compute_service.to_schema(compute, usage=usage.get(compute.id))
 
 
 @router.get("/compute-types")
@@ -340,8 +340,8 @@ async def list_computes(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    counts = await compute_service.running_counts(db, organization.id)
-    return [compute_service.to_schema(b, counts.get(b.id, 0)) for b in await compute_service.list_computes(db, organization.id)]
+    usage = await compute_service.usage_by_compute(db, organization.id)
+    return [compute_service.to_schema(b, usage=usage.get(b.id)) for b in await compute_service.list_computes(db, organization.id)]
 
 
 @router.post("/computes", response_model=SandboxComputeSchema)

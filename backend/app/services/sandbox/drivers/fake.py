@@ -63,6 +63,9 @@ class FakeConfig(BaseModel):
     live_stats: bool = Field(default=True, title="Live stats")
     unreachable: bool = Field(default=False, title="Unreachable", description="Make every call to the compute fail as if it were down.")
     fail_step: Optional[str] = Field(default=None, title="Failing bootstrap step", description="Key of a bootstrap step that should fail.")
+    cpus: Optional[float] = Field(default=None, title="CPUs", description="What the pretend server has. Empty: unknown.")
+    memory_mb: Optional[int] = Field(default=None, title="Memory (MB)")
+    disk_mb: Optional[int] = Field(default=None, title="Disk (MB)")
     server: Optional[str] = Field(
         default=None, title="Server name",
         description="Computes with the same server name are the same pretend server (for ownership and take-over).",
@@ -261,6 +264,8 @@ class FakeDriver(SandboxDriver):
         isolation = "strong" if self.config.strong_isolation else "standard"
         return ComputeHealth(
             reachable=True, prepared=compute.prepared, healthy=compute.prepared, running=running,
+            resources={k: v for k, v in (("cpus", self.config.cpus), ("memory_mb", self.config.memory_mb),
+                                         ("disk_mb", self.config.disk_mb)) if v is not None},
             capabilities=sorted(self.capabilities()),
             info={"isolation": isolation, "owner": compute.owner},
             checks=[

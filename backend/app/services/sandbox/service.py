@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.sandbox import Sandbox, SandboxCompute, SandboxEnvironment, SandboxEvent, SandboxRun
 from app.services.sandbox import computes as compute_service
 from app.services.sandbox import environments as environment_service
-from app.services.sandbox import errors
+from app.services.sandbox import capacity, errors
 from app.services.sandbox.audit import audit
 from app.services.sandbox.drivers.base import (
     CAP_STOP_RESUME,
@@ -390,14 +390,20 @@ class SandboxService:
                 f"No sandbox compute can run the environment '{env.name}' (labels or required features do not match).",
                 status=503,
             )
-        counts = await compute_service.running_counts(db, organization_id)
-        free = [b for b in fitting if counts.get(b.id, 0) < (b.capacity or 0)]
+        # By resources, not by a count: what the environment's limits ask for
+        # against what each compute has left (services/sandbox/capacity.py).
+        need = {"cpus": env.cpus, "memory_mb": env.memory_mb, "disk_mb": env.disk_mb}
+        usage = await compute_service.usage_by_compute(db, organization_id)
+        fit = {b.id: capacity.fits(b, usage.get(b.id), need) for b in fitting}
+        free = [b for b in fitting if fit[b.id].ok]
         if not free:
+            short = capacity.describe_short(k for b in fitting for k in fit[b.id].short)
             raise SandboxError(
-                errors.NO_COMPUTE, "Every sandbox compute that fits is at capacity. Try again when a sandbox has stopped.",
-                status=503,
+                errors.NO_COMPUTE,
+                f"Every sandbox compute that fits is at capacity (not enough {short}). "
+                "Try again when a sandbox has stopped or been deleted.", status=503,
             )
-        return min(free, key=lambda b: (counts.get(b.id, 0) / max(b.capacity, 1), counts.get(b.id, 0), b.name))
+        return min(free, key=lambda b: (fit[b.id].load, (usage.get(b.id) or capacity.Usage()).running, b.name))
 
     # ── create ──
 
@@ -573,11 +579,13 @@ class SandboxService:
 
             settings = await load_settings(db, sandbox.organization_id)
             await self._check_quotas(db, sandbox.organization_id, actor_id, settings)
-            counts = await compute_service.running_counts(db, sandbox.organization_id)
-            if counts.get(compute.id, 0) >= (compute.capacity or 0):
+            usage = await compute_service.usage_by_compute(db, sandbox.organization_id)
+            room = capacity.fits(compute, usage.get(compute.id), dict(sandbox.limits or {}), resume=True)
+            if not room.ok:
                 raise SandboxError(
-                    errors.NO_COMPUTE, "The sandbox's compute is at capacity. Try again when a sandbox has stopped.",
-                    status=503,
+                    errors.NO_COMPUTE,
+                    f"The sandbox's compute is at capacity (not enough {capacity.describe_short(room.short)}). "
+                    "Try again when a sandbox has stopped.", status=503,
                 )
             try:
                 await driver.start(handle)

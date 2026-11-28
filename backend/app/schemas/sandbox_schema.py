@@ -62,7 +62,10 @@ class SandboxComputeCreate(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     credentials: Dict[str, Any] = Field(default_factory=dict)
     labels: List[str] = Field(default_factory=list)
+    # An upper bound on running sandboxes, on top of the resource rules.
     capacity: int = Field(default=DEFAULT_COMPUTE_CAPACITY, ge=1, le=1000)
+    # How much of the compute sandboxes may be given (services/sandbox/capacity.py: Allocation).
+    allocation: Dict[str, Any] = Field(default_factory=dict)
 
     _labels = field_validator("labels")(_clean_labels)
 
@@ -76,6 +79,8 @@ class SandboxComputeUpdate(BaseModel):
     credentials: Optional[Dict[str, Any]] = None
     labels: Optional[List[str]] = None
     capacity: Optional[int] = Field(default=None, ge=1, le=1000)
+    # Only the keys present are changed.
+    allocation: Optional[Dict[str, Any]] = None
     enabled: Optional[bool] = None
 
     @field_validator("labels")
@@ -115,12 +120,21 @@ class SandboxComputeSchema(BaseModel):
     # keys and certificates are fingerprints only.
     info: Dict[str, Any]
     running_sandboxes: int = 0
+    # What the compute has ({"cpus", "memory_mb", "disk_mb"}; a missing key is unknown),
+    # the admin's allocation policy with its defaults filled in, what sandboxes
+    # may be given in total, and what they hold now by their limits.
+    resources: Dict[str, float] = {}
+    allocation: Dict[str, Any] = {}
+    allocatable: Dict[str, float] = {}
+    allocated: Dict[str, float] = {}
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 
     @classmethod
     def from_model(cls, compute, *, public_config: Dict[str, Any], info: Dict[str, Any],
-                   running_sandboxes: int = 0) -> "SandboxComputeSchema":
+                   running_sandboxes: int = 0, allocation: Optional[Dict[str, Any]] = None,
+                   allocatable: Optional[Dict[str, float]] = None,
+                   allocated: Optional[Dict[str, float]] = None) -> "SandboxComputeSchema":
         """``public_config`` and ``info`` come from the driver registry, which knows
         which config fields and driver-state facts are safe to return."""
         return cls(
@@ -141,6 +155,10 @@ class SandboxComputeSchema(BaseModel):
             last_error=compute.last_error,
             info=info,
             running_sandboxes=running_sandboxes,
+            resources=dict(compute.resources or {}),
+            allocation=dict(allocation or {}),
+            allocatable=dict(allocatable or {}),
+            allocated=dict(allocated or {}),
             created_at=compute.created_at,
             updated_at=compute.updated_at,
         )
