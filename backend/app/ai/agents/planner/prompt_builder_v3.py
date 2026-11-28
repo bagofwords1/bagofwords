@@ -1331,6 +1331,11 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             nudge = PromptBuilderV3._notes_nudge(planner_input, notes_ctx)
             if nudge:
                 parts.append(f"  {nudge}")
+        # Agent sandbox: only when its tools are in this run's catalog.
+        from app.services.sandbox.prompt import prompt_section as _agent_sandbox_section
+        _sandbox_guidance = _agent_sandbox_section(getattr(planner_input, "tool_catalog", None))
+        if _sandbox_guidance:
+            parts.append(f"  {_sandbox_guidance}")
         compacted = PromptBuilder._compact_past_observations(planner_input.past_observations)
         parts.append(f"  <past_observations>{json.dumps(compacted)}</past_observations>")
         last_obs = json.dumps(planner_input.last_observation) if planner_input.last_observation else "None"

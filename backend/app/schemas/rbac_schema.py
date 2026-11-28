@@ -13,7 +13,11 @@ GROUP_RESOURCE_TYPE = "group"
 # are likewise written only by PUT/DELETE /llm/providers/{id}/managers/{user},
 # which require org-wide manage_llm and a single org member as the principal.
 LLM_PROVIDER_RESOURCE_TYPE = "llm_provider"
-DEDICATED_GRANT_RESOURCE_TYPES = (GROUP_RESOURCE_TYPE, LLM_PROVIDER_RESOURCE_TYPE)
+# Who may use a sandbox environment (resource_type "sandbox_environment",
+# permissions ["use"]) is written only by PUT /sandbox/environments/{id}/access,
+# which requires org-wide manage_sandboxes.
+SANDBOX_ENVIRONMENT_RESOURCE_TYPE = "sandbox_environment"
+DEDICATED_GRANT_RESOURCE_TYPES = (GROUP_RESOURCE_TYPE, LLM_PROVIDER_RESOURCE_TYPE, SANDBOX_ENVIRONMENT_RESOURCE_TYPE)
 
 
 def _reject_group_grants(value: str) -> str:

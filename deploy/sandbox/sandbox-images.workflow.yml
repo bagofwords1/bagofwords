@@ -1,0 +1,98 @@
+# NOT ACTIVE HERE. Move this file to .github/workflows/sandbox-images.yml to
+# turn it on (see deploy/sandbox/README.md).
+name: Build and Push Agent Sandbox Images
+
+# The images BoW uses on a sandbox host (deploy/sandbox/): the built-in
+# environment image, the router / egress-proxy image, the firewall helper and
+# the sandboxd tools image. Published with each BoW release and tagged with
+# the BoW version, alongside the main image (same trigger as docker-image.yml).
+#
+# Each image is built natively per architecture and pushed under an
+# architecture-suffixed tag; the merge job then publishes the multi-arch
+# `VERSION` and `latest` tags.
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [e2e-tests-passed]
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_NAMESPACE: ${{ vars.DOCKER_NAMESPACE || 'bagofwords' }}
+
+jobs:
+  build:
+    runs-on: ${{ matrix.arch.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - { name: sandbox, context: deploy/sandbox/image }
+          - { name: sandbox-caddy, context: deploy/sandbox/caddy }
+          - { name: sandbox-firewall, context: deploy/sandbox/firewall }
+          - { name: sandbox-tools, context: deploy/sandbox/tools }
+        arch:
+          - { platform: linux/amd64, suffix: amd64, runner: ubuntu-latest }
+          - { platform: linux/arm64, suffix: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Get VERSION
+        id: version
+        run: echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push ${{ matrix.image.name }} (${{ matrix.arch.suffix }})
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.image.context }}
+          platforms: ${{ matrix.arch.platform }}
+          push: true
+          provenance: false
+          tags: ${{ env.DOCKER_NAMESPACE }}/${{ matrix.image.name }}:${{ steps.version.outputs.version }}-${{ matrix.arch.suffix }}
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [sandbox, sandbox-caddy, sandbox-firewall, sandbox-tools]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Get VERSION
+        id: version
+        run: echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Publish the multi-arch tags
+        run: |
+          image="${{ env.DOCKER_NAMESPACE }}/${{ matrix.name }}"
+          version="${{ steps.version.outputs.version }}"
+          docker buildx imagetools create \
+            -t "${image}:${version}" \
+            -t "${image}:latest" \
+            "${image}:${version}-amd64" \
+            "${image}:${version}-arm64"
+          docker buildx imagetools inspect "${image}:${version}"

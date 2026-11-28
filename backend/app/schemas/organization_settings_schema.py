@@ -372,6 +372,13 @@ class OrganizationSettingsConfig(BaseModel):
     # full_admin_access / manage settings.
     agent_automation_defaults: Dict[str, Any] = {}
 
+    # Settings → Sandbox (agent sandboxes): the organization switch, default
+    # environment, timeouts and the package-registry list. A plain dict parsed
+    # by app/services/sandbox/settings.py, so the generic settings pages do
+    # not list it. Written only through /api/sandbox/settings
+    # (manage_sandboxes); the generic settings writer refuses the key.
+    agent_sandboxes: Dict[str, Any] = {}
+
     # Update defaults to use 'value' instead of 'enabled'
     allow_llm_see_data: FeatureConfig = FeatureConfig(value=True, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
     enable_artifact_resources: FeatureConfig = FeatureConfig(value=False, name="Artifact resources", description="Allow artifacts to use persistent records, private files and approved AI operations. Existing sharing and resource permissions still apply.", is_lab=False, editable=True)

@@ -27,6 +27,10 @@ PARENT_SCOPED: Dict[str, Tuple[str, ...]] = {
     "FileIndexFile": ("Connection",),
     "FileIndexSection": ("FileIndexFile",),
     "ReportContextState": ("Report",),
+    # Agent sandboxes: the timeline, the domain log and the (reserved) exposures of one sandbox.
+    "SandboxEgressLog": ("Sandbox",),
+    "SandboxEvent": ("Sandbox",),
+    "SandboxExposure": ("Sandbox",),
     "ReportView": ("Report",),
     # agent lists
     "AgentListRow": ("AgentList",),

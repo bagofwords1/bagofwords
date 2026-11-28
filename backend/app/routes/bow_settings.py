@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.settings.config import settings
 from app.dependencies import get_current_locale, get_current_organization, _locale_from_org, get_async_db
 from app.models.organization import Organization
+from app.services.sandbox.feature import sandbox_feature_enabled
 
 router = APIRouter()
 
@@ -45,6 +46,8 @@ async def get_frontend_settings(db: AsyncSession = Depends(get_async_db)):
         "ldap": {"enabled": settings.bow_config.ldap.enabled},
         # Whether Settings → System logs is offered at all (instance admins only).
         "system_logs": {"enabled": settings.bow_config.system_logs.enabled},
+        # Whether agent sandboxes exist for this deployment at all (Settings → Sandbox).
+        "agent_sandboxes": {"enabled": sandbox_feature_enabled()},
         "oidc_providers": [
             {
                 "name": p.name,

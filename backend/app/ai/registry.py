@@ -96,8 +96,19 @@ class ToolRegistry:
             except Exception:
                 continue
 
+    @staticmethod
+    def _dark(name: str) -> bool:
+        """Tools of a feature the deployment has not turned on do not exist:
+        not listed in any catalog and not executable. Read on every call, not
+        cached with the discovery result. (Agent sandboxes: BOW_AGENT_SANDBOXES_ENABLED.)"""
+        from app.services.sandbox.feature import SANDBOX_TOOL_NAMES, sandbox_feature_enabled
+
+        return name in SANDBOX_TOOL_NAMES and not sandbox_feature_enabled()
+
     def get(self, name: str) -> Optional[Tool]:
         """Get tool instance by name."""
+        if self._dark(name):
+            return None
         meta = self._metadata_cache.get(name)
         if meta and hasattr(meta, "is_active") and meta.is_active is False:
             return None
@@ -111,10 +122,12 @@ class ToolRegistry:
     def list_tools(self, filter_obj: Optional[ToolCatalogFilter] = None) -> List[ToolMetadata]:
         """Get filtered list of tool metadata."""
         if filter_obj is None:
-            return list(self._metadata_cache.values())
+            return [m for m in self._metadata_cache.values() if not self._dark(m.name)]
         
         filtered_tools = []
         for metadata in self._metadata_cache.values():
+            if self._dark(metadata.name):
+                continue
             if self._matches_filter(metadata, filter_obj):
                 filtered_tools.append(metadata)
         

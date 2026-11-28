@@ -76,7 +76,17 @@ CODE_PRODUCING_TOOLS = frozenset({
     "inspect_data",
     "write_csv",
     "create_widget",
+    # Agent sandbox: the code is in the CALL (see _ARGUMENT_CODE_KEYS).
+    "run_in_sandbox",
 })
+
+# Keys of a tool's ``arguments_json`` that carry code, per tool. ``code`` is the
+# rule for every code-producing tool; a tool whose call carries source under
+# other keys as well lists them here. run_in_sandbox takes a shell command and
+# extra source files next to ``code``.
+_ARGUMENT_CODE_KEYS = {
+    "run_in_sandbox": ("code", "command", "files"),
+}
 
 _RESULT_CODE_KEYS = (
     "code",              # the generated query/script
@@ -207,10 +217,12 @@ def redact_tool_arguments(arguments, allowed: bool, tool_name: str | None = None
         return arguments
     if tool_name is not None and tool_name not in CODE_PRODUCING_TOOLS:
         return arguments
-    if "code" not in arguments:
+    keys = [k for k in _ARGUMENT_CODE_KEYS.get(tool_name or "", ("code",)) if k in arguments]
+    if not keys:
         return arguments
     redacted = dict(arguments)
-    redacted["code"] = None
+    for key in keys:
+        redacted[key] = None
     return redacted
 
 
