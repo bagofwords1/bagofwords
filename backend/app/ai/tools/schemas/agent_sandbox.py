@@ -90,6 +90,12 @@ class RunInSandboxOutput(BaseModel):
     environment: Optional[str] = None
     network_policy: Optional[str] = None
     notes: List[str] = []
+    # What ``notes`` say, as stable codes a client can act on and translate:
+    # created, resumed, recreated, restored_snapshot, files_restored, timeout,
+    # cancelled, skipped_artifacts, background_processes, deletion_scheduled.
+    note_codes: List[str] = []
+    background_processes: List[str] = []
+    restored_files: List[str] = []
     error_code: Optional[str] = None
     error_message: Optional[str] = None
 

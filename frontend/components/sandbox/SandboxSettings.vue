@@ -78,12 +78,54 @@
                             <template #trailing><span class="text-xs text-ink-muted">{{ $t('sandbox.settings.days') }}</span></template>
                         </UInput>
                     </SettingsRow>
-                    <SettingsRow :label="$t('sandbox.settings.maxLifetime')" :description="$t('sandbox.settings.maxLifetimeHint')" stacked for-id="sandbox-settings-lifetime">
-                        <UInput id="sandbox-settings-lifetime" v-model.number="form.max_lifetime_days" type="number" min="0.004" max="365" step="any" dir="ltr" data-testid="sandbox-settings-max-lifetime">
+                    <SettingsRow :label="$t('sandbox.settings.maxLifetime')" :description="$t('sandbox.settings.maxLifetimeHint')" stacked for-id="sandbox-settings-lifetime-mode">
+                        <USelect
+                            id="sandbox-settings-lifetime-mode"
+                            v-model="form.max_lifetime_mode"
+                            :options="lifetimeOptions"
+                            option-attribute="label"
+                            value-attribute="value"
+                            data-testid="sandbox-settings-max-lifetime-mode"
+                        />
+                        <UInput
+                            v-if="form.max_lifetime_mode === 'limited'"
+                            id="sandbox-settings-lifetime"
+                            v-model.number="form.max_lifetime_days"
+                            type="number"
+                            min="0.004"
+                            max="365"
+                            step="any"
+                            dir="ltr"
+                            class="mt-2"
+                            :aria-label="$t('sandbox.settings.maxLifetime')"
+                            data-testid="sandbox-settings-max-lifetime"
+                        >
                             <template #trailing><span class="text-xs text-ink-muted">{{ $t('sandbox.settings.days') }}</span></template>
                         </UInput>
+                        <p v-else class="mt-2 text-xs text-ink-muted leading-relaxed" data-testid="sandbox-settings-no-lifetime-note">{{ $t('sandbox.settings.maxLifetimeNoneHint') }}</p>
                     </SettingsRow>
                 </div>
+                <SettingsRow class="mt-5" :label="$t('sandbox.settings.deleteWarning')" :description="$t('sandbox.settings.deleteWarningHint')" stacked for-id="sandbox-settings-delete-warning">
+                    <UInput id="sandbox-settings-delete-warning" v-model.number="form.delete_warning_hours" type="number" min="0" max="720" step="any" dir="ltr" class="sm:max-w-[10rem]" data-testid="sandbox-settings-delete-warning">
+                        <template #trailing><span class="text-xs text-ink-muted">{{ $t('sandbox.settings.hours') }}</span></template>
+                    </UInput>
+                </SettingsRow>
+            </SettingsSection>
+
+            <SettingsSection :title="$t('sandbox.settings.snapshotSection')" :description="$t('sandbox.settings.snapshotSectionHint')">
+                <ul class="mb-4 space-y-1 text-xs text-ink-muted leading-relaxed list-disc ps-4" data-testid="sandbox-settings-snapshot-explain">
+                    <li>{{ $t('sandbox.settings.snapshotWhere') }}</li>
+                    <li>{{ $t('sandbox.settings.snapshotCost') }}</li>
+                    <li>{{ $t('sandbox.settings.snapshotWhy') }}</li>
+                </ul>
+                <SettingsRow :label="$t('sandbox.settings.snapshotOnStop')" :description="$t('sandbox.settings.snapshotOnStopHint')">
+                    <UToggle v-model="form.snapshot_on_stop" data-testid="sandbox-settings-snapshot-on-stop" />
+                </SettingsRow>
+                <SettingsRow :label="$t('sandbox.settings.snapshotMax')" :description="$t('sandbox.settings.snapshotMaxHint')" stacked for-id="sandbox-settings-snapshot-max">
+                    <UInput id="sandbox-settings-snapshot-max" v-model.number="form.snapshot_max_mb" type="number" min="1" max="1048576" step="1" dir="ltr" class="sm:max-w-[10rem]" data-testid="sandbox-settings-snapshot-max">
+                        <template #trailing><span class="text-xs text-ink-muted">MB</span></template>
+                    </UInput>
+                </SettingsRow>
             </SettingsSection>
 
             <SettingsSection :title="$t('sandbox.settings.registriesSection')" :description="$t('sandbox.settings.registriesSectionHint')">
@@ -127,15 +169,21 @@ interface SandboxSettingsState {
     idle_timeout_seconds: number
     stopped_retention_seconds: number
     max_lifetime_seconds: number
+    delete_warning_seconds: number
+    snapshot_on_stop: boolean
+    snapshot_max_mb: number
     registry_domains: string[]
     max_running_per_user: number
-    backends_ready: number
+    computes_ready: number
     environments: number
     running_sandboxes: number
 }
 
 const MINUTE = 60
+const HOUR = 3600
 const DAY = 24 * 3600
+// What "Delete after" starts from when the maximum lifetime was off.
+const DEFAULT_LIFETIME_DAYS = 30
 const NO_ENVIRONMENT = '__none__'
 
 const { t } = useI18n()
@@ -149,8 +197,9 @@ const saving = ref(false)
 const errorMessage = ref('')
 const state = ref<SandboxSettingsState>({
     enabled: false, default_environment_id: null, idle_timeout_seconds: 0, stopped_retention_seconds: 0,
-    max_lifetime_seconds: 0, registry_domains: [], max_running_per_user: 0,
-    backends_ready: 0, environments: 0, running_sandboxes: 0,
+    max_lifetime_seconds: 0, delete_warning_seconds: 0, snapshot_on_stop: false, snapshot_max_mb: 0,
+    registry_domains: [], max_running_per_user: 0,
+    computes_ready: 0, environments: 0, running_sandboxes: 0,
 })
 const environments = ref<SandboxEnvironment[]>([])
 
@@ -161,7 +210,12 @@ const form = reactive({
     max_running_per_user: 3 as number | string,
     idle_timeout_minutes: 30 as number | string,
     stopped_retention_days: 7 as number | string,
+    // 0 seconds on the server means no maximum lifetime; here it is a choice.
+    max_lifetime_mode: 'limited' as 'limited' | 'none',
     max_lifetime_days: 30 as number | string,
+    delete_warning_hours: 24 as number | string,
+    snapshot_on_stop: false,
+    snapshot_max_mb: 2048 as number | string,
     registry_domains: '',
 })
 
@@ -175,7 +229,11 @@ function formFrom(s: SandboxSettingsState) {
         max_running_per_user: s.max_running_per_user,
         idle_timeout_minutes: inUnit(s.idle_timeout_seconds, MINUTE),
         stopped_retention_days: inUnit(s.stopped_retention_seconds, DAY),
-        max_lifetime_days: inUnit(s.max_lifetime_seconds, DAY),
+        max_lifetime_mode: (s.max_lifetime_seconds ? 'limited' : 'none') as 'limited' | 'none',
+        max_lifetime_days: s.max_lifetime_seconds ? inUnit(s.max_lifetime_seconds, DAY) : DEFAULT_LIFETIME_DAYS,
+        delete_warning_hours: inUnit(s.delete_warning_seconds, HOUR),
+        snapshot_on_stop: !!s.snapshot_on_stop,
+        snapshot_max_mb: s.snapshot_max_mb,
         registry_domains: (s.registry_domains || []).join('\n'),
     }
 }
@@ -192,12 +250,24 @@ function changes() {
     if (Number(form.max_running_per_user) !== initial.max_running_per_user) body.max_running_per_user = Number(form.max_running_per_user)
     if (Number(form.idle_timeout_minutes) !== initial.idle_timeout_minutes) body.idle_timeout_seconds = Math.round(Number(form.idle_timeout_minutes) * MINUTE)
     if (Number(form.stopped_retention_days) !== initial.stopped_retention_days) body.stopped_retention_seconds = Math.round(Number(form.stopped_retention_days) * DAY)
-    if (Number(form.max_lifetime_days) !== initial.max_lifetime_days) body.max_lifetime_seconds = Math.round(Number(form.max_lifetime_days) * DAY)
+    if (form.max_lifetime_mode === 'none') {
+        if (initial.max_lifetime_mode !== 'none') body.max_lifetime_seconds = 0
+    } else if (initial.max_lifetime_mode === 'none' || Number(form.max_lifetime_days) !== initial.max_lifetime_days) {
+        body.max_lifetime_seconds = Math.round(Number(form.max_lifetime_days) * DAY)
+    }
+    if (Number(form.delete_warning_hours) !== initial.delete_warning_hours) body.delete_warning_seconds = Math.round(Number(form.delete_warning_hours) * HOUR)
+    if (form.snapshot_on_stop !== initial.snapshot_on_stop) body.snapshot_on_stop = form.snapshot_on_stop
+    if (Number(form.snapshot_max_mb) !== initial.snapshot_max_mb) body.snapshot_max_mb = Number(form.snapshot_max_mb)
     const domains = parseDomains(form.registry_domains)
     if (domains.join('\n') !== (state.value.registry_domains || []).join('\n')) body.registry_domains = domains
     return body
 }
 const dirty = computed(() => Object.keys(changes()).length > 0)
+
+const lifetimeOptions = computed(() => [
+    { value: 'limited', label: t('sandbox.settings.maxLifetimeLimited') },
+    { value: 'none', label: t('sandbox.settings.maxLifetimeNone') },
+])
 
 const environmentOptions = computed(() => [
     { value: NO_ENVIRONMENT, label: t('sandbox.settings.defaultEnvironmentNone') },
@@ -209,7 +279,7 @@ const environmentOptions = computed(() => [
 
 const readiness = computed(() => {
     const missing: string[] = []
-    if (!state.value.backends_ready) missing.push(t('sandbox.settings.missingBackend'))
+    if (!state.value.computes_ready) missing.push(t('sandbox.settings.missingCompute'))
     if (!state.value.environments) missing.push(t('sandbox.settings.missingEnvironment'))
     if (missing.length) {
         return {
@@ -228,7 +298,7 @@ const readiness = computed(() => {
         title: state.value.enabled ? t('sandbox.settings.readyOn') : t('sandbox.settings.readyOff'),
         missing,
         detail: t('sandbox.settings.readyDetail', {
-            backends: state.value.backends_ready,
+            computes: state.value.computes_ready,
             environments: state.value.environments,
             running: state.value.running_sandboxes,
         }),

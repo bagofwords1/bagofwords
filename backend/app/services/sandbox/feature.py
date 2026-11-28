@@ -10,7 +10,7 @@ Three levels, each off by default:
    — whether a given user's agent is offered the tools.
 
 :func:`sandbox_feature_enabled` is the only place the deployment flag is read
-on the backend. Every connection point into existing code calls it.
+on the compute. Every connection point into existing code calls it.
 """
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def visible_tool_names(names: Iterable[str], *, offered: bool = False) -> list:
     """Drop the sandbox tools from a tool-name list unless they are ``offered``.
 
     ``offered`` is the caller's verdict that all gates hold for this user
-    (flag, org switch, a usable backend and environment, permission). With the
+    (flag, org switch, a usable compute and environment, permission). With the
     flag off it is ignored: the tools are never listed.
     """
     if offered and sandbox_feature_enabled():

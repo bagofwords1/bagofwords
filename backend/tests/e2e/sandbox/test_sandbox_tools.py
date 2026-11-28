@@ -1,4 +1,4 @@
-"""The four agent-sandbox tools, end to end on the fake backend.
+"""The four agent-sandbox tools, end to end on the fake compute.
 
 Each test calls a tool the way the agent loop does: ``run_stream`` with the
 runtime context of a real report, user and organization. What is checked is
@@ -44,7 +44,7 @@ PNG = "import struct, zlib\n" \
 
 @pytest.fixture
 def world(sandbox_world, enterprise_license):
-    sandbox_world.add_backend("fake-1")
+    sandbox_world.add_compute("fake-1")
     sandbox_world.environment_id = sandbox_world.add_environment("Default", is_default=True)
     return sandbox_world
 
@@ -55,6 +55,24 @@ def report(world, create_report):
         return create_report(title=title or f"Report {uuid.uuid4().hex[:6]}",
                              user_token=world.cast["admin"]["token"], org_id=world.org_id)
     return _new
+
+
+@pytest.fixture(autouse=True)
+def asked(monkeypatch):
+    """Stands in for the person in the chat. Records what they were asked and
+    answers: allow by default; set ``asked.answer`` to "deny" or "timeout"."""
+    from app.ai.tools.implementations import agent_sandbox
+
+    record = types.SimpleNamespace(cards=[], answer="allow", feedback=None)
+
+    async def ask(runtime_ctx, tool_name, payload, decision):
+        record.cards.append({"tool": tool_name, **payload})
+        decision.update(refused=record.answer != "allow", timed_out=record.answer == "timeout", feedback=record.feedback)
+        return
+        yield  # an async generator, like the real one
+
+    monkeypatch.setattr(agent_sandbox, "_ask", ask)
+    return record
 
 
 async def _ctx(world, db, report_id, user_id):
@@ -394,3 +412,68 @@ def test_run_code_is_hidden_from_viewers_without_view_code():
     # Tools that are not code-producing keep their arguments as before.
     assert redact_tool_arguments({"code": "x"}, False, "create_artifact") == {"code": "x"}
     assert redact_tool_arguments({"code": "x", "command": "y"}, False, "write_csv") == {"code": None, "command": "y"}
+
+
+# ── asking the person in the chat first ──────────────────────────────────
+
+
+def test_deleting_the_sandbox_always_asks_and_a_no_keeps_it(world, report, asked):
+    rep = report()
+    created, _, _, _ = call(world, "run_in_sandbox", {"language": "bash", "code": "echo keep > f.txt"}, rep)
+    assert asked.cards == [], "a plain run in an environment that does not ask is not held up"
+
+    asked.answer, asked.feedback = "deny", "I still need it"
+    refused, observation, _, _ = call(world, "delete_sandbox", {}, rep)
+    assert refused["success"] is False and refused["error_code"] == "sandbox.declined" and refused["deleted"] is False
+    assert "declined" in observation["summary"] and "I still need it" in observation["summary"]
+    assert asked.cards[-1]["tool"] == "delete_sandbox" and "Files already saved to the report are kept" in asked.cards[-1]["reason"]
+    assert call(world, "run_in_sandbox", {"language": "bash", "code": "cat f.txt"}, rep)[0]["stdout"] == "keep\n"
+
+    asked.answer = "timeout"
+    late, observation, _, _ = call(world, "delete_sandbox", {}, rep)
+    assert late["deleted"] is False and "not confirmed in time" in observation["summary"]
+
+    asked.answer = "allow"
+    assert call(world, "delete_sandbox", {}, rep)[0]["deleted"] is True
+    before = len(asked.cards)
+    assert call(world, "delete_sandbox", {}, rep)[0]["deleted"] is False
+    assert len(asked.cards) == before, "nothing to delete, nothing to ask"
+
+
+@pytest.mark.parametrize("policy, network, packages, asks", [
+    ("never", "full", ["requests"], False),
+    ("always", "none", [], True),
+    ("full_network", "full", [], True),
+    ("full_network", "registries", ["requests"], False),
+    ("packages", "registries", ["requests"], True),
+    ("packages", "registries", [], False),
+])
+def test_an_environment_decides_when_a_run_is_confirmed_first(world, report, asked, policy, network, packages, asks):
+    world.add_environment("Asks", confirm_runs=policy, network_policy=network)
+    rep = report()
+    call(world, "create_sandbox", {"environment": "Asks"}, rep)
+    asked.answer = "deny"
+    output, observation, _, _ = call(world, "run_in_sandbox", {"language": "bash", "code": "echo ran", "packages": packages}, rep)
+    if asks:
+        assert output["error_code"] == "sandbox.declined" and "declined the run" in observation["summary"]
+        card = asked.cards[-1]
+        assert (card["tool"], card["environment"], card["network_policy"], card["packages"]) == ("run_in_sandbox", "Asks", network, packages)
+        assert world.rows(SandboxRun, SandboxRun.report_id == rep["id"]) == [], "nothing ran"
+    else:
+        assert asked.cards == [] and output.get("error_code") != "sandbox.declined"
+
+
+def test_the_confirmation_card_shows_the_code_only_to_someone_who_may_see_code(world, report, asked):
+    from app.core.code_visibility import set_code_visibility
+
+    world.add_environment("Asks", confirm_runs="always")
+    rep = report()
+    call(world, "create_sandbox", {"environment": "Asks"}, rep)
+
+    call(world, "run_in_sandbox", {"language": "python", "code": "print('secret logic')"}, rep)
+    assert asked.cards[-1]["code"] is None and asked.cards[-1]["language"] == "python"
+
+    async def allowed(ctx):
+        set_code_visibility(True)
+    out, _, _, _ = call(world, "run_in_sandbox", {"language": "python", "code": "print('shown')"}, rep, before=allowed)
+    assert asked.cards[-1]["code"] == "print('shown')" and out["stdout"] == "shown\n"

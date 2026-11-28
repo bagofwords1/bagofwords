@@ -1,4 +1,4 @@
-"""The ``docker-ssh`` backend form. The admin UI renders it from these schemas."""
+"""The ``docker-ssh`` compute form. The admin UI renders it from these schemas."""
 from __future__ import annotations
 
 import ipaddress

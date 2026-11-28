@@ -8,7 +8,7 @@ wrote as report files, and streaming output to the report thread.
 
 The tools ship dark. They are in the planner's catalog only when the
 deployment flag and the organization switch are on, the user holds
-``use_agent_sandbox`` and may use an environment, and a backend can run it
+``use_agent_sandbox`` and may use an environment, and a compute can run it
 (see ``agent_v2`` and ``services/sandbox/access.py``). The service checks all
 of that again on every call, so a tool that is named without being offered
 is refused.
@@ -197,7 +197,10 @@ How it works:
       saved to the report after the run and returned with a file_id.
     - `packages` are installed first with pip / npm / go get, and only if the
       sandbox's network access allows the package registries.
-    - Files and installed packages persist between runs. One run at a time.
+    - Files and installed packages persist between runs, but only what is under
+      /workspace/outputs is durable (it is saved to the report). The rest is a
+      cache: after a deletion or a failure the sandbox starts fresh, and only
+      the report's own files are put back. One run at a time.
 
 Returns: exit_code, the end of stdout and stderr, and the saved artifacts.
 A non-zero exit_code is a normal result: read stderr and fix the code.
@@ -241,6 +244,15 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
             files={f.path: f.content for f in data.files}, packages=list(data.packages), inputs=inputs,
             timeout_seconds=data.timeout_seconds,
         )
+
+        # An environment can ask the person in the chat before a run starts.
+        decision: Dict[str, Any] = {}
+        async for event in _confirm_run(runtime_ctx, ref, actor_id, data, decision):
+            yield event
+        if decision.get("refused"):
+            yield _declined(RunInSandboxOutput, decision)
+            return
+
         events: asyncio.Queue = asyncio.Queue()
         saved_files: List[Any] = []
 
@@ -260,10 +272,14 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
                         completion_id=_completion_id(runtime_ctx), saved=saved_files,
                     )
 
+                async def load_file(file_id: str):
+                    return await _report_file(runtime_ctx, file_id)
+
                 return await SandboxService().run(
                     db, ref, actor_id, request, on_output=on_output, on_progress=on_progress,
                     cancel=runtime_ctx.get("sigkill_event"), save_artifact=save_artifact,
                     completion_id=_completion_id(runtime_ctx), tool_execution_id=runtime_ctx.get("tool_execution_id"),
+                    load_file=load_file,
                 )
 
         task = asyncio.ensure_future(run())
@@ -298,18 +314,53 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
         await _register_saved_files(runtime_ctx, report, [a.file_id for a in outcome.artifacts if a.file_id])
 
         notes: List[str] = []
+        note_codes: List[str] = []
         if outcome.recreated:
-            notes.append("The sandbox had to be recreated: its filesystem is fresh, earlier files and installed packages are gone.")
+            note_codes.append("restored_snapshot" if outcome.restored_snapshot_at else "recreated")
+            if outcome.restored_files:
+                note_codes.append("files_restored")
+            restored = (
+                f" These files of the report were put back: {', '.join(outcome.restored_files[:20])}"
+                + (f" and {len(outcome.restored_files) - 20} more." if len(outcome.restored_files) > 20 else ".")
+            ) if outcome.restored_files else ""
+            if outcome.restored_snapshot_at:
+                notes.append(
+                    f"The sandbox had to be recreated and was restored from a snapshot taken at "
+                    f"{outcome.restored_snapshot_at[:16].replace('T', ' ')} UTC: files and packages are as they were "
+                    "then. Anything changed after that, outside outputs/, is gone." + restored
+                )
+            else:
+                notes.append(
+                    "The sandbox had to be recreated: its filesystem is fresh. Installed packages and files outside "
+                    "outputs/ are gone." + restored
+                )
         elif outcome.created:
+            note_codes.append("created")
             notes.append("A new sandbox was created for this report.")
         elif outcome.resumed:
+            note_codes.append("resumed")
             notes.append("The sandbox was stopped and has been resumed with its files and packages.")
         if outcome.status == "timeout":
+            note_codes.append("timeout")
             notes.append("The run was stopped at its time limit.")
         if outcome.status == "cancelled":
+            note_codes.append("cancelled")
             notes.append("The run was cancelled.")
         if outcome.skipped_artifacts:
+            note_codes.append("skipped_artifacts")
+        if outcome.background_processes:
+            note_codes.append("background_processes")
+        if outcome.notices:
+            note_codes.append("deletion_scheduled")
+        if outcome.skipped_artifacts:
             notes.append(f"{len(outcome.skipped_artifacts)} output file(s) were not saved; see skipped_artifacts.")
+        if outcome.background_processes:
+            notes.append(
+                "Still running in the sandbox after this run: "
+                + "; ".join(outcome.background_processes[:5])
+                + ". They keep using its CPU and memory until they exit or the sandbox stops."
+            )
+        notes.extend(outcome.notices)
 
         output = RunInSandboxOutput(
             success=outcome.status == "succeeded", run_id=outcome.run_id, sandbox_id=outcome.sandbox_id,
@@ -318,6 +369,8 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
             artifacts=[SandboxArtifact(file_id=a.file_id, name=a.name, size=a.size, type=a.content_type) for a in outcome.artifacts],
             skipped_artifacts=outcome.skipped_artifacts, duration_seconds=outcome.duration_seconds,
             environment=outcome.environment, network_policy=outcome.network_policy, notes=notes,
+            note_codes=note_codes, background_processes=outcome.background_processes,
+            restored_files=outcome.restored_files,
         )
         produced = ", ".join(f"{a.name} (file_id={a.file_id})" for a in output.artifacts) or "none"
         yield ToolEndEvent(type="tool.end", payload={
@@ -386,6 +439,7 @@ environments you may use. Changes nothing.
                 described = await service.describe(db, ref)
                 environments = [
                     {"name": e.name, "description": e.description, "network": describe_network(e.network_policy),
+                     "network_policy": e.network_policy,
                      "is_default": bool(e.is_default)}
                     for e in await service.access.usable_environments(db, ref.organization_id, actor_id)
                 ]
@@ -464,6 +518,20 @@ Use when:
                     await service.access.require_environment(db, ref.organization_id, actor_id, existing.environment_id)
                     if existing.state == "busy":
                         raise errors.busy()
+            if existing is not None:
+                # Deleting loses everything outside outputs/: always ask first.
+                decision: Dict[str, Any] = {}
+                async for event in _ask(runtime_ctx, "delete_sandbox", {
+                    "action": "delete_sandbox",
+                    "environment": (existing.limits or {}).get("environment"),
+                    "reason": "Deleting the sandbox removes its files and installed packages. "
+                              "Files already saved to the report are kept.",
+                }, decision):
+                    yield event
+                if decision.get("refused"):
+                    yield _declined(DeleteSandboxOutput, decision, noun="deletion")
+                    return
+            async with _session_maker(runtime_ctx)() as db:
                 deleted = await service.delete_for_report(db, ref, actor_id, reason="requested by the agent")
         except SandboxError as exc:
             yield _failure(DeleteSandboxOutput, "delete_sandbox", exc)
@@ -473,6 +541,70 @@ Use when:
             "output": DeleteSandboxOutput(success=True, deleted=deleted).model_dump(),
             "observation": {"summary": summary, "success": True, "deleted": deleted},
         })
+
+
+# ── asking the person in the chat first ──────────────────────────────────
+
+
+async def _ask(runtime_ctx: Dict[str, Any], tool_name: str, payload: Dict[str, Any], decision: Dict[str, Any]):
+    """Pause for an Allow / Deny in the chat. Yields the tool events and fills
+    ``decision``: ``refused`` (bool), ``timed_out`` (bool), ``feedback``."""
+    from app.ai.tools.confirmation import KIND_BUILTIN_TOOL, stream_user_confirmation
+
+    result: Dict[str, Any] = {}
+    async for event in stream_user_confirmation(
+        runtime_ctx, kind=KIND_BUILTIN_TOOL, tool_name=tool_name, payload=payload, result=result,
+    ):
+        yield event
+    answer = (result.get("response") or {}).get("response") or {}
+    decision.update(
+        refused=not result.get("approved"), timed_out=bool(result.get("timed_out")),
+        feedback=((answer.get("feedback") or "").strip() or None) if isinstance(answer, dict) else None,
+    )
+
+
+async def _confirm_run(runtime_ctx: Dict[str, Any], ref: Any, actor_id: Optional[str], data: Any, decision: Dict[str, Any]):
+    """Ask before a run when the environment's policy says so. The card shows
+    what will run; the code is on it only for someone who may see code."""
+    from app.core.code_visibility import code_visible_now
+    from app.services.sandbox import environments as environment_service
+    from app.services.sandbox.service import SandboxService
+
+    try:
+        async with _session_maker(runtime_ctx)() as db:
+            env = await SandboxService().environment_for(db, ref, actor_id)
+    except Exception:  # noqa: BLE001 - the run itself reports what is wrong
+        return
+    if env is not None:
+        # Known before anything runs, so the block in the chat can say where it runs from the start.
+        yield ToolProgressEvent(type="tool.progress", payload={
+            "stage": "starting", "environment": env.name, "network_policy": env.network_policy,
+        })
+    reason = environment_service.needs_confirmation(env, installs_packages=bool(data.packages))
+    if not reason:
+        return
+    show_code = code_visible_now()
+    async for event in _ask(runtime_ctx, "run_in_sandbox", {
+        "action": "run_in_sandbox", "reason": reason,
+        "environment": env.name, "network_policy": env.network_policy,
+        "language": data.language, "packages": list(data.packages),
+        "input_files": len(data.input_file_ids),
+        "code": (data.code if show_code else None), "command": (data.command if show_code else None),
+    }, decision):
+        yield event
+
+
+def _declined(output_model: Type[BaseModel], decision: Dict[str, Any], noun: str = "run") -> ToolEndEvent:
+    if decision.get("timed_out"):
+        message = f"The {noun} was not confirmed in time, so nothing happened. Ask the user whether to try again."
+    else:
+        message = f"The user declined the {noun}; nothing happened."
+        if decision.get("feedback"):
+            message += f" Their feedback: \"{decision['feedback']}\"."
+    return ToolEndEvent(type="tool.end", payload={
+        "output": output_model(success=False, error_code="sandbox.declined", error_message=message).model_dump(),
+        "observation": {"summary": message, "success": False, "error": {"code": "sandbox.declined", "message": message}},
+    })
 
 
 # ── report files in, artifacts out ───────────────────────────────────────
@@ -499,6 +631,27 @@ async def _input_files(runtime_ctx: Dict[str, Any], file_ids: List[str]) -> List
             raise SandboxError(errors.INVALID, f"File '{file.filename}' is no longer available.")
         inputs.append(InputFile(file_id=str(file.id), name=file.filename, data=_read_chunks(file.path)))
     return inputs
+
+
+async def _report_file(runtime_ctx: Dict[str, Any], file_id: str):
+    """One of the report's own files as sandbox input, or None when it is not
+    (or no longer) a file of this report. Used to restore files into a
+    recreated sandbox; never raises."""
+    from app.ai.tools.implementations._file_tool_common import resolve_session_file
+    from app.services import storage
+    from app.services.sandbox.service import InputFile
+
+    try:
+        file = resolve_session_file(runtime_ctx, file_id)
+        if file is None:
+            return None
+        await storage.aensure_local(file.path)
+        if not os.path.exists(file.path):
+            return None
+        return InputFile(file_id=str(file.id), name=file.filename, data=_read_chunks(file.path))
+    except Exception:  # noqa: BLE001
+        logger.warning("could not read report file %s for the sandbox", file_id)
+        return None
 
 
 async def _read_chunks(path: str) -> AsyncIterator[bytes]:

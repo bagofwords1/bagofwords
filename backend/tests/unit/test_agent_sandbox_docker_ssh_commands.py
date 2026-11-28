@@ -262,7 +262,7 @@ def test_the_workspace_is_a_size_limited_filesystem_owned_by_the_run_user():
 @pytest.mark.parametrize("info, version, expected", [
     ({"ServerVersion": "29.1", "Runtimes": {"runc": {}}}, "podman version 5.2.0", "Podman"),
     ({"ServerVersion": "29.1", "SecurityOptions": ["name=seccomp", "name=rootless"]}, "Docker version 29.1", "rootless"),
-    ({"ServerVersion": "29.1", "FirewallBackend": {"Driver": "nftables"}}, "Docker version 29.1", "nftables"),
+    ({"ServerVersion": "29.1", "FirewallCompute": {"Driver": "nftables"}}, "Docker version 29.1", "nftables"),
 ])
 def test_unsupported_setups_are_named(info, version, expected):
     facts = commands.describe_docker(info, version)
@@ -271,7 +271,7 @@ def test_unsupported_setups_are_named(info, version, expected):
 
 def test_a_supported_setup_has_no_problems_and_reports_the_strong_runtime():
     facts = commands.describe_docker(
-        {"ServerVersion": "29.10.1", "Driver": "overlayfs", "FirewallBackend": {"Driver": "iptables"},
+        {"ServerVersion": "29.10.1", "Driver": "overlayfs", "FirewallCompute": {"Driver": "iptables"},
          "Runtimes": {"runc": {}, "runsc": {}, "io.containerd.runc.v2": {}}, "SecurityOptions": ["name=apparmor"]},
         "Docker version 29.10.1, build abc",
     )
@@ -298,7 +298,7 @@ def test_the_domain_log_is_aggregated_per_domain_and_decision_for_one_sandbox():
     assert [(r.domain, r.count) for r in recent] == [("pypi.org", 1)]
 
 
-# ── the backend form ─────────────────────────────────────────────────────
+# ── the compute form ─────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("bad", [
@@ -307,12 +307,12 @@ def test_the_domain_log_is_aggregated_per_domain_and_decision_for_one_sandbox():
     {"address": "h", "bow_address": "not-an-ip"}, {"address": "h", "ssh_host_key_fingerprint": "abc"},
     {"address": "h", "unknown_field": 1},
 ])
-def test_the_backend_form_refuses_malformed_values(bad):
+def test_the_compute_form_refuses_malformed_values(bad):
     with pytest.raises(Exception):
         DockerSSHConfig(**bad)
 
 
-def test_the_backend_form_has_the_designs_defaults():
+def test_the_compute_form_has_the_designs_defaults():
     config = DockerSSHConfig(address="SBX-1.Example.com")
     assert (config.address, config.ssh_port, config.ssh_user, config.sandbox_port) == ("sbx-1.example.com", 22, "root", 8443)
     assert config.bow_address is None and config.images_preloaded is False

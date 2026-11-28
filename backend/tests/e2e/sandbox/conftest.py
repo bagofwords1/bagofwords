@@ -34,16 +34,16 @@ def sandbox_cast(bootstrap_admin, invite_user_to_org):
 #
 # The service layer is async and the e2e suite is synchronous, so these tests
 # run a coroutine to completion per step (the pattern other e2e modules use
-# for service calls). Sandboxes run on the fake backend.
+# for service calls). Sandboxes run on the fake compute.
 
 import asyncio
 import uuid
 
-from app.schemas.sandbox_schema import SandboxBackendCreate, SandboxEnvironmentCreate
+from app.schemas.sandbox_schema import SandboxComputeCreate, SandboxEnvironmentCreate
 from app.services.sandbox import access as access_module
-from app.services.sandbox import backends as backend_service
+from app.services.sandbox import computes as compute_service
 from app.services.sandbox import environments as environment_service
-from app.services.sandbox.drivers.fake import reset_fake_backends
+from app.services.sandbox.drivers.fake import reset_fake_computes
 from app.services.sandbox.service import ReportRef, SandboxService
 from app.services.sandbox.settings import load_settings, save_settings
 
@@ -54,7 +54,7 @@ def run(coro):
 
 
 class SandboxWorld:
-    """An organization set up for sandboxes on the fake backend, with helpers
+    """An organization set up for sandboxes on the fake compute, with helpers
     that each do one thing through the service layer."""
 
     def __init__(self, org_id: str, admin_id: str):
@@ -83,17 +83,17 @@ class SandboxWorld:
             await db.commit()
         self.call(_go)
 
-    def add_backend(self, name=None, *, enabled=True, bootstrap=True, capacity=20, labels=(), **config):
+    def add_compute(self, name=None, *, enabled=True, bootstrap=True, capacity=20, labels=(), **config):
         async def _go(db):
-            backend = await backend_service.create_backend(db, self.org_id, self.admin_id, SandboxBackendCreate(
+            compute = await compute_service.create_compute(db, self.org_id, self.admin_id, SandboxComputeCreate(
                 name=name or f"fake-{uuid.uuid4().hex[:6]}", type="fake", config=config,
                 labels=list(labels), capacity=capacity,
             ))
             if bootstrap:
-                await backend_service.bootstrap_backend(db, self.org_id, self.admin_id, backend)
-                if enabled and backend.bootstrap_status == "ready":
-                    await backend_service.set_enabled(db, self.org_id, self.admin_id, backend, True)
-            return backend.id
+                await compute_service.bootstrap_compute(db, self.org_id, self.admin_id, compute)
+                if enabled and compute.bootstrap_status == "ready":
+                    await compute_service.set_enabled(db, self.org_id, self.admin_id, compute, True)
+            return compute.id
         return self.call(_go)
 
     def add_environment(self, name=None, *, grant_to=(), **fields):
@@ -139,9 +139,9 @@ class SandboxWorld:
 @pytest.fixture
 def sandbox_world(sandbox_cast, agent_sandboxes_on):
     """The cast's organization with the deployment flag and the organization
-    switch on. Backends and environments are added by each test."""
+    switch on. Computes and environments are added by each test."""
     world = SandboxWorld(sandbox_cast["org_id"], sandbox_cast["admin"]["user_id"])
     world.cast = sandbox_cast
     world.configure(enabled=True)
     yield world
-    reset_fake_backends()
+    reset_fake_computes()

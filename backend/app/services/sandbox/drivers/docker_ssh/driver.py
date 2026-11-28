@@ -5,7 +5,7 @@
     BoW ── HTTPS :port ────► router ──► sandbox  (sandboxd: gRPC + REST)
                              sandbox ──► egress proxy ──► internet
 
-One instance serves one backend and holds one SSH connection, opened on first
+One instance serves one compute and holds one SSH connection, opened on first
 use. Nothing is kept in memory between calls that another worker would need:
 the handle BoW stores and the records on the host are enough.
 """
@@ -20,14 +20,16 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from app.services.sandbox.drivers.base import (
     CAP_DOMAIN_ALLOWLIST,
+    CAP_PAUSE,
+    CAP_SNAPSHOT,
     CAP_LIVE_STATS,
     CAP_STOP_RESUME,
     CAP_STRONG_ISOLATION,
     STATUS_MISSING,
     STATUS_RUNNING,
     STATUS_STOPPED,
-    BackendContext,
-    BackendHealth,
+    ComputeContext,
+    ComputeHealth,
     EgressRecord,
     Endpoint,
     ReconcileResult,
@@ -64,9 +66,10 @@ def _bytes(text: str) -> Optional[int]:
 
 class DockerSSHDriver(SandboxDriver):
     type_name = "docker-ssh"
-    potential_capabilities = frozenset({CAP_STOP_RESUME, CAP_STRONG_ISOLATION, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS})
+    potential_capabilities = frozenset({CAP_STOP_RESUME, CAP_STRONG_ISOLATION, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS,
+                                        CAP_SNAPSHOT, CAP_PAUSE})
 
-    def __init__(self, ctx: BackendContext):
+    def __init__(self, ctx: ComputeContext):
         super().__init__(ctx)
         self.config = DockerSSHConfig(**(ctx.config or {}))
         self.addr = layout.addresses()
@@ -76,14 +79,20 @@ class DockerSSHDriver(SandboxDriver):
     # ── registry hooks ──
 
     @staticmethod
-    def is_another_backend(previous_config: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    def validate_volumes(volumes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """A volume here is a directory on the server. The operator mounts what
+        it should hold (a local disk, NFS, an object store) there themselves."""
+        return [dict(volume, source=commands.volume_source(volume.get("source"))) for volume in volumes]
+
+    @staticmethod
+    def is_another_compute(previous_config: Dict[str, Any], config: Dict[str, Any]) -> bool:
         """A different address or SSH port is a different server: its host key,
         its router's certificate and "bootstrapped" are not this one's."""
         return any(previous_config.get(key) != config.get(key) for key in ("address", "ssh_port"))
 
     @staticmethod
     def prepare_credentials(config: Dict[str, Any], credentials: Dict[str, Any]) -> tuple:
-        """Before a backend is stored: generate a key pair when none was pasted,
+        """Before a compute is stored: generate a key pair when none was pasted,
         and keep the public key with the (non-secret) config so it can be shown."""
         config, credentials = dict(config), dict(credentials)
         private_key = credentials.get("ssh_private_key")
@@ -180,16 +189,16 @@ class DockerSSHDriver(SandboxDriver):
         if not self.ctx.driver_state.get("ssh_host_key"):
             raise SandboxDriverError(
                 "Confirm the server's SSH host key fingerprint before using a one-time password "
-                "(run Test connection), or enter the fingerprint with the backend.", code="host_key_unconfirmed",
+                "(run Test connection), or enter the fingerprint with the compute.", code="host_key_unconfirmed",
             )
         public_key = self.config.ssh_public_key or public_key_of((self.ctx.credentials or {}).get("ssh_private_key") or "")
         await self.ssh.install_public_key(password, public_key)
         self.ctx.driver_state["enrolled_at"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
-    # ── describing the backend ──
+    # ── describing the compute ──
 
     def capabilities(self) -> set:
-        caps = {CAP_STOP_RESUME, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS}
+        caps = {CAP_STOP_RESUME, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS, CAP_SNAPSHOT, CAP_PAUSE}
         if self.ctx.driver_state.get("isolation") == "gvisor":
             caps.add(CAP_STRONG_ISOLATION)
         return caps
@@ -213,7 +222,7 @@ class DockerSSHDriver(SandboxDriver):
         except SSHError as exc:
             return _failed_first(exc.message)
 
-    async def check(self) -> BackendHealth:
+    async def check(self) -> ComputeHealth:
         checks: List[Dict[str, Any]] = []
 
         def line(key: str, title: str, status: str, detail: Optional[str] = None) -> None:
@@ -226,7 +235,7 @@ class DockerSSHDriver(SandboxDriver):
                 if not state.get("ssh_host_key"):
                     line("host_key", "SSH host key", "warning",
                          f"Fingerprint {fingerprint}. Confirm that this is your server's key; it is pinned after that.")
-                    return BackendHealth(reachable=True, capabilities=sorted(self.capabilities()),
+                    return ComputeHealth(reachable=True, capabilities=sorted(self.capabilities()),
                                          info=self.public_info(state), checks=checks,
                                          error="Confirm the server's SSH host key fingerprint.")
             line("host_key", "SSH host key", "ok", f"Pinned: {fingerprint_of(state['ssh_host_key'])}")
@@ -241,7 +250,7 @@ class DockerSSHDriver(SandboxDriver):
             state["docker"] = {k: facts[k] for k in ("docker_version", "storage_driver", "firewall_backend", "cgroup_version", "cpus", "memory_bytes")}
             if facts["problems"]:
                 line("docker", "Docker", "failed", " ".join(facts["problems"]))
-                return BackendHealth(reachable=True, capabilities=sorted(self.capabilities()), info=self.public_info(state),
+                return ComputeHealth(reachable=True, capabilities=sorted(self.capabilities()), info=self.public_info(state),
                                      checks=checks, error=" ".join(facts["problems"]))
             line("docker", "Docker", "ok", f"Docker {facts['docker_version']}")
 
@@ -273,19 +282,44 @@ class DockerSSHDriver(SandboxDriver):
                 line("bootstrap", "Bootstrapped", "failed", "Not running: " + ", ".join(down) + ". Bootstrap again to repair.")
             else:
                 line("bootstrap", "Bootstrapped", "ok", "The router, the egress proxy and the firewall helper are running.")
-            running = sum(1 for c in containers.values() if c.get("sandbox") and c.get("state") == "running")
-            return BackendHealth(
+            for volume in self.ctx.volumes:
+                found = await self.ssh.run(["test", "-d", str(volume.get("source"))], check=False)
+                line(f"volume:{volume.get('name')}", f"Volume {volume.get('name')}", "ok" if found.ok else "warning",
+                     None if found.ok else f"{volume.get('source')} does not exist on the server yet. "
+                                           "Sandboxes that mount it cannot start until it does.")
+            running = sum(1 for c in containers.values() if c.get("sandbox") and c.get("state") in ("running", "paused"))
+            return ComputeHealth(
                 reachable=True, prepared=prepared, healthy=prepared and not down, running=running,
+                resources=await self._resources(facts),
                 capabilities=sorted(self.capabilities()), info=self.public_info(state), checks=checks,
                 error=None if (prepared and not down) else next((c["detail"] for c in checks if c["status"] == "failed"), None),
             )
         except SandboxDriverError as exc:
             line(exc.code if exc.code in ("host_key_mismatch", "auth_failed", "no_privileges") else "ssh",
                  "SSH access", "failed", exc.message)
-            return BackendHealth(reachable=exc.code not in ("unreachable", "timeout"), info=self.public_info(state),
+            return ComputeHealth(reachable=exc.code not in ("unreachable", "timeout"), info=self.public_info(state),
                                  checks=checks, error=exc.message)
 
     # ── sandbox lifecycle ──
+
+    async def _resources(self, facts: Dict[str, Any]) -> Dict[str, float]:
+        """What this server has: CPUs and memory as Docker reports them, and the
+        size of the filesystem the sandbox workspaces are stored on."""
+        resources: Dict[str, float] = {}
+        if facts.get("cpus"):
+            resources["cpus"] = float(facts["cpus"])
+        if facts.get("memory_bytes"):
+            resources["memory_mb"] = int(facts["memory_bytes"]) // (1024 * 1024)
+        # The workspace directory exists only after bootstrap; before that its
+        # nearest existing parent is on the same filesystem in every normal setup.
+        disk = await self.ssh.run(
+            ["sh", "-c", 'p="$1"; while [ ! -e "$p" ]; do p=$(dirname "$p"); done; df -Pk "$p" | tail -1', "sh",
+             layout.WORKSPACES], check=False,
+        )
+        fields = disk.stdout.split() if disk.ok else []
+        if len(fields) >= 2 and fields[1].isdigit():
+            resources["disk_mb"] = int(fields[1]) // 1024
+        return resources
 
     async def _free_address(self, records: Dict[str, Dict[str, Any]]) -> str:
         used = {r.get("ip") for r in records.values()}
@@ -309,6 +343,8 @@ class DockerSSHDriver(SandboxDriver):
             await host.pull(spec.image, username=spec.registry_username, password=spec.registry_password)
         env_path = f"{layout.ENV_DIR}/{spec.sandbox_id}.env"
         env_content = commands.env_file(commands.sandbox_environment(spec, self.addr))
+        for argv in commands.mount_prepare(spec.mounts):
+            await host.ssh.run(argv)
         try:
             for argv in commands.workspace_create(spec.sandbox_id, spec.disk_mb):
                 await host.ssh.run(argv)
@@ -366,7 +402,9 @@ class DockerSSHDriver(SandboxDriver):
         return state
 
     async def stop(self, handle: SandboxHandle) -> None:
-        await self._state_of(handle)
+        if await self._state_of(handle) == "paused":
+            # A frozen process cannot receive the stop signal.
+            await self.host.docker("unpause", layout.sandbox_container(handle.sandbox_id), check=False, timeout=60)
         await self.host.docker("stop", "-t", "5", layout.sandbox_container(handle.sandbox_id), timeout=60)
         await self.host.ssh.run(["umount", layout.workspace_mount(handle.sandbox_id)], check=False)
 
@@ -388,6 +426,33 @@ class DockerSSHDriver(SandboxDriver):
             if egress is not None and egress["@id"] not in set(await self.host.route_ids(layout.EGRESS_DIR, "egress")):
                 await self.host.set_route(layout.EGRESS_DIR, "egress", egress)
 
+    async def pause(self, handle: SandboxHandle) -> None:
+        await self._state_of(handle)
+        paused = await self.host.docker("pause", layout.sandbox_container(handle.sandbox_id), check=False, timeout=60)
+        if not paused.ok and "already paused" not in paused.detail(300).lower():
+            raise SandboxDriverError("The sandbox could not be paused: " + _clean_docker_error(paused.detail(400)),
+                                     code="command_failed")
+
+    async def unpause(self, handle: SandboxHandle) -> None:
+        await self._state_of(handle)
+        resumed = await self.host.docker("unpause", layout.sandbox_container(handle.sandbox_id), check=False, timeout=60)
+        if not resumed.ok and "not paused" not in resumed.detail(300).lower():
+            raise SandboxDriverError("The sandbox could not be unpaused: " + _clean_docker_error(resumed.detail(400)),
+                                     code="command_failed")
+
+    async def export_workspace(self, handle: SandboxHandle, write, *, max_bytes: int) -> int:
+        """The workspace as a gzip tar, read from its mount on the server. The
+        sandbox may be running; files being written at that moment may be
+        captured half-written."""
+        await self._state_of(handle)
+        await self.host.mount_workspace(handle.sandbox_id)
+        return await self.host.ssh.stream_out(commands.workspace_export(handle.sandbox_id), write, max_bytes=max_bytes)
+
+    async def import_workspace(self, handle: SandboxHandle, chunks) -> None:
+        await self._state_of(handle)
+        await self.host.mount_workspace(handle.sandbox_id)
+        await self.host.ssh.stream_in(commands.workspace_import(handle.sandbox_id), chunks)
+
     async def delete(self, handle: SandboxHandle) -> None:
         await self.host.remove_sandbox(handle.sandbox_id)
         try:
@@ -399,8 +464,8 @@ class DockerSSHDriver(SandboxDriver):
         state = await self.host.container_state(layout.sandbox_container(handle.sandbox_id))
         if state is None:
             return SandboxStatus(STATUS_MISSING)
-        if state == "running":
-            return SandboxStatus(STATUS_RUNNING)
+        if state in ("running", "paused"):  # paused: its processes are frozen, it still holds its memory
+            return SandboxStatus(STATUS_RUNNING, detail=state)
         return SandboxStatus(STATUS_STOPPED, detail=state)
 
     async def stats(self, handles: Sequence[SandboxHandle]) -> Dict[str, SandboxStats]:

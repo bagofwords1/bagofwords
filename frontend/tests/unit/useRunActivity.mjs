@@ -478,7 +478,24 @@ console.log('useRunActivity: shared-link payload assertions passed')
   }
   const x = tool('read_file'), y = tool('grep_files')
   assert.deepEqual(ids([x, y]), [[x.id, y.id]])
+  // A sandbox run is its own row while live (its output streams there), next
+  // to grouped bookkeeping calls.
+  const cs = tool('create_sandbox'), st = tool('sandbox_status'), run1 = tool('run_in_sandbox'), run2 = tool('run_in_sandbox')
+  assert.deepEqual(ids([cs, st, run1, run2]), [[cs.id, st.id], [run1.id], [run2.id]])
   console.log('useRunActivity: deliverables stay out of tool groups passed')
+}
+
+// A sandbox run that saved files stays under the conclusion with its links; a
+// run that saved nothing, or failed, is activity behind the fold. A deletion
+// the user approved stays in view.
+{
+  const saved = tool('run_in_sandbox', {}, { te: { result_json: { success: true, artifacts: [{ file_id: 'f1', name: 'chart.png', size: 10 }] } } })
+  const plain = tool('run_in_sandbox', {}, { te: { result_json: { success: true, artifacts: [] } } })
+  const failed = tool('run_in_sandbox', {}, { te: { status: 'error', result_json: { success: false, artifacts: [] } } })
+  const removed = tool('delete_sandbox', {}, { te: { result_json: { success: true, deleted: true } } })
+  const a = computeRunActivity([plain, failed, saved, removed, final()], { runStatus: 'success' })
+  assert.deepEqual(a?.deliverableIds, [saved.id, removed.id])
+  console.log('useRunActivity: sandbox runs with files are deliverables passed')
 }
 
 // A wait still armed keeps its card (countdown + Cancel) in view: the page

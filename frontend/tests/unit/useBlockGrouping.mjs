@@ -40,6 +40,13 @@ assert.equal(isGroupableBlock(chip('route_model')), false)
 // unknown tools default to visible
 assert.equal(isGroupableBlock(chip('some_future_tool')), false)
 
+// agent sandbox: making and checking the sandbox are bookkeeping chips; a run
+// (streamed output, saved files) and a deletion (asks first) keep their own row
+assert.equal(isGroupableBlock(chip('create_sandbox')), true)
+assert.equal(isGroupableBlock(chip('sandbox_status')), true)
+assert.equal(isGroupableBlock(chip('run_in_sandbox')), false)
+assert.equal(isGroupableBlock(chip('delete_sandbox')), false)
+
 // failures never group; in-flight blocks of groupable tools DO fold (the
 // header becomes the live status line)
 assert.equal(isGroupableBlock(chip('read_file', { te: { status: 'error' } })), false)

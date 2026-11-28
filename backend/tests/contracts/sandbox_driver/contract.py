@@ -46,7 +46,7 @@ __all__ = [
     "test_reconcile_removes_this_instances_orphans_only",
     "test_reconcile_reports_known_sandboxes_that_are_gone",
     "test_capabilities_match_behaviour",
-    "test_check_reports_a_prepared_backend_and_its_load",
+    "test_check_reports_a_prepared_compute_and_its_load",
     "test_another_driver_instance_reaches_the_same_sandbox",
 ]
 
@@ -93,7 +93,7 @@ async def test_environment_variables_and_secrets_reach_the_code(harness):
 
 async def test_stop_and_resume_keep_files(harness):
     if CAP_STOP_RESUME not in harness.driver.capabilities():
-        pytest.skip("this backend cannot stop and resume")
+        pytest.skip("this compute cannot stop and resume")
     handle, token = await harness.create()
     async with harness.runtime(handle, token) as runtime:
         await runtime.write_file("outputs/kept.txt", b"still here")
@@ -112,9 +112,9 @@ async def test_stop_and_resume_keep_files(harness):
 
 async def test_delete_removes_everything_and_can_be_repeated(harness):
     handle, token = await harness.create()
-    assert await harness.exists_on_backend(handle.sandbox_id)
+    assert await harness.exists_on_compute(handle.sandbox_id)
     await harness.driver.delete(handle)
-    assert not await harness.exists_on_backend(handle.sandbox_id)
+    assert not await harness.exists_on_compute(handle.sandbox_id)
     assert (await harness.driver.status(handle)).state == STATUS_MISSING
     async with harness.runtime(handle, token) as runtime:
         assert not await runtime.health(timeout=2)
@@ -146,7 +146,7 @@ async def test_network_policy_none_reaches_nothing(harness):
 
 async def test_network_policy_registries_reaches_only_the_registries(harness):
     if CAP_DOMAIN_ALLOWLIST not in harness.driver.capabilities():
-        pytest.skip("this backend cannot filter by domain")
+        pytest.skip("this compute cannot filter by domain")
     handle, token = await harness.create(
         network_policy=POLICY_REGISTRIES, allowed_domains=[harness.registry_domain],
     )
@@ -171,13 +171,13 @@ async def test_reconcile_removes_this_instances_orphans_only(harness):
     try:
         result = await harness.driver.reconcile([kept])
         assert orphan in result.removed
-        assert not await harness.exists_on_backend(orphan)
+        assert not await harness.exists_on_compute(orphan)
         # Another BoW instance's sandbox is left alone, and so is the known one.
-        assert await harness.exists_on_backend(foreign)
+        assert await harness.exists_on_compute(foreign)
         assert foreign not in result.removed
         assert (await harness.driver.status(kept)).state == STATUS_RUNNING
     finally:
-        await harness.remove_from_backend(foreign)
+        await harness.remove_from_compute(foreign)
 
 
 async def test_reconcile_reports_known_sandboxes_that_are_gone(harness):
@@ -201,7 +201,7 @@ async def test_capabilities_match_behaviour(harness):
         assert (await harness.driver.status(handle)).state == STATUS_STOPPED
 
 
-async def test_check_reports_a_prepared_backend_and_its_load(harness):
+async def test_check_reports_a_prepared_compute_and_its_load(harness):
     before = await harness.driver.check()
     assert before.reachable and before.prepared and before.healthy
     assert set(before.capabilities) == harness.driver.capabilities()

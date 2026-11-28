@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from app.services.sandbox.drivers.base import (
-    POLICY_ALLOWLIST, POLICY_FULL, POLICY_NONE, POLICY_REGISTRIES, EgressRecord, SandboxDriverError, SandboxSpec,
+    POLICY_ALLOWLIST, POLICY_FULL, POLICY_NONE, POLICY_REGISTRIES, EgressRecord, MountSpec, SandboxDriverError, SandboxSpec,
 )
 from app.services.sandbox.drivers.docker_ssh import layout
 from app.services.sandbox.drivers.docker_ssh.layout import Addresses
@@ -111,12 +111,70 @@ def sandbox_run(spec: SandboxSpec, *, ip: str, runtime: str, instance_id: str, e
         "-v", f"{layout.workspace_mount(spec.sandbox_id)}:/workspace",
         "-v", f"{layout.SANDBOXD_PATH}:/usr/local/bin/sandboxd:ro",
         "-v", f"{resolv}:/etc/resolv.conf:ro",
+        *mount_args(spec.mounts),
         "-w", "/workspace",
         "--entrypoint", "/usr/local/bin/sandboxd",
         spec.image,
         "--grpc-port", str(layout.SANDBOXD_GRPC_PORT), "--rest-port", str(layout.SANDBOXD_REST_PORT),
         "--root-dir", "/workspace", "--auth-token-sha256", spec.token_sha256,
     ]
+
+
+# ── volumes ──
+
+_VOLUME_PATH = re.compile(r"^/[A-Za-z0-9._/@+-]+$")
+# Directories that must never be handed to a sandbox, whole or in part.
+_FORBIDDEN_SOURCES = ("/proc", "/sys", "/dev", "/etc", "/boot", "/root", "/run", "/var/run", "/var/lib/docker",
+                      "/var/lib/containerd", "/usr", "/bin", "/sbin", "/lib", "/lib64", layout.ROOT)
+
+
+def _clean_path(value: Any, what: str) -> str:
+    path = str(value or "").strip()
+    if not _VOLUME_PATH.match(path) or ".." in path.split("/") or "//" in path:
+        raise SandboxDriverError(
+            f"{what} must be an absolute path made of letters, digits and . _ - @ + /", code="invalid_config",
+        )
+    return path.rstrip("/") or "/"
+
+
+def volume_source(value: Any) -> str:
+    """A volume's directory on the server, checked. Never the system's own
+    directories, Docker's, or BoW's."""
+    path = _clean_path(value, "A volume's path on the server")
+    if path == "/" or any(path == bad or path.startswith(bad + "/") for bad in _FORBIDDEN_SOURCES):
+        raise SandboxDriverError(f"{path} cannot be used as a volume: it is a system directory.", code="invalid_config")
+    return path
+
+
+def _mount_source(mount: MountSpec) -> str:
+    source = volume_source(mount.source)
+    if mount.subpath:
+        source = _clean_path(f"{source}/{str(mount.subpath).strip('/')}", "A volume subpath")
+    return source
+
+
+def mount_prepare(mounts: Sequence[MountSpec]) -> List[List[str]]:
+    """Before the container starts: a writable per-report directory inside a
+    volume is created and given to the run user. A read-only mount and a
+    volume's own root are the operator's to provide."""
+    commands: List[List[str]] = []
+    for mount in mounts:
+        if mount.subpath and not mount.read_only:
+            source = _mount_source(mount)
+            commands.append(["install", "-d", "-m", "700", "-o", str(layout.RUN_UID), "-g", str(layout.RUN_UID), source])
+    return commands
+
+
+def mount_args(mounts: Sequence[MountSpec]) -> List[str]:
+    """``--mount`` arguments. Bind mounts with no propagation; read-only unless
+    the environment asked for a writable one. The container has no capabilities
+    and cannot gain privileges, so a setuid file on a volume gives it nothing."""
+    args: List[str] = []
+    for mount in mounts:
+        target = _clean_path(mount.path, "A mount path in the sandbox")
+        spec = f"type=bind,source={_mount_source(mount)},target={target},bind-propagation=rprivate"
+        args += ["--mount", spec + (",readonly" if mount.read_only else "")]
+    return args
 
 
 def workspace_create(sandbox_id: str, disk_mb: int) -> List[List[str]]:
@@ -129,6 +187,20 @@ def workspace_create(sandbox_id: str, disk_mb: int) -> List[List[str]]:
         ["mkfs.ext4", "-q", "-F", "-m", "0", "-E", f"root_owner={layout.RUN_UID}:{layout.RUN_UID}", image],
         workspace_mount(sandbox_id),
     ]
+
+
+def workspace_export(sandbox_id: str) -> List[str]:
+    """The workspace as a gzip tar on standard output. Numeric owners, so it
+    unpacks the same on another server. ``lost+found`` is the filesystem's own."""
+    return ["tar", "-C", layout.workspace_mount(sandbox_id), "--numeric-owner", "--exclude=./lost+found",
+            "--warning=no-file-changed", "--ignore-failed-read", "-czf", "-", "."]
+
+
+def workspace_import(sandbox_id: str) -> List[str]:
+    """Unpack a ``workspace_export`` archive from standard input into a workspace.
+    Absolute names and ``..`` are refused by tar itself; nothing is unpacked
+    outside the workspace mount."""
+    return ["tar", "-C", layout.workspace_mount(sandbox_id), "--numeric-owner", "--no-overwrite-dir", "-xzf", "-"]
 
 
 def workspace_mount(sandbox_id: str) -> List[str]:
@@ -360,11 +432,11 @@ def describe_docker(info: Mapping[str, Any], version_text: str) -> Dict[str, Any
     security = [str(option) for option in (info.get("SecurityOptions") or [])]
     if any("rootless" in option for option in security):
         problems.append("Docker runs in rootless mode on this server, which is not supported.")
-    firewall = ((info.get("FirewallBackend") or {}).get("Driver") or "").lower()
+    firewall = ((info.get("FirewallCompute") or {}).get("Driver") or "").lower()
     if firewall and firewall != "iptables":
         problems.append(
             f"Docker uses the '{firewall}' firewall backend on this server. Only Docker's default iptables "
-            "backend is supported."
+            "compute is supported."
         )
     runtimes = sorted((info.get("Runtimes") or {}).keys())
     return {

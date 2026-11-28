@@ -3,8 +3,8 @@
 It runs processes (gRPC ``process.v1.ProcessService``) and moves files (REST
 ``/v1/files``). All it needs is an :class:`~.drivers.base.Endpoint`: an
 address, the one CA to trust, the headers that route to the sandbox, and the
-sandbox's token. It has no idea what kind of backend the sandbox runs on, and
-it is the same client for every backend type.
+sandbox's token. It has no idea what kind of compute the sandbox runs on, and
+it is the same client for every compute type.
 
 Streamed runs have no time limit of their own in ``sandboxd``, so this client
 enforces the run timeout and cancellation: it signals the process group

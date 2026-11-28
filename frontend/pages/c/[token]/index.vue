@@ -406,6 +406,8 @@ import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import GenerateImageTool from '~/components/tools/GenerateImageTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
+import RunInSandboxTool from '~/components/tools/RunInSandboxTool.vue'
+import SandboxTool from '~/components/tools/SandboxTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResourcesTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
@@ -980,6 +982,12 @@ function getToolComponent(toolName: string) {
             return ReadFileTool
         case 'attach_file':
             return AttachFileTool
+        case 'run_in_sandbox':
+            return RunInSandboxTool
+        case 'create_sandbox':
+        case 'sandbox_status':
+        case 'delete_sandbox':
+            return SandboxTool
         case 'manage_artifact_resources':
             return ManageArtifactResourcesTool
         case 'create_artifact':

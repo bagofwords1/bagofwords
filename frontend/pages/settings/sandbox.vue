@@ -1,10 +1,11 @@
 <template>
     <div data-testid="sandbox-page">
-        <!-- Sub-page navigation (Backends, Environments, Settings) lives in the
+        <!-- Sub-page navigation (Sandboxes, Computes, Environments, Settings) lives in the
              admin sidebar under "Sandbox"; the selected one is ?tab=<key>.
              Nothing renders until the deployment flag is known to be on. -->
         <template v-if="featureEnabled">
-            <SandboxBackends v-if="activeTab === 'backends'" />
+            <SandboxSandboxes v-if="activeTab === 'sandboxes'" />
+            <SandboxComputes v-else-if="activeTab === 'computes'" />
             <SandboxEnvironments v-else-if="activeTab === 'environments'" />
             <SandboxSettings v-else-if="activeTab === 'settings'" />
         </template>
@@ -16,7 +17,8 @@
 import { useAdminNav } from '~/composables/useAdminNav'
 import { useAppSettings } from '~/composables/useAppSettings'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
-import SandboxBackends from '~/components/sandbox/SandboxBackends.vue'
+import SandboxSandboxes from '~/components/sandbox/SandboxSandboxes.vue'
+import SandboxComputes from '~/components/sandbox/SandboxComputes.vue'
 import SandboxEnvironments from '~/components/sandbox/SandboxEnvironments.vue'
 import SandboxSettings from '~/components/sandbox/SandboxSettings.vue'
 
@@ -43,7 +45,7 @@ const visibleTabs = computed(() =>
 const activeTab = computed(() => {
     const requested = String(route.query.tab || '')
     const tabs = visibleTabs.value
-    return tabs.find(tab => tab.key === requested)?.key || tabs[0]?.key || 'backends'
+    return tabs.find(tab => tab.key === requested)?.key || tabs[0]?.key || 'sandboxes'
 })
 
 definePageMeta({

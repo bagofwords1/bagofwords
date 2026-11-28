@@ -10,8 +10,8 @@ import pytest
 import pytest_asyncio
 
 from app.services.sandbox.drivers import registry
-from app.services.sandbox.drivers.base import BackendContext, SandboxHandle
-from app.services.sandbox.drivers.fake import reset_fake_backends
+from app.services.sandbox.drivers.base import ComputeContext, SandboxHandle
+from app.services.sandbox.drivers.fake import reset_fake_computes
 from tests.contracts.sandbox_driver.contract import *  # noqa: F401,F403 - the contract tests
 from tests.contracts.sandbox_driver.harness import DriverHarness
 
@@ -20,10 +20,10 @@ pytestmark = pytest.mark.asyncio
 
 @pytest_asyncio.fixture
 async def harness():
-    backend_id, instance_id = uuid.uuid4().hex, "this-bow-instance"
+    compute_id, instance_id = uuid.uuid4().hex, "this-bow-instance"
 
     def make_driver():
-        ctx = BackendContext(backend_id=backend_id, name="fake", instance_id=instance_id)
+        ctx = ComputeContext(compute_id=compute_id, name="fake", instance_id=instance_id)
         return registry.create_driver("fake", ctx)
 
     driver = make_driver()
@@ -45,8 +45,8 @@ async def harness():
         driver=driver, make_driver=make_driver, image="fake-image",
         probe_command=lambda domain: ["bow-net-probe", domain],
         registry_domain="pypi.org", other_domain="example.com",
-        plant_orphan=plant_orphan, exists_on_backend=exists, remove_from_backend=remove,
+        plant_orphan=plant_orphan, exists_on_compute=exists, remove_from_compute=remove,
     )
     yield harness
     await harness.cleanup()
-    reset_fake_backends()
+    reset_fake_computes()

@@ -2,7 +2,7 @@
 
 An environment says what a sandbox is (image, resources, run timeout), what
 it may reach (network policy), what it carries (variables and secrets) and
-where it may run (backend labels, strong isolation). Who may use it is the
+where it may run (compute labels, strong isolation). Who may use it is the
 per-environment ``use`` grant, handled in ``access.py``.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.models.sandbox import Sandbox, SandboxAgentDefault, SandboxBackend, SandboxEnvironment
+from app.models.sandbox import Sandbox, SandboxAgentDefault, SandboxCompute, SandboxEnvironment
 from app.schemas.sandbox_schema import SandboxEnvironmentCreate, SandboxEnvironmentUpdate
 from app.services.sandbox import errors
 from app.services.sandbox.audit import audit
@@ -44,6 +44,20 @@ def builtin_image() -> str:
     return f"bagofwords/sandbox:{version}"
 
 
+# After this many creations in a row that failed in a hook, an environment
+# stops creating sandboxes until it is changed: every attempt would fail the
+# same way, each one costing a container and up to the script's time limit.
+HOOK_FAILURE_CAP = 3
+
+
+def setup_fingerprint(env: SandboxEnvironment) -> str:
+    """Identifies what a sandbox was set up with (image and setup script), so a
+    sandbox created before either changed can be told apart."""
+    import hashlib
+
+    return hashlib.sha256(f"{env.image}\n{env.setup_script or ''}".encode("utf-8")).hexdigest()[:16]
+
+
 def pinned_image(env: SandboxEnvironment) -> str:
     """The image reference a sandbox is created from: by digest when one is known."""
     image = env.image
@@ -54,7 +68,7 @@ def pinned_image(env: SandboxEnvironment) -> str:
 
 
 def required_capabilities(env: SandboxEnvironment) -> set:
-    """What a backend must be able to do to run this environment."""
+    """What a compute must be able to do to run this environment."""
     needed = set()
     if env.require_strong_isolation:
         needed.add(CAP_STRONG_ISOLATION)
@@ -65,11 +79,31 @@ def required_capabilities(env: SandboxEnvironment) -> set:
     return needed
 
 
-def backend_fits(backend: SandboxBackend, env: SandboxEnvironment) -> bool:
-    """Labels match and the backend supports what the environment needs."""
-    if not set(env.backend_labels or []) <= set(backend.labels or []):
+def needs_confirmation(env: Optional[SandboxEnvironment], *, installs_packages: bool) -> Optional[str]:
+    """Why a run in this environment must be confirmed by the person in the
+    chat first, or None when it need not be."""
+    policy = (getattr(env, "confirm_runs", None) or "never") if env is not None else "never"
+    if policy == "always":
+        return "This environment asks before every run."
+    if policy == "full_network" and env.network_policy == POLICY_FULL:
+        return "This environment has full internet access and asks before every run."
+    if policy == "packages" and installs_packages:
+        return "This environment asks before a run installs packages."
+    return None
+
+
+def mounted_volumes(env: SandboxEnvironment) -> set:
+    return {m.get("volume") for m in (env.mounts or []) if m.get("volume")}
+
+
+def compute_fits(compute: SandboxCompute, env: SandboxEnvironment) -> bool:
+    """Labels match, the compute has every volume the environment mounts, and
+    it supports what the environment needs."""
+    if not set(env.compute_labels or []) <= set(compute.labels or []):
         return False
-    return required_capabilities(env) <= set(backend.capabilities or [])
+    if not mounted_volumes(env) <= {v.get("name") for v in (compute.volumes or [])}:
+        return False
+    return required_capabilities(env) <= set(compute.capabilities or [])
 
 
 async def get_environment(db: AsyncSession, organization_id: str, environment_id: str) -> SandboxEnvironment:
@@ -107,27 +141,49 @@ async def _name_taken(db: AsyncSession, organization_id: str, name: str, except_
 
 async def validation_warnings(db: AsyncSession, organization_id: str, env: SandboxEnvironment) -> List[str]:
     """Things an admin should know about this environment as saved. Not errors:
-    an environment may be defined before the backend that will run it exists."""
+    an environment may be defined before the compute that will run it exists."""
     warnings: List[str] = []
     if env.secrets and env.network_policy == POLICY_FULL:
         warnings.append(
             "This environment has secrets and full internet access: code run in it can read the secrets and "
             "send them anywhere. Restrict the network policy, or who may use the environment."
         )
+    if int(env.hook_failures or 0) >= HOOK_FAILURE_CAP:
+        warnings.append(
+            f"Its setup or start script failed {env.hook_failures} times in a row, so new sandboxes are refused. "
+            f"Last error: {(env.hook_last_error or 'unknown')[:300]} Change the script or the image to try again."
+        )
+    elif env.hook_failures:
+        warnings.append(
+            f"Its setup or start script failed the last {env.hook_failures} time(s): "
+            f"{(env.hook_last_error or 'unknown')[:300]}"
+        )
     rows = await db.execute(
-        select(SandboxBackend).where(
-            SandboxBackend.organization_id == str(organization_id), SandboxBackend.deleted_at.is_(None),
+        select(SandboxCompute).where(
+            SandboxCompute.organization_id == str(organization_id), SandboxCompute.deleted_at.is_(None),
         )
     )
-    backends = list(rows.scalars().all())
-    labelled = [b for b in backends if set(env.backend_labels or []) <= set(b.labels or [])]
-    if backends and not labelled:
-        warnings.append("No backend has the labels this environment asks for, so it cannot run anywhere yet.")
-    elif labelled and not any(backend_fits(b, env) for b in labelled):
-        missing = sorted(required_capabilities(env) - set().union(*(set(b.capabilities or []) for b in labelled)))
+    computes = list(rows.scalars().all())
+    labelled = [b for b in computes if set(env.compute_labels or []) <= set(b.labels or [])]
+    wanted = mounted_volumes(env)
+    if wanted and labelled and not any(wanted <= {v.get("name") for v in (b.volumes or [])} for b in labelled):
         warnings.append(
-            "No matching backend supports what this environment needs: " + ", ".join(missing).replace("_", " ") + "."
+            "No compute has every volume this environment mounts (" + ", ".join(sorted(wanted)) + "), "
+            "so it cannot run anywhere yet. Add the volume to a compute."
         )
+    if any(not m.get("read_only", True) and m.get("shared") for m in (env.mounts or [])):
+        warnings.append(
+            "A volume is mounted writable and shared: every sandbox of this environment can read and change "
+            "what the others wrote there, across reports."
+        )
+    if computes and not labelled:
+        warnings.append("No compute has the labels this environment asks for, so it cannot run anywhere yet.")
+    elif labelled and not any(compute_fits(b, env) for b in labelled):
+        missing = sorted(required_capabilities(env) - set().union(*(set(b.capabilities or []) for b in labelled)))
+        if missing:  # (a missing volume has its own warning above)
+            warnings.append(
+                "No matching compute supports what this environment needs: " + ", ".join(missing).replace("_", " ") + "."
+            )
     return warnings
 
 
@@ -150,11 +206,12 @@ async def create_environment(db: AsyncSession, organization_id: str, actor_id: O
         organization_id=str(organization_id), name=data.name.strip(), description=data.description,
         image=data.image.strip(), registry_username=data.registry_username,
         registry_password=data.registry_password or None, setup_script=data.setup_script,
+        start_script=data.start_script, stop_script=data.stop_script, hook_failures=0,
         cpus=data.cpus, memory_mb=data.memory_mb, disk_mb=data.disk_mb,
         run_timeout_seconds=data.run_timeout_seconds, network_policy=data.network_policy,
         allowed_domains=list(data.allowed_domains or []), env_vars=dict(data.env_vars or {}),
         secrets=dict(data.secrets) if data.secrets else None,
-        backend_labels=list(data.backend_labels or []), require_strong_isolation=data.require_strong_isolation,
+        compute_labels=list(data.compute_labels or []), confirm_runs=data.confirm_runs or "never", mounts=[m.model_dump() for m in (data.mounts or [])], require_strong_isolation=data.require_strong_isolation,
         ports=list(data.ports or []), is_default=data.is_default, enabled=data.enabled, created_by=actor_id,
     )
     db.add(env)
@@ -188,16 +245,25 @@ async def update_environment(db: AsyncSession, organization_id: str, actor_id: O
         image_changed = True
         changed.append("image")
 
-    for field in ("description", "registry_username", "setup_script"):
+    for field in ("description", "registry_username", "setup_script", "start_script", "stop_script"):
         if field in changes and changes[field] != getattr(env, field):
             setattr(env, field, changes[field])
             changed.append(field)
+    if image_changed or {"setup_script", "start_script"} & set(changed):
+        # What kept failing was changed: let sandboxes be created again.
+        env.hook_failures, env.hook_last_error = 0, None
     for field in ("cpus", "memory_mb", "disk_mb", "run_timeout_seconds", "network_policy",
-                  "require_strong_isolation", "enabled"):
+                  "require_strong_isolation", "enabled", "confirm_runs"):
         if changes.get(field) is not None and changes[field] != getattr(env, field):
             setattr(env, field, changes[field])
             changed.append(field)
-    for field in ("allowed_domains", "env_vars", "backend_labels", "ports"):
+    if data.mounts is not None:
+        mounts = [m.model_dump() for m in data.mounts]
+        if mounts != list(env.mounts or []):
+            env.mounts = mounts
+            flag_modified(env, "mounts")
+            changed.append("mounts")
+    for field in ("allowed_domains", "env_vars", "compute_labels", "ports"):
         if changes.get(field) is not None and changes[field] != getattr(env, field):
             setattr(env, field, changes[field])
             flag_modified(env, field)
@@ -307,7 +373,7 @@ async def ensure_builtin_environment(db: AsyncSession, organization_id: str) -> 
         env = SandboxEnvironment(
             organization_id=str(organization_id), name=BUILTIN_ENVIRONMENT_NAME,
             description=BUILTIN_ENVIRONMENT_DESCRIPTION, image=builtin_image(), network_policy="none",
-            allowed_domains=[], env_vars={}, backend_labels=[], ports=[], is_default=not has_default, enabled=True,
+            allowed_domains=[], env_vars={}, compute_labels=[], ports=[], is_default=not has_default, enabled=True,
         )
         db.add(env)
         await db.flush()
@@ -394,13 +460,13 @@ def choose_environment(candidates: Sequence[SandboxEnvironment], *, requested: O
     )
 
 
-async def pull_image_on_backends(organization_id: str, environment_id: str, session_factory=None) -> Dict[str, str]:
-    """Pull an environment's image on every backend that could run it, and
+async def pull_image_on_computes(organization_id: str, environment_id: str, session_factory=None) -> Dict[str, str]:
+    """Pull an environment's image on every compute that could run it, and
     record the digest it resolved to. Runs in the background after an
-    environment is saved with a new image; returns ``{backend name: outcome}``."""
+    environment is saved with a new image; returns ``{compute name: outcome}``."""
     import logging
 
-    from app.services.sandbox import backends as backend_service
+    from app.services.sandbox import computes as compute_service
     from app.services.sandbox.drivers.base import SandboxDriverError
 
     logger = logging.getLogger(__name__)
@@ -414,28 +480,28 @@ async def pull_image_on_backends(organization_id: str, environment_id: str, sess
         except SandboxError:
             return outcomes
         digest: Optional[str] = None
-        for backend in await backend_service.list_backends(db, organization_id):
-            if backend.bootstrap_status != "ready" or not set(env.backend_labels or []) <= set(backend.labels or []):
+        for compute in await compute_service.list_computes(db, organization_id):
+            if compute.bootstrap_status != "ready" or not set(env.compute_labels or []) <= set(compute.labels or []):
                 continue
             try:
-                driver = await backend_service.build_driver(db, backend)
+                driver = await compute_service.build_driver(db, compute)
             except SandboxError as exc:
-                outcomes[backend.name] = exc.message
+                outcomes[compute.name] = exc.message
                 continue
             try:
                 found = await driver.pull_image(
                     env.image, registry_username=env.registry_username, registry_password=env.registry_password,
                 )
                 digest = digest or found
-                outcomes[backend.name] = "pulled"
+                outcomes[compute.name] = "pulled"
             except SandboxDriverError as exc:
-                outcomes[backend.name] = exc.message
-                logger.warning("could not pull %s on sandbox backend %s: %s", env.image, backend.name, exc.message)
+                outcomes[compute.name] = exc.message
+                logger.warning("could not pull %s on sandbox compute %s: %s", env.image, compute.name, exc.message)
             finally:
                 await driver.close()
         if digest and env.image_digest != digest:
             env.image_digest = digest
         await audit(db, organization_id, "sandbox_environment.image_pulled", None, "sandbox_environment", env.id,
-                    {"title": env.name, "image": env.image, "digest": digest, "backends": outcomes})
+                    {"title": env.name, "image": env.image, "digest": digest, "computes": outcomes})
         await db.commit()
     return outcomes

@@ -4,7 +4,7 @@ Three permissions, fitting the existing model in ``core/permissions_registry``:
 
 ``use_agent_sandbox``  organization permission. The sandbox tools are offered
                        to this user's agent. Not granted to members by default.
-``manage_sandboxes``   organization permission. Backends, environments,
+``manage_sandboxes``   organization permission. Computes, environments,
                        settings and the fleet view. Checked on the routes.
 ``use``                per-environment grant (resource type
                        ``sandbox_environment``), to a user, group or role.
@@ -25,7 +25,7 @@ from typing import List, Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.sandbox import SandboxBackend, SandboxEnvironment
+from app.models.sandbox import SandboxCompute, SandboxEnvironment
 from app.services.sandbox import errors
 from app.services.sandbox.errors import SandboxError
 from app.services.sandbox.feature import SANDBOX_ENVIRONMENT_RESOURCE
@@ -90,23 +90,23 @@ class SandboxAccess:
 
     async def tools_offered(self, db: AsyncSession, organization_id: str, user_id: Optional[str]) -> bool:
         """Whether the sandbox tools should be offered to this user's agent:
-        the permission, an environment they may use, and a backend to run it on.
+        the permission, an environment they may use, and a compute to run it on.
         (The deployment flag and the organization switch are checked by the caller.)"""
         if not await self.can_use_sandboxes(db, organization_id, user_id):
             return False
         environments = await self.usable_environments(db, organization_id, user_id)
         if not environments:
             return False
-        from app.services.sandbox.environments import backend_fits
+        from app.services.sandbox.environments import compute_fits
 
         rows = await db.execute(
-            select(SandboxBackend).where(
-                SandboxBackend.organization_id == str(organization_id), SandboxBackend.deleted_at.is_(None),
-                SandboxBackend.enabled.is_(True), SandboxBackend.bootstrap_status == "ready",
+            select(SandboxCompute).where(
+                SandboxCompute.organization_id == str(organization_id), SandboxCompute.deleted_at.is_(None),
+                SandboxCompute.enabled.is_(True), SandboxCompute.bootstrap_status == "ready",
             )
         )
-        backends = list(rows.scalars().all())
-        return any(backend_fits(b, env) for b in backends for env in environments)
+        computes = list(rows.scalars().all())
+        return any(compute_fits(b, env) for b in computes for env in environments)
 
 
 # ── The per-environment ``use`` grant ────────────────────────────────────

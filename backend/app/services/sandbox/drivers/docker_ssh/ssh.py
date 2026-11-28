@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shlex
+import time
 from dataclasses import dataclass
 from typing import Optional, Sequence, Union
 
@@ -28,6 +29,16 @@ from app.services.sandbox.drivers.base import SandboxDriverError
 # is dozens of lines per sandbox run, and command lines do not belong in the
 # application log. Warnings and errors still come through.
 logging.getLogger("asyncssh").setLevel(logging.WARNING)
+
+# The record of what BoW ran on a server. Its own logger, so it can be sent
+# somewhere else or turned down without touching the rest of the logging.
+commands_log = logging.getLogger("bow.sandbox.commands")
+
+
+def _summary(command: str, limit: int = 300) -> str:
+    """A command line cut to a readable length."""
+    return command if len(command) <= limit else command[:limit] + " …"
+
 
 MODE_ROOT = "root"
 MODE_SUDO = "sudo"
@@ -154,7 +165,7 @@ class SSHHost:
             options.update(password=password, client_keys=None, preferred_auth="password,keyboard-interactive")
         else:
             if not self._private_key:
-                raise SSHError("This backend has no SSH private key", code="invalid_credentials")
+                raise SSHError("This compute has no SSH private key", code="invalid_credentials")
             try:
                 options.update(client_keys=[asyncssh.import_private_key(self._private_key)],
                                preferred_auth="publickey")
@@ -228,7 +239,15 @@ class SSHHost:
         command = shlex.join([str(part) for part in argv])
         if not as_user and await self.detect_mode() == MODE_SUDO:
             command = "sudo -n -- " + command
+        started = time.monotonic()
         result = await self._exec(command, input=input, timeout=timeout)
+        # One line per command run on the server, for the operator's record.
+        # Commands are fixed templates; anything secret travels on standard
+        # input and is never part of the command line (see the module docstring).
+        commands_log.info(
+            "sandbox command on %s: %s -> exit %s in %.2fs", self.address, _summary(command),
+            result.exit_status, time.monotonic() - started,
+        )
         if check and not result.ok:
             label = " ".join(str(part) for part in argv[:2])
             raise SSHError(
@@ -236,6 +255,82 @@ class SSHHost:
                 code="command_failed", detail=result.detail(2000),
             )
         return result
+
+    async def _stream_command(self, argv: Sequence[str]) -> str:
+        command = shlex.join([str(part) for part in argv])
+        if await self.detect_mode() == MODE_SUDO:
+            command = "sudo -n -- " + command
+        return command
+
+    async def stream_out(self, argv: Sequence[str], write, *, max_bytes: int, timeout: float = 3600) -> int:
+        """Run a command and hand its (binary) standard output to ``write`` piece
+        by piece. Stops with ``too_large`` once more than ``max_bytes`` came out."""
+        import asyncssh
+
+        command = await self._stream_command(argv)
+        conn = await self.connect()
+        started, total = time.monotonic(), 0
+        try:
+            async with conn.create_process(command, encoding=None) as process:
+                async def pump() -> int:
+                    size = 0
+                    while True:
+                        chunk = await process.stdout.read(256 * 1024)
+                        if not chunk:
+                            return size
+                        size += len(chunk)
+                        if size > max_bytes:
+                            process.kill()
+                            raise SSHError(
+                                f"It is larger than the limit of {max_bytes // (1024 * 1024)} MB.", code="too_large",
+                            )
+                        await write(chunk)
+                total = await asyncio.wait_for(pump(), timeout=timeout)
+                await process.wait()
+                status = process.exit_status if process.exit_status is not None else 255
+                stderr = (await process.stderr.read() or b"").decode("utf-8", "replace")
+        except asyncio.TimeoutError as exc:
+            raise SSHError(f"A command on the server did not finish within {int(timeout)} seconds", code="timeout") from exc
+        except (OSError, asyncssh.Error) as exc:
+            self._conn = None
+            raise SSHError(f"The SSH connection failed ({_why(exc)})", code="unreachable") from exc
+        commands_log.info("sandbox command on %s: %s -> exit %s, %s bytes out in %.2fs",
+                          self.address, _summary(command), status, total, time.monotonic() - started)
+        if status != 0:
+            raise SSHError(f"`{argv[0]}` failed on the server (exit {status}): {stderr.strip()[-300:]}", code="command_failed")
+        return total
+
+    async def stream_in(self, argv: Sequence[str], chunks, *, timeout: float = 3600) -> int:
+        """Run a command and feed it ``chunks`` (binary) on standard input."""
+        import asyncssh
+
+        command = await self._stream_command(argv)
+        conn = await self.connect()
+        started, total = time.monotonic(), 0
+        try:
+            async with conn.create_process(command, encoding=None) as process:
+                async def pump() -> int:
+                    size = 0
+                    async for chunk in chunks:
+                        process.stdin.write(chunk)
+                        await process.stdin.drain()
+                        size += len(chunk)
+                    process.stdin.write_eof()
+                    return size
+                total = await asyncio.wait_for(pump(), timeout=timeout)
+                await asyncio.wait_for(process.wait(), timeout=timeout)
+                status = process.exit_status if process.exit_status is not None else 255
+                stderr = (await process.stderr.read() or b"").decode("utf-8", "replace")
+        except asyncio.TimeoutError as exc:
+            raise SSHError(f"A command on the server did not finish within {int(timeout)} seconds", code="timeout") from exc
+        except (OSError, asyncssh.Error) as exc:
+            self._conn = None
+            raise SSHError(f"The SSH connection failed ({_why(exc)})", code="unreachable") from exc
+        commands_log.info("sandbox command on %s: %s -> exit %s, %s bytes in in %.2fs",
+                          self.address, _summary(command), status, total, time.monotonic() - started)
+        if status != 0:
+            raise SSHError(f"`{argv[0]}` failed on the server (exit {status}): {stderr.strip()[-300:]}", code="command_failed")
+        return total
 
     async def write_file(self, path: str, content: Union[str, bytes], *, mode: str = "600") -> None:
         """Create or replace a root-owned file. The content travels on standard input."""

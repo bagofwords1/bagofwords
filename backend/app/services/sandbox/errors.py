@@ -20,7 +20,7 @@ FORBIDDEN = "sandbox.forbidden"                    # the user lacks use_agent_sa
 NO_ENVIRONMENT = "sandbox.no_environment"          # no environment the user may use
 ENVIRONMENT_NOT_ALLOWED = "sandbox.environment_not_allowed"
 ENVIRONMENT_NOT_FOUND = "sandbox.environment_not_found"
-NO_BACKEND = "sandbox.no_backend"                  # no enabled, healthy backend fits the environment
+NO_COMPUTE = "sandbox.no_compute"                  # no enabled, healthy compute fits the environment
 QUOTA_USER = "sandbox.quota_user"                  # too many running sandboxes for this user
 QUOTA_TOTAL = "sandbox.quota_total"                # too many running sandboxes in the deployment
 BUSY = "sandbox.busy"                              # a run is already in progress
@@ -29,12 +29,13 @@ INVALID = "sandbox.invalid_request"
 PACKAGES_NEED_NETWORK = "sandbox.packages_need_network"
 PACKAGE_INSTALL_FAILED = "sandbox.package_install_failed"
 INPUT_NOT_ALLOWED = "sandbox.input_not_allowed"    # an input file is not one of the report's
-UNAVAILABLE = "sandbox.unavailable"                # the backend or the sandbox could not be reached
+UNAVAILABLE = "sandbox.unavailable"                # the compute or the sandbox could not be reached
 INVALID_STATE = "sandbox.invalid_state"
-BACKEND_NOT_FOUND = "sandbox.backend_not_found"
-BACKEND_IN_USE = "sandbox.backend_in_use"
-BACKEND_NOT_READY = "sandbox.backend_not_ready"
+COMPUTE_NOT_FOUND = "sandbox.compute_not_found"
+COMPUTE_IN_USE = "sandbox.compute_in_use"
+COMPUTE_NOT_READY = "sandbox.compute_not_ready"
 ENVIRONMENT_IN_USE = "sandbox.environment_in_use"
+ENVIRONMENT_BROKEN = "sandbox.environment_broken"  # its setup or start script keeps failing
 NAME_TAKEN = "sandbox.name_taken"
 
 

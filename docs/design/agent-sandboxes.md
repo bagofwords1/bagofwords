@@ -7,7 +7,7 @@ end lists every deviation in one place.
 Scope: four planner tools (`create_sandbox`, `run_in_sandbox`, `sandbox_status`,
 `delete_sandbox`), a driver interface with one real driver (`docker-ssh`), admin-defined
 environments, per-environment network policy, permissions, audit, three scheduled jobs,
-and the Settings → Sandbox admin section (Backends, Environments, Settings).
+and the Settings → Sandbox admin section (Computes, Environments, Settings).
 Out of scope (deliberately, see [Deferred](#deferred)): MCP server tools, the fleet view
 and per-sandbox page, the domain log UI, a report tool block and status chip, warm
 pools, hosted apps, and a Kubernetes driver.
@@ -62,7 +62,7 @@ another machine, with no data-source credentials, for work on files.
 | 1.10 Scheduled jobs | Built |
 | 1.11 Admin UI | In progress when this was written; described from the files present |
 | 1.12 Live test and this document | Built. The live run used a scripted stand-in model |
-| Phase 2 (control and visibility), phase 3 (polish) | Not built. Some backend parts exist early (see Deferred) |
+| Phase 2 (control and visibility), phase 3 (polish) | Not built. Some compute parts exist early (see Deferred) |
 
 ## Feature gate
 
@@ -114,7 +114,7 @@ Turning the deployment flag off stops the jobs, so delete the sandboxes first.
 
 | Layer | Owns | Knows about Docker or SSH |
 |---|---|---|
-| Service (`service.py`, `backends.py`, `environments.py`, `access.py`) | States, quotas, placement, permissions, records, audit | No |
+| Service (`service.py`, `computes.py`, `environments.py`, `access.py`) | States, quotas, placement, permissions, records, audit | No |
 | Runtime client (`runtime_client.py`) | Talking to `sandboxd`: run a process, move files | No. It needs an `Endpoint` only |
 | Driver (`drivers/base.py`, `drivers/docker_ssh/`) | Create, stop, start, delete, network policy, isolation, bootstrap, stats, reconcile | Yes, and only here |
 
@@ -128,7 +128,7 @@ Turning the deployment flag off stops the jobs, so delete the sandboxes first.
   carries a Pydantic config schema and credentials schema; the admin form is rendered
   from them.
 - `backend/tests/unit/test_agent_sandbox_layering.py` fails if code above the driver
-  names the driver's parts or branches on the backend type.
+  names the driver's parts or branches on the compute type.
 - Two types are registered: `docker-ssh` and `fake`. The fake driver runs code as the
   BoW server's own user with no isolation. It is offered only under `TESTING` or when
   `BOW_AGENT_SANDBOXES_FAKE_DRIVER` is set.
@@ -141,10 +141,10 @@ Turning the deployment flag off stops the jobs, so delete the sandboxes first.
 
 | Table | Holds | Used in phase 1 |
 |---|---|---|
-| `sandbox_backends` | Type, config, encrypted credentials, driver state, capabilities, labels, capacity, bootstrap steps, health | Yes |
+| `sandbox_computes` | Type, config, encrypted credentials, driver state, capabilities, labels, capacity, bootstrap steps, health | Yes |
 | `sandbox_environments` | Image, digest, resources, network policy, variables, encrypted secrets, labels, flags | Yes |
 | `sandbox_agent_defaults` | An agent's default environment | Read only (see Open questions) |
-| `sandboxes` | One per report: backend, environment, state, encrypted token, limits, timestamps | Yes |
+| `sandboxes` | One per report: compute, environment, state, encrypted token, limits, timestamps | Yes |
 | `sandbox_runs` | One per run: code (encrypted), hash, status, exit code, output (encrypted, capped), file ids | Yes |
 | `sandbox_events` | The timeline: state changes, setup script, package installs, run start and finish | Written; no page reads it yet |
 | `sandbox_egress_log`, `sandbox_exposures` | Domain log; reserved for hosted apps | No. Created empty |
@@ -158,14 +158,14 @@ Turning the deployment flag off stops the jobs, so delete the sandboxes first.
 ## The docker-ssh driver
 
 **Built, with the spike's design changes.** Code: `drivers/docker_ssh/`. Image sources:
-`deploy/sandbox/`. A backend is one Linux server. Everything BoW puts on it is under
+`deploy/sandbox/`. A compute is one Linux server. Everything BoW puts on it is under
 `/var/lib/bow-sandbox` (`layout.py`) and carries the label `bow.instance=<id>`.
 
 ### SSH (`ssh.py`)
 
 - **Host key first.** Test connection reads the server's host keys without logging in
   and shows the fingerprint. No login happens until an admin confirms it
-  (`POST /backends/{id}/confirm-identity`) or a fingerprint entered with the backend
+  (`POST /computes/{id}/confirm-identity`) or a fingerprint entered with the compute
   matches. The key is then pinned in `driver_state`. A changed key is refused.
   Bootstrap refuses an unconfirmed server.
 - **root, or `sudo -n`.** The mode is detected per connection, and the `sudo -n` prefix
@@ -173,7 +173,7 @@ Turning the deployment flag off stops the jobs, so delete the sandboxes first.
 - **Commands are argument lists**, built as pure functions in `commands.py` and quoted
   by the SSH layer. Model-written text never reaches a command line. Secrets travel on
   standard input or in a mode-600 file removed after `docker run`.
-- **Keys.** Creating a backend without a private key generates an ed25519 pair. The
+- **Keys.** Creating a compute without a private key generates an ed25519 pair. The
   private key is encrypted and never returned. An optional one-time password is used
   for one login that installs the public key, after the host key is pinned, and is
   never stored.
@@ -202,10 +202,10 @@ records without asking BoW's database.
   Docker's configuration. `Host.strong_runtime` tells three cases apart: registered,
   installed but not registered (with the fix), and not installed.
 - The isolation level is reported: stored in `driver_state`, returned as
-  `info.isolation` (`gvisor` or `runc`) on the backend, and exposed as the
+  `info.isolation` (`gvisor` or `runc`) on the compute, and exposed as the
   `strong_isolation` capability. Bootstrap's last step checks that the kernel a test
   sandbox sees ends in `-gvisor`.
-- An environment with `require_strong_isolation` only fits backends with that capability.
+- An environment with `require_strong_isolation` only fits computes with that capability.
 - The router, the egress proxy and the firewall helper always run under `runc`.
 
 ### Router
@@ -223,8 +223,8 @@ One Caddy container per host terminates TLS on one published port (default 8443)
 
 ### Bootstrap (`bootstrap.py`)
 
-Nine steps, each stored on the backend as it finishes. Safe to run again. It stops at
-the first failed step and leaves the backend disabled.
+Nine steps, each stored on the compute as it finishes. Safe to run again. It stops at
+the first failed step and leaves the compute disabled.
 
 In order: (1) check Docker, a supported setup and server ownership; (2) detect gVisor,
 a warning and not a failure when absent; (3) create the sandbox network; (4) place the
@@ -236,7 +236,7 @@ internet or the metadata address, remove it.
 
 Reported as unsupported: Podman, rootless Docker, a firewall backend other than
 iptables, and a host where bridge traffic does not pass the packet filter. With
-`images_preloaded` set on the backend, bootstrap checks that each image is present
+`images_preloaded` set on the compute, bootstrap checks that each image is present
 instead of pulling it (air-gapped hosts).
 
 **One server, one BoW instance.** Step 1 writes an owner marker with this deployment's
@@ -270,7 +270,7 @@ live test. It was planned for phase 2.
   from Docker's `DOCKER-USER` chain and from `INPUT`, and re-asserts them every few
   seconds. It allows router-to-sandbox and sandbox-to-proxy. It drops sandbox traffic
   to the host, to private and link-local ranges (which covers the cloud metadata
-  address), and to port 25. When the backend's optional "BoW address" is set, only
+  address), and to port 25. When the compute's optional "BoW address" is set, only
   that address may reach the router port.
 - **DNS.** Sandboxes not on `full` resolve nothing themselves; the proxy resolves names.
 - **Domain log.** The proxy writes a JSON access log and `DockerSSHDriver.egress_log`
@@ -288,7 +288,7 @@ The UI form covers a subset.
 | Network policy | Yes | `none`, `registries`, `full` |
 | Strong isolation required | Yes | Yes |
 | Who may use it (roles, groups, users) | Yes (`PUT .../access`) | Yes |
-| Allowed domains, variables, secrets, registry credentials, setup script, backend labels | Yes | No |
+| Allowed domains, variables, secrets, registry credentials, setup script, compute labels | Yes | No |
 | Ports, warm pool size | Stored, unused | No |
 
 - **Choosing one** (`choose_environment`): the one the agent asked for, then the
@@ -301,7 +301,7 @@ The UI form covers a subset.
   with `full` return a warning.
 - **Images.** A reference must start with a letter or digit (checked in the schema and
   in the driver). Saving a new image pulls it in the background on matching
-  bootstrapped backends and records the digest.
+  bootstrapped computes and records the digest.
 - **Setup script.** Runs once at creation, 15-minute limit. A failing script fails the
   sandbox.
 
@@ -316,7 +316,7 @@ The UI form covers a subset.
 | `use` on `sandbox_environment` | Resource grant to a user, group or role | Create and run sandboxes from that environment |
 
 - The tools are offered only when the user holds `use_agent_sandbox`, may use at least
-  one enabled environment, and an enabled, bootstrapped backend fits one of them
+  one enabled environment, and an enabled, bootstrapped compute fits one of them
   (`SandboxAccess.tools_offered`). Each tool checks again when called.
 - A sandbox belongs to its report and is shared. Each run is checked and recorded
   against the user who triggered it. A run with no user (a scheduled run) acts as the
@@ -338,9 +338,9 @@ the next run, and any state `→ failed` (recreated on the next run).
 - A sandbox found stopped (a reboot, an admin) is recorded as stopped and resumed. One
   that is gone or does not answer is marked failed and recreated; the tool result says
   the filesystem is fresh.
-- Quotas: running sandboxes per user, an optional organization total, and per-backend
+- Quotas: running sandboxes per user, an optional organization total, and per-compute
   capacity. A stopped sandbox does not count.
-- Placement (`choose_backend`): enabled, bootstrapped, not unreachable, labels match,
+- Placement (`choose_compute`): enabled, bootstrapped, not unreachable, labels match,
   capabilities cover the environment, free capacity; then least loaded.
 
 Three jobs run on the scheduler leader, registered only when the flag is on (`jobs.py`):
@@ -348,8 +348,8 @@ Three jobs run on the scheduler leader, registered only when the flag is on (`jo
 | Job | Every | One pass |
 |---|---|---|
 | Lifecycle | 60 s | idle → stop → delete: mark idle after 5 minutes, stop at the idle timeout, delete after the stopped retention, at the maximum lifetime, or when the report is archived, soft-deleted or gone |
-| Backend health | 2 min | Test every bootstrapped backend. On reachable ones, check each ready or idle sandbox: gone is marked failed, found stopped is marked stopped |
-| Reconcile | 10 min | Ask each reachable backend's driver to match the database: remove orphans and stale routes, repair missing routes, report known sandboxes that are gone |
+| Compute health | 2 min | Test every bootstrapped compute. On reachable ones, check each ready or idle sandbox: gone is marked failed, found stopped is marked stopped |
+| Reconcile | 10 min | Ask each reachable compute's driver to match the database: remove orphans and stale routes, repair missing routes, report known sandboxes that are gone |
 
 The lifecycle job also recovers from a dead worker: a sandbox `busy` longer than its run
 timeout plus 15 minutes is released, and one `provisioning` for 30 minutes is marked
@@ -358,7 +358,7 @@ failed. A failed sandbox with no next run is deleted after 24 hours.
 Defaults (`settings.py`, `schemas/sandbox_schema.py`, `service.py`): 1 CPU, 2 GB memory,
 5 GB disk; run timeout 10 minutes, at most 60; stop after 30 idle minutes; delete after
 7 days stopped; maximum lifetime 30 days; 3 running sandboxes per user; capacity 20 per
-backend; 50 artifacts per run, 100 MB each, 500 MB in total.
+compute; 50 artifacts per run, 100 MB each, 500 MB in total.
 
 ## Tools and runs
 
@@ -418,18 +418,18 @@ Run sequence (`SandboxService.run`):
 - **Liveness watchdog.** During a run the client asks the health endpoint every 10 s
   and gives up after two misses, because a sandbox killed outright does not always
   close its stream. Under gVisor, running out of memory kills the whole sandbox, not
-  only the process. The service then asks the backend: a sandbox that only stopped is
+  only the process. The service then asks the compute: a sandbox that only stopped is
   marked stopped ("stopped during a run") and resumes on the next run with its files.
   The agent is told it most likely ran out of memory.
 
 ## Audit
 
 **Built.** Every entry goes through the existing audit service (`audit.py`) with the
-report, backend or environment name in `details.title`. A failed audit write is logged
+report, compute or environment name in `details.title`. A failed audit write is logged
 and never fails the operation.
 
 - Sandboxes: `sandbox.created`, `.stopped`, `.resumed`, `.deleted`, `.run`, `.input_file`.
-- Backends: `sandbox_backend.created`, `.updated`, `.enabled`, `.disabled`,
+- Computes: `sandbox_compute.created`, `.updated`, `.enabled`, `.disabled`,
   `.identity_confirmed`, `.bootstrapped`, `.taken_over`, `.deleted`.
 - Environments: `sandbox_environment.created`, `.updated`, `.image_changed`,
   `.secrets_changed`, `.access_changed`, `.image_pulled`, `.deleted`.
@@ -441,28 +441,28 @@ are sent as `protected_variable_names`.
 
 ## Admin API and UI
 
-**API: built** for backends, environments and settings (`backend/app/routes/sandbox.py`).
+**API: built** for computes, environments and settings (`backend/app/routes/sandbox.py`).
 **Not built:** the fleet routes (`/sandboxes`, stats, stop, kill-run, extend).
 
 | Route under `/api/sandbox` | Purpose |
 |---|---|
 | `GET /status`, `GET`/`PUT /settings` | The gate levels; the Sandbox settings |
-| `GET /backend-types` | Form schemas and capabilities per type |
-| `/backends` (list, create), `/backends/{id}` (read, edit, delete) | Delete takes `cleanup` and `delete_sandboxes` |
-| `POST /backends/{id}/test` | Test connection. Changes nothing on the server |
-| `POST /backends/{id}/confirm-identity` | Pin the host key the admin confirmed |
-| `POST /backends/{id}/bootstrap` | Returns at once; progress is read from the backend. Accepts `take_over` |
+| `GET /compute-types` | Form schemas and capabilities per type |
+| `/computes` (list, create), `/computes/{id}` (read, edit, delete) | Delete takes `cleanup` and `delete_sandboxes` |
+| `POST /computes/{id}/test` | Test connection. Changes nothing on the server |
+| `POST /computes/{id}/confirm-identity` | Pin the host key the admin confirmed |
+| `POST /computes/{id}/bootstrap` | Returns at once; progress is read from the compute. Accepts `take_over` |
 | `/environments` (list, create), `/environments/{id}` (read, edit, delete) | Environments |
 | `PUT /environments/{id}/access`, `POST /environments/{id}/pull` | Grants; pull the image now |
 
-A backend is created disabled and cannot be enabled until bootstrap has succeeded.
+A compute is created disabled and cannot be enabled until bootstrap has succeeded.
 Disabling drains it. Delete is refused while it has sandboxes unless `delete_sandboxes`
 is passed. Responses never include private keys, passwords, secret values or tokens.
 
 **UI: in progress.** One page, `frontend/pages/settings/sandbox.vue`, with three tabs
-selected by `?tab=`: Backends, Environments, Settings. Components are in
+selected by `?tab=`: Computes, Environments, Settings. Components are in
 `frontend/components/sandbox/`; calls go through `useSandboxApi.ts`. Present in the
-files: a backend form rendered from the type's schemas, a test-connection dialog with
+files: a compute form rendered from the type's schemas, a test-connection dialog with
 fingerprint confirmation, a bootstrap dialog that polls step results and offers take
 over, a delete dialog with clean-up, the environment list and form with access
 pickers, and the settings form.
@@ -503,6 +503,9 @@ call is the real product. A run with a real model has not been done.
 
 ## Deferred
 
+Corporate proxies, internal hosts and custom CAs are parked with their open questions in
+`docs/design/agent-sandboxes-proxy-and-network.md`.
+
 Phase 2 and later in BOW-229. Not built unless noted.
 
 - **MCP server tools.** No sandbox tool is in `ai/tools/mcp/`.
@@ -510,7 +513,7 @@ Phase 2 and later in BOW-229. Not built unless noted.
   and the stop, kill-run, extend and delete actions. `SandboxDriver.stats` and the
   response schemas exist; no route or page uses them.
 - **Domain log.** Nothing ships `egress_log` to `sandbox_egress_log`; there is no UI.
-- **Custom allowlists, secrets, registry credentials, setup scripts, backend labels.**
+- **Custom allowlists, secrets, registry credentials, setup scripts, compute labels.**
   The API, service and driver handle them. The environment form does not offer them.
 - **Node and Go in the built-in image.**
 - **Phase 3:** a report tool block and status chip (the generic tool block shows the
@@ -531,9 +534,9 @@ Phase 2 and later in BOW-229. Not built unless noted.
 3. **`sandboxd` limit flags.** The issue's notes list `--execute-max-time-limit` and
    output limit flags. `commands.sandbox_run` passes only the ports, the root
    directory and the token hash; the client enforces the limits.
-4. **Unreachable backends and tool visibility.** `choose_backend` skips a backend whose
-   status is `unreachable`; `tools_offered` does not. With only an unreachable backend
-   the tools are offered and the run answers `sandbox.no_backend`. This is kept on
+4. **Unreachable computes and tool visibility.** `choose_compute` skips a compute whose
+   status is `unreachable`; `tools_offered` does not. With only an unreachable compute
+   the tools are offered and the run answers `sandbox.no_compute`. This is kept on
    purpose for now: an outage is temporary, and an agent that has the tools can tell
    the user the server is down, where an agent without them can only say it cannot
    run code. Whether to hide the tools after a longer outage is undecided.
@@ -559,7 +562,7 @@ What shipped differently from BOW-229, and why.
   with `docker kill` did not come back after a reboot.
 - **Host key confirmation is an explicit step** with its own route. The plan had it
   inside test connection.
-- **No key-pair endpoint and no cleanup endpoint.** A pair is generated when a backend
+- **No key-pair endpoint and no cleanup endpoint.** A pair is generated when a compute
   is created without a key. Clean-up is a flag on delete.
 - **Per-sandbox record files on the host.** Not in the plan.
 - **Lost gRPC status fallback, liveness watchdog, image reference validation.** All
@@ -573,7 +576,7 @@ What shipped differently from BOW-229, and why.
 - **Settings are a plain dict in organization settings**, not `FeatureConfig` entries.
 - **No foreign keys to existing tables**, so the migration stays additive.
 - **Setup scripts, secrets, registry credentials, labels and the allowlist policy work
-  in the backend already**, ahead of their phase 2 UI.
+  in the compute already**, ahead of their phase 2 UI.
 - **Reconcile is told about sandboxes still being created**, so one is never taken for
   an orphan. Dead-worker recovery and the 24-hour failed retention are also additions.
 - **A report counts as deleted when it is archived**, which is what "delete" does in
@@ -609,12 +612,12 @@ These came out of the first code review and are now covered by tests in
 - **A cancelled run gives the sandbox back.** `run` catches `CancelledError`,
   marks the run `cancelled` and the sandbox `ready` in a fresh, shielded
   session, then re-raises.
-- **A sandbox is marked deleted only when its container is gone** or its backend
-  is. A backend that exists but cannot be reached refuses the delete, so it can
+- **A sandbox is marked deleted only when its container is gone** or its compute
+  is. A compute that exists but cannot be reached refuses the delete, so it can
   be retried.
-- **A backend pointed at another address starts over**: unpinned, not
+- **A compute pointed at another address starts over**: unpinned, not
   bootstrapped, disabled. The driver decides what counts as "another"
-  (`is_another_backend`). It is refused while the backend has sandboxes.
+  (`is_another_compute`). It is refused while the compute has sandboxes.
 - **Bootstrap is claimed atomically** (`claim_bootstrap`), so two requests
   cannot both start one.
 - **Deleting an environment** removes its grants and is refused while sandboxes
@@ -624,22 +627,192 @@ These came out of the first code review and are now covered by tests in
 
 ### Bootstrap does not depend on environments
 
-Changed after review of the first real setup. Bootstrap prepares the backend
+Changed after review of the first real setup. Bootstrap prepares the compute
 and nothing else; it is done once per server, whatever environments exist.
 The issue had it pre-pull every environment's image, which made one
-environment with an image that could not be fetched fail the whole backend.
+environment with an image that could not be fetched fail the whole compute.
 
 Environment images are now fetched in three places, none of which can fail a
 bootstrap:
 
 - right after a bootstrap succeeds, in the background
-  (`backends.prefetch_environment_images`), with each environment's registry
+  (`computes.prefetch_environment_images`), with each environment's registry
   credentials. Failures are logged and audited as
-  `sandbox_backend.images_fetched`;
+  `sandbox_compute.images_fetched`;
 - when an environment is saved with a new image
-  (`environments.pull_image_on_backends`);
+  (`environments.pull_image_on_computes`);
 - when a sandbox is created and the server does not have the image yet.
 
 Not built: a place in the UI that shows an environment whose image could not
 be fetched. Today that is visible only in the audit log and when a first run
 fails.
+
+## Changes after the design review
+
+A second, design-level review (PR #1941, "Design feedback", ten points) changed and
+added the following. Everything here is built and tested unless it says otherwise.
+Sections above that describe the earlier state are superseded by this one where they
+differ. Point 10 (corporate proxies, internal hosts, custom CAs) is parked in
+`agent-sandboxes-proxy-and-network.md`.
+
+### 1. "Backend" is now "Compute"
+
+The place sandboxes run is a **compute** everywhere: table `sandbox_computes`, columns
+`compute_id` and `compute_labels`, API `/api/sandbox/computes` and
+`/api/sandbox/compute-types`, error codes `sandbox.compute_*`, audit actions
+`sandbox_compute.*`, code (`services/sandbox/computes.py`), UI text and locale keys.
+The migration was changed in place, because the tables had not shipped. "Docker's
+firewall backend" keeps its name: that is Docker's term.
+
+### 2. Capacity is counted in resources
+
+`services/sandbox/capacity.py`. A compute reports what it has (`ComputeHealth.resources`:
+CPUs and memory from its runtime, the size of the workspace disk) at bootstrap and on
+every health check. Placement and resume count each sandbox's own limits against it.
+
+| Resource | Held by | Default rule |
+|---|---|---|
+| CPU | running sandboxes | 4 CPUs of limits per real CPU (`cpu_overcommit`) |
+| Memory | running sandboxes | limits must fit, less 1 GB kept free (`reserve_memory_mb`, `memory_overcommit`) |
+| Disk | every sandbox that still exists, stopped ones too | workspace disk less 5 GB kept free (`reserve_disk_mb`) |
+
+The policy (`allocation`) is per compute. A resource a compute did not report is not
+counted. The plain count (`capacity`) stays as an upper bound. New sandboxes go to the
+compute whose fullest resource would be least full. The API returns `resources`,
+`allocatable` and `allocated` per compute.
+
+### 3. Hooks
+
+An environment has three scripts: `setup_script` (once, at creation), `start_script`
+(every start: creation and resume, 120 s) and `stop_script` (before a stop or delete,
+best effort, 30 s). Each run of a hook is an event in the sandbox's timeline
+(`setup_script`, `start_script`, `stop_script`) with its status and the end of its
+output.
+
+- A start script that fails on resume leaves the sandbox **stopped**, with its files,
+  and the run reports the script's output. It is not marked failed, which would lose
+  the workspace.
+- After three creations in a row that fail in a hook, the environment refuses new
+  sandboxes (`sandbox.environment_broken`) until its image or scripts change. The admin
+  gets an audit entry (`sandbox_environment.hook_failing`) and a warning on the
+  environment.
+- A sandbox created before the image or setup script changed is marked
+  (`setup_outdated`) in the admin list. It is not rebuilt automatically.
+
+### 4. Durability
+
+- **What is durable is said plainly**, to the agent (prompt and tool description) and
+  in this document: only `outputs/` is durable, because it is saved to the report. The
+  rest of a workspace is a cache.
+- **A recreated sandbox gets the report's files back**: the newest version of every
+  earlier output under `outputs/`, and earlier inputs under `inputs/` (up to 200 files
+  and 500 MB). Files put back are not saved to the report a second time.
+- **Snapshots** (`services/sandbox/snapshots.py`, capability `snapshot`): a gzip tar of
+  the whole workspace in BoW's file store (`uploads/sandbox_snapshots/`, mirrored to the
+  object store when one is configured). Taken on stop when `snapshot_on_stop` is on (off
+  by default), or on request; skipped above `snapshot_max_mb`. When a sandbox has to be
+  recreated, the report's newest snapshot is restored into the new one: the setup
+  script is not run again, the start script is. A deliberate delete removes the
+  snapshot too.
+- **Evacuating a compute** (`POST /computes/{id}/evacuate`, the compute must be
+  disabled): each sandbox is snapshotted and removed there, and its report's next run
+  recreates it elsewhere from the snapshot. A sandbox whose snapshot fails is left where
+  it is.
+- **Deletions are announced**: a day before a retention or lifetime deletion
+  (`delete_warning_seconds`) there is a timeline event, an audit entry, a `deletes_at`
+  on the admin list, and a notice in the next run's result.
+- **Pin and extend**: an admin can pin a sandbox (retention and lifetime skip it; it
+  still goes with its report) or push its deletion later. `max_lifetime_seconds = 0`
+  turns the maximum lifetime off.
+
+Not built: moving a *running* sandbox live; incremental snapshots; encrypting snapshot
+files beyond what the file store does.
+
+### 5. Between runs: pause, stop, start, keep warm
+
+- **Pause** (capability `pause`): when a sandbox is marked idle, its processes are
+  frozen in memory where the compute can (`docker pause`; works under gVisor). It uses
+  no CPU, still holds its memory, and the next run thaws it in under a second with its
+  processes intact. It is done under the same claim a run takes, so a run can never
+  start in a sandbox that is about to be frozen. The health check does not take a
+  frozen sandbox for a dead one.
+- **Stop** remains the step after: at the idle timeout the container is stopped, which
+  frees memory and loses processes.
+- **Manual controls** for an admin: stop, start (resume now, ahead of the next run),
+  keep warm for some hours (neither paused nor stopped for being idle).
+
+Not built: checkpoint and restore of a running sandbox's processes (`runsc checkpoint`,
+CRIU). It needs its own spike: it interacts with open network connections and with the
+loop-mounted workspace.
+
+### 6. Admin switches
+
+`/api/sandbox/sandboxes`: list (with live CPU, memory, disk), one sandbox with its runs,
+timeline and domain log, stop, start, stop the run in progress (works from any worker:
+the process id is recorded when the program starts), delete, pin, extend, keep warm,
+snapshot. The Sandboxes tab is first in Settings → Sandbox.
+
+### 7. Logs
+
+- **Domain log**: the health job stores which domains each sandbox reached or was
+  refused in `sandbox_egress_log` (every two minutes, and once more on stop and
+  delete). The sandbox detail returns it, refused first.
+- **Commands on a compute**: every command BoW runs on a server is one line on the
+  `bow.sandbox.commands` logger (the command, exit status, duration). Secrets are never
+  on a command line, so none are logged.
+- **Processes that outlive a run** are listed in the run's `run_finished` event and
+  told to the agent.
+- Run history, code and output are read by the sandbox detail view (code and output
+  only with `view_code`).
+
+### 8. In the report
+
+`run_in_sandbox` can ask the person in the chat first, by the environment's
+`confirm_runs` policy: `never` (default), `always`, `full_network`, `packages`.
+`delete_sandbox` always asks. A run nobody answers within four minutes does not happen.
+The tool blocks in the chat are described in the PR.
+
+### 9. Volumes
+
+A compute declares named volumes (`volumes: [{name, source, description}]`; for a server
+`source` is a directory the operator mounts themselves: a local disk, NFS, an object
+store). An environment mounts them (`mounts: [{volume, path, read_only, shared}]`).
+
+- Read-only by default.
+- A writable mount gets each report its own directory inside the volume
+  (`reports/<report id>`), because isolation is per report. `shared: true` mounts the
+  volume's root writable for everyone, and the environment carries a warning.
+- A compute must have every volume an environment mounts to run it.
+- System directories, Docker's own and BoW's cannot be volumes; a volume cannot be
+  mounted over `/workspace`, `/tmp` or a system path.
+- Volumes do not count against a sandbox's disk limit. `MountSpec` is in the
+  driver-neutral spec.
+
+Not built: BoW mounting NFS or object stores on the server itself; that stays the
+operator's.
+
+### Verified on a real server
+
+`tools/agent/agent_sandbox_live.py` covers phase 1. The additions above were checked on
+the same Ubuntu and gVisor host with throwaway data: detected resources; a read-only and
+a per-report writable volume; setup, start and stop hooks; the record of a process left
+running; pause and thaw with processes intact; snapshot on stop; a sandbox removed
+behind BoW's back coming back from its snapshot; and the admin stop, kill-run, start
+and delete. Not verified on a real server: evacuating to a second compute (there is one
+test server), and the domain log collection job end to end (its parser was exercised in
+phase 1, the storing is covered on the fake compute).
+
+### Known limits after the review round
+
+- **A background program that keeps the run's output open holds the run.** A run that
+  starts a server with `&` and does not redirect its output does not end until the
+  program exits or the run's time limit. With the output redirected
+  (`nohup … >/dev/null 2>&1 &`) the run ends at once and the program is recorded as left
+  running. Seen on the fake compute; the redirected case was checked on the real server.
+- **Shared report links return tool arguments**, including a run's code, as they do for
+  every other tool. "Hidden without `view_code`" applies inside the app, not to a public
+  link.
+- **Server-written sentences are English**: environment warnings, hook errors, event
+  reasons. Run notices carry codes (`note_codes`) and are translated; the others are not
+  yet.
+- **Evacuation was only exercised on the fake compute**; there is one real test server.

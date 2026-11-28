@@ -1,6 +1,6 @@
 """Layering of the agent-sandbox code: one seam, at the driver.
 
-Moving from Linux servers to another kind of backend later must mean writing
+Moving from Linux servers to another kind of compute later must mean writing
 one new driver, not changing the service, the runtime client, the tools, the
 API or the models. That only holds if nothing above the driver knows what the
 first driver is made of. Two rules, checked on the code itself (comments and
@@ -8,7 +8,7 @@ docstrings may explain; code may not depend):
 
 1. Outside ``drivers/docker_ssh/``, no code imports the SSH library or names
    the pieces that driver is built from.
-2. Nothing branches on a backend's type name. The driver registry maps type
+2. Nothing branches on a compute's type name. The driver registry maps type
    names to drivers; everything else asks a driver for its capabilities.
 """
 import ast
@@ -24,7 +24,7 @@ REGISTRY = SANDBOX_PACKAGE / "drivers" / "registry.py"
 
 # What the docker-ssh driver is made of.
 FORBIDDEN = re.compile(r"asyncssh|paramiko|caddy|iptables|docker|smokescreen|egress[ _-]?proxy|forward[ _-]?proxy", re.I)
-TYPE_BRANCH = re.compile(r"\b(?:backend\w*\.type|backend_?type|type_name)\s*(?:==|!=|\bin\b|\bnot\s+in\b)")
+TYPE_BRANCH = re.compile(r"\b(?:compute\w*\.type|compute_?type|type_name)\s*(?:==|!=|\bin\b|\bnot\s+in\b)")
 
 
 def _files():
@@ -90,9 +90,9 @@ def test_code_above_the_driver_does_not_know_what_the_driver_is_made_of(path):
 
 
 @pytest.mark.parametrize("path", [p for p in _files() if p != REGISTRY], ids=lambda p: p.relative_to(BACKEND).as_posix())
-def test_nothing_branches_on_the_backend_type(path):
+def test_nothing_branches_on_the_compute_type(path):
     hits = [f"{path.name}:{number}: {line.strip()}" for number, line in _code_lines(path) if TYPE_BRANCH.search(line)]
-    assert not hits, "backend type checked outside the driver registry:\n" + "\n".join(hits)
+    assert not hits, "compute type checked outside the driver registry:\n" + "\n".join(hits)
 
 
 def test_the_rules_catch_what_they_are_for(tmp_path):
@@ -102,8 +102,8 @@ def test_the_rules_catch_what_they_are_for(tmp_path):
         '"""Mentions Docker and Caddy in a docstring, which is fine."""\n'
         "import asyncssh  # the import is not\n"
         "# a comment about iptables is fine\n"
-        "def f(backend):\n"
-        "    if backend.type == 'docker-ssh':\n"
+        "def f(compute):\n"
+        "    if compute.type == 'docker-ssh':\n"
         "        return 'docker run'\n"
     )
     words = [w for _, w in _code_words(sample) if FORBIDDEN.search(w)]

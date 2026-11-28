@@ -180,7 +180,7 @@ class Bootstrap:
         if self.config.images_preloaded:
             if not await self.host.image_present(image):
                 raise SandboxDriverError(
-                    f"The image {image} is not on the server. This backend expects preloaded images: load it "
+                    f"The image {image} is not on the server. This compute expects preloaded images: load it "
                     "with `docker load` and bootstrap again.", code="command_failed",
                 )
             return "present"
