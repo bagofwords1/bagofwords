@@ -43,6 +43,26 @@ image is published yet, so this run used images built on the host
 the script deletes its sandboxes, environments and compute, and removes what
 BoW put on the server. `--keep` skips that.
 
+## Follow-up: a real model (28 Nov 2026)
+
+The gap below ("the model was not real") is closed. With Claude 4.5 Haiku as the
+organization's default model, one prompt in a new report, with no tool named in it:
+
+> Please compute the first 15 Fibonacci numbers with Python and draw them as a bar
+> chart saved as a PNG file. Use the sandbox environment named real-model-check.
+> Tell me the numbers and the name of the chart file.
+
+The model created the report's sandbox in that environment on the real server, ran
+Python once (exit code 0) and wrote the chart under `outputs/`; `fibonacci_chart.png`
+(`image/png`) appeared as a report file. The whole turn took 18 seconds. The
+environment was a throwaway one (512 MB, no network, the dev sandbox image) and was
+removed afterwards with its sandbox and report.
+
+This shows a real model reads the tool descriptions and the prompt section and uses
+the tools correctly for a plain request. It is one prompt with one model: it does not
+show how other models behave, or harder cases (installing packages, passing files in,
+recovering from a failing run).
+
 ## What is not real
 
 Steps 2 and 4 go through the real agent loop: a user message in a report, the
