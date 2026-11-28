@@ -4,9 +4,19 @@ import json
 import os
 from types import SimpleNamespace
 from sqlalchemy import create_engine, update
+from uuid import uuid4
+from app.models.connection import Connection
 from app.models.user import User
 
 import pytest
+
+
+def app_test_engine():
+    return create_engine(
+        os.environ["TEST_DATABASE_URL"]
+        .replace("sqlite+aiosqlite:", "sqlite:")
+        .replace("postgresql+asyncpg:", "postgresql:")
+    )
 
 
 @pytest.fixture
@@ -39,10 +49,20 @@ def actors(test_client, create_user, login_user, whoami):
 def access_connection(actors, create_connection, request):
     kind = getattr(request, "param", "postgresql")
     key = "BOW_ACCESS_" + kind.upper()
-    if kind != "postgresql" and not os.getenv(key):
-        pytest.skip(f"Dedicated {kind} source required")
     admin = actors.admin
-    cfg = json.loads(os.getenv(key, '{"host":"localhost","port":5432,"database":"postgres","user":"demo"}'))
+    if not os.getenv(key):
+        if hasattr(request, "param"):
+            pytest.skip(f"Dedicated {kind} source required")
+        # Editing catalog metadata needs a connection record, not a running warehouse.
+        connection_id = str(uuid4())
+        engine = app_test_engine()
+        with engine.begin() as db:
+            db.execute(Connection.__table__.insert().values(
+                id=connection_id, name="Access policy sandbox", type="postgresql",
+                config={}, organization_id=actors.org, auth_policy="system_only"))
+        engine.dispose()
+        return f"/api/connections/{connection_id}/company-policy", actors.headers(admin)
+    cfg = json.loads(os.environ[key])
     params = dict(cfg)
     creds = {k: params.pop(k) for k in ("user", "password") if k in params}
     conn = create_connection(
@@ -63,7 +83,11 @@ def test_draft_and_coverage_require_enterprise_and_management(test_client, acces
     monkeypatch.setattr(custom_query_service, "has_feature", lambda key: False)
     assert test_client.get(root + "/draft", headers=headers).status_code == 402
     assert test_client.get(root + "/coverage", headers=headers).status_code == 402
+    assert test_client.get(root + "/columns", params={"table": "public.sales"}, headers=headers).status_code == 402
     monkeypatch.setattr(custom_query_service, "has_feature", lambda key: True)
+    assert test_client.get(root + "/columns", params={"table": "public.sales"},
+                           headers=actors.headers(actors.member)).status_code in (403, 404)
+    assert test_client.get(root + "/columns", params={"table": "unknown.table"}, headers=headers).json() == []
     draft = dict(
         reader_source="verified_email",
         tables=[
@@ -92,11 +116,7 @@ def test_live_preview_and_activation(test_client, access_connection, actors, mon
     admin = actors.admin
     # The external IdP's verification is outside this fixture. Mark the synthetic signed-in accounts verified.
     member = actors.member
-    engine = create_engine(
-        os.environ["TEST_DATABASE_URL"]
-        .replace("sqlite+aiosqlite:", "sqlite:")
-        .replace("postgresql+asyncpg:", "postgresql:")
-    )
+    engine = app_test_engine()
     with engine.begin() as conn:
         conn.execute(update(User).where(User.id.in_([admin.user_id, member.user_id])).values(is_verified=True))
     engine.dispose()

@@ -2430,6 +2430,22 @@ async def preview_company_policy_draft(
                         headers={"Cache-Control": "no-store"})
 
 
+@router.get("/{connection_id}/company-policy/columns")
+@requires_resource_permission("connection", "manage_connection")
+async def company_policy_columns(connection_id: str, table: str, current_user: User = Depends(current_user),
+                                db: AsyncSession = Depends(get_async_db),
+                                organization: Organization = Depends(get_current_organization)):
+    """Read one indexed schema for the policy editor without expanding the catalog page."""
+    custom_query_service.ensure_rls_licensed()
+    connection = await _fabric_policy_connection(db, connection_id, organization)
+    if connection.active_company_policy is not None:
+        await require_org_permission(db, str(current_user.id), str(organization.id), "full_admin_access")
+    columns = await db.scalar(select(ConnectionTable.columns).where(
+        ConnectionTable.connection_id == connection_id, ConnectionTable.name == table,
+        ConnectionTable.kind == KIND_TABLE, ConnectionTable.deleted_at.is_(None)))
+    return [column["name"] for column in columns or [] if isinstance(column, dict) and column.get("name")]
+
+
 @router.get("/{connection_id}/company-policy/coverage")
 @requires_resource_permission("connection", "manage_connection")
 async def access_policy_coverage(connection_id: str, search: str = "", status: str = "all",
@@ -2459,7 +2475,9 @@ async def access_policy_coverage(connection_id: str, search: str = "", status: s
         base = base.where(ConnectionTable.name.in_(inventory))
     if search:
         base = base.where(ConnectionTable.name.icontains(search[:256], autoescape=True))
-    filters = {"protected": ConnectionTable.name.in_(live), "missing": ConnectionTable.name.not_in(live),
+    grant_table = (conn.company_policy or {}).get("grants_table")
+    mapped = set(live) | ({grant_table} if grant_table else set())
+    filters = {"protected": ConnectionTable.name.in_(live), "missing": ConnectionTable.name.not_in(mapped),
                "pending": ConnectionTable.name.in_(pending)}
     if status not in {*filters, "all"}:
         raise HTTPException(400, "Unknown coverage filter")
@@ -2476,7 +2494,8 @@ async def access_policy_coverage(connection_id: str, search: str = "", status: s
     for custom in (False, True):
         keys = await available_attribute_keys(db, str(organization.id), custom=custom)
         properties.extend(("custom." if custom else "profile.") + key for key in keys)
-    return {"counts": counts, "unresolved_total": len(unresolved), "unresolved": sorted(unresolved)[:50], "properties": properties, "activation_enabled": settings.bow_config.features.fabric_company_rls_activation,
+    return {"counts": counts, "pending_total": len(pending), "pending_tables": sorted(pending)[:12],
+            "unresolved_total": len(unresolved), "unresolved": sorted(unresolved)[:50], "properties": properties, "activation_enabled": settings.bow_config.features.fabric_company_rls_activation,
             "active": bool(conn.active_company_policy), "tables": [
                 {"table": name, "protected": name in live, "pending": name in pending,
                  "projected_columns": len(live[name].columns) if name in live and live[name].columns is not None else None}
