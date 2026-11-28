@@ -314,7 +314,11 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
         await _register_saved_files(runtime_ctx, report, [a.file_id for a in outcome.artifacts if a.file_id])
 
         notes: List[str] = []
+        note_codes: List[str] = []
         if outcome.recreated:
+            note_codes.append("restored_snapshot" if outcome.restored_snapshot_at else "recreated")
+            if outcome.restored_files:
+                note_codes.append("files_restored")
             restored = (
                 f" These files of the report were put back: {', '.join(outcome.restored_files[:20])}"
                 + (f" and {len(outcome.restored_files) - 20} more." if len(outcome.restored_files) > 20 else ".")
@@ -331,13 +335,23 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
                     "outputs/ are gone." + restored
                 )
         elif outcome.created:
+            note_codes.append("created")
             notes.append("A new sandbox was created for this report.")
         elif outcome.resumed:
+            note_codes.append("resumed")
             notes.append("The sandbox was stopped and has been resumed with its files and packages.")
         if outcome.status == "timeout":
+            note_codes.append("timeout")
             notes.append("The run was stopped at its time limit.")
         if outcome.status == "cancelled":
+            note_codes.append("cancelled")
             notes.append("The run was cancelled.")
+        if outcome.skipped_artifacts:
+            note_codes.append("skipped_artifacts")
+        if outcome.background_processes:
+            note_codes.append("background_processes")
+        if outcome.notices:
+            note_codes.append("deletion_scheduled")
         if outcome.skipped_artifacts:
             notes.append(f"{len(outcome.skipped_artifacts)} output file(s) were not saved; see skipped_artifacts.")
         if outcome.background_processes:
@@ -355,6 +369,8 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
             artifacts=[SandboxArtifact(file_id=a.file_id, name=a.name, size=a.size, type=a.content_type) for a in outcome.artifacts],
             skipped_artifacts=outcome.skipped_artifacts, duration_seconds=outcome.duration_seconds,
             environment=outcome.environment, network_policy=outcome.network_policy, notes=notes,
+            note_codes=note_codes, background_processes=outcome.background_processes,
+            restored_files=outcome.restored_files,
         )
         produced = ", ".join(f"{a.name} (file_id={a.file_id})" for a in output.artifacts) or "none"
         yield ToolEndEvent(type="tool.end", payload={
@@ -423,6 +439,7 @@ environments you may use. Changes nothing.
                 described = await service.describe(db, ref)
                 environments = [
                     {"name": e.name, "description": e.description, "network": describe_network(e.network_policy),
+                     "network_policy": e.network_policy,
                      "is_default": bool(e.is_default)}
                     for e in await service.access.usable_environments(db, ref.organization_id, actor_id)
                 ]
@@ -558,6 +575,11 @@ async def _confirm_run(runtime_ctx: Dict[str, Any], ref: Any, actor_id: Optional
             env = await SandboxService().environment_for(db, ref, actor_id)
     except Exception:  # noqa: BLE001 - the run itself reports what is wrong
         return
+    if env is not None:
+        # Known before anything runs, so the block in the chat can say where it runs from the start.
+        yield ToolProgressEvent(type="tool.progress", payload={
+            "stage": "starting", "environment": env.name, "network_policy": env.network_policy,
+        })
     reason = environment_service.needs_confirmation(env, installs_packages=bool(data.packages))
     if not reason:
         return
