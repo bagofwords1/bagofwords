@@ -216,22 +216,63 @@ def _attach_migration_iam_hook(engine):
 
 # Every replica runs `alembic upgrade head` when it starts (start.sh), so two
 # pods of a rolling update or a scaled deployment can race the same
-# migration. On Postgres the first one takes this transaction-level advisory
-# lock and migrates; the others wait, then read the version table, find the
-# database at head and do nothing. A transaction lock needs no unlock path
-# and stays on one backend even behind a transaction pooler. The wait is
-# bounded so a pod stuck behind a dead session fails into start.sh's retry
-# instead of hanging. SQLite is a single local file with a single writer.
+# migration. On Postgres the first one takes this advisory lock and migrates;
+# the others wait, then read the version table, find the database at head and
+# do nothing.
+#
+# The lock is session-level, held from before the first revision until the
+# run ends. A transaction-level lock is not enough: a revision that builds an
+# index CONCURRENTLY runs in an autocommit block, which commits the migration
+# transaction and would release a transaction lock mid-chain, letting a
+# waiting pod migrate the remaining revisions alongside this one. Migrations
+# connect with their own NullPool connection, one session for the whole run;
+# run them on a direct connection, not through a transaction-mode pooler,
+# which could put the unlock on another backend. Closing the session also
+# releases the lock, so a pod that dies mid-run never leaves it held.
+#
+# A waiting pod polls with pg_try_advisory_lock and holds no transaction
+# between tries: CREATE INDEX CONCURRENTLY waits for every open transaction to
+# end, so a pod blocked inside pg_advisory_lock would deadlock with the pod
+# building the index. The wait is bounded so a pod stuck behind a dead session
+# fails into start.sh's retry instead of hanging. SQLite is a single local
+# file with a single writer.
 MIGRATION_LOCK_KEY = 7262874361  # arbitrary, fixed for every BOW install
-MIGRATION_LOCK_WAIT = "5min"
+MIGRATION_LOCK_WAIT_SECONDS = 300
+MIGRATION_LOCK_POLL_SECONDS = 1.0
 
 
-def _take_migration_lock(connection) -> None:
+def _take_migration_lock(connection) -> bool:
+    """Take the session-level migration lock; True if one was taken."""
     if connection.dialect.name != "postgresql":
-        return
-    connection.execute(text(f"SET LOCAL lock_timeout = '{MIGRATION_LOCK_WAIT}'"))
-    connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_LOCK_KEY})
-    connection.execute(text("SET LOCAL lock_timeout = DEFAULT"))
+        return False
+    import time
+
+    deadline = time.monotonic() + MIGRATION_LOCK_WAIT_SECONDS
+    while True:
+        got = connection.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": MIGRATION_LOCK_KEY}).scalar()
+        # End the implicit transaction every try opens: a waiting pod must hold
+        # no transaction (see above), and alembic starts its own once locked.
+        connection.commit()
+        if got:
+            return True
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"another migration held the lock for {MIGRATION_LOCK_WAIT_SECONDS}s; giving up so start.sh retries"
+            )
+        time.sleep(MIGRATION_LOCK_POLL_SECONDS)
+
+
+def _release_migration_lock(connection) -> None:
+    # Best effort: if the session is already broken (a failed revision), the
+    # unlock would only hide that error, and closing the session releases the
+    # lock anyway.
+    try:
+        if connection.in_transaction():
+            connection.rollback()
+        connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": MIGRATION_LOCK_KEY})
+        connection.commit()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def run_migrations_online() -> None:
@@ -258,9 +299,13 @@ def run_migrations_online() -> None:
             render_as_batch=True,  # Enable batch operations for SQLite
         )
 
-        with context.begin_transaction():
-            _take_migration_lock(connection)
-            context.run_migrations()
+        locked = _take_migration_lock(connection)
+        try:
+            with context.begin_transaction():
+                context.run_migrations()
+        finally:
+            if locked:
+                _release_migration_lock(connection)
 
 
 
