@@ -7,7 +7,11 @@
           <h2 class="text-lg font-semibold dark:text-white">
             {{ editing ? 'Edit custom table' : 'New custom table' }}
           </h2>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <i18n-t scope="global" v-if="perUser" keypath="customTableCopies.subtitle" tag="p"
+                  class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            <template #connection><span class="font-medium">{{ activeConnectionName }}</span></template>
+          </i18n-t>
+          <p v-else class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             Runs on a schedule and is stored locally, so agents answer from a
             cached copy instead of querying
             <span class="font-medium">{{ activeConnectionName }}</span> every time.
@@ -52,6 +56,17 @@
 
       <!-- ============ QUERY ============ -->
       <div v-show="tab === 'query'">
+        <!-- Each person signs in to this connection themselves, so there is no
+             shared copy: say so before the admin writes a query they expect
+             everyone to see the same rows of. -->
+        <div v-if="perUser" data-testid="cq-per-user-notice"
+             class="mb-3 flex items-start gap-2 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-3 py-2">
+          <UIcon name="heroicons-user-circle" class="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+          <div class="text-xs text-blue-900 dark:text-blue-200">
+            <p class="font-medium">{{ t('customTableCopies.noticeTitle') }}</p>
+            <p class="mt-0.5">{{ t('customTableCopies.notice', { connection: activeConnectionName }) }}</p>
+          </div>
+        </div>
         <!-- Connection picker. An agent can have several; the query runs against
              exactly one, and the query below is written in that source's dialect
              (SQL, or DAX on Power BI). -->
@@ -189,7 +204,9 @@
         <!-- preview result -->
         <div v-if="preview && preview.columns.length" class="mt-3">
           <div class="flex items-center flex-wrap gap-x-4 gap-y-1 text-2xs text-gray-600 dark:text-gray-400 mb-1.5">
-            <span data-testid="cq-preview-count">
+            <!-- A saved per-user table holds no rows of its own, so until a
+                 preview is run there is no count to show. -->
+            <span v-if="!(perUser && preview.saved)" data-testid="cq-preview-count">
               Showing <b>{{ preview.rows.length }}</b> of
               <b>{{ preview.estimated_rows != null ? approx(preview.estimated_rows) : 'unknown' }}</b> rows
             </span>
@@ -228,7 +245,7 @@
                marker. The copy holds every row the connection can read and
                the source's roles are NOT carried over, so say so and point at
                the tab where the copy's own policy is set. -->
-          <div v-if="rlsSources.length && !cq?.rls_enabled" data-testid="cq-rls-source-warning"
+          <div v-if="rlsSources.length && !cq?.rls_enabled && !perUser" data-testid="cq-rls-source-warning"
                class="mt-3 flex items-start gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
             <UIcon name="heroicons-shield-exclamation" class="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
             <div class="text-xs text-amber-800 dark:text-amber-200">
@@ -254,6 +271,42 @@
       <!-- Scrolls inside the modal: with the refresh options open this tab is
            taller than a laptop screen, and the footer must stay reachable. -->
       <div v-show="tab === 'settings'" class="max-h-[62vh] overflow-y-auto pe-1" data-testid="cq-settings">
+        <!-- A per-user table has no clock-driven refresh: the same two fields
+             say how old a person's copy may get before it is rebuilt at their
+             next question. -->
+        <template v-if="perUser">
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3" data-testid="cq-age-intro">
+            {{ t('customTableCopies.settingsIntro') }}
+          </p>
+          <label class="flex items-center flex-wrap gap-2 mb-4 text-sm dark:text-gray-200">
+            <input type="radio" value="interval" v-model="form.refresh_schedule_mode" data-testid="cq-mode-interval" />
+            <i18n-t scope="global" keypath="customTableCopies.ruleInterval" tag="span" class="flex items-center flex-wrap gap-2">
+              <template #age>
+                <select
+                  v-model.number="form.refresh_interval_minutes" data-testid="cq-interval"
+                  :disabled="form.refresh_schedule_mode !== 'interval'"
+                  class="text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white disabled:opacity-40"
+                >
+                  <option v-for="o in copyAgeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </template>
+            </i18n-t>
+          </label>
+          <label class="flex items-center flex-wrap gap-2 text-sm dark:text-gray-200">
+            <input type="radio" value="time" v-model="form.refresh_schedule_mode" data-testid="cq-mode-time" />
+            <i18n-t scope="global" keypath="customTableCopies.ruleTime" tag="span" class="flex items-center flex-wrap gap-2">
+              <template #time>
+                <input
+                  type="time" v-model="form.refresh_at_time" data-testid="cq-at-time"
+                  :disabled="form.refresh_schedule_mode !== 'time'"
+                  class="text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white disabled:opacity-40"
+                />
+              </template>
+            </i18n-t>
+            <span class="text-2xs text-ink-muted">{{ localTimezoneLabel }}</span>
+          </label>
+        </template>
+        <template v-else>
         <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
           How often BOW re-runs this query against the source and refreshes the
           local copy. Between refreshes, agents read the cached data.
@@ -449,8 +502,27 @@
             % of the rows
           </label>
         </div>
+        </template>
 
-        <div v-if="editing && cq" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+        <!-- Per-user: nothing is cached on the table itself, so its status is
+             who holds a copy and what those copies take on disk. -->
+        <div v-if="editing && cq && perUser" data-testid="cq-copies-status"
+             class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+          <i18n-t scope="global" keypath="customTableCopies.statusChecked" tag="div">
+            <template #when><b>{{ cq.last_refreshed_at ? copyWhen(cq.last_refreshed_at) : t('customTableCopies.statusNever') }}</b></template>
+          </i18n-t>
+          <i18n-t scope="global" keypath="customTableCopies.statusPeople" tag="div" data-testid="cq-copies-count">
+            <template #count><b>{{ copyNum(copiesSummary.copies) }}</b></template>
+          </i18n-t>
+          <i18n-t scope="global" keypath="customTableCopies.statusSize" tag="div" data-testid="cq-copies-bytes">
+            <template #size><b dir="ltr">{{ humanBytes(copiesSummary.bytes) }}</b></template>
+          </i18n-t>
+          <div v-if="cq.last_refresh_error" class="text-red-600 dark:text-red-400">
+            {{ t('customTableCopies.statusError', { error: cq.last_refresh_error }) }}
+          </div>
+        </div>
+
+        <div v-else-if="editing && cq" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 space-y-1">
           <div>Last refreshed: <b>{{ cq.last_refreshed_at ? new Date(cq.last_refreshed_at + 'Z').toLocaleString() : 'never' }}</b>
             <span v-if="cq.last_refresh_ms != null"> ({{ cq.last_refresh_ms }} ms)</span></div>
           <div>Rows cached: <b>{{ (cq.no_rows || 0).toLocaleString() }}</b></div>
@@ -468,7 +540,10 @@
         </div>
 
         <div v-if="editing" class="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          <p v-if="perUser" class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            {{ t('customTableCopies.deleteTableHint', { count: cq?.active_agent_count ?? 0 }) }}
+          </p>
+          <p v-else class="text-xs text-gray-500 dark:text-gray-400 mb-3">
             Deleting removes the cached copy and takes this relation away from
             <b>{{ cq?.active_agent_count ?? 0 }}</b> agent(s) currently using it.
             The source data is not touched.
@@ -582,6 +657,98 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- ============ COPIES (per-user tables) ============ -->
+      <div v-show="tab === 'copies'" data-testid="cq-copies">
+        <div class="flex items-start justify-between gap-4 mb-2">
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('customTableCopies.intro') }}</p>
+          <div class="flex items-center gap-3 flex-shrink-0">
+            <button class="flex items-center gap-1 text-2xs text-gray-600 dark:text-gray-300 hover:underline"
+                    data-testid="cq-copies-reload" :disabled="copiesLoading" @click="loadCopies">
+              <Spinner v-if="copiesLoading" class="w-3 h-3" />
+              <UIcon v-else name="heroicons-arrow-path" class="w-3 h-3" />
+              {{ t('customTableCopies.reload') }}
+            </button>
+            <button v-if="copiesSummary.copies"
+                    class="flex items-center gap-1 text-2xs text-red-700 dark:text-red-300 hover:underline disabled:opacity-50"
+                    data-testid="cq-copies-delete-all" :disabled="copyDeleting" @click="copyToDelete = 'all'">
+              <UIcon name="heroicons-trash" class="w-3 h-3" />
+              {{ t('customTableCopies.deleteAll') }}
+            </button>
+          </div>
+        </div>
+        <div v-if="copiesError" class="text-2xs text-red-600 mb-2" data-testid="cq-copies-error">{{ copiesError }}</div>
+
+        <!-- Asked in place rather than in a second dialog on top of this one. -->
+        <div v-if="copyToDelete" data-testid="cq-copies-confirm"
+             class="mb-2 flex items-center justify-between gap-3 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2">
+          <p class="text-xs text-red-800 dark:text-red-200">
+            {{ copyToDelete === 'all'
+              ? t('customTableCopies.confirmAll')
+              : t('customTableCopies.confirmOne', { name: copyPerson(copyToDelete) }) }}
+          </p>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button class="px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:underline"
+                    data-testid="cq-copies-confirm-cancel" :disabled="copyDeleting" @click="copyToDelete = null">
+              {{ t('common.cancel') }}
+            </button>
+            <button class="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white rounded-md px-3 py-1 text-xs disabled:opacity-50"
+                    data-testid="cq-copies-confirm-delete" :disabled="copyDeleting" @click="onDeleteCopies">
+              <Spinner v-if="copyDeleting" class="w-3.5 h-3.5" />
+              {{ copyToDelete === 'all' ? t('customTableCopies.deleteAll') : t('customTableCopies.deleteCopy') }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="!copies.length && !copiesLoading && !copiesError"
+             class="text-sm text-gray-500 dark:text-gray-400 py-8 text-center" data-testid="cq-copies-empty">
+          {{ t('customTableCopies.empty') }}
+        </div>
+        <div v-else-if="copies.length" class="border border-gray-200 dark:border-gray-800 rounded-md overflow-auto" style="max-height: 420px">
+          <table class="min-w-full text-2xs">
+            <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0">
+              <tr class="text-gray-600 dark:text-gray-300">
+                <th class="text-start font-medium px-2 py-1.5">{{ t('customTableCopies.person') }}</th>
+                <th class="text-start font-medium px-2 py-1.5">{{ t('customTableCopies.status') }}</th>
+                <th class="text-end font-medium px-2 py-1.5">{{ t('customTableCopies.rows') }}</th>
+                <th class="text-end font-medium px-2 py-1.5">{{ t('customTableCopies.size') }}</th>
+                <th class="text-start font-medium px-2 py-1.5">{{ t('customTableCopies.built') }}</th>
+                <th class="text-start font-medium px-2 py-1.5">{{ t('customTableCopies.lastUsed') }}</th>
+                <th class="px-2 py-1.5"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in copies" :key="c.id" :data-testid="`cq-copy-row-${c.status}`"
+                  class="border-t border-gray-100 dark:border-gray-800 align-top"
+                  :class="copyToDelete === c ? 'bg-red-50/60 dark:bg-red-900/10' : ''">
+                <td class="px-2 py-1.5 text-gray-700 dark:text-gray-300">
+                  <div class="font-medium" v-text-dir>{{ c.user_name || c.user_email || c.user_id }}</div>
+                  <div v-if="c.user_name && c.user_email" class="text-ink-muted" dir="ltr">{{ c.user_email }}</div>
+                </td>
+                <td class="px-2 py-1.5">
+                  <span class="px-1.5 py-0.5 rounded whitespace-nowrap" :class="copyStatusClass(c.status)">{{ copyStatusLabel(c.status) }}</span>
+                  <div v-if="c.status === 'error' && c.error" data-testid="cq-copy-error"
+                       class="mt-1 text-red-700 dark:text-red-300 break-words max-w-xs">{{ c.error }}</div>
+                </td>
+                <td class="px-2 py-1.5 text-end nums text-gray-700 dark:text-gray-300">{{ c.status === 'ok' ? copyNum(c.row_count) : '—' }}</td>
+                <td class="px-2 py-1.5 text-end nums text-gray-700 dark:text-gray-300 whitespace-nowrap"><span dir="ltr">{{ humanBytes(c.artifact_bytes) }}</span></td>
+                <td class="px-2 py-1.5 whitespace-nowrap text-gray-700 dark:text-gray-300">{{ copyWhen(c.refreshed_at) }}</td>
+                <td class="px-2 py-1.5 whitespace-nowrap text-gray-700 dark:text-gray-300">{{ copyWhen(c.last_used_at) }}</td>
+                <td class="px-2 py-1.5 text-end whitespace-nowrap">
+                  <!-- A removed copy has nothing left to delete; it comes
+                       back the next time its owner asks. -->
+                  <button v-if="c.status !== 'evicted'"
+                          class="text-red-700 dark:text-red-300 hover:underline disabled:opacity-50"
+                          :data-testid="`cq-copy-delete-${c.user_email || c.id}`"
+                          :disabled="copyDeleting" @click="copyToDelete = c">
+                    {{ t('customTableCopies.deleteCopy') }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -769,7 +936,7 @@
            fills as batches land; a source that cannot be counted shows the
            running row total with no fraction. -->
       <div
-        v-if="saving && !editing"
+        v-if="saving && !editing && !perUser"
         data-testid="cq-save-progress"
         :data-pct="savePct === null ? '' : savePct"
         class="mt-4 rounded-md border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-900/20 px-3 py-2.5"
@@ -805,14 +972,16 @@
             v-if="editing"
             data-testid="cq-refresh-now"
             class="flex items-center gap-1.5 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+            :title="perUser ? t('customTableCopies.rebuildAllHint') : undefined"
             :disabled="refreshingNow" @click="onRefreshNow(false)"
           >
             <Spinner v-if="refreshingNow" class="w-3.5 h-3.5" />
             <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
-            Refresh now
+            <template v-if="perUser">{{ t('customTableCopies.rebuildAll') }}</template>
+            <template v-else>Refresh now</template>
           </button>
           <button
-            v-if="editing && cq?.refresh_mode && cq.refresh_mode !== 'full'"
+            v-if="editing && !perUser && cq?.refresh_mode && cq.refresh_mode !== 'full'"
             data-testid="cq-full-refresh"
             title="Rebuild the whole table from the source: picks up deleted rows and changes older than the lookback"
             class="flex items-center gap-1.5 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
@@ -828,7 +997,7 @@
             @click="onSave"
           >
             <Spinner v-if="saving" class="w-3.5 h-3.5" />
-            <span v-else>{{ editing ? 'Save changes' : 'Create & cache' }}</span>
+            <span v-else>{{ editing ? 'Save changes' : perUser ? t('customTableCopies.create') : 'Create & cache' }}</span>
           </button>
         </div>
       </div>
@@ -855,7 +1024,9 @@ const props = defineProps<{
   connectionType?: string
   // Every accelerable connection on this agent, so a new query can be created
   // against any of them without leaving the modal.
-  connections?: Array<{ id: string; name: string; type?: string }>
+  // `auth_policy` decides whether a table here is cached once per person;
+  // a caller that does not have it leaves it out and the modal asks.
+  connections?: Array<{ id: string; name: string; type?: string; auth_policy?: string }>
   cq?: any | null
   activateForDatasourceId?: string
   // Prefill for a NEW custom table, e.g. from a table's data preview. Ignored
@@ -897,6 +1068,32 @@ const activeConnectionType = computed(() => activeConnection.value?.type || prop
 const connectionOptions = computed(() =>
   availableConnections.value.map((c) => ({ id: c.id, name: c.name, type: c.type })))
 
+// ---------------------------------------------------------------------------
+// Per-user copies
+// ---------------------------------------------------------------------------
+// On a connection where each person signs in with their own credentials
+// (`auth_policy: user_required`) a custom table is cached once per person,
+// built with that person's credentials the first time they ask. A saved table
+// says so itself (`per_user`); before it exists the connection decides. Not
+// every caller knows the connection's policy (a result card only has its id,
+// name and type), so it is looked up once per connection when missing.
+const fetchedAuthPolicy = ref<Record<string, string>>({})
+function authPolicyOf(connection: any): string | undefined {
+  return connection?.auth_policy || fetchedAuthPolicy.value[String(connection?.id || '')]
+}
+async function ensureAuthPolicy() {
+  const connection: any = activeConnection.value
+  const id = String(connection?.id || '')
+  if (!id || editing.value || authPolicyOf(connection) !== undefined) return
+  try {
+    const { data, error } = await useMyFetch(`/connections/${id}`, { method: 'GET' })
+    if (error.value || !data.value) return
+    fetchedAuthPolicy.value = { ...fetchedAuthPolicy.value, [id]: (data.value as any).auth_policy || 'system_only' }
+  } catch { /* stays unknown: the table is then described as a shared one */ }
+}
+const perUser = computed(() =>
+  editing.value ? !!props.cq?.per_user : authPolicyOf(activeConnection.value) === 'user_required')
+
 // The query is written in the source's dialect against its schema, so a preview
 // taken on one connection says nothing about another — drop it on switch
 // rather than letting a stale result satisfy the save gate.
@@ -906,6 +1103,7 @@ watch(selectedConnectionId, (next, prev) => {
   previewError.value = ''
   targetDatasetId.value = ''
   loadTargets()
+  ensureAuthPolicy()
 })
 
 // ---------------------------------------------------------------------------
@@ -951,7 +1149,14 @@ async function loadTargets() {
   } catch { /* the picker simply stays empty; detection still works */ }
 }
 
-const tabs = computed(() => [
+// A per-user table has no refresh runs and no BOW-side row policy (the
+// source's own row-level security decides what each copy holds): it lists
+// people's copies instead.
+const tabs = computed(() => perUser.value ? [
+  { key: 'query', label: 'Query', disabled: false },
+  { key: 'settings', label: 'Settings', disabled: false },
+  { key: 'copies', label: t('customTableCopies.tab'), disabled: !editing.value, hint: 'save first' },
+] : [
   { key: 'query', label: 'Query', disabled: false },
   { key: 'settings', label: 'Settings', disabled: false },
   { key: 'runs', label: 'Runs', disabled: !editing.value, hint: 'save first' },
@@ -977,7 +1182,7 @@ const previewError = ref('')
 // The preview (or the saved table) returns each column with what the source
 // catalog knows about it. The admin's edits are kept apart from that, by
 // column name, so running the preview again does not lose them.
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const columnEdits = ref<Record<string, ColumnEdit>>({})
 const reviewedDrift = ref<Set<string>>(new Set())
 // The description the backend generated from the columns, when the field is
@@ -1055,7 +1260,7 @@ const usesPlaceholders = computed(() => /\{\{\s*(since|until)\s*\}\}/i.test(form
 
 // Why the incremental settings cannot be saved yet, in the admin's terms.
 const incrError = computed(() => {
-  if (!incr.enabled) return ''
+  if (!incr.enabled || perUser.value) return ''
   if (!incr.cursor_column) return 'Choose the cursor column.'
   if (incr.mode === 'merge' && !incr.unique_key.length) return 'Choose the key column(s), or say rows are only ever added.'
   if (usesPlaceholders.value && !incr.cursor_kind) return 'This query uses {{since}} — choose the cursor type under advanced options.'
@@ -1068,7 +1273,10 @@ function refreshPayload() {
   const config: any = {
     row_drop_guard_pct: incr.guard_enabled ? (Number(incr.row_drop_guard_pct) || DEFAULT_GUARD_PCT) : null,
   }
-  if (incr.enabled) {
+  // A person's copy is always rebuilt in full: every copy holds different
+  // rows, so there is no one checkpoint to continue from.
+  const incremental = incr.enabled && !perUser.value
+  if (incremental) {
     Object.assign(config, {
       cursor_column: incr.cursor_column,
       cursor_kind: incr.cursor_kind || null,
@@ -1080,7 +1288,7 @@ function refreshPayload() {
       full_refresh_every_days: Number(incr.full_refresh_every_days) || 0,
     })
   }
-  return { refresh_mode: incr.enabled ? incr.mode : 'full', refresh_config: config }
+  return { refresh_mode: incremental ? incr.mode : 'full', refresh_config: config }
 }
 
 // ---------------------------------------------------------------------------
@@ -1121,6 +1329,103 @@ async function openRun(run: any) {
   const { data, error } = await useMyFetch(
     `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/runs/${run.id}`, { method: 'GET' })
   if (!error.value && data.value && selectedRun.value?.id === run.id) selectedRun.value = data.value
+}
+
+// ---------------------------------------------------------------------------
+// People's copies (per-user tables)
+// ---------------------------------------------------------------------------
+const copies = ref<any[]>([])
+const copiesLoaded = ref(false)
+const copiesLoading = ref(false)
+const copiesError = ref('')
+// What the confirmation is asking about: one person's copy, or all of them.
+const copyToDelete = ref<any | 'all' | null>(null)
+const copyDeleting = ref(false)
+
+async function loadCopies() {
+  if (!editing.value || !activeConnection.value?.id) return
+  copiesLoading.value = true
+  copiesError.value = ''
+  try {
+    const { data, error } = await useMyFetch(
+      `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/user-copies`, { method: 'GET' })
+    if (error.value) {
+      copiesError.value = error.value?.data?.detail || t('customTableCopies.loadError')
+      return
+    }
+    copies.value = Array.isArray(data.value) ? (data.value as any[]) : []
+    copiesLoaded.value = true
+  } catch (e: any) {
+    copiesError.value = e?.message || t('customTableCopies.loadError')
+  } finally {
+    copiesLoading.value = false
+  }
+}
+
+async function onDeleteCopies() {
+  const target = copyToDelete.value
+  if (!target) return
+  copyDeleting.value = true
+  try {
+    const { data, error } = await useMyFetch(
+      `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/user-copies`,
+      { method: 'DELETE', query: target === 'all' ? {} : { copy_id: target.id } })
+    if (error.value) {
+      toast.add({ title: t('customTableCopies.deleteFailed'), description: error.value?.data?.detail || undefined, color: 'red' })
+      return
+    }
+    const freed = Number((data.value as any)?.reclaimed_bytes || 0)
+    toast.add({
+      title: target === 'all' ? t('customTableCopies.deletedAll') : t('customTableCopies.deleted'),
+      description: freed ? t('customTableCopies.deletedDetail', { size: humanBytes(freed) }) : undefined,
+      color: 'green',
+    })
+    copyToDelete.value = null
+    await loadCopies()
+    // The table's own row carries the count and size shown outside this modal.
+    emit('saved')
+  } finally {
+    copyDeleting.value = false
+  }
+}
+
+// How many people hold a copy and what the copies take on disk. The table row
+// carries it; once the list has been loaded here it is the fresher of the two.
+const copiesSummary = computed(() => {
+  if (copiesLoaded.value) {
+    const held = copies.value.filter((c) => c.status !== 'evicted')
+    return { copies: held.length, bytes: held.reduce((sum, c) => sum + (Number(c.artifact_bytes) || 0), 0) }
+  }
+  return { copies: Number(props.cq?.user_copies?.copies || 0), bytes: Number(props.cq?.user_copies?.bytes || 0) }
+})
+
+const copyAgeOptions = computed(() => [
+  { value: 15, label: t('customTableCopies.age15m') },
+  { value: 30, label: t('customTableCopies.age30m') },
+  { value: 60, label: t('customTableCopies.age1h') },
+  { value: 360, label: t('customTableCopies.age6h') },
+  { value: 720, label: t('customTableCopies.age12h') },
+  { value: 1440, label: t('customTableCopies.age24h') },
+])
+
+function copyPerson(c: any) { return c?.user_name || c?.user_email || c?.user_id || '' }
+function copyNum(v: any) { return v == null ? '—' : new Intl.NumberFormat(locale.value).format(Number(v)) }
+function copyWhen(v: any) {
+  if (!v) return '—'
+  const s = String(v)
+  return new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' })
+    .format(new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + 'Z'))
+}
+// Keyed on the status the backend sends, never on its label.
+function copyStatusLabel(status: string) {
+  const key = ({ building: 'stateBuilding', ok: 'stateOk', stale: 'stateStale', error: 'stateError', evicted: 'stateEvicted' } as any)[status]
+  return key ? t(`customTableCopies.${key}`) : status
+}
+function copyStatusClass(status: string) {
+  if (status === 'ok') return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+  if (status === 'error') return 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+  if (status === 'building') return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+  return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
 }
 
 function when(v: any) {
@@ -1180,7 +1485,12 @@ watch(() => props.modelValue, (open) => {
   loadIncrFromCq()
   runs.value = []
   selectedRun.value = null
+  copies.value = []
+  copiesLoaded.value = false
+  copiesError.value = ''
+  copyToDelete.value = null
   selectedConnectionId.value = props.cq?.connection_id || props.connectionId || (availableConnections.value[0]?.id || '')
+  ensureAuthPolicy()
   targetDatasetId.value = props.cq?.target?.datasetId || ''
   loadTargets()
   if (props.cq) {
@@ -1194,7 +1504,7 @@ watch(() => props.modelValue, (open) => {
     // preview gate does not apply until the SQL is changed.
     preview.value = {
       columns: props.cq.columns || [], rows: [], budget_error: null, estimated_rows: props.cq.no_rows,
-      rls_sources: props.cq.rls_sources || [],
+      rls_sources: props.cq.rls_sources || [], saved: true,
     }
     // No description of the admin's own: show the one built from the columns.
     suggestDescription(props.cq.generated_description)
@@ -1338,6 +1648,7 @@ async function onPreviewAsUser() {
 
 watch(tab, (t) => {
   if (t === 'runs' && editing.value) loadRuns(true)
+  if (t === 'copies' && editing.value) loadCopies()
   if (t !== 'rls' || !editing.value || !rlsLicensed.value) return
   if (!rlsOptions.members.length) loadRlsOptions()
 })
@@ -1492,7 +1803,9 @@ async function onSave() {
   let existedBefore = false
   if (!editing.value) {
     existedBefore = !!(await customTableNamed(String(activeConnection.value.id), form.name.trim()))
-    startSaveProgress(String(activeConnection.value.id), form.name.trim())
+    // Nothing is loaded when a per-user table is created, so there is no
+    // first load to follow.
+    if (!perUser.value) startSaveProgress(String(activeConnection.value.id), form.name.trim())
   }
   try {
     const body: any = {
@@ -1544,6 +1857,16 @@ async function onSave() {
       return
     }
     const saved: any = data.value
+    if (saved?.per_user ?? perUser.value) {
+      toast.add({
+        title: editing.value ? t('customTableCopies.updated') : t('customTableCopies.created'),
+        description: t('customTableCopies.savedDetail', { name: saved.name }),
+        color: 'green',
+      })
+      emit('saved')
+      close()
+      return
+    }
     toast.add({
       title: editing.value ? 'Custom table updated' : 'Custom table cached',
       description: `${saved.name} — ${(saved.no_rows || 0).toLocaleString()} rows cached locally`,
@@ -1565,11 +1888,15 @@ async function onRefreshNow(full = false) {
       { method: 'POST', query: full ? { full: true } : {} },
     )
     if (error.value) {
-      toast.add({ title: 'Refresh failed', description: error.value?.data?.detail || 'Failed', color: 'red' })
+      toast.add({ title: perUser.value ? t('customTableCopies.rebuildFailed') : 'Refresh failed', description: error.value?.data?.detail || 'Failed', color: 'red' })
       return
     }
     const r: any = data.value
-    if (r.load_progress) {
+    if (perUser.value) {
+      // Nothing was built: every copy is marked to be rebuilt at its owner's
+      // next question.
+      toast.add({ title: t('customTableCopies.rebuildQueued'), description: t('customTableCopies.rebuildAllHint'), color: 'green' })
+    } else if (r.load_progress) {
       toast.add({
         title: 'Loading in chunks',
         description: `${r.load_progress.windows_done} of ${r.load_progress.windows_total} done — it continues on its own`,
@@ -1582,6 +1909,7 @@ async function onRefreshNow(full = false) {
   } finally {
     refreshingNow.value = false
     if (tab.value === 'runs') loadRuns(true)
+    if (tab.value === 'copies') loadCopies()
   }
 }
 

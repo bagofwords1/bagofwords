@@ -49,6 +49,7 @@ from app.schemas.connection_tool_schema import (
     BatchToolUpdate,
 )
 from app.schemas.custom_query_schema import (
+    CustomTableUserCopySchema,
     CustomQueryCreate,
     CustomQueryUpdate,
     CustomQueryPreviewRequest,
@@ -68,6 +69,7 @@ from app.schemas.custom_query_schema import (
 )
 from app.services import custom_table_runs
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
+from app.services.custom_table_user_copy_service import user_copy_service
 from app.services.table_preview_service import table_preview_service, is_previewable_table
 from app.errors import AppError, ErrorCode
 from app.services.member_attributes import require_attribute_admin
@@ -398,7 +400,6 @@ async def list_connections(
             custom_queries_count=custom_query_count_by_conn.get(str(conn.id), 0),
             custom_queries_supported=(
                 is_accelerable_type(conn.type)
-                and (conn.auth_policy or "system_only") == "system_only"
             ),
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
@@ -472,7 +473,6 @@ async def create_connection(
         custom_queries_count=_catalog_custom_queries,
         custom_queries_supported=(
             is_accelerable_type(connection.type)
-            and connection.auth_policy == "system_only"
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
@@ -578,7 +578,6 @@ async def get_connection(
         custom_queries_count=_catalog_custom_queries,
         custom_queries_supported=(
             is_accelerable_type(connection.type)
-            and connection.auth_policy == "system_only"
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
@@ -699,7 +698,6 @@ async def update_connection(
         custom_queries_count=_catalog_custom_queries,
         custom_queries_supported=(
             is_accelerable_type(connection.type)
-            and connection.auth_policy == "system_only"
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
@@ -1607,15 +1605,32 @@ async def list_custom_queries(
     # (nothing running) costs no extra query.
     busy = [r.id for r in rows if r.last_refresh_status in ("pending", "running")]
     live = await custom_table_runs.live_progress(db, busy) if busy else {}
+    per_user = custom_query_service.is_per_user(connection)
+    copies = await user_copy_service.summary_for_tables(db, [r.id for r in rows]) if per_user else {}
     return [
         CustomQuerySchema.from_model(
             r,
             await _active_agent_count(db, r.id),
             next_run_at=custom_query_service.next_run_at(str(r.id)),
             refresh_progress=live.get(str(r.id)),
+            per_user=per_user,
+            user_copies=copies.get(str(r.id)) if per_user else None,
         )
         for r in rows
     ]
+
+
+async def _custom_query_schema(db: AsyncSession, connection, cq) -> CustomQuerySchema:
+    """One custom table as the API returns it, with its per-user copies
+    counted when the connection caches per user."""
+    per_user = custom_query_service.is_per_user(connection)
+    copies = await user_copy_service.summary_for_tables(db, [cq.id]) if per_user else {}
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+        per_user=per_user,
+        user_copies=(copies.get(str(cq.id)) or {"copies": 0, "bytes": 0}) if per_user else None,
+    )
 
 
 @router.post("/{connection_id}/custom-queries/preview", response_model=CustomQueryPreviewResponse)
@@ -1756,10 +1771,7 @@ async def create_custom_query(
         )
     except Exception:
         pass
-    return CustomQuerySchema.from_model(
-        cq, await _active_agent_count(db, cq.id),
-        next_run_at=custom_query_service.next_run_at(str(cq.id)),
-    )
+    return await _custom_query_schema(db, connection, cq)
 
 
 @router.put("/{connection_id}/custom-queries/{cq_id}", response_model=CustomQuerySchema)
@@ -1799,10 +1811,7 @@ async def update_custom_query(
         )
     except Exception:
         pass
-    return CustomQuerySchema.from_model(
-        cq, await _active_agent_count(db, cq.id),
-        next_run_at=custom_query_service.next_run_at(str(cq.id)),
-    )
+    return await _custom_query_schema(db, connection, cq)
 
 
 @router.post("/{connection_id}/custom-queries/{cq_id}/refresh", response_model=CustomQuerySchema)
@@ -1821,10 +1830,7 @@ async def refresh_custom_query(
     connection = await connection_service.get_connection(db, connection_id, organization)
     cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
     cq = await custom_query_service.refresh(db, connection, cq, current_user=current_user, full=full)
-    return CustomQuerySchema.from_model(
-        cq, await _active_agent_count(db, cq.id),
-        next_run_at=custom_query_service.next_run_at(str(cq.id)),
-    )
+    return await _custom_query_schema(db, connection, cq)
 
 
 @router.get("/{connection_id}/custom-queries/{cq_id}/runs", response_model=CustomTableRunList)
@@ -1885,6 +1891,60 @@ async def delete_custom_query(
             action="connection.custom_query.deleted",
             resource_type="connection", resource_id=str(connection.id),
             details={"connection": connection.name, "name": name},
+        )
+    except Exception:
+        pass
+    return res
+
+
+# ==================== Custom Table per-user copies ====================
+#
+# On a connection where each person signs in with their own credentials, a
+# custom table is cached once per person. These let the connection's admin see
+# whose copies exist and remove them; a removed copy is rebuilt with that
+# person's credentials the next time they ask.
+
+@router.get("/{connection_id}/custom-queries/{cq_id}/user-copies",
+            response_model=List[CustomTableUserCopySchema])
+@requires_resource_permission('connection', 'manage_connection')
+async def list_custom_query_user_copies(
+    connection_id: str,
+    cq_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    return await user_copy_service.list_for_table(db, str(cq.id))
+
+
+@router.delete("/{connection_id}/custom-queries/{cq_id}/user-copies")
+@requires_resource_permission('connection', 'manage_connection')
+async def purge_custom_query_user_copies(
+    connection_id: str,
+    cq_id: str,
+    copy_id: Optional[str] = None,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Delete every user's copy of this table, or one (`copy_id`)."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    scope = {"table_id": str(cq.id)}
+    if copy_id:
+        scope["copy_id"] = copy_id
+    res = await user_copy_service.purge(db, **scope)
+    try:
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.custom_query.user_copies_purged",
+            resource_type="connection", resource_id=str(connection.id),
+            details={"connection": connection.name, "name": cq.name,
+                     "copy_id": copy_id, "copies": res["copies"]},
         )
     except Exception:
         pass
@@ -1985,10 +2045,7 @@ async def set_custom_query_rls(
         )
     except Exception:
         pass
-    return CustomQuerySchema.from_model(
-        cq, await _active_agent_count(db, cq.id),
-        next_run_at=custom_query_service.next_run_at(str(cq.id)),
-    )
+    return await _custom_query_schema(db, connection, cq)
 
 
 @router.post("/{connection_id}/custom-queries/{cq_id}/rls/preview",

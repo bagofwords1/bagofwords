@@ -34,7 +34,11 @@ const metrics = computed(() => [
   { label: t('tableErd.failed'), value: number(props.table.failure_count) },
   { label: t('tableErd.feedback'), value: props.table.pos_feedback_count == null && props.table.neg_feedback_count == null ? '—' : `+${number(props.table.pos_feedback_count)} / −${number(props.table.neg_feedback_count)}` },
   { label: t('tableErd.lastUsed'), value: date(props.table.last_used_at) },
-  ...(props.table.custom_query_id ? [
+  // A per-user custom table has no shared copy: nothing is cached on the table
+  // itself, so "Not cached" and a refresh date would both mislead.
+  ...(props.table.custom_query_id && props.table.per_user ? [
+    { label: t('tableErd.cache'), value: t(props.table.last_refresh_status === 'error' ? 'tableErd.refreshFailed' : 'tableErd.cachedPerPerson') },
+  ] : props.table.custom_query_id ? [
     { label: t('tableErd.lastRefreshed'), value: date(props.table.last_refreshed_at) },
     { label: t('tableErd.cache'), value: t(props.table.last_refresh_status === 'error' ? 'tableErd.refreshFailed' : props.table.last_refreshed_at ? 'tableErd.cached' : 'tableErd.notCached') },
   ] : []),

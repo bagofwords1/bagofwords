@@ -4287,6 +4287,26 @@
           "name": "Custom table request limit",
           "description": "Most requests one refresh may make to a source that is read page by page (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Raise it together with the row limit: Power BI returns at most 100,000 rows per request and allows about 120 requests a minute. 16 to 10,000."
         },
+        "custom_table_user_copy_max_age_hours": {
+          "name": "Per-user copy maximum age (hours)",
+          "description": "On a connection where each person signs in with their own credentials, a custom table is cached separately for each person. A copy older than this is rebuilt with that person's credentials before it is used again, so a change to their access at the source takes effect within this time. 1 to 720."
+        },
+        "custom_table_user_copy_idle_days": {
+          "name": "Per-user copy idle days",
+          "description": "A person's copy that has not been used for this many days is deleted. It is rebuilt the next time they ask. 1 to 365."
+        },
+        "custom_table_user_copy_wait_seconds": {
+          "name": "Per-user copy wait (seconds)",
+          "description": "How long a question waits for a person's copy to be built the first time. If the build takes longer it carries on in the background and that question is answered from the live source. 0 to 600."
+        },
+        "custom_table_user_copies_max_gb": {
+          "name": "Per-user copies storage limit (GB)",
+          "description": "Most disk space all per-user copies in this organization may take together. When it is exceeded, the copies used least recently are deleted first. 1 to 2,048."
+        },
+        "custom_table_user_copy_concurrency": {
+          "name": "Per-user copy builds at once",
+          "description": "How many per-user copies may be built at the same time against one connection. Lower it to protect a source that cannot take the load. 1 to 32."
+        },
         "enable_agent_notes": {
           "name": "Agent Notes",
           "description": "Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context."
@@ -8300,6 +8320,7 @@
     "cache": "Cache",
     "cached": "Cached",
     "notCached": "Not cached",
+    "cachedPerPerson": "Cached per person",
     "searchTables": "Search tables…",
     "suggested": "Suggested",
     "suggestedHint": "Suggested from key names · unverified",
@@ -9693,6 +9714,58 @@
       "key": "identifier",
       "set_by_admin": "set by an admin"
     }
+  },
+  "customTableCopies": {
+    "subtitle": "Stored locally for each person, so agents answer from that person's cached copy instead of querying {connection} every time.",
+    "noticeTitle": "Cached separately for each person",
+    "notice": "Each person signs in to {connection} with their own credentials, so this table is cached separately for each person. A person's copy is built with their own credentials the first time they ask a question. The preview runs with your credentials.",
+    "settingsIntro": "How old a person's copy may get. An older copy is rebuilt with that person's credentials the next time they ask a question.",
+    "ruleInterval": "Rebuild a person's copy when it is older than {age}",
+    "ruleTime": "Rebuild a person's copy when it is older than the last {time}",
+    "age15m": "15 minutes",
+    "age30m": "30 minutes",
+    "age1h": "1 hour",
+    "age6h": "6 hours",
+    "age12h": "12 hours",
+    "age24h": "24 hours",
+    "statusChecked": "Query last checked: {when}",
+    "statusNever": "never",
+    "statusPeople": "People with a copy: {count}",
+    "statusSize": "Total size on disk: {size}",
+    "statusError": "Last error: {error}",
+    "deleteTableHint": "Deleting removes every person's copy and takes this table away from {count} agent(s) currently using it. The source data is not touched.",
+    "tab": "Copies",
+    "intro": "One copy for each person who has asked a question that uses this table, built with their own credentials.",
+    "reload": "Reload",
+    "loadError": "Could not load the copies",
+    "empty": "No one has a copy yet. A person's copy is built the first time they ask a question that uses this table.",
+    "person": "Person",
+    "status": "Status",
+    "rows": "Rows",
+    "size": "Size",
+    "built": "Built",
+    "lastUsed": "Last used",
+    "stateBuilding": "Building",
+    "stateOk": "Ready",
+    "stateStale": "Rebuilds at next question",
+    "stateError": "Failed",
+    "stateEvicted": "Removed",
+    "deleteCopy": "Delete copy",
+    "deleteAll": "Delete all copies",
+    "confirmOne": "Delete {name}'s copy? It is rebuilt with their credentials the next time they ask.",
+    "confirmAll": "Delete everyone's copies of this table? Each copy is rebuilt with that person's credentials the next time they ask.",
+    "deleted": "Copy deleted",
+    "deletedAll": "All copies deleted",
+    "deletedDetail": "{size} freed",
+    "deleteFailed": "Could not delete the copy",
+    "rebuildAll": "Rebuild everyone's copies",
+    "rebuildAllHint": "Each person's copy is rebuilt with their own credentials the next time they ask.",
+    "rebuildQueued": "Everyone's copies will be rebuilt",
+    "rebuildFailed": "Could not rebuild the copies",
+    "create": "Create",
+    "created": "Custom table created",
+    "updated": "Custom table updated",
+    "savedDetail": "{name}: each person's copy is built the first time they ask."
   },
   "connectionlessAgent": {
     "optional": "(optional)",

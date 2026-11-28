@@ -120,8 +120,9 @@ class ConnectionSchema(BaseModel):
     tool_count: int = 0
     # BOW-managed custom tables on this connection (materialized relations).
     custom_queries_count: int = 0
-    # Whether this connection can host custom tables at all — accelerable
-    # connector type AND shared (system) credentials.
+    # Whether this connection can host custom tables at all — an accelerable
+    # connector type. With shared credentials a table is cached once; where
+    # each person signs in with their own, once per person.
     custom_queries_supported: bool = False
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
@@ -167,8 +168,9 @@ class ConnectionDetailSchema(BaseModel):
     tool_count: int = 0
     # BOW-managed custom tables on this connection (materialized relations).
     custom_queries_count: int = 0
-    # Whether this connection can host custom tables at all — accelerable
-    # connector type AND shared (system) credentials.
+    # Whether this connection can host custom tables at all — an accelerable
+    # connector type. With shared credentials a table is cached once; where
+    # each person signs in with their own, once per person.
     custom_queries_supported: bool = False
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)

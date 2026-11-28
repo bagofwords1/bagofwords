@@ -3348,6 +3348,10 @@ class DataSourceService:
                     db, data_source, conn,
                     row_filter_user=current_user if row_filter_user is SAME_AS_CURRENT_USER
                     else row_filter_user,
+                    credential_user=current_user,
+                    credentials=creds,
+                    make_client=lambda ClientClass=ClientClass, allowed=allowed, conn=conn: bind_organization(
+                        ClientClass(**allowed), getattr(conn, "organization_id", None)),
                 )
                 if fast_client is not None:
                     fast_key = f"{key}::fast"
@@ -3450,7 +3454,9 @@ class DataSourceService:
                            getattr(data_source, "id", None), exc_info=True)
 
     async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
-                                     connection, row_filter_user: User | None = None):
+                                     connection, row_filter_user: User | None = None,
+                                     credential_user: User | None = None,
+                                     credentials: dict | None = None, make_client=None):
         """Build the FastQueryClient for the custom tables this agent activated.
 
         Returns None when the agent has activated none — most agents, most of the
@@ -3460,6 +3466,14 @@ class DataSourceService:
         an RLS policy. It has no permissive default: None resolves to an
         anonymous identity, which sees nothing from a protected relation. A
         background path that legitimately needs rows must name a real user.
+
+        On a connection where everyone queries with their own credentials
+        there is no shared artifact to attach: the relations come from
+        `credential_user`'s own copies (built here, with `credentials`, when
+        missing — see custom_table_user_copy_service). The copy belongs to
+        whoever's credentials run the live queries, so the cached rows and the
+        live rows are always the same person's. With no such user there is no
+        cached client at all.
         """
         from app.models.connection_table import ConnectionTable, KIND_BOW
         from app.services.custom_query_service import CustomQueryService
@@ -3493,8 +3507,31 @@ class DataSourceService:
             identity = await resolve_identity(
                 db, row_filter_user, str(data_source.organization_id)
             )
+        copies = None
+        if CustomQueryService.is_per_user(connection):
+            if credential_user is None or make_client is None:
+                return None
+            from app.services.custom_table_user_copy_service import user_copy_service
+
+            async def client_for(table):
+                client = make_client()
+                await self._attach_stored_table_metadata(
+                    db, client, data_source, connection, current_user=credential_user)
+                return client
+
+            try:
+                copies = await user_copy_service.serve(
+                    db, connection=connection, tables=list(rows), user=credential_user,
+                    credentials=credentials, client_factory=client_for,
+                )
+            except Exception as e:
+                # The live client still answers; a cache that cannot be
+                # prepared must not take the agent's connection down with it.
+                logger.error(f"_construct_fast_client: per-user copies failed: {e}", exc_info=True)
+                return None
         return CustomQueryService.build_fast_client(
-            list(rows), connection_name=connection.name, identity=identity
+            list(rows), connection_name=connection.name, identity=identity,
+            user_copies_by_table=copies,
         )
 
     async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection, current_user=None) -> None:
@@ -5050,6 +5087,11 @@ class DataSourceService:
                 last_refreshed_at=table.connection_table.last_refreshed_at if table.connection_table and table.connection_table.kind == "bow" else None,
                 last_refresh_status=table.connection_table.last_refresh_status if table.connection_table and table.connection_table.kind == "bow" else None,
                 rls_enabled=bool(table.connection_table.rls_enabled) if table.connection_table and table.connection_table.kind == "bow" else False,
+                per_user=bool(
+                    table.connection_table and table.connection_table.kind == "bow"
+                    and (getattr(getattr(table.connection_table, "connection", None), "auth_policy", None)
+                         or "system_only") == "user_required"
+                ),
                 # Metrics
                 centrality_score=table.centrality_score,
                 richness=table.richness,

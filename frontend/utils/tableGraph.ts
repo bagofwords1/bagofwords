@@ -10,6 +10,8 @@ export type GraphTable = {
   centrality_score?: number; usage_count?: number; last_used_at?: string; pos_feedback_count?: number; neg_feedback_count?: number;
   success_count?: number; failure_count?: number; custom_query_id?: string;
   last_refreshed_at?: string; last_refresh_status?: string; rls_enabled?: boolean;
+  /** Custom table on a connection where each person signs in themselves: cached once per person. */
+  per_user?: boolean;
 }
 export const tableId = (t: GraphTable) => t.id || `${t.connection_id || ''}:${t.metadata_json?.schema || ''}:${t.name}`
 export type TableLink = { id: string; source: string; target: string; suggested?: boolean; columns: { from: string; to: string }[] }
