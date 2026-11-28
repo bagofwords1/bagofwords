@@ -195,7 +195,7 @@ def test_hit_rate_is_bounded_to_one():
 # cached read on them by 4x. These assert the exception applies where it
 # should and, just as importantly, nowhere else.
 
-REDUCED_READ_MODELS = ["claude-fable-5-1", "claude-mythos-5-1"]
+REDUCED_READ_MODELS = ["claude-fable-5-1", "claude-mythos-5-1", "claude-fable-5-2", "claude-mythos-5-2"]
 # Same families one version back, plus the rest of the lineup: all still 0.1x.
 # These are what a family-wide "fable-5"/"mythos" match would have swept in,
 # under-reporting their cost by 4x — the same bug reversed.
@@ -286,3 +286,13 @@ def test_openai_per_model_cached_read_rates(model, read):
     # Cached tokens ride inside prompt_tokens, so the rate is applied as a rebate.
     cost = _cost("openai", model, prompt=100_000, read=100_000)
     assert cost == pytest.approx(100_000 * read * RATE / M)
+
+
+def test_fable_5_2_reads_at_its_published_rate():
+    """Claude Fable 5.2 publishes $0.20/MTok cache reads on an $8 base."""
+    at_eight = pricing.cached_input_cost(
+        rate_per_million=8.0, prompt_tokens=0, cache_read_tokens=M,
+        cache_write_5m_tokens=0, cache_write_1h_tokens=0,
+        provider_type="anthropic", model_id="claude-fable-5-2",
+    )
+    assert at_eight == pytest.approx(0.20)

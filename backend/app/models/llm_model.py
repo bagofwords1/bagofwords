@@ -234,7 +234,33 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 14.00
     },
     {
-        # Anthropic's most capable widely released model. Same tier, price and
+        # Successor to Claude Fable 5.1 at a lower price: $8/$40 per million
+        # (5.1 is $10/$50), same 1M window and 128K output. 5.1 and 5 stay in
+        # the catalog because they are still served. Selectable but not a
+        # default: it is still 2x Opus 5.5 and 4x the Sonnet 5.5 default, so
+        # moving an org onto it is the admin's cost decision.
+        # https://platform.claude.com/docs/en/about-claude/pricing
+        #
+        # No client changes needed: the ``fable-5`` substring tags
+        # (_NO_SAMPLING_PARAM_TAGS, reasoning.py) give it adaptive thinking and
+        # no temperature, and ``fable-5-2`` is already in
+        # _REJECTS_FORCED_TOOL_CHOICE_TAGS (forced tool_choice is a 400 here).
+        # Cache reads are 0.025x base ($0.20) — see
+        # pricing._ANTHROPIC_READ_RATE_OVERRIDES.
+        "name": "Claude Fable 5.2",
+        "model_id": "claude-fable-5-2",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 8.00,
+        "output_cost_per_million_tokens_usd": 40.00
+    },
+    {
+        # Predecessor of Claude Fable 5.2. Same tier, price and
         # 1M window as Claude Fable 5, which stays in the catalog because it is
         # still served. Selectable but not a default: at $10/$50 per million it
         # is 2x Opus 5 and 5x the Sonnet 5.5 default, so moving an org onto it
@@ -296,6 +322,9 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 10.00
     },
     {
+        # $2/$10 is now the standard price: Anthropic dropped the planned
+        # 2026-09-01 increase to $3/$15.
+        # https://platform.claude.com/docs/en/about-claude/pricing
         "name": "Claude Sonnet 5",
         "model_id": "claude-sonnet-5",
         "provider_type": "anthropic",
@@ -304,8 +333,8 @@ LLM_MODEL_DETAILS = [
         "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1000000,
-        "input_cost_per_million_tokens_usd": 3.00,
-        "output_cost_per_million_tokens_usd": 15.00
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
     },
     {
         # Successor to Claude Opus 5, cheaper per token ($4/$20) with the same
@@ -357,8 +386,8 @@ LLM_MODEL_DETAILS = [
     },
     {
         # Successor to Claude Haiku 4.5: 1M window, 128K output, $0.10/$0.50
-        # for prompts up to 100K tokens ($0.50/$2.50 above; we bill the base
-        # tier). Cache reads/writes use the standard 0.1x / 1.25x / 2x, so no
+        # for prompts up to 100K tokens ($0.50/$2.50 above, applied by
+        # pricing.long_context_multipliers). Cache reads/writes use the standard 0.1x / 1.25x / 2x, so no
         # pricing override. Adaptive thinking only (budget_tokens 400s), effort
         # low..max with API default "medium"; non-default temperature 400s
         # (``haiku-5`` in _NO_SAMPLING_PARAM_TAGS). Not the small default:
@@ -426,6 +455,73 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 20.00
     },
     {
+        # GA 2026-11-18, $3.00 / $15.00 with no long-prompt tier. Same Gemini 4
+        # surface as Argon (thinking_level only, GEMINI_LEVEL_ONLY_PREFIXES), so
+        # no client changes. Not a default: that is a product call.
+        # https://ai.google.dev/gemini-api/docs/pricing
+        "name": "Gemini 4 Neon",
+        "model_id": "gemini-4-neon",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        "input_cost_per_million_tokens_usd": 3.00,
+        "output_cost_per_million_tokens_usd": 15.00
+    },
+    {
+        # GA 2026-11-10. Like Argon, the standard list price applies from
+        # 2026-12-01; until then Google bills an introductory $2.00 / $10.00.
+        "name": "Gemini 4 Carbon",
+        "model_id": "gemini-4-carbon",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        "input_cost_per_million_tokens_usd": 4.00,
+        "output_cost_per_million_tokens_usd": 20.00
+    },
+    {
+        # GA 2026-11-12, $1.50 / $7.50 (the Flash price point, also on the free
+        # tier). Selectable, not a default.
+        "name": "Gemini 4 Hydrogen",
+        "model_id": "gemini-4-hydrogen",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        "input_cost_per_million_tokens_usd": 1.50,
+        "output_cost_per_million_tokens_usd": 7.50
+    },
+    {
+        # Stable (GA 2026-09-02), already the Vertex default; it was missing on
+        # the Gemini Developer API. Standard price from 2027-01-01, like 3.6
+        # Flash; until then Google bills an introductory $0.75 / $3.75.
+        "name": "Gemini 3.8 Flash",
+        "model_id": "gemini-3.8-flash",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        "input_cost_per_million_tokens_usd": 1.50,
+        "output_cost_per_million_tokens_usd": 7.50
+    },
+    {
         # Preview channel, superseded by the stable Gemini 4 Argon. Selectable,
         # but deliberately not a default: a preview id is what got shut down.
         "name": "Gemini 3.1 Pro Preview",
@@ -438,7 +534,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1048576,
         "max_output_tokens": 65536,
-        # Tiered: $4.00 / $18.00 above a 200k-token prompt.
+        # Tiered: $4.00 / $18.00 above a 200k-token prompt, applied by
+        # pricing.long_context_multipliers.
         "input_cost_per_million_tokens_usd": 2.00,
         "output_cost_per_million_tokens_usd": 12.00
     },
@@ -499,7 +596,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1048576,
         "max_output_tokens": 65536,
-        # Tiered: $4.00 / $18.00 above a 200k-token prompt.
+        # Tiered: $4.00 / $18.00 above a 200k-token prompt, applied by
+        # pricing.long_context_multipliers.
         "input_cost_per_million_tokens_usd": 2.00,
         "output_cost_per_million_tokens_usd": 12.00
     },
@@ -561,7 +659,37 @@ LLM_MODEL_DETAILS = [
     # gpt-image-1, which OpenAI shuts down on 2026-12-01; dropping it from the
     # catalog disables it on preset providers at the next sync.
     # Priced per token: text input $5/M, image output $30/M (image input, $8/M,
-    # only applies to edits, which are not wired). Same price for both.
+    # only applies to edits, which are not wired). Same price for all four.
+    {
+        # https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst
+        # Newest image models (2026-11-04), same price as 2.5. Listed first so
+        # generate_image prefers them; they take the same generations params.
+        "name": "GPT Image 2.6 Sunburst",
+        "model_id": "gpt-image-2.6-sunburst",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": False,
+        "supports_image_generation": True,
+        "input_cost_per_million_tokens_usd": 5.00,
+        "output_cost_per_million_tokens_usd": 30.00
+    },
+    {
+        # https://developers.openai.com/api/docs/models/gpt-image-2.6-flare
+        "name": "GPT Image 2.6 Flare",
+        "model_id": "gpt-image-2.6-flare",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": False,
+        "supports_image_generation": True,
+        "input_cost_per_million_tokens_usd": 5.00,
+        "output_cost_per_million_tokens_usd": 30.00
+    },
     {
         # https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst
         "name": "GPT Image 2.5 Sunburst",
