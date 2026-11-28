@@ -371,3 +371,43 @@ def test_an_incremental_window_reads_only_the_rows_in_it(monkeypatch):
     _names, rows = _collect(client, dax)
     assert sorted(r[0] for r in rows) == list(range(101, 111))
     assert server.largest_response == 10
+
+
+# --------------------------------------------------------------------------
+# The connector's statement and catalog checks
+# --------------------------------------------------------------------------
+
+# DAX the connector's own execute_query refuses (`check_xmla_statement`).
+_REFUSED_DAX = {
+    "a nested comment": "EVALUATE Sales /* a /* b */ */",
+    "a refused word": "EVALUATE Sales INTO Copy",
+    "an ambiguous line end": "EVALUATE Sales -- note" + chr(0x2028) + "x",
+}
+
+
+@pytest.mark.parametrize("dax", list(_REFUSED_DAX.values()), ids=list(_REFUSED_DAX))
+def test_dax_the_connector_refuses_is_refused_on_every_extraction_path_and_nothing_is_sent(dax):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, server = _client({"Retail": FakeDax(_sales(5))})
+    with pytest.raises(ReadOnlyViolation):
+        client.execute_query(dax)
+    with pytest.raises(ReadOnlyViolation):
+        extractor.preview(client, dax, 3)
+    with pytest.raises(ReadOnlyViolation):
+        _collect(client, dax)
+    assert not extractor.estimate(client, dax).supported
+    assert server.statements == []
+
+
+def test_a_pinned_catalog_other_than_the_configured_one_is_refused_and_nothing_is_sent():
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, server = _client({"Retail": FakeDax(_sales(5)), "Finance": FakeDax(_sales(9))}, catalog="Retail")
+    client.extraction_target = {"catalog": "Finance"}
+    with pytest.raises(ReadOnlyViolation):
+        extractor.preview(client, "EVALUATE Sales", 3)
+    assert server.statements == []
+    client.extraction_target = {"catalog": "retail"}
+    _cols, rows = extractor.preview(client, "EVALUATE Sales", 3)
+    assert len(rows) == 3 and {c for c, _s in server.statements} == {"Retail"}

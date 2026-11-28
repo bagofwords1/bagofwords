@@ -330,7 +330,7 @@ INPUT ENVELOPE
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
   {PromptBuilder._render_current_artifact(planner_input.active_artifact)}
-  {PromptBuilder._render_notes_block(planner_input)}
+  {PromptBuilder._render_notes_block(planner_input)}{PromptBuilder._render_agent_sandbox_block(planner_input)}
   <past_observations>{json.dumps(PromptBuilder._compact_past_observations(planner_input.past_observations))}</past_observations>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
   <error_guidance>
@@ -649,6 +649,16 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
 
         lines.append("</current_artifact>")
         return "\n".join(lines)
+
+    @staticmethod
+    def _render_agent_sandbox_block(planner_input: PlannerInput) -> str:
+        """When to use the agent sandbox, or '' when its tools are not in the
+        catalog. Starts with its own line break so that, without the tools, the
+        prompt is byte-for-byte what it was before the feature existed."""
+        from app.services.sandbox.prompt import prompt_section
+
+        section = prompt_section(getattr(planner_input, "tool_catalog", None))
+        return f"\n  {section}" if section else ""
 
     @staticmethod
     def _render_notes_block(planner_input: PlannerInput) -> str:

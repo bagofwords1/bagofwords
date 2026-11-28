@@ -612,7 +612,7 @@ class ProjectManager:
     
     async def finalize_tool_step(
         self, db, step, *, code, data, data_model=None, parameters=None,
-        applied_params=None, status="success",
+        applied_params=None, status="success", organization_id=None,
     ):
         """Persist a finished tool's step in ONE commit, without refresh.
 
@@ -630,7 +630,9 @@ class ProjectManager:
         if data_model is not None:
             step.data_model = data_model
         step.code = code
-        step.data = _to_json_safe(data)
+        from app.services.viewer_data_policy import withhold_step_storage
+        withheld = await withhold_step_storage(db, step, organization_id=organization_id)
+        step.data = {} if withheld else _to_json_safe(data)
         step.status = status
         step.status_reason = None
         db.add(step)
@@ -655,7 +657,7 @@ class ProjectManager:
             if data_model is not None:
                 step.data_model = data_model
             step.code = code
-            step.data = {"error": f"failed to persist data: {type(exc).__name__}: {exc}"}
+            step.data = {} if withheld else {"error": f"failed to persist data: {type(exc).__name__}: {exc}"}
             step.status = status
             step.status_reason = None
             db.add(step)
@@ -763,8 +765,10 @@ class ProjectManager:
                 pass
             raise
 
-    async def update_step_with_data(self, db, step, data):
-        safe_data = _to_json_safe(data)
+    async def update_step_with_data(self, db, step, data, *, organization_id=None):
+        from app.services.viewer_data_policy import withhold_step_storage
+        withheld = await withhold_step_storage(db, step, organization_id=organization_id)
+        safe_data = {} if withheld else _to_json_safe(data)
         try:
             step.data = safe_data
             db.add(step)
@@ -775,7 +779,7 @@ class ProjectManager:
                 "update_step_with_data failed for step %s; persisting error payload",
                 getattr(step, "id", None),
             )
-            step.data = {"error": f"failed to persist data: {type(exc).__name__}: {exc}"}
+            step.data = {} if withheld else {"error": f"failed to persist data: {type(exc).__name__}: {exc}"}
             db.add(step)
             try:
                 await db.commit()

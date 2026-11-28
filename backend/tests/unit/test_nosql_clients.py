@@ -169,6 +169,167 @@ def test_description_tells_the_agent_it_is_read_only(type_name):
     assert "execute_query" in text
 
 
+# ------------------------------------------------- custom tables (FAST path)
+
+# Connectors whose statements the query checks neither check nor exempt
+# (client_profiles.classify == "unknown"): no custom table may run on them.
+UNCHECKED_TYPES = ["cassandra", "couchbase", "dynamodb"]
+
+
+def _built(type_name):
+    from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+    entry = REGISTRY[type_name]
+    base = {f: (fi.default if fi.default is not None and not fi.is_required() else "x")
+            for f, fi in entry.config_schema.model_fields.items()}
+    return resolve_client_class(type_name)(**base)  # constructing never connects
+
+
+@pytest.mark.parametrize("type_name", UNCHECKED_TYPES)
+def test_a_custom_table_source_is_refused_for_a_connector_whose_queries_are_not_checked(type_name):
+    from app.ai.code_execution.client_profiles import classify
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+    from app.data_sources.fast import extractor
+
+    client = _built(type_name)
+    assert classify(client) == "unknown"
+    with pytest.raises(ReadOnlyViolation, match="not checked"):
+        extractor.checked_source(client, "SELECT * FROM t")
+
+
+@pytest.mark.parametrize("type_name", UNCHECKED_TYPES)
+def test_custom_tables_are_not_offered_for_a_connector_whose_queries_are_not_checked(type_name):
+    from app.services.custom_query_service import is_accelerable_type
+
+    assert not is_accelerable_type(type_name)
+    assert not is_accelerable_type(type_name.upper())
+
+
+def test_custom_tables_are_still_offered_for_a_checked_document_store():
+    from app.services.custom_query_service import is_accelerable_type
+
+    assert is_accelerable_type("cosmosdb")
+
+
+@pytest.mark.parametrize("type_name", UNCHECKED_TYPES)
+def test_a_custom_table_preview_is_refused_for_a_connector_whose_queries_are_not_checked(type_name):
+    import asyncio
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.services.custom_query_service import custom_query_service
+
+    import pandas as pd
+
+    connection = SimpleNamespace(type=type_name, auth_policy="system_only")
+    sent = []
+    client = _built(type_name)
+    # The source boundary: records what reaches it instead of connecting.
+    client.execute_query = lambda *a, **k: sent.append(a) or pd.DataFrame([{"a": 1}])
+
+    async def _build_client(*_a, **_k):
+        return client
+
+    service = type(custom_query_service).__new__(type(custom_query_service))
+    service.__dict__.update(custom_query_service.__dict__)
+    service.connection_service = SimpleNamespace(construct_client=_build_client)
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(service.preview(None, connection, "SELECT * FROM t"))
+    assert refused.value.status_code == 400
+    # Says why: queries to this type are not checked yet.
+    assert "not checked" in str(refused.value.detail)
+    assert sent == []
+
+
+def test_a_type_without_custom_tables_is_still_told_they_are_not_available():
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.services.custom_query_service import CustomQueryService
+
+    with pytest.raises(HTTPException) as refused:
+        CustomQueryService.ensure_accelerable(SimpleNamespace(type="no_such_type", auth_policy="system_only"))
+    assert "not available" in str(refused.value.detail)
+    assert "not checked" not in str(refused.value.detail)
+
+
+def test_a_type_whose_client_cannot_be_resolved_is_not_offered_custom_tables(monkeypatch, caplog):
+    import logging
+
+    from app.schemas import data_source_registry
+    from app.services import custom_query_service as service
+
+    def _broken(_key):
+        raise RuntimeError("detail-not-for-logs")
+
+    log = logging.getLogger(service.__name__)
+    log.disabled = False  # alembic's fileConfig disables existing loggers
+    real = data_source_registry.resolve_client_class
+    monkeypatch.setattr(service, "_UNCHECKED", {})
+    monkeypatch.setattr(data_source_registry, "resolve_client_class", _broken)
+    with caplog.at_level(logging.WARNING, logger=service.__name__):
+        assert not service.is_accelerable_type("postgresql")
+    logged = [r.getMessage() for r in caplog.records if r.name == service.__name__]
+    assert logged and all("RuntimeError" in m and "detail-not-for-logs" not in m for m in logged), logged
+    # Remembered for the life of the process: the type stays refused (fails
+    # closed) even once the client resolves, until a restart.
+    monkeypatch.setattr(data_source_registry, "resolve_client_class", real)
+    assert not service.is_accelerable_type("postgresql")
+
+
+def _unresolvable(monkeypatch):
+    from app.schemas import data_source_registry
+    from app.services import custom_query_service as service
+
+    def _broken(_key):
+        raise RuntimeError("detail-not-for-logs")
+
+    monkeypatch.setattr(service, "_UNCHECKED", {})
+    monkeypatch.setattr(data_source_registry, "resolve_client_class", _broken)
+    return service
+
+
+def test_a_custom_table_for_a_type_whose_client_cannot_be_loaded_is_refused_saying_so(monkeypatch):
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    service = _unresolvable(monkeypatch)
+    with pytest.raises(HTTPException) as refused:
+        service.CustomQueryService.ensure_accelerable(SimpleNamespace(type="postgresql", auth_policy="system_only"))
+    detail = str(refused.value.detail)
+    assert "could not be loaded" in detail
+    assert "not checked yet" not in detail
+
+
+def test_a_client_that_cannot_be_loaded_is_logged_once_and_asked_once_per_type(monkeypatch, caplog):
+    import logging
+
+    service = _unresolvable(monkeypatch)
+    calls = []
+    from app.schemas import data_source_registry
+
+    broken = data_source_registry.resolve_client_class
+
+    def _counting(key):
+        calls.append(key)
+        return broken(key)
+
+    monkeypatch.setattr(data_source_registry, "resolve_client_class", _counting)
+    log = logging.getLogger(service.__name__)
+    log.disabled = False  # alembic's fileConfig disables existing loggers
+    with caplog.at_level(logging.WARNING, logger=service.__name__):
+        for _ in range(3):
+            assert not service.is_accelerable_type("postgresql")
+            assert not service.is_accelerable_type("mysql")
+    logged = [r.getMessage() for r in caplog.records if r.name == service.__name__]
+    assert len(logged) == 2, logged
+    # The verdict is cached for the process: each type is asked once.
+    assert len(calls) == 2
+
+
 # ---------------------------------------------------------------- DynamoDB
 
 

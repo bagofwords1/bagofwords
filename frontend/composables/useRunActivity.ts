@@ -209,6 +209,11 @@ export const DELIVERABLE_TOOLS = new Set<string>([
   'cancel_scheduled_task',
   'stop_eval_run',
   'stop_sub_agent',
+  'delete_sandbox',
+  // A sandbox run that saved files to the report: its block carries the links
+  // (deliverableKey leaves out a run that saved nothing). Listed by name so a
+  // run is always its own row while live, where its output streams.
+  'run_in_sandbox',
 ])
 
 const CODE_TOOLS = new Set(['create_and_execute_code', 'execute_code', 'execute_sql'])
@@ -244,6 +249,9 @@ export function deliverableKey(block: any): string {
   if (name === 'create_artifact' || name === 'edit_artifact' || name === 'create_dashboard') {
     const id = rj.artifact_id || aj.artifact_id
     return id ? `artifact:${id}` : `block:${block.id}`
+  }
+  if (name === 'run_in_sandbox') {
+    return Array.isArray(rj.artifacts) && rj.artifacts.length ? `block:${block.id}` : ''
   }
   if (name === 'create_doc' || name === 'edit_doc') {
     const id = rj.doc_id || aj.doc_id
@@ -624,6 +632,8 @@ export interface RunToolGroup {
 }
 
 function toolCategory(name: string): string {
+  // create_sandbox makes no result the reader opens: it is a tool call like the rest.
+  if (/sandbox/.test(name)) return 'tools'
   if (/browser|web_fetch/.test(name)) return 'browser'
   if (/search|grep/.test(name)) return 'search'
   if (/read_file|list_files/.test(name)) return 'files'

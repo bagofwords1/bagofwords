@@ -1,4 +1,113 @@
 {
+  "samplePreview": {
+    "filterHelp": "Välj den kolumn som avgör vilka rader en medlem kan se.",
+    "mappingHelp": "Matcha en medlemsegenskap mot en behörighetsrad. Radens tilldelade värde avgör åtkomsten.",
+    "previewHelp": "Visa ett urval av de rader och kolumner medlemmen får läsa med det sparade utkastet.",
+    "summary": "{member} · Exempelrader: {rows} · Synliga kolumner: {columns}",
+    "checkColumn": "Kontrollera en kolumn",
+    "check": "Kontrollera synlighet",
+    "visible": "{column} är synlig för {member}.",
+    "hidden": "{column} är inte synlig för {member}.",
+    "noColumns": "Inga kolumner är synliga för medlemmen."
+  },
+  "grantMapping": {
+    "previewError": "Förhandsvisningen misslyckades. Kontrollera regeln och anslutningen.",
+    "importTyped": "En tabell per rad. Ange tabell, filterkolumn och resurstyp för en regel.",
+    "importSimple": "En tabell per rad. Ange tabell och filterkolumn med komma emellan för en regel.",
+    "target": "Kolumn att filtrera",
+    "principal": "Medlemsegenskap",
+    "principalColumn": "Matchande behörighetskolumn",
+    "valueColumn": "Kolumn med tillåtet värde",
+    "useType": "Skilj behörigheter åt med resurstyp",
+    "typeColumn": "Kolumn för resurstyp",
+    "resourceTypeValue": "Värde för resurstyp",
+    "chooseColumn": "Välj kolumn"
+  },
+  "accessEditor": {
+    "tables": "Tabellåtkomst",
+    "chooseTable": "Välj en tabell för att redigera regler och granska åtkomsten.",
+    "connectionSetup": "Anslutningsmappning",
+    "status": "Status",
+    "import": "Importera",
+    "noTables": "Inga matchande tabeller.",
+    "rows": "Radåtkomst",
+    "columns": "Kolumnåtkomst",
+    "grantVia": "Ge åtkomst via",
+    "property": "Medlemsegenskap",
+    "allColumns": "Alla kolumner i tillåtna rader är synliga.",
+    "selectedColumns": "Välj synliga kolumner. Övriga och nya kolumner förblir dolda.",
+    "audience": "Kolumnåtkomst för",
+    "everyReader": "Alla med radåtkomst",
+    "match": "Medlemmar med matchande egenskap",
+    "values": "Tillåtna värden (kommaseparerade)",
+    "columnName": "Kolumnnamn",
+    "add": "Lägg till",
+    "removeRule": "Ta bort regel",
+    "previewAs": "Förhandsvisa som",
+    "previewHint": "Testa det sparade utkastet för en medlem.",
+    "saveFirst": "Spara utkastet för att testa ändringarna.",
+    "runPreview": "Visa resultat",
+    "hideCompare": "Dölj jämförelse",
+    "compare": "Jämför en annan medlem",
+    "applySetup": "Tillbaka till reglerna",
+    "myself": "Mitt konto"
+  },
+  "liveAccess": {
+    "title": "Access rules",
+    "coverage": "Table coverage",
+    "all": "All tables",
+    "protected": "Protected",
+    "missing": "Missing mapping",
+    "pending": "Pending changes",
+    "search": "Search the connection catalog",
+    "inventory": "Only tables from the imported inventory",
+    "active": "Active policy",
+    "identity": "Reader identity",
+    "email": "Verified member email",
+    "bulk": "Import table mappings",
+    "bulkHint": "One table per line. To map a table, enter table, company column, grant source.",
+    "apply": "Apply to draft",
+    "rowAttribute": "Match row key to identity property",
+    "columns": "Visible columns, one per line. To restrict a column, add its property and allowed values.",
+    "review": "Review activation",
+    "impact": "Activation withholds unverified historical reports, exports and scheduled attachments across this workspace.",
+    "activate": "Activate saved policy",
+    "compare": "Compare access",
+    "member": "Member email",
+    "previewMember": "Preview member",
+    "rows": "Visible rows",
+    "empty": "No matching data",
+    "denied": "No grant",
+    "multi": "Multiple values (one per line)",
+    "custom": "Admin property",
+    "submitted": "Submitted SQL",
+    "sent": "SQL sent to the database",
+    "blocked": "Blocked before execution",
+    "restrict": "Limit visible columns",
+    "freshness": "Data and company grants are read from the source on each protected query.",
+    "cachedFreshness": "Data comes from the last refresh. Row access is evaluated for the reader.",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "fabricCompany": {
+    "preview": "Förhandsvisa mina rader",
+    "previewFailed": "Logga in med den konfigurerade Entra-identiteten och kontrollera mappningen.",
+    "tab": "RLS per företag",
+    "mapping": "Åtkomst per företag",
+    "scope": "Spara ett utkast för att testa mappningen. Det gäller endast förhandsvisningar av policyn.",
+    "tenant_id": "Entra-klient-ID",
+    "grants_table": "Behörighetstabell",
+    "employee_column": "Anställdkolumn",
+    "company_column": "Företagskolumn",
+    "source_column": "Källkolumn",
+    "tables": "Skyddade tabeller",
+    "table": "Källtabell",
+    "source": "Behörighetens källvärde",
+    "add": "Lägg till tabell",
+    "save": "Spara utkast",
+    "saved": "Utkast sparat",
+    "failed": "Kunde inte läsa in eller spara utkastet."
+  },
   "world": {
     "tree": "Träd",
     "usage": "Användning",
@@ -2388,7 +2497,8 @@
     "saveFailed": "Det gick inte att spara entiteten",
     "stepRequired": "Ett steg krävs för att spara",
     "publishedToast": "Frågan publicerades i katalogen",
-    "suggestedToast": "Förslaget skickades för granskning"
+    "suggestedToast": "Förslaget skickades för granskning",
+    "savedRunFailed": "Sparad, men frågan kunde inte köras"
   },
   "mentionInput": {
     "placeholder": "Skriv {'@'} för att nämna...",
@@ -3570,7 +3680,11 @@
         },
         "workspace": {
           "title": "Arbetsyta",
-          "description": "Webhooks, förgreningar och datalagring"
+          "description": "Offentliga länkar, åtkomstbegäranden, webhooks och förgreningar"
+        },
+        "retention": {
+          "title": "Datalagring",
+          "description": "Radera gamla rapporter, instrumentpaneler och filer permanent"
         },
         "other": {
           "title": "Övrigt",
@@ -3741,6 +3855,26 @@
           "name": "Gräns för antal anrop för anpassad tabell",
           "description": "Flest anrop en uppdatering får göra till en källa som läses sida för sida (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Höj den tillsammans med radgränsen: Power BI returnerar högst 100 000 rader per anrop och tillåter cirka 120 anrop per minut. 16 till 10 000."
         },
+        "custom_table_user_copy_max_age_hours": {
+          "name": "Högsta ålder för kopia per person (timmar)",
+          "description": "På en anslutning där varje person loggar in med sina egna inloggningsuppgifter cachas en anpassad tabell separat för varje person. En kopia som är äldre än så skapas om med den personens inloggningsuppgifter innan den används igen, så att en ändring av personens åtkomst i källan börjar gälla inom den här tiden. 1 till 720."
+        },
+        "custom_table_user_copy_idle_days": {
+          "name": "Inaktiva dagar för kopia per person",
+          "description": "En persons kopia som inte har använts på så här många dagar tas bort. Den skapas om nästa gång personen frågar. 1 till 365."
+        },
+        "custom_table_user_copy_wait_seconds": {
+          "name": "Väntetid för kopia per person (sekunder)",
+          "description": "Hur länge en fråga väntar på att en persons kopia skapas första gången. Om det tar längre tid fortsätter det i bakgrunden och frågan besvaras från källan direkt. 0 till 600."
+        },
+        "custom_table_user_copies_max_gb": {
+          "name": "Lagringsgräns för kopior per person (GB)",
+          "description": "Mest diskutrymme som alla kopior per person i den här organisationen får ta tillsammans. När gränsen överskrids tas de kopior som användes för längst sedan bort först. 1 till 2 048."
+        },
+        "custom_table_user_copy_concurrency": {
+          "name": "Samtidiga skapanden av kopior per person",
+          "description": "Hur många kopior per person som får skapas samtidigt mot en anslutning. Sänk värdet för att skydda en källa som inte klarar belastningen. 1 till 32."
+        },
         "enable_agent_notes": {
           "name": "Agentanteckningar",
           "description": "Låter agenten föra arbetsanteckningar per rapport (ett kladdblock) som den skriver och läser medan den svarar — planer, iakttagelser och att göra-punkter. Anteckningarna visas i rapporten men är inte delad kunskap. När det är avstängt döljs anteckningsverktygen och anteckningarna läggs inte in i kontexten."
@@ -3783,7 +3917,15 @@
         },
         "file_retention_days": {
           "name": "Lagring av filer (dagar)",
-          "description": "Tar varje natt bort filer som är äldre än så här många dagar. Filer som används av en instrumentpanel, filer i ett agent- eller projektbibliotek och uppladdningar till en schemalagd rapport behålls. 0 behåller filer för alltid."
+          "description": "Raderar permanent, varje natt, filer som är äldre än så många dagar. Filer som en instrumentpanel använder, filer i en agents eller ett projekts bibliotek och uppladdningar som matar en schemalagd rapport behålls. Tomt behåller filer för alltid."
+        },
+        "report_retention_days": {
+          "name": "Lagring av rapporter (dagar)",
+          "description": "Raderar permanent, varje natt, rapporter som ingen har använt på så många dagar: varje meddelande, agentkörning, verktygsanrop, fråga och resultat, och filer som inget annat använder. Schemalagda, delade och publicerade rapporter, och rapporter med en aktiv instrumentpanel, behålls. Tomt behåller rapporter för alltid."
+        },
+        "artifact_retention_days": {
+          "name": "Lagring av instrumentpaneler (dagar)",
+          "description": "Raderar permanent, varje natt, instrumentpaneler och sidor som ingen har redigerat eller kört på så många dagar, med deras versioner, data och filer. Publicerade, delade, schemalagda och inbäddade instrumentpaneler behålls. Tomt behåller dem för alltid."
         },
         "enable_excel_addin": {
           "name": "Excel-tillägg",
@@ -3829,6 +3971,12 @@
           "name": "Top K kolumner per tabell",
           "description": "Hur många kolumner i en bred tabell agenten ser i sin helhet i kontexten, rankade efter kolumnanvändning, referenser i instruktioner och nycklar/tidsstämplar. Resten sammanfattas per prefix och går att söka med describe_tables. 0 = ingen gräns."
         }
+      },
+      "retention": {
+        "keepForever": "Behåll för alltid",
+        "warning": "Lagringsregler raderar permanent. Raderade rapporter, instrumentpaneler och filer kan inte återställas.",
+        "preview": "Nattens körning skulle radera {reports} rapporter, {artifacts} instrumentpaneler och {files} filer.",
+        "previewNone": "Nattens körning skulle inte radera något."
       },
       "permissionMode": {
         "title": "Behörighetsläge för verktyg",
@@ -5120,6 +5268,7 @@
     "locale.invalid": "Språket är inte aktiverat",
     "report.not_found": "Rapporten hittades inte",
     "entity.not_found": "Entiteten hittades inte",
+    "entity.run_failed": "Den sparade frågan kunde inte köras. Be dess ägare att kontrollera den.",
     "user.not_found": "Användaren hittades inte",
     "membership.not_found": "Medlemskapet hittades inte",
     "role.not_found": "Rollen hittades inte",
@@ -5138,7 +5287,8 @@
     "resource.duplicate": "Duplicerad resurs",
     "setting.update_failed": "Det gick inte att uppdatera inställningen",
     "query": {
-      "failed_silently": "En fråga misslyckades men den genererade koden returnerade ett tomt resultat i stället för att rapportera det"
+      "failed_silently": "En fråga misslyckades men den genererade koden returnerade ett tomt resultat i stället för att rapportera det: {query_errors}",
+      "timeout": "Frågan tog längre tid än {timeout_seconds} sekunder och stoppades. Begränsa den med filter, en radgräns eller aggregering, eller dela upp den i mindre frågor."
     },
     "llm": {
       "model_id_required": "Modell-ID:t får inte vara tomt",
@@ -5572,9 +5722,12 @@
   },
   "toolbar": {
     "polishDashboard": "Putsa instrumentpanel",
-    "polishRequestLabel": "Putsa"
+    "polishRequestLabel": "Putsa",
+    "fixErrorRequestLabel": "Åtgärda visningsfel"
   },
   "artifactFrame": {
+    "renderFailedTitle": "Det gick inte att visa instrumentpanelen",
+    "fixError": "Åtgärda fel",
     "dataAddQuery": "Lägg till fråga",
     "dataNoQueriesToAdd": "Inga frågor att lägga till",
     "dataAddFailed": "Det gick inte att lägga till frågan på instrumentpanelen",
@@ -7285,6 +7438,7 @@
     "cache": "Cache",
     "cached": "Cachad",
     "notCached": "Inte cachad",
+    "cachedPerPerson": "Cachad per person",
     "searchTables": "Sök tabeller…",
     "suggested": "Föreslagen",
     "suggestedHint": "Föreslagen utifrån nyckelnamn · ej verifierad",
@@ -7715,7 +7869,8 @@
       "deniedTitle": "Åtkomst nekad",
       "deniedBody": "Du har inte åtkomst till den här sidan. Be ägaren att dela den med dig.",
       "goHome": "Till startsidan",
-      "backToApp": "Tillbaka till appen"
+      "backToDashboards": "Tillbaka till instrumentpanelerna",
+      "backToHome": "Tillbaka till startsidan"
     },
     "accessRequest": {
       "noAccessTitle": "Du har inte åtkomst",
@@ -8410,31 +8565,100 @@
       "set_by_admin": "angiven av en administratör"
     }
   },
+  "customTableCopies": {
+    "subtitle": "Lagras lokalt för varje person, så att agenter svarar utifrån den personens cachade kopia i stället för att fråga {connection} varje gång.",
+    "noticeTitle": "Cachas separat för varje person",
+    "notice": "Varje person loggar in på {connection} med sina egna inloggningsuppgifter, så den här tabellen cachas separat för varje person. En persons kopia skapas med personens egna inloggningsuppgifter första gången hen ställer en fråga. Förhandsvisningen körs med dina inloggningsuppgifter.",
+    "settingsIntro": "Hur gammal en persons kopia får bli. En äldre kopia skapas om med den personens inloggningsuppgifter nästa gång hen ställer en fråga.",
+    "ruleInterval": "Skapa om en persons kopia när den är äldre än {age}",
+    "ruleTime": "Skapa om en persons kopia när den är äldre än senaste klockslaget {time}",
+    "age15m": "15 minuter",
+    "age30m": "30 minuter",
+    "age1h": "1 timme",
+    "age6h": "6 timmar",
+    "age12h": "12 timmar",
+    "age24h": "24 timmar",
+    "statusChecked": "Frågan kontrollerades senast: {when}",
+    "statusNever": "aldrig",
+    "statusPeople": "Personer med en kopia: {count}",
+    "statusSize": "Total storlek på disk: {size}",
+    "statusError": "Senaste fel: {error}",
+    "deleteTableHint": "Borttagning tar bort varje persons kopia och tar tabellen från {count} agent(er) som använder den just nu. Källdata påverkas inte.",
+    "tab": "Kopior",
+    "intro": "En kopia för varje person som har ställt en fråga som använder den här tabellen, skapad med personens egna inloggningsuppgifter.",
+    "reload": "Ladda om",
+    "loadError": "Det gick inte att läsa in kopiorna",
+    "empty": "Ingen har en kopia ännu. En persons kopia skapas första gången hen ställer en fråga som använder den här tabellen.",
+    "person": "Person",
+    "status": "Status",
+    "rows": "Rader",
+    "size": "Storlek",
+    "built": "Skapad",
+    "lastUsed": "Senast använd",
+    "stateBuilding": "Skapas",
+    "stateOk": "Klar",
+    "stateStale": "Byggs om vid nästa fråga",
+    "stateError": "Misslyckades",
+    "stateEvicted": "Borttagen",
+    "deleteCopy": "Ta bort kopia",
+    "deleteAll": "Ta bort alla kopior",
+    "confirmOne": "Ta bort kopian för {name}? Den skapas om med personens inloggningsuppgifter nästa gång hen frågar.",
+    "confirmAll": "Ta bort allas kopior av den här tabellen? Varje kopia skapas om med den personens inloggningsuppgifter nästa gång hen frågar.",
+    "deleted": "Kopian togs bort",
+    "deletedAll": "Alla kopior togs bort",
+    "deletedDetail": "{size} frigjordes",
+    "deleteFailed": "Det gick inte att ta bort kopian",
+    "rebuildAll": "Skapa om allas kopior",
+    "rebuildAllHint": "Varje persons kopia skapas om med personens egna inloggningsuppgifter nästa gång hen frågar.",
+    "rebuildQueued": "Allas kopior kommer att skapas om",
+    "rebuildFailed": "Det gick inte att skapa om kopiorna",
+    "create": "Skapa",
+    "created": "Anpassad tabell skapad",
+    "updated": "Anpassad tabell uppdaterad",
+    "savedDetail": "{name}: varje persons kopia skapas första gången hen frågar."
+  },
   "apps": {
-    "title": "Dina appar",
-    "subtitle": "Öppna en app för att komma igång.",
+    "title": "Delat med dig",
+    "subtitle": "Appar, instrumentpaneler och dokument som du kan öppna.",
     "openWorkspace": "Öppna arbetsytan",
-    "search": "Sök appar",
-    "untitled": "Namnlös app",
+    "search": "Sök",
+    "untitled": "Namnlös",
     "inApplication": "I {name}",
-    "allApps": "Alla appar",
+    "backToLauncher": "Tillbaka till Delat med dig",
     "language": "Språk",
     "account": "Konto",
     "signOut": "Logga ut",
-    "loadFailed": "Det gick inte att läsa in dina appar.",
+    "loadFailed": "Det gick inte att läsa in listan.",
     "retry": "Försök igen",
-    "noMatches": "Inga appar matchar ”{query}”.",
+    "noMatches": "Inget matchar ”{query}”.",
     "empty": {
-      "title": "Inga appar ännu",
-      "body": "När någon delar en app med dig visas den här."
+      "title": "Inget har delats med dig än",
+      "body": "När någon delar en app, en instrumentpanel eller ett dokument med dig visas det här."
     },
     "requestAccess": {
-      "prompt": "Behöver du mer än de här apparna?",
+      "prompt": "Behöver du mer än det som delats med dig?",
       "button": "Begär full åtkomst",
       "sent": "Begäran skickad. En administratör granskar den.",
       "failed": "Det gick inte att skicka begäran. Försök igen."
     },
-    "showMore": "Visa fler"
+    "showMore": "Visa fler",
+    "filter": {
+      "label": "Filtrera efter typ",
+      "all": "Alla",
+      "apps": "Appar",
+      "dashboards": "Instrumentpaneler",
+      "docs": "Dokument"
+    },
+    "kind": {
+      "app": "App",
+      "dashboard": "Instrumentpanel",
+      "doc": "Dokument"
+    },
+    "emptyKind": {
+      "app": "Inga appar har delats med dig än.",
+      "dashboard": "Inga instrumentpaneler har delats med dig än.",
+      "doc": "Inga dokument har delats med dig än."
+    }
   },
   "hostApps": {
     "newUserRole": "Nya personer går med som",

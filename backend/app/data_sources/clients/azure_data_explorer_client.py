@@ -1,6 +1,8 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 
+import unicodedata
 import pandas as pd
 from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
 from azure.kusto.data.exceptions import KustoServiceError
@@ -11,13 +13,44 @@ from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 
 
+# Characters after which a new statement or line may start. Kusto separates
+# statements with ';'; any line end counts too.
+_STARTS_AFTER = ";\n\r\x0b\x0c\x85\N{LINE SEPARATOR}\N{PARAGRAPH SEPARATOR}"
+
+
+def _is_blank(ch: str) -> bool:
+    return ch.isspace() or unicodedata.category(ch) in ("Cc", "Cf", "Zs", "Zl", "Zp")
+
+
+def check_kql_is_query(kql: str) -> None:
+    """Refuse a management command. Kusto reads a request whose first
+    character is '.' as a management command (docs: "Management commands
+    overview"). Read more widely here, without regard to strings or `//`
+    comments (KQL has no other comment form): the first visible character of
+    the text, and after every ';' and every line end, may not be '.'."""
+    if not isinstance(kql, str):
+        raise ReadOnlyViolation("Azure Data Explorer query refused: the query must be text.")
+    at_start = True
+    for ch in kql:
+        if ch in _STARTS_AFTER:
+            at_start = True
+        elif not _is_blank(ch):
+            if at_start and ch == ".":
+                raise ReadOnlyViolation(
+                    "Azure Data Explorer query refused: management commands "
+                    "(text starting with '.') are not allowed; send a KQL query."
+                )
+            at_start = False
+
+
 class AzureDataExplorerClient(DataSourceClient):
     """Azure Data Explorer (Kusto) client for querying ADX clusters."""
 
     # KQL: a backslash escapes inside a '...' or "..." string literal
     # ('it\'s', 'C:\\temp') (Kusto string data type, escape sequences): a
-    # standard literal of a value ending in a backslash would end early. No
-    # style here is established for it, so query parameters are refused.
+    # standard literal of a value ending in a backslash would end early. None
+    # of the styles fits; parameters render only with the KQL renderer
+    # declared in client_profiles.
     sql_literal_style = None
     
     def __init__(self, cluster_url, database, client_id=None, client_secret=None, tenant_id=None, auth_type="aad_app"):
@@ -86,10 +119,12 @@ class AzureDataExplorerClient(DataSourceClient):
         Returns:
             pandas.DataFrame with query results
         """
+        check_kql_is_query(kql)
         try:
             with self.connect() as client:
-                response = client.execute(self.database, kql)
-                
+                # The query endpoint only: Kusto runs no management command there.
+                response = client.execute_query(self.database, kql)
+
                 # Convert Kusto response to pandas DataFrame
                 # The primary result table is typically the first one
                 if response.primary_results:

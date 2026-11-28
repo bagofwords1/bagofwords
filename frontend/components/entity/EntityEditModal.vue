@@ -177,6 +177,7 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMyFetch } from '~/composables/useMyFetch'
+import { useErrorMessage } from '~/composables/useErrorMessage'
 import { useCanAll, useCan } from '~/composables/usePermissions'
 import {
   cleanParamSpecs, collectTestValues, zeroRowsHint, type ParamSpecDraft,
@@ -187,6 +188,7 @@ import QueryParamsPanel from '~/components/tools/QueryParamsPanel.vue'
 
 const { t } = useI18n()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 type MinimalDS = { id: string; name?: string; type?: string; icon?: string | null }
 type EntityDetail = {
@@ -365,11 +367,18 @@ async function run() {
     if (payload?.error) { runError.value = payload.error; result.value = null; return }
     result.value = payload?.data || null
   } catch (e: any) {
-    runError.value = e?.data?.detail || e?.message || t('queries.runFailed')
+    runError.value = getErrorMessage(e, t('queries.runFailed'))
     result.value = null
   } finally {
     running.value = false
   }
+}
+
+// The run after Save fills the snapshot; when it fails (refused, quota, a
+// code error) the save still stands, and the user is told why.
+function warnIfRunFailed(failure: unknown) {
+  if (!failure) return
+  toast.add({ title: t('entityCreate.savedRunFailed'), description: getErrorMessage(failure, t('queries.runFailed')), color: 'amber' })
 }
 
 async function onSave() {
@@ -394,12 +403,13 @@ async function onSave() {
       const saved: any = data.value
       // Fill the snapshot so the row opens with data; a failed run still
       // leaves a saved query the user can fix here.
-      try { await useMyFetch(`/api/entities/${saved.id}/run`, { method: 'POST', body: { code: code.value } }) } catch { /* see above */ }
+      const { error: runFailure } = await useMyFetch(`/api/entities/${saved.id}/run`, { method: 'POST', body: { code: code.value } })
       toast.add({
         title: saved?.global_status === 'approved' && saved?.status === 'published'
           ? t('entityCreate.publishedToast') : t('entityCreate.suggestedToast'),
         color: 'green',
       })
+      warnIfRunFailed(runFailure.value)
       emit('saved', saved)
     } else {
       const body: any = {
@@ -416,13 +426,15 @@ async function onSave() {
       const { data, error } = await useMyFetch<any>(`/api/entities/${props.entityId}`, { method: 'PUT', body })
       if (error.value) throw error.value
       if (code.value !== savedCode.value) {
-        try { await useMyFetch(`/api/entities/${props.entityId}/run`, { method: 'POST', body: { code: code.value } }) } catch { /* snapshot refresh is best-effort */ }
+        // Refresh the snapshot with the new code; the save stands either way.
+        const { error: runFailure } = await useMyFetch(`/api/entities/${props.entityId}/run`, { method: 'POST', body: { code: code.value } })
+        warnIfRunFailed(runFailure.value)
       }
       emit('saved', data.value)
     }
     open.value = false
   } catch (e: any) {
-    errorMsg.value = e?.data?.detail || e?.message || t('entityCreate.saveFailed')
+    errorMsg.value = getErrorMessage(e, t('entityCreate.saveFailed'))
     toast.add({ title: t('entityCreate.saveFailed'), description: errorMsg.value, color: 'red' })
   } finally {
     saving.value = false

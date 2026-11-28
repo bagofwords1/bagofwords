@@ -59,6 +59,15 @@
                     </button>
 
                     <div v-if="isOpen(section.id)" class="px-5 pb-6 pt-2 space-y-6">
+                        <div v-if="section.id === 'retention'" class="space-y-1.5" data-testid="retention-notice">
+                            <p class="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                                <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 shrink-0" />
+                                {{ $t('settings.aiSettingsPage.retention.warning') }}
+                            </p>
+                            <p v-if="retentionPreviewText" class="text-xs text-ink-muted tabular-nums" data-testid="retention-preview">
+                                {{ retentionPreviewText }}
+                            </p>
+                        </div>
                         <template v-for="key in section.keys" :key="key">
                             <!-- Allow LLM See Data - highlighted, confirmation-gated -->
                             <div v-if="key === 'allow_llm_see_data'" data-testid="ai-setting-allow_llm_see_data" class="flex flex-col p-4 rounded-lg border border-amber-200 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/40">
@@ -96,6 +105,7 @@
                                 :label="featureLabel(key, configFeatures[key].name)"
                                 :description="featureDescription(key, configFeatures[key].description)"
                                 :child="!!FEATURE_PARENT[key]"
+                                :retention="RETENTION_KEYS.has(key)"
                                 @change="updateConfigFeature(key, configFeatures[key])"
                             />
                         </template>
@@ -265,6 +275,11 @@ const FEATURE_PARENT: Record<string, string> = {
     custom_table_max_gb: 'enable_custom_queries',
     custom_table_max_scan_gb: 'enable_custom_queries',
     custom_table_max_requests: 'enable_custom_queries',
+    custom_table_user_copy_max_age_hours: 'enable_custom_queries',
+    custom_table_user_copy_idle_days: 'enable_custom_queries',
+    custom_table_user_copy_wait_seconds: 'enable_custom_queries',
+    custom_table_user_copies_max_gb: 'enable_custom_queries',
+    custom_table_user_copy_concurrency: 'enable_custom_queries',
     ml_training_row_limit: 'enable_ml_training',
     sandbox_web_fetch_max_urls: 'enable_sandbox_web_fetch',
     sandbox_browser_allow_mutating_requests: 'enable_sandbox_browser',
@@ -290,8 +305,31 @@ const SECTIONS: { id: string, keys: string[] }[] = [
     { id: 'tools', keys: ['enable_mcp_tools', 'tools_max', 'tool_permission_mode'] },
     { id: 'sub_agents', keys: ['enable_sub_agents', 'sub_agent_posture', 'sub_agent_max_steps', 'sub_agent_max_tokens', 'sub_agent_deadline_minutes', 'sub_agent_concurrency', 'sub_agent_max_per_wave', 'sub_agent_model', 'sub_agent_allow_model_override', 'sub_agent_allow_create_data'] },
     { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'smart_instructions_on_demand', 'top_k_schema', 'top_k_schema_columns', 'top_k_metadata_resources', 'agent_roster_top_k'] },
-    { id: 'workspace', keys: ['allow_public_sharing', 'allow_access_requests', 'allow_report_webhooks', 'allow_forks', 'step_retention_days', 'file_retention_days'] },
+    { id: 'workspace', keys: ['allow_public_sharing', 'allow_access_requests', 'allow_report_webhooks', 'allow_forks'] },
+    // Nightly deletes, for good. The *_retention_days in RETENTION_KEYS show
+    // 0 (off) as an empty "Keep forever" field; see app/services/retention/.
+    { id: 'retention', keys: ['report_retention_days', 'artifact_retention_days', 'file_retention_days', 'step_retention_days'] },
 ]
+
+const RETENTION_KEYS = new Set(['report_retention_days', 'artifact_retention_days', 'file_retention_days'])
+
+// What tonight's retention run would delete with the saved settings.
+interface RetentionPreview { reports: number, artifacts: number, files: number }
+const retentionPreview = ref<RetentionPreview | null>(null)
+const loadRetentionPreview = async () => {
+    try {
+        const { data, status } = await useMyFetch('/api/organization/retention/preview', { method: 'GET' })
+        if (status.value === 'success') retentionPreview.value = data.value as RetentionPreview
+    } catch {
+        retentionPreview.value = null
+    }
+}
+const retentionPreviewText = computed(() => {
+    const p = retentionPreview.value
+    if (!p) return ''
+    if (!p.reports && !p.artifacts && !p.files) return t('settings.aiSettingsPage.retention.previewNone')
+    return t('settings.aiSettingsPage.retention.preview', { reports: p.reports, artifacts: p.artifacts, files: p.files })
+})
 
 // Org settings that have a dedicated control elsewhere (LLM page: router and
 // fallback, with their license gate; Integrations: MCP endpoint and Excel
@@ -442,6 +480,7 @@ const updateConfigFeature = async (featureKey: string, feature: Feature) => {
 
         // Update the local state from response
         const updatedConfig = (response.data?.value as SettingsResponse)?.config
+        if (RETENTION_KEYS.has(featureKey)) loadRetentionPreview()
         if (updatedConfig?.[featureKey]) {
             configFeatures.value[featureKey] = updatedConfig[featureKey] as Feature
             if (orgSettings.value?.config) orgSettings.value.config[featureKey] = updatedConfig[featureKey]
@@ -521,5 +560,6 @@ onMounted(async () => {
         if (Array.isArray(saved)) openSections.value = saved
     } catch {}
     await fetchSettings()
+    await loadRetentionPreview()
 })
 </script>

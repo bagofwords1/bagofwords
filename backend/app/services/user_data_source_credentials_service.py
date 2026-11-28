@@ -597,3 +597,13 @@ class UserDataSourceCredentialsService:
             return
         await db.delete(row)
         await db.commit()
+        # Their cached copies of custom tables on this agent's connections
+        # hold rows read with the login just removed.
+        try:
+            from app.services.custom_table_user_copy_service import user_copy_service
+            for connection in (getattr(data_source, "connections", None) or []):
+                await user_copy_service.purge(
+                    db, user_id=str(user.id), connection_id=str(connection.id))
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("delete_my_credentials: cached copies not purged")

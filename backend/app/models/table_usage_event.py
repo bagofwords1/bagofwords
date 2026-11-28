@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, JSON, Boolean, ForeignKey, UniqueConstraint, Index, Float
+from sqlalchemy import text, Column, String, Text, DateTime, JSON, Boolean, ForeignKey, UniqueConstraint, Index, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -41,5 +41,9 @@ class TableUsageEvent(BaseSchema):
         Index("ix_usage_org_report_table_time", "org_id", "report_id", "table_fqn", "used_at"),
         Index("ix_usage_org_report_ds_time", "org_id", "report_id", "data_source_id", "used_at"),
         Index("ix_usage_table_time", "table_fqn", "used_at"),
+        # dstblref01: deleting a catalog row checks this column
+        Index("ix_table_usage_events_datasource_table_id", "datasource_table_id",
+              sqlite_where=text("datasource_table_id IS NOT NULL"),
+              postgresql_where=text("datasource_table_id IS NOT NULL")),
     )
 

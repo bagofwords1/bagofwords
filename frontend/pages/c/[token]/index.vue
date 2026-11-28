@@ -100,6 +100,7 @@
                                         <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :dir="promptDir(m.prompt?.content)">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
+                                                <FixErrorRequestCard v-else-if="parseFixErrorPrompt(m.prompt.content)" :request="parseFixErrorPrompt(m.prompt.content)!" />
                                                 <ClarifyAnswerCard v-else-if="parseClarifyPrompt(m.prompt.content)" :answers="parseClarifyPrompt(m.prompt.content)!" />
                                                 <InstructionText
                                                     v-else
@@ -405,6 +406,8 @@ import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import GenerateImageTool from '~/components/tools/GenerateImageTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
+import RunInSandboxTool from '~/components/tools/RunInSandboxTool.vue'
+import SandboxTool from '~/components/tools/SandboxTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResourcesTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
@@ -465,7 +468,9 @@ import InstructionText from '~/components/instructions/InstructionText.vue'
 import { dominantTextDir, localeTextDir, type TextDir } from '~/utils/textDirection'
 import ResponseLanguageScope from '~/components/report/ResponseLanguageScope.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
+import FixErrorRequestCard from '~/components/report/FixErrorRequestCard.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
+import { parseFixErrorPrompt } from '~/utils/fixErrorPrompt'
 import ClarifyAnswerCard from '~/components/report/ClarifyAnswerCard.vue'
 import { parseClarifyPrompt } from '~/utils/clarifyPrompt'
 import { promptMentionsToRefs } from '~/utils/mentions'
@@ -977,6 +982,12 @@ function getToolComponent(toolName: string) {
             return ReadFileTool
         case 'attach_file':
             return AttachFileTool
+        case 'run_in_sandbox':
+            return RunInSandboxTool
+        case 'create_sandbox':
+        case 'sandbox_status':
+        case 'delete_sandbox':
+            return SandboxTool
         case 'manage_artifact_resources':
             return ManageArtifactResourcesTool
         case 'create_artifact':

@@ -130,6 +130,7 @@ from app.routes import (
     agent_lists,
     changelog,
     app_log,
+    sandbox,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -349,6 +350,10 @@ app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
 app.include_router(app_log.router, prefix="/api")
+# Agent sandboxes. Always registered so a disabled deployment answers
+# `agent_sandboxes.disabled` rather than a bare 404; the router's own
+# dependency is the gate (app/services/sandbox/feature.py).
+app.include_router(sandbox.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")
 app.include_router(metadata_resource.router, prefix="/api")
 app.include_router(bow_settings.router, prefix="/api")
@@ -570,12 +575,13 @@ async def startup_event():
 
     # With BOW_SANDBOX_REQUIRE_LANDLOCK (the production default) the code
     # sandbox refuses to run on a host without the kernel confinement it
-    # needs. Say so once, at startup, instead of through every user request.
+    # needs, and production refuses in-process mode. Say so once, at startup,
+    # instead of through every user request.
     try:
-        from app.ai.code_execution.sandbox.runner import CONFINEMENT_REMEDY, required_confinement_problem
-        problem = required_confinement_problem()
+        from app.ai.code_execution.sandbox.runner import startup_sandbox_problem
+        problem, remedy = startup_sandbox_problem()
         if problem:
-            logger.error(f"Code execution is disabled on this host: {problem}. {CONFINEMENT_REMEDY}")
+            logger.error(f"Code execution is disabled on this host: {problem}. {remedy}")
     except Exception:
         logger.exception("Code sandbox confinement check failed; continuing startup")
 
@@ -661,6 +667,22 @@ async def startup_event():
             )
         except Exception:
             logger.exception("Failed to schedule custom-table artifact cleanup")
+        # Per-user copies of custom tables: idle, expired and orphaned ones go
+        # hourly, so a departed user's data does not wait for the nightly sweep.
+        try:
+            from app.services.custom_table_user_copy_service import scheduled_cleanup_user_copies
+            scheduler.add_job(
+                scheduled_cleanup_user_copies,
+                trigger="cron",
+                minute=25,
+                id="cleanup_custom_table_user_copies",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=1800,
+            )
+        except Exception:
+            logger.exception("Failed to schedule per-user custom-table copy cleanup")
         try:
             scheduler.add_job(
                 purge_step_payloads_keep_latest_per_query,
@@ -694,6 +716,24 @@ async def startup_event():
             logger.info("Scheduled job: purge_expired_files (file retention) @ 03:45 daily")
         except Exception as e:
             logger.error(f"Failed to schedule file retention job: {e}")
+        # Report and artifact retention (off by default), then the retry of
+        # file bytes a delete could not remove yet.
+        try:
+            from app.services.retention.jobs import JOB_ID as RETENTION_JOB_ID, purge_expired as purge_retention
+            scheduler.add_job(
+                purge_retention,
+                trigger="cron",
+                hour=4,
+                minute=0,
+                id=RETENTION_JOB_ID,
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: purge_retention (report + artifact retention) @ 04:00 daily")
+        except Exception as e:
+            logger.error(f"Failed to schedule report/artifact retention job: {e}")
         # A dashboard's refresh history keeps 30 days (refhist01).
         try:
             from app.services.dashboard_refresh_history import purge_old_runs
@@ -1071,6 +1111,17 @@ async def startup_event():
             logger.info("Started Slack Socket Mode listener")
         except Exception as e:
             logger.error(f"Failed to start Slack Socket Mode listener: {e}")
+
+    # Agent sandboxes: lifecycle, backend health and reconcile jobs. Scheduled
+    # only when the deployment flag is on; with it off nothing sandbox-related
+    # runs (a warning is logged if sandboxes were left behind).
+    if is_scheduler_leader:
+        try:
+            from app.services.sandbox.jobs import register_sandbox_jobs, warn_if_sandboxes_exist_while_disabled
+            register_sandbox_jobs(scheduler)
+            await warn_if_sandboxes_exist_while_disabled()
+        except Exception as e:
+            logger.error(f"Failed to register agent sandbox jobs: {e}")
 
     # Load the license key stored in the database (Settings → License), which
     # overrides BOW_LICENSE_KEY, before anything reads the license status.

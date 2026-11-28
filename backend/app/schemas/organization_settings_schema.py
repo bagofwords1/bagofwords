@@ -372,6 +372,13 @@ class OrganizationSettingsConfig(BaseModel):
     # full_admin_access / manage settings.
     agent_automation_defaults: Dict[str, Any] = {}
 
+    # Settings → Sandbox (agent sandboxes): the organization switch, default
+    # environment, timeouts and the package-registry list. A plain dict parsed
+    # by app/services/sandbox/settings.py, so the generic settings pages do
+    # not list it. Written only through /api/sandbox/settings
+    # (manage_sandboxes); the generic settings writer refuses the key.
+    agent_sandboxes: Dict[str, Any] = {}
+
     # Update defaults to use 'value' instead of 'enabled'
     allow_llm_see_data: FeatureConfig = FeatureConfig(value=True, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
     enable_artifact_resources: FeatureConfig = FeatureConfig(value=False, name="Artifact resources", description="Allow artifacts to use persistent records, private files and approved AI operations. Existing sharing and resource permissions still apply.", is_lab=False, editable=True)
@@ -460,6 +467,14 @@ class OrganizationSettingsConfig(BaseModel):
     custom_table_max_gb: FeatureConfig = FeatureConfig(value=2, name="Custom table size limit (GB)", description="Largest estimated result, and largest cached file, for one custom table. 1 to 64.", is_lab=False, editable=True)
     custom_table_max_scan_gb: FeatureConfig = FeatureConfig(value=100, name="Custom table source scan limit (GB)", description="Most data the source may read for one refresh, where the source reports it before running (BigQuery, Snowflake). 1 to 10,240.", is_lab=False, editable=True)
     custom_table_max_requests: FeatureConfig = FeatureConfig(value=512, name="Custom table request limit", description="Most requests one refresh may make to a source that is read page by page (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Raise it together with the row limit: Power BI returns at most 100,000 rows per request and allows about 120 requests a minute. 16 to 10,000.", is_lab=False, editable=True)
+    # Per-user copies: a custom table on a connection where everyone signs in
+    # with their own credentials is cached once per person. Ranges are enforced
+    # in app/data_sources/fast/limits.py.
+    custom_table_user_copy_max_age_hours: FeatureConfig = FeatureConfig(value=24, name="Per-user copy maximum age (hours)", description="On a connection where each person signs in with their own credentials, a custom table is cached separately for each person. A copy older than this is rebuilt with that person's credentials before it is used again, so a change to their access at the source takes effect within this time. 1 to 720.", is_lab=False, editable=True)
+    custom_table_user_copy_idle_days: FeatureConfig = FeatureConfig(value=7, name="Per-user copy idle days", description="A person's copy that has not been used for this many days is deleted. It is rebuilt the next time they ask. 1 to 365.", is_lab=False, editable=True)
+    custom_table_user_copy_wait_seconds: FeatureConfig = FeatureConfig(value=30, name="Per-user copy wait (seconds)", description="How long a question waits for a person's copy to be built the first time. If the build takes longer it carries on in the background and that question is answered from the live source. 1 to 600.", is_lab=False, editable=True)
+    custom_table_user_copies_max_gb: FeatureConfig = FeatureConfig(value=20, name="Per-user copies storage limit (GB)", description="Most disk space all per-user copies in this organization may take together. When it is exceeded, the copies used least recently are deleted first. 1 to 2,048.", is_lab=False, editable=True)
+    custom_table_user_copy_concurrency: FeatureConfig = FeatureConfig(value=4, name="Per-user copy builds at once", description="How many per-user copies may be built at the same time against one connection. Lower it to protect a source that cannot take the load. 1 to 32.", is_lab=False, editable=True)
     enable_agent_notes: FeatureConfig = FeatureConfig(value=True, name="Agent Notes", description="Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context.", is_lab=True, editable=True)
     # Agent check-ins (lab): after a chat turn, the agent may quietly plan ONE
     # follow-up in the same report; a judge decides at fire time whether to run
@@ -486,7 +501,12 @@ class OrganizationSettingsConfig(BaseModel):
     # Days to keep files before the nightly job deletes them; 0 keeps them
     # forever. Dashboard files, agent/project library files and uploads that
     # feed a scheduled report never expire. See app/services/file_retention_service.py.
-    file_retention_days: FeatureConfig = FeatureConfig(value=0, name="File retention (days)", description="Delete files older than this many days, every night. Files used by a dashboard, files in an agent or project library, and uploads that feed a scheduled report are kept. 0 keeps files forever.", is_lab=False, editable=True)
+    file_retention_days: FeatureConfig = FeatureConfig(value=0, name="File retention (days)", description="Delete files older than this many days, for good, every night. Files used by a dashboard, files in an agent or project library, and uploads that feed a scheduled report are kept. Empty keeps files forever.", is_lab=False, editable=True)
+    # Report and artifact retention: days without activity before the nightly
+    # job deletes them for good, with everything they own. 0 (default, shown
+    # as an empty field) keeps them forever. See app/services/retention/.
+    report_retention_days: FeatureConfig = FeatureConfig(value=0, name="Report retention (days)", description="Delete reports nobody has used for this many days, for good, every night: every message, agent run, tool call, query and result, and files nothing else uses. Scheduled, shared and published reports, and reports with a live dashboard, are kept. Empty keeps reports forever.", is_lab=False, editable=True)
+    artifact_retention_days: FeatureConfig = FeatureConfig(value=0, name="Dashboard retention (days)", description="Delete dashboards and pages nobody has edited or run for this many days, for good, every night, with their versions, data and files. Published, shared, scheduled and embedded dashboards are kept. Empty keeps them forever.", is_lab=False, editable=True)
     enable_excel_addin: FeatureConfig = FeatureConfig(value=True, name="Excel Add-in", description="Enable the built-in Excel Add-in so users can sideload the manifest directly from this instance", is_lab=False, editable=True)
     model_routing: FeatureConfig = FeatureConfig(value=False, name="Auto model router", description="Enterprise. When a user doesn't pick a specific model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add per-model routing guidance on the LLM page to steer the choice. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
     # How the Auto router picks a run's starting model. "small_model" (default,

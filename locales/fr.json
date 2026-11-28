@@ -1,4 +1,113 @@
 {
+  "samplePreview": {
+    "filterHelp": "Choisissez la colonne qui détermine les lignes visibles pour un membre.",
+    "mappingHelp": "Associez une propriété du membre à une ligne de droits. La valeur accordée détermine son accès.",
+    "previewHelp": "Affichez un échantillon des lignes et colonnes accessibles avec le brouillon enregistré.",
+    "summary": "{member} · Lignes affichées : {rows} · Colonnes visibles : {columns}",
+    "checkColumn": "Vérifier une colonne",
+    "check": "Vérifier la visibilité",
+    "visible": "{column} est visible pour {member}.",
+    "hidden": "{column} est invisible pour {member}.",
+    "noColumns": "Aucune colonne visible pour ce membre."
+  },
+  "grantMapping": {
+    "previewError": "Échec de l’aperçu. Vérifiez la règle et la connexion.",
+    "importTyped": "Une table par ligne. Pour une règle, saisissez table, colonne de filtre, type de ressource.",
+    "importSimple": "Une table par ligne. Pour une règle, séparez la table et la colonne de filtre par une virgule.",
+    "target": "Colonne à filtrer",
+    "principal": "Propriété du membre",
+    "principalColumn": "Colonne correspondante des droits",
+    "valueColumn": "Colonne de la valeur autorisée",
+    "useType": "Distinguer les droits par type de ressource",
+    "typeColumn": "Colonne du type de ressource",
+    "resourceTypeValue": "Valeur du type de ressource",
+    "chooseColumn": "Choisir une colonne"
+  },
+  "accessEditor": {
+    "tables": "Accès aux tables",
+    "chooseTable": "Sélectionnez une table pour modifier les règles et vérifier les accès.",
+    "connectionSetup": "Correspondance de la connexion",
+    "status": "État",
+    "import": "Importer",
+    "noTables": "Aucune table trouvée.",
+    "rows": "Accès aux lignes",
+    "columns": "Accès aux colonnes",
+    "grantVia": "Accorder l’accès via",
+    "property": "Propriété du membre",
+    "allColumns": "Toutes les colonnes des lignes accessibles sont visibles.",
+    "selectedColumns": "Sélectionnez les colonnes visibles. Les autres et les nouvelles restent masquées.",
+    "audience": "Accès à la colonne",
+    "everyReader": "Tous les lecteurs autorisés",
+    "match": "Membres avec une propriété correspondante",
+    "values": "Valeurs autorisées (séparées par des virgules)",
+    "columnName": "Nom de colonne",
+    "add": "Ajouter",
+    "removeRule": "Supprimer la règle",
+    "previewAs": "Aperçu en tant que",
+    "previewHint": "Testez le brouillon enregistré pour un membre.",
+    "saveFirst": "Enregistrez le brouillon pour tester les modifications.",
+    "runPreview": "Afficher l’aperçu",
+    "hideCompare": "Masquer la comparaison",
+    "compare": "Comparer un autre membre",
+    "applySetup": "Revenir aux règles",
+    "myself": "Mon compte"
+  },
+  "liveAccess": {
+    "title": "Access rules",
+    "coverage": "Table coverage",
+    "all": "All tables",
+    "protected": "Protected",
+    "missing": "Missing mapping",
+    "pending": "Pending changes",
+    "search": "Search the connection catalog",
+    "inventory": "Only tables from the imported inventory",
+    "active": "Active policy",
+    "identity": "Reader identity",
+    "email": "Verified member email",
+    "bulk": "Import table mappings",
+    "bulkHint": "One table per line. To map a table, enter table, company column, grant source.",
+    "apply": "Apply to draft",
+    "rowAttribute": "Match row key to identity property",
+    "columns": "Visible columns, one per line. To restrict a column, add its property and allowed values.",
+    "review": "Review activation",
+    "impact": "Activation withholds unverified historical reports, exports and scheduled attachments across this workspace.",
+    "activate": "Activate saved policy",
+    "compare": "Compare access",
+    "member": "Member email",
+    "previewMember": "Preview member",
+    "rows": "Visible rows",
+    "empty": "No matching data",
+    "denied": "No grant",
+    "multi": "Multiple values (one per line)",
+    "custom": "Admin property",
+    "submitted": "Submitted SQL",
+    "sent": "SQL sent to the database",
+    "blocked": "Blocked before execution",
+    "restrict": "Limit visible columns",
+    "freshness": "Data and company grants are read from the source on each protected query.",
+    "cachedFreshness": "Data comes from the last refresh. Row access is evaluated for the reader.",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "fabricCompany": {
+    "preview": "Aperçu de mes lignes",
+    "previewFailed": "Connectez-vous avec l’identité Entra configurée et vérifiez la correspondance.",
+    "tab": "RLS par entreprise",
+    "mapping": "Accès par entreprise",
+    "scope": "Enregistrez un brouillon pour tester les accès. Il s’applique uniquement aux aperçus de la règle.",
+    "tenant_id": "ID du locataire Entra",
+    "grants_table": "Table des droits",
+    "employee_column": "Colonne employé",
+    "company_column": "Colonne entreprise",
+    "source_column": "Colonne source",
+    "tables": "Tables protégées",
+    "table": "Table source",
+    "source": "Valeur source du droit",
+    "add": "Ajouter une table",
+    "save": "Enregistrer le brouillon",
+    "saved": "Brouillon enregistré",
+    "failed": "Impossible de charger ou d’enregistrer le brouillon."
+  },
   "world": {
     "tree": "Arborescence",
     "usage": "Utilisation",
@@ -2388,7 +2497,8 @@
     "saveFailed": "Échec de l'enregistrement de l'entité",
     "stepRequired": "Une étape est requise pour enregistrer",
     "publishedToast": "Requête publiée dans le catalogue",
-    "suggestedToast": "Suggestion soumise pour révision"
+    "suggestedToast": "Suggestion soumise pour révision",
+    "savedRunFailed": "Enregistrée, mais l'exécution de la requête a échoué"
   },
   "mentionInput": {
     "placeholder": "Tapez {'@'} pour mentionner...",
@@ -3570,7 +3680,11 @@
         },
         "workspace": {
           "title": "Espace de travail",
-          "description": "Webhooks, duplications et conservation des données"
+          "description": "Liens publics, demandes d'accès, webhooks et duplications"
+        },
+        "retention": {
+          "title": "Conservation des données",
+          "description": "Supprimer définitivement les anciens rapports, tableaux de bord et fichiers"
         },
         "other": {
           "title": "Autres",
@@ -3741,6 +3855,26 @@
           "name": "Limite de requêtes d'une table personnalisée",
           "description": "Nombre maximal de requêtes qu'une actualisation peut envoyer à une source lue page par page (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Augmentez-la avec la limite de lignes : Power BI renvoie au plus 100 000 lignes par requête et autorise environ 120 requêtes par minute. De 16 à 10 000."
         },
+        "custom_table_user_copy_max_age_hours": {
+          "name": "Âge maximal d'une copie par personne (heures)",
+          "description": "Sur une connexion où chaque personne se connecte avec ses propres identifiants, une table personnalisée est mise en cache séparément pour chaque personne. Une copie plus ancienne que cette durée est recréée avec les identifiants de cette personne avant d'être réutilisée, de sorte qu'un changement de ses accès à la source prend effet dans ce délai. De 1 à 720."
+        },
+        "custom_table_user_copy_idle_days": {
+          "name": "Jours d'inactivité d'une copie par personne",
+          "description": "La copie d'une personne qui n'a pas été utilisée pendant ce nombre de jours est supprimée. Elle est recréée à sa prochaine question. De 1 à 365."
+        },
+        "custom_table_user_copy_wait_seconds": {
+          "name": "Attente d'une copie par personne (secondes)",
+          "description": "Durée pendant laquelle une question attend la première création de la copie d'une personne. Si la création prend plus de temps, elle se poursuit en arrière-plan et la question reçoit sa réponse depuis la source en direct. De 0 à 600."
+        },
+        "custom_table_user_copies_max_gb": {
+          "name": "Limite de stockage des copies par personne (Go)",
+          "description": "Espace disque maximal que toutes les copies par personne de cette organisation peuvent occuper ensemble. En cas de dépassement, les copies utilisées le moins récemment sont supprimées en premier. De 1 à 2 048."
+        },
+        "custom_table_user_copy_concurrency": {
+          "name": "Créations simultanées de copies par personne",
+          "description": "Nombre de copies par personne pouvant être créées en même temps sur une connexion. Réduisez-le pour protéger une source qui ne supporte pas la charge. De 1 à 32."
+        },
         "enable_agent_notes": {
           "name": "Notes de l'agent",
           "description": "Permet à l'agent de tenir des notes de travail par rapport (un bloc-notes) qu'il écrit et relit pendant qu'il répond : plans, constats et tâches. Les notes sont affichées dans le rapport mais ne constituent pas une connaissance partagée. Lorsque l'option est désactivée, les outils de notes sont masqués et les notes ne sont pas injectées dans le contexte."
@@ -3783,7 +3917,15 @@
         },
         "file_retention_days": {
           "name": "Conservation des fichiers (jours)",
-          "description": "Supprime chaque nuit les fichiers plus anciens que ce nombre de jours. Les fichiers utilisés par un tableau de bord, ceux d'une bibliothèque d'agent ou de projet et ceux importés dans un rapport planifié sont conservés. 0 les conserve indéfiniment."
+          "description": "Supprime définitivement, chaque nuit, les fichiers plus anciens que ce nombre de jours. Les fichiers utilisés par un tableau de bord, ceux de la bibliothèque d'un agent ou d'un projet et les fichiers importés qui alimentent un rapport planifié sont conservés. Vide conserve les fichiers pour toujours."
+        },
+        "report_retention_days": {
+          "name": "Conservation des rapports (jours)",
+          "description": "Supprime définitivement, chaque nuit, les rapports que personne n'a utilisés depuis ce nombre de jours : chaque message, exécution d'agent, appel d'outil, requête et résultat, et les fichiers que rien d'autre n'utilise. Les rapports planifiés, partagés et publiés, et ceux avec un tableau de bord actif, sont conservés. Vide conserve les rapports pour toujours."
+        },
+        "artifact_retention_days": {
+          "name": "Conservation des tableaux de bord (jours)",
+          "description": "Supprime définitivement, chaque nuit, les tableaux de bord et pages que personne n'a modifiés ni exécutés depuis ce nombre de jours, avec leurs versions, données et fichiers. Les tableaux de bord publiés, partagés, planifiés et intégrés sont conservés. Vide les conserve pour toujours."
         },
         "enable_excel_addin": {
           "name": "Complément Excel",
@@ -3829,6 +3971,12 @@
           "name": "Top K colonnes par table",
           "description": "Nombre de colonnes d'une table large que l'agent voit en entier dans son contexte, classées par utilisation, références dans les instructions et clés/horodatages. Les autres sont résumées par préfixe et restent recherchables avec describe_tables. 0 = sans limite."
         }
+      },
+      "retention": {
+        "keepForever": "Conserver toujours",
+        "warning": "La conservation supprime définitivement. Les rapports, tableaux de bord et fichiers supprimés ne peuvent pas être restaurés.",
+        "preview": "L'exécution de cette nuit supprimerait {reports} rapports, {artifacts} tableaux de bord et {files} fichiers.",
+        "previewNone": "L'exécution de cette nuit ne supprimerait rien."
       },
       "permissionMode": {
         "title": "Mode d'autorisation des outils",
@@ -5120,6 +5268,7 @@
     "locale.invalid": "Cette langue n'est pas activée",
     "report.not_found": "Rapport introuvable",
     "entity.not_found": "Entité introuvable",
+    "entity.run_failed": "La requête enregistrée n'a pas pu être exécutée. Demandez à son propriétaire de la vérifier.",
     "user.not_found": "Utilisateur introuvable",
     "membership.not_found": "Adhésion introuvable",
     "role.not_found": "Rôle introuvable",
@@ -5138,7 +5287,8 @@
     "resource.duplicate": "Ressource en double",
     "setting.update_failed": "Échec de la mise à jour du paramètre",
     "query": {
-      "failed_silently": "Une requête a échoué mais le code généré a renvoyé un résultat vide au lieu de le signaler"
+      "failed_silently": "Une requête a échoué mais le code généré a renvoyé un résultat vide au lieu de le signaler : {query_errors}",
+      "timeout": "La requête a dépassé {timeout_seconds} secondes et a été arrêtée. Affinez-la avec des filtres, une limite de lignes ou une agrégation, ou divisez-la en requêtes plus petites."
     },
     "llm": {
       "model_id_required": "L'ID du modèle ne peut pas être vide",
@@ -5572,9 +5722,12 @@
   },
   "toolbar": {
     "polishDashboard": "Peaufiner le tableau de bord",
-    "polishRequestLabel": "Peaufiner"
+    "polishRequestLabel": "Peaufiner",
+    "fixErrorRequestLabel": "Corriger l'erreur d'affichage"
   },
   "artifactFrame": {
+    "renderFailedTitle": "Impossible d'afficher le tableau de bord",
+    "fixError": "Corriger l'erreur",
     "dataAddQuery": "Ajouter une requête",
     "dataNoQueriesToAdd": "Aucune requête à ajouter",
     "dataAddFailed": "Échec de l'ajout de la requête au tableau de bord",
@@ -7285,6 +7438,7 @@
     "cache": "Cache",
     "cached": "En cache",
     "notCached": "Non mis en cache",
+    "cachedPerPerson": "En cache par personne",
     "searchTables": "Rechercher des tables…",
     "suggested": "Suggérée",
     "suggestedHint": "Suggérée par les noms de clés · non vérifiée",
@@ -7715,7 +7869,8 @@
       "deniedTitle": "Accès refusé",
       "deniedBody": "Vous n'avez pas accès à cette page. Demandez à son propriétaire de la partager avec vous.",
       "goHome": "Accueil",
-      "backToApp": "Retour à l'application"
+      "backToDashboards": "Retour aux tableaux de bord",
+      "backToHome": "Retour à l'accueil"
     },
     "accessRequest": {
       "noAccessTitle": "Vous n'avez pas accès",
@@ -8410,31 +8565,100 @@
       "set_by_admin": "définie par un administrateur"
     }
   },
+  "customTableCopies": {
+    "subtitle": "Stockée localement pour chaque personne, afin que les agents répondent à partir de la copie en cache de cette personne au lieu d'interroger {connection} à chaque fois.",
+    "noticeTitle": "Mise en cache séparément pour chaque personne",
+    "notice": "Chaque personne se connecte à {connection} avec ses propres identifiants, donc cette table est mise en cache séparément pour chaque personne. La copie d'une personne est créée avec ses propres identifiants la première fois qu'elle pose une question. L'aperçu s'exécute avec vos identifiants.",
+    "settingsIntro": "L'âge maximal de la copie d'une personne. Une copie plus ancienne est recréée avec les identifiants de cette personne la prochaine fois qu'elle pose une question.",
+    "ruleInterval": "Recréer la copie d'une personne lorsqu'elle date de plus de {age}",
+    "ruleTime": "Recréer la copie d'une personne lorsqu'elle est antérieure au dernier passage à {time}",
+    "age15m": "15 minutes",
+    "age30m": "30 minutes",
+    "age1h": "1 heure",
+    "age6h": "6 heures",
+    "age12h": "12 heures",
+    "age24h": "24 heures",
+    "statusChecked": "Dernière vérification de la requête : {when}",
+    "statusNever": "jamais",
+    "statusPeople": "Personnes ayant une copie : {count}",
+    "statusSize": "Taille totale sur le disque : {size}",
+    "statusError": "Dernière erreur : {error}",
+    "deleteTableHint": "La suppression retire la copie de chaque personne et enlève cette table à {count} agent(s) qui l'utilisent actuellement. Les données sources ne sont pas modifiées.",
+    "tab": "Copies",
+    "intro": "Une copie pour chaque personne ayant posé une question qui utilise cette table, créée avec ses propres identifiants.",
+    "reload": "Actualiser",
+    "loadError": "Impossible de charger les copies",
+    "empty": "Personne n'a encore de copie. La copie d'une personne est créée la première fois qu'elle pose une question qui utilise cette table.",
+    "person": "Personne",
+    "status": "Statut",
+    "rows": "Lignes",
+    "size": "Taille",
+    "built": "Créée",
+    "lastUsed": "Dernière utilisation",
+    "stateBuilding": "En cours de création",
+    "stateOk": "Prête",
+    "stateStale": "Reconstruite à la prochaine question",
+    "stateError": "Échec",
+    "stateEvicted": "Retirée",
+    "deleteCopy": "Supprimer la copie",
+    "deleteAll": "Supprimer toutes les copies",
+    "confirmOne": "Supprimer la copie de {name} ? Elle sera recréée avec ses identifiants à sa prochaine question.",
+    "confirmAll": "Supprimer les copies de tout le monde pour cette table ? Chaque copie sera recréée avec les identifiants de la personne concernée à sa prochaine question.",
+    "deleted": "Copie supprimée",
+    "deletedAll": "Toutes les copies supprimées",
+    "deletedDetail": "{size} libérés",
+    "deleteFailed": "Impossible de supprimer la copie",
+    "rebuildAll": "Recréer les copies de tout le monde",
+    "rebuildAllHint": "La copie de chaque personne est recréée avec ses propres identifiants à sa prochaine question.",
+    "rebuildQueued": "Les copies de tout le monde seront recréées",
+    "rebuildFailed": "Impossible de recréer les copies",
+    "create": "Créer",
+    "created": "Table personnalisée créée",
+    "updated": "Table personnalisée mise à jour",
+    "savedDetail": "{name} : la copie de chaque personne est créée à sa première question."
+  },
   "apps": {
-    "title": "Vos applications",
-    "subtitle": "Ouvrez une application pour commencer.",
+    "title": "Partagé avec vous",
+    "subtitle": "Applications, tableaux de bord et documents que vous pouvez ouvrir.",
     "openWorkspace": "Ouvrir l'espace de travail",
-    "search": "Rechercher des applications",
-    "untitled": "Application sans titre",
+    "search": "Rechercher",
+    "untitled": "Sans titre",
     "inApplication": "Dans {name}",
-    "allApps": "Toutes les applications",
+    "backToLauncher": "Retour à Partagé avec vous",
     "language": "Langue",
     "account": "Compte",
     "signOut": "Se déconnecter",
-    "loadFailed": "Impossible de charger vos applications.",
+    "loadFailed": "Impossible de charger cette liste.",
     "retry": "Réessayer",
-    "noMatches": "Aucune application ne correspond à « {query} ».",
+    "noMatches": "Aucun résultat pour « {query} ».",
     "empty": {
-      "title": "Pas encore d'applications",
-      "body": "Lorsqu'une application sera partagée avec vous, elle apparaîtra ici."
+      "title": "Rien n'a encore été partagé avec vous",
+      "body": "Lorsqu'une application, un tableau de bord ou un document sera partagé avec vous, il apparaîtra ici."
     },
     "requestAccess": {
-      "prompt": "Besoin de plus que ces applications ?",
+      "prompt": "Besoin de plus que ce qui est partagé avec vous ?",
       "button": "Demander un accès complet",
       "sent": "Demande envoyée. Un administrateur l'examinera.",
       "failed": "Impossible d'envoyer la demande. Réessayez."
     },
-    "showMore": "Afficher plus"
+    "showMore": "Afficher plus",
+    "filter": {
+      "label": "Filtrer par type",
+      "all": "Tout",
+      "apps": "Applications",
+      "dashboards": "Tableaux de bord",
+      "docs": "Documents"
+    },
+    "kind": {
+      "app": "Application",
+      "dashboard": "Tableau de bord",
+      "doc": "Document"
+    },
+    "emptyKind": {
+      "app": "Aucune application n'a encore été partagée avec vous.",
+      "dashboard": "Aucun tableau de bord n'a encore été partagé avec vous.",
+      "doc": "Aucun document n'a encore été partagé avec vous."
+    }
   },
   "hostApps": {
     "newUserRole": "Les nouvelles personnes rejoignent en tant que",

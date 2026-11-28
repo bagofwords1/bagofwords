@@ -408,6 +408,8 @@ class CodeContextBuilder:
         return float(inter) / float(union)
 
     async def _get_access_and_time(self, time_window_days: Optional[int]) -> Tuple[Set[str], Optional[datetime], datetime]:
+        if getattr(self.organization, "withhold_unverified_company_content", False) is True:
+            return set(), None, datetime.utcnow()
         # We only need accessible DS ids here — bypass get_active_data_sources
         # (which builds full Pydantic list items + per-DS user_status) and
         # query ids directly.

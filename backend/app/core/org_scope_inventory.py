@@ -27,6 +27,10 @@ PARENT_SCOPED: Dict[str, Tuple[str, ...]] = {
     "FileIndexFile": ("Connection",),
     "FileIndexSection": ("FileIndexFile",),
     "ReportContextState": ("Report",),
+    # Agent sandboxes: the timeline, the domain log and the (reserved) exposures of one sandbox.
+    "SandboxEgressLog": ("Sandbox",),
+    "SandboxEvent": ("Sandbox",),
+    "SandboxExposure": ("Sandbox",),
     "ReportView": ("Report",),
     # agent lists
     "AgentListRow": ("AgentList",),
@@ -100,6 +104,7 @@ GLOBAL: FrozenSet[str] = frozenset({
     "InstanceSettings",
     "LoginExchangeCode",  # one-time sign-in code for a global user account
     "OAuthAccount",   # sign-in identity of a global user account
+    "PendingBlobDelete",  # storage paths of already-deleted files, retried by the nightly job; read by no API
     "SAMLRequest",    # sign-in state, before any organization is known
     "User",           # one account, a membership per organization
 })

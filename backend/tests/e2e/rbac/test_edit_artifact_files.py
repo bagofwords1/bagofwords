@@ -294,10 +294,12 @@ def test_create_refuses_a_bowfile_for_a_file_it_does_not_attach(test_client, cas
 
 
 @pytest.mark.e2e
-def test_create_refuses_an_unattached_bowfile_without_vendored_libs(test_client, cast, chatbot, monkeypatch):
-    """No vendored JS libs means no render check; the file check needs no render."""
-    import app.services.artifact_libs as artifact_libs
-    monkeypatch.setattr(artifact_libs, "_find_libs_dir", lambda *a, **k: None)
+def test_create_refuses_an_unattached_bowfile_without_a_browser(test_client, cast, chatbot, monkeypatch):
+    """No browser means no render check; the file check needs no render.
+
+    (Without the vendored libraries nothing is created at all: the JSX syntax
+    check needs their Babel compiler and fails closed.)"""
+    monkeypatch.setenv("BOW_CHROMIUM_EXECUTABLE", "/missing/chromium")
     logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
     code = CODE.replace("<h1>Assistant</h1>", f'<BowFile id="{logo}" /><h1>Assistant</h1>')
 

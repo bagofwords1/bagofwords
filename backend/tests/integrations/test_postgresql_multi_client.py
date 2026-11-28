@@ -926,9 +926,9 @@ def test_custom_query_runs_over_the_unified_tables(multi_tenant_server):
     assert sum(b.num_rows for b in batches) == len(expected)
 
 
-# sqlglot reads everything after E'\'' as a string, so the shared checks see no
-# table in these; DuckDB reads the subquery. Before the connector checked the
-# query as DuckDB reads it, the second one returned a tenant's raw rows.
+# sqlglot reads everything after E'\'' as a string and sees no table in these;
+# DuckDB reads the subquery. The shared check refuses the escape string, and
+# the connector, which checks the query as DuckDB reads it, refuses the table.
 _HIDDEN_BY_ESCAPE_STRING = [
     "SELECT E'\\'' AS a, (SELECT count(*) FROM public.users) AS b FROM public.orders --'",
     "SELECT E'\\'' AS a, (SELECT count(*) FROM __t0001.public.users) AS b FROM public.orders --'",
@@ -944,9 +944,10 @@ def test_a_table_hidden_from_sqlglot_is_refused_before_it_reaches_a_tenant(multi
     # An agent given orders only.
     setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(["public.orders"], ["public.users"]))
 
-    enforce_table_scope(client, sql)  # the shared check, as the query wrapper runs it: it sees no table
     with pytest.raises(TableScopeViolation):
-        client.execute_query(sql)
+        enforce_table_scope(client, sql)  # the shared check, as the query wrapper runs it
+    with pytest.raises(TableScopeViolation):
+        client.execute_query(sql)  # the connector's own check, without the wrapper
     # The same agent's ordinary query still runs.
     assert len(client.execute_query("SELECT tenant_db FROM public.orders")) > 0
 

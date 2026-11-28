@@ -50,6 +50,8 @@ logger = logging.getLogger(__name__)
 
 from app.services.artifact_precompile import attach_compiled
 
+from app.routes.company_content import require_stored_company_content
+
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 service = ArtifactService()
 
@@ -300,7 +302,7 @@ class DocEditPayload(PydanticBaseModel):
     title: Optional[str] = None
 
 
-@router.post("/{artifact_id}/doc_edit", response_model=ArtifactSchema)
+@router.post("/{artifact_id}/doc_edit", dependencies=[Depends(require_stored_company_content)], response_model=ArtifactSchema)
 @requires_permission('update_reports', model=ArtifactModel, owner_only=True)
 async def edit_doc_content(
     artifact_id: str,
@@ -333,7 +335,7 @@ async def _attach_allow_popups(db: AsyncSession, version, schema: ArtifactSchema
     schema.allow_popups = bool(getattr(parent, "allow_popups", False))
 
 
-@router.get("/{artifact_id}", response_model=ArtifactSchema)
+@router.get("/{artifact_id}", dependencies=[Depends(require_stored_company_content)], response_model=ArtifactSchema)
 @requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
 async def get_artifact(
     artifact_id: str,
@@ -351,7 +353,7 @@ async def get_artifact(
     return schema
 
 
-@router.get("/report/{report_id}", response_model=List[ArtifactListSchema])
+@router.get("/report/{report_id}", dependencies=[Depends(require_stored_company_content)], response_model=List[ArtifactListSchema])
 @requires_permission('view_reports', model=ReportModel, owner_only=True, allow_public=True)
 async def list_artifacts_by_report(
     report_id: str,
@@ -368,7 +370,7 @@ async def list_artifacts_by_report(
     return [ArtifactListSchema.model_validate(a) for a in artifacts]
 
 
-@router.get("/report/{report_id}/latest", response_model=ArtifactSchema)
+@router.get("/report/{report_id}/latest", dependencies=[Depends(require_stored_company_content)], response_model=ArtifactSchema)
 @requires_permission('view_reports', model=ReportModel, owner_only=True, allow_public=True)
 async def get_latest_artifact(
     report_id: str,
@@ -397,7 +399,7 @@ async def _assert_may_write_version(db, version_id: str, user) -> None:
         await assert_may_write(db, version.artifact_id, str(user.id))
 
 
-@router.patch("/{artifact_id}", response_model=ArtifactSchema)
+@router.patch("/{artifact_id}", dependencies=[Depends(require_stored_company_content)], response_model=ArtifactSchema)
 @requires_permission('update_reports', model=ArtifactModel, owner_only=True)
 async def update_artifact(
     artifact_id: str,
@@ -419,7 +421,7 @@ async def update_artifact(
     return ArtifactSchema.model_validate(artifact)
 
 
-@router.delete("/{artifact_id}")
+@router.delete("/{artifact_id}", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('delete_reports', model=ArtifactModel, owner_only=True)
 async def delete_artifact(
     artifact_id: str,
@@ -438,7 +440,7 @@ async def delete_artifact(
     return {"status": "deleted"}
 
 
-@router.post("/{artifact_id}/duplicate", response_model=ArtifactSchema)
+@router.post("/{artifact_id}/duplicate", dependencies=[Depends(require_stored_company_content)], response_model=ArtifactSchema)
 @requires_permission('update_reports', model=ArtifactModel, owner_only=True)
 async def duplicate_artifact(
     artifact_id: str,
@@ -468,7 +470,7 @@ async def duplicate_artifact(
     return ArtifactSchema.model_validate(artifact)
 
 
-@router.get("/{artifact_id}/export/pptx")
+@router.get("/{artifact_id}/export/pptx", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
 async def export_artifact_pptx(
     artifact_id: str,
@@ -557,7 +559,7 @@ async def export_artifact_pptx(
     )
 
 
-@router.get("/{artifact_id}/export/html")
+@router.get("/{artifact_id}/export/html", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
 async def export_artifact_html(
     artifact_id: str,
@@ -660,7 +662,7 @@ _artifact_pdf_export_locks: dict[str, asyncio.Lock] = _defaultdict(asyncio.Lock)
 _ARTIFACT_PDF_EXPORT_TIMEOUT_SECONDS = 330
 
 
-@router.get("/{artifact_id}/export/pdf")
+@router.get("/{artifact_id}/export/pdf", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
 async def export_artifact_pdf(
     artifact_id: str,
@@ -756,7 +758,7 @@ async def export_artifact_pdf(
     )
 
 
-@router.get("/{artifact_id}/previews")
+@router.get("/{artifact_id}/previews", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
 async def list_slide_previews(
     artifact_id: str,
@@ -787,7 +789,7 @@ async def list_slide_previews(
     }
 
 
-@router.get("/{artifact_id}/preview/{slide_index}")
+@router.get("/{artifact_id}/preview/{slide_index}", dependencies=[Depends(require_stored_company_content)])
 @requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
 async def get_slide_preview(
     artifact_id: str,
@@ -863,7 +865,7 @@ async def _resolve_base_artifact(db, report_id: str, artifact_id: Optional[str])
     return await service.get_latest_by_report(db, report_id)
 
 
-@router.post("/report/{report_id}/add-visualization", response_model=ArtifactSchema)
+@router.post("/report/{report_id}/add-visualization", dependencies=[Depends(require_stored_company_content)], response_model=ArtifactSchema)
 @requires_permission('update_reports', model=ReportModel, owner_only=True)
 async def add_visualization_to_dashboard(
     report_id: str,
@@ -974,7 +976,7 @@ async def add_visualization_to_dashboard(
     return ArtifactSchema.model_validate(new_artifact)
 
 
-@router.post("/report/{report_id}/remove-visualization", response_model=ArtifactSchema)
+@router.post("/report/{report_id}/remove-visualization", dependencies=[Depends(require_stored_company_content)], response_model=ArtifactSchema)
 @requires_permission('update_reports', model=ReportModel, owner_only=True)
 async def remove_visualization_from_dashboard(
     report_id: str,

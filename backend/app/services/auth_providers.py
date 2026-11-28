@@ -601,6 +601,8 @@ async def _record_login(user) -> None:
             await db.commit()
     except Exception as e:
         _auth_logger.warning(f"Failed to record last_login for user {user.id}: {e}")
+    from app.services.custom_table_user_copy_service import refresh_on_sign_in
+    await refresh_on_sign_in(str(user.id))
 
 
 async def _live_organization_ids(user) -> list:

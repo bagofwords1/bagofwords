@@ -549,6 +549,9 @@ async def _run_copies(db, release_id: str, *, failures: list | None = None, done
     artifact = await db.get(Artifact, str(release.artifact_id))
     if artifact is None:
         return _ABANDONED
+    from app.services.viewer_data_policy import org_has_company_policy
+    if await org_has_company_policy(db, artifact.organization_id):
+        return None  # the shared reader executes the selected projections live
     if artifact.mode == "slides":
         return None  # a published deck is frozen
     publisher = await db.get(User, str(release.published_by)) if release.published_by else None

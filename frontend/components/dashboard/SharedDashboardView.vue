@@ -14,6 +14,15 @@
             </UButton>
         </div>
     </main>
+    <main v-else-if="companyTables" class="min-h-dvh bg-surface p-6 md:px-12">
+        <section v-for="(table, tableIndex) in companyTables" :key="tableIndex" class="mb-6 overflow-x-auto">
+            <table class="w-full border-collapse text-start text-sm">
+                <thead><tr><th v-for="field in table.columns" :key="field" class="border-b p-2 text-start">{{ field }}</th></tr></thead>
+                <tbody><tr v-for="(row, i) in table.rows" :key="i"><td v-for="field in table.columns" :key="field" class="border-b p-2">{{ row[field] }}</td></tr></tbody>
+            </table>
+            <p v-if="!table.rows.length" class="p-2 text-ink-muted">{{ t('queries.noRows') }}</p>
+        </section>
+    </main>
     <div v-else-if="accessError === 'denied'" class="min-h-dvh w-full flex items-center justify-center bg-surface">
         <div class="text-center max-w-sm mx-auto px-6" data-testid="dashboard-access-request">
             <Icon name="heroicons:shield-exclamation" class="w-8 h-8 mx-auto mb-4 text-ink-muted" />
@@ -77,7 +86,7 @@
             </div>
 
             <!-- Fallback (not eligible / state unknown). -->
-            <UButton v-else :to="homePath" color="white" class="mt-2" data-testid="access-go-home">{{ isAppUser ? t('apps.allApps') : t('dashboardCollab.access.goHome') }}</UButton>
+            <UButton v-else :to="backPath" color="white" class="mt-2" data-testid="access-go-home">{{ backTo.origin === 'home' ? t('dashboardCollab.access.goHome') : backLabel }}</UButton>
         </div>
     </div>
 
@@ -96,12 +105,13 @@
     </div>
 
     <div v-else class="h-dvh w-screen relative bg-gray-50 dark:bg-gray-900 flex flex-col overflow-hidden">
-        <!-- Back to app: a dedicated arrow at the opposite corner, so the most
-             used navigation isn't buried in the ⋮. (Flips automatically in RTL.) -->
+        <!-- Back: a dedicated arrow at the opposite corner, so the most used
+             navigation isn't buried in the ⋮. (Flips automatically in RTL.) -->
         <div v-if="showTopBar && reportLoaded" class="absolute top-3 start-3 z-dropdown">
-            <!-- An app user's "app" is the launcher: BOW's home is closed to them. -->
+            <!-- To the list the dashboard was opened from (utils/dashboardBack);
+                 an app user's is the launcher: BOW's home is closed to them. -->
             <UTooltip :text="backLabel">
-                <UButton :to="homePath" color="gray" variant="soft" icon="i-heroicons-arrow-left"
+                <UButton :to="backPath" color="gray" variant="soft" icon="i-heroicons-arrow-left"
                     :ui="{ rounded: 'rounded-full' }"
                     :aria-label="backLabel" data-testid="app-back" />
             </UTooltip>
@@ -313,9 +323,10 @@
         <!-- Floating chat (owner setting; the bubble itself resolves per-viewer
              availability — sign-in prompt for anonymous, member check inside) -->
         <ArtifactChatBubble
-            v-if="reportLoaded && report?.artifact_chat_enabled && api.chatBase && !embedded && !ownConversations"
+            v-if="reportLoaded && report?.artifact_chat_enabled && (api.chatBase || chatPreview) && !embedded && !ownConversations"
             :report-id="id"
-            :base="api.chatBase"
+            :base="api.chatBase ?? ''"
+            :preview="chatPreview"
             :raised="report.general?.bow_credit !== false && !inHostApplication"
             :lift="cornerLift"
             :host-context="props.hostContext ?? null"
@@ -353,6 +364,7 @@ import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { artifactRowCounts } from '~/utils/artifactRowCounts';
 import { artifactFramePayload, postWithJsonFallback } from '~/utils/artifactFramePayload';
 import { artifactSandbox } from '~/utils/artifactSandbox';
+import { BACK_PARAM, backHref, backTarget, keepBack } from '~/utils/dashboardBack';
 import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
@@ -548,15 +560,29 @@ const cornerLift = computed(() => (intercomClearance.value ? intercomClearance.v
 // An app that holds its own conversations (bow.conversations, or the
 // useConversation building block) is the chat: the bubble would be a second one.
 const ownConversations = computed(() => /\bbow\.conversations\b|\buseConversation\s*\(/.test(artifact.value?.content?.code || ''));
+// On the draft the chat has no backend (no release to chat about): the bubble
+// renders in a preview-only state so an editor can see how "Allow chat" will
+// look before publishing. The live bubble is the published /d and shared /r.
+const chatPreview = computed(() => props.source === 'draft');
 const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
 const unavailable = ref(false);
 // Top bar state
-// Where "back" leads: the workspace, or the app launcher for an app user (a
-// member without access_workspace, whom every workspace page turns away).
+// Where "back" leads: the list the dashboard was opened from (`?back=`,
+// utils/dashboardBack), else home -- and always the app launcher for an app
+// user (a member without access_workspace, whom every workspace page turns away).
 const workspaceAccess = useWorkspaceAccess();
 const isAppUser = computed(() => workspaceAccess.value === false);
-const homePath = computed(() => (isAppUser.value ? '/apps' : '/'));
-const backLabel = computed(() => (isAppUser.value ? t('apps.allApps') : t('dashboardCollab.access.backToApp')));
+const backTo = computed(() => backTarget(route.query[BACK_PARAM], isAppUser.value));
+// The page the router came from (history.state.back), read once in the
+// browser: when it is that list, back restores its filters and search.
+const previousPath = ref<string | null>(null);
+onMounted(() => { previousPath.value = (window.history.state as any)?.back ?? null; });
+const backPath = computed(() => backHref(backTo.value, previousPath.value));
+const backLabel = computed(() => ({
+    apps: t('apps.backToLauncher'),
+    dashboards: t('dashboardCollab.access.backToDashboards'),
+    home: t('dashboardCollab.access.backToHome'),
+})[backTo.value.origin]);
 const showTopBar = ref(!embedded && !inHostApplication.value && (typeof window === 'undefined' || window.self === window.top));
 const showVersionDetails = ref(false);
 const identityResolved = ref(false);
@@ -1023,6 +1049,19 @@ const pageTitle = computed(() => {
 useHead(() => ({ title: pageTitle.value }));
 
 // Access error state
+const companyTables = ref<Array<{ columns: string[], rows: Record<string, unknown>[] }> | null>(null);
+function reloadCompanyView() {
+    if (companyTables.value !== null) {
+        companyTables.value = null;
+        emit('reload');
+    }
+}
+watch(apiAuthorization, reloadCompanyView, { flush: 'sync' });
+function onCompanyPageShow(event: PageTransitionEvent) {
+    if (event.persisted) reloadCompanyView();
+}
+onMounted(() => window.addEventListener('pageshow', onCompanyPageShow));
+onUnmounted(() => window.removeEventListener('pageshow', onCompanyPageShow));
 const accessError = ref<'login' | 'denied' | null>(null);
 
 // ── Request-to-view (access requests) ────────────────────────────────────
@@ -1105,7 +1144,7 @@ async function loadReport() {
             const fromDraft = route.query.from === 'draft';
             if (props.source === 'dashboard' && !fromDraft
                 && (fetchError.value as any)?.data?.error_code === 'dashboard.not_published') {
-                navigateTo(`/d/${props.id}/draft`, { replace: true });
+                navigateTo(keepBack(`/d/${props.id}/draft`, route.query[BACK_PARAM]), { replace: true });
                 return;
             }
             // The draft is its editors' only (or its conversation is gone):
@@ -1113,10 +1152,10 @@ async function loadReport() {
             if (props.source === 'draft' && status === 404) {
                 // A version or draft that is gone: the plain draft first.
                 if (draftQuery) {
-                    navigateTo(`/d/${props.id}/draft`, { replace: true });
+                    navigateTo(keepBack(`/d/${props.id}/draft`, route.query[BACK_PARAM]), { replace: true });
                     return;
                 }
-                navigateTo(`/d/${props.id}?from=draft`, { replace: true });
+                navigateTo(keepBack(`/d/${props.id}?from=draft`, route.query[BACK_PARAM]), { replace: true });
                 return;
             }
             if (status === 401) {
@@ -1149,6 +1188,12 @@ async function loadReport() {
                 return;
             }
             navigateTo('/not_found');
+            return;
+        }
+        if (props.source === 'dashboard' && (data.value as any).company_filtered === true) {
+            if (sent !== apiAuthorization.value) { emit('reload'); return; }
+            companyTables.value = (data.value as any).tables;
+            if (inHostApplication.value) emit('opened');
             return;
         }
         report.value = asReport(data.value);

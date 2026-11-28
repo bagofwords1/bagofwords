@@ -255,6 +255,9 @@ def test_every_namespace_global_is_a_known_helper_or_a_tracked_clients_name(monk
     from app.services.client_keys import CLIENT_DICT_NAMES
 
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        # In-process mode runs only in a development environment.
+        monkeypatch.setenv("ENVIRONMENT", "development")
     df, _, _ = StreamingCodeExecutor(organization_settings=None).execute_code(
         code=_NAMESPACE_PROBE, ds_clients={"a:c": object()}, excel_files=[])
     bound = set(df["name"]) - {"__builtins__", "names_seen", "generate_df"}

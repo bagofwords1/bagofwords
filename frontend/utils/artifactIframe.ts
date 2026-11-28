@@ -607,6 +607,57 @@ function readySignalScript(): string {
 `;
 }
 
+/**
+ * The seed's `window.ARTIFACT_DATA = …;` statement, with `<` escaped so no row
+ * text can end the inline script.
+ *
+ * Charts of one query hold one rows array in the frame payload, so a plain
+ * JSON.stringify writes those rows once per chart. Here a rows array that an
+ * earlier chart already holds (same array object; never matched by query id)
+ * is written once: the later chart gets a null placeholder in the same key
+ * position, and the statement that follows gives it its own copy
+ * (structuredClone, else a JSON round trip) before any other script runs. The
+ * frame then has what the JSON seed gave: equal values, same key order, a
+ * separate array per chart. Should no copy be possible (both throw), the chart
+ * shares the first chart's array: the frame always has its data, only a chart
+ * that sorts its rows in place could then reorder its sibling's too.
+ * A frame that used a JSON copy, or had to share, says so once in the console.
+ * The re-attach never stops the script it runs in (the runtime nonce and the
+ * other globals follow it): a throw is logged, and every chart not reached
+ * yet shares its source rows where it can; only a chart whose rows cannot be
+ * assigned at all keeps its null placeholder.
+ * With nothing repeated the statement is exactly the plain JSON one.
+ */
+function artifactDataAssignment(data: ArtifactIframeData): string {
+  const vis: unknown[] = data && Array.isArray(data.visualizations) ? data.visualizations : [];
+  const firstHolder = new Map<any[], number>();
+  const links: number[] = []; // pairs: chart index, index of the chart holding the rows
+  let written = vis;
+  vis.forEach((viz: any, i: number) => {
+    const rows = viz && typeof viz === 'object' ? viz.rows : undefined;
+    if (!Array.isArray(rows)) return;
+    const src = firstHolder.get(rows);
+    if (src === undefined) { firstHolder.set(rows, i); return; }
+    if (written === vis) written = vis.slice();
+    written[i] = { ...viz, rows: null };
+    links.push(i, src);
+  });
+  const json = links.length ? JSON.stringify({ ...data, visualizations: written }) : JSON.stringify(data);
+  const reattach = links.length
+    // No "<" in this code: the escaping below covers the whole statement.
+    // w: one-time warnings (j: JSON copy used, f: rows shared), guarded so a
+    // broken console cannot throw.
+    ? `(function(l){var v,i=0,j=0,f=0;function w(m,e){try{console.warn(m,e)}catch(_){}}`
+      + `try{v=window.ARTIFACT_DATA.visualizations;for(;l.length>i;i+=2){var s=v[l[i+1]].rows,c;`
+      + `try{c=structuredClone(s)}catch(e){try{c=JSON.parse(JSON.stringify(s));if(!j){j=1;w('[dashboard] Chart rows could not be copied with structuredClone; used a JSON copy instead.',e)}}`
+      + `catch(e2){c=s;if(!f){f=1;w('[dashboard] Chart rows could not be copied; charts of one query share one rows array.',e2)}}}`
+      + `v[l[i]].rows=c}}`
+      + `catch(e){try{console.error('[dashboard] Could not give every chart its own rows; the charts left share the rows of their query where possible.',e)}catch(_){}`
+      + `for(;l.length>i;i+=2){try{v[l[i]].rows=v[l[i+1]].rows}catch(_){}}}})(${JSON.stringify(links)});`
+    : '';
+  return `window.ARTIFACT_DATA = ${json};${reattach}`.replace(/</g, '\\u003c');
+}
+
 export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   const mode = opts.mode ?? 'page';
   if (mode === 'slides') return buildSlidesHtml(opts.data, opts.code);
@@ -624,7 +675,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   const [tailwindSrc, tailwindCfgSrc, reactSrc, reactDomSrc, echartsSrc, lucideSrc] = plan.head;
   const [globalsSrc, sdkSrc] = plan.body;
 
-  const embeddedData = JSON.stringify(opts.data).replace(/</g, '\\u003c');
+  const dataAssignment = artifactDataAssignment(opts.data);
   // getRandomValues is available on plain-HTTP self-hosted installations too.
   const runtimeNonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
   const assetOrigin = window.location.origin;
@@ -672,7 +723,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
       }
     });
   ${SC}
-  <script>window.__BOW_OPTIONAL_LIBS__=${JSON.stringify({echarts: libUrl("echarts-5.min.js"), pdfjsLib: libUrl("pdf.min.js")})};window.ARTIFACT_DATA = ${embeddedData};window.__BOW_RUNTIME_NONCE__="${runtimeNonce}";window.__BOW_FIXTURE_MODE__=${!!opts.fixtureMode};${opts.showWidgetInfo === undefined ? '' : `window.__BOW_INFO=${!!opts.showWidgetInfo};`}${SC}
+  <script>window.__BOW_OPTIONAL_LIBS__=${JSON.stringify({echarts: libUrl("echarts-5.min.js"), pdfjsLib: libUrl("pdf.min.js")})};${dataAssignment}window.__BOW_RUNTIME_NONCE__="${runtimeNonce}";window.__BOW_FIXTURE_MODE__=${!!opts.fixtureMode};${opts.showWidgetInfo === undefined ? '' : `window.__BOW_INFO=${!!opts.showWidgetInfo};`}${SC}
   ${tag(globalsSrc)}
   ${tag(sdkSrc)}
   ${anyInline ? `<script>try { delete window.__bowRunLib; } catch (e) {}${SC}` : ''}

@@ -26,6 +26,8 @@ async def resolve_or_admit(db, service, client, config, claims):
     """Return a current member, or atomically admit a new invited/domain user."""
     tenant, audience = config["tenant_id"], config["audience_client_id"]
     identity = {"tenant_id": tenant, "object_id": claims["oid"], "client_id": audience}
+    identity["employee_login"] = claims.get("preferred_username") if claims.get("ver") == "2.0" else claims.get("upn")
+    identity["employee_login_exp"] = claims.get("exp")
     subject_key = f"{tenant}:{audience}:{claims['oid']}"
     # Serialize this principal and this org's first-time admissions across pods.
     # Transaction locks release on commit/rollback and never span Microsoft IO.
@@ -53,6 +55,8 @@ async def resolve_or_admit(db, service, client, config, claims):
             raise ExchangeError("invalid_grant", "Ambiguous Entra identity")
         user_id = ids.pop()
         if await service._active_subject(db, user_id, client.organization_id):
+            for account in accounts:
+                account.entra_identity = dict(identity)
             await db.commit()
             return user_id
         # The same verified identity (matched on its immutable tenant/object id

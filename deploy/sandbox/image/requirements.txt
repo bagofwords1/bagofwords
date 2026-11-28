@@ -1,0 +1,25 @@
+# Preinstalled in the built-in sandbox image. Kept to what data work commonly
+# needs; a run can add more with `packages` when its environment allows the
+# package registries.
+numpy
+pandas
+pyarrow
+polars
+duckdb
+scipy
+scikit-learn
+statsmodels
+sympy
+matplotlib
+seaborn
+plotly
+pillow
+openpyxl
+xlsxwriter
+python-docx
+requests
+httpx
+beautifulsoup4
+lxml
+pyyaml
+tabulate

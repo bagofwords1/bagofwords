@@ -309,6 +309,9 @@ async def _run_and_write(db, artifact_id: str, release: ArtifactRelease, run_use
     if live is None or str(live.published_release_id or "") != release_id:
         await db.rollback()
         return _result("skipped", reason="replaced")  # published meanwhile: never write an old release
+    from app.services.viewer_data_policy import org_has_company_policy
+    if await org_has_company_policy(db, live.organization_id):
+        return _result("skipped", reason="viewer_required")
     waiting = [step.title or str(step.id) for step, data, _ in results if needs_input_names(data)]
     for step, data, params in results:
         step.data = data

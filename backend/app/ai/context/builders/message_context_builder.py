@@ -1639,6 +1639,8 @@ class MessageContextBuilder:
         """
         from app.models.completion_block import CompletionBlock
         
+        if getattr(self.organization, "withhold_unverified_company_content", False) is True:
+            return ""
         conversation = []
                    # Check organization settings for data visibility
         allow_llm_see_data = True
@@ -2113,6 +2115,8 @@ class MessageContextBuilder:
         rolling summary."""
         from app.models.completion_block import CompletionBlock
 
+        if getattr(self.organization, "withhold_unverified_company_content", False) is True:
+            return MessagesSection(items=[])
         items: List[MessageItem] = []
         # (created_at, MessageItem) tuples so silent events can be merged in by
         # timestamp before we flatten to `items`.

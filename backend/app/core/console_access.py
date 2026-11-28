@@ -214,6 +214,8 @@ async def resolve_console_scope(db: AsyncSession, organization: Organization, us
 
 
 async def _resolve_console_access(db: AsyncSession, organization: Organization, user: User):
+    if getattr(organization, "withhold_unverified_company_content", False) is True:
+        raise HTTPException(status_code=403, detail="Stored report monitoring unavailable")
     if not user.is_verified and settings.bow_config.features.verify_emails:
         raise HTTPException(status_code=403, detail="User is not verified")
     await assert_principal_belongs_to_org(db, user, organization.id)

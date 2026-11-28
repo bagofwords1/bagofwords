@@ -115,6 +115,14 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.42.1,<1.43",
     "opentelemetry-exporter-otlp-proto-grpc>=1.42.1,<1.43",
     "opentelemetry-exporter-otlp-proto-http>=1.42.1,<1.43",
+    # Agent sandboxes (BOW-229). grpcio talks to sandboxd inside a sandbox; it was
+    # already installed transitively (OpenTelemetry) and is pinned here because
+    # the sandbox runtime client imports it directly. The generated stubs in
+    # app/services/sandbox/sandboxd_proto need grpcio >= 1.71 and protobuf 5.x.
+    # asyncssh is the SSH layer of the docker-ssh sandbox driver. Both are only
+    # imported lazily, when a sandbox is actually used.
+    "grpcio>=1.71.0,<2",
+    "asyncssh>=2.21.0,<3",
     "playwright>=1.60.0,<1.61",
     "playwright-stealth>=2.0.3,<2.1",
     "pyspark[connect]>=3.5.8,<3.6",
@@ -159,6 +167,8 @@ dev = [
     "ruff>=0.15.18,<0.16",
     "ty>=0.0.51,<0.1",
     "moto[s3]>=5.2.5,<5.3",
+    # Postgres's own parser, as a test oracle only: never imported by app/.
+    "pglast>=8.7,<9",
 ]
 pii = [
     "en-core-web-sm",

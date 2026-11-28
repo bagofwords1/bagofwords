@@ -792,15 +792,13 @@ async def purge_files(db: AsyncSession, files: list, *, discard_bytes=True) -> l
 
 
 async def discard_file_bytes(paths):
-    # Bytes last, after the rows are gone: a failure here leaves an orphaned
-    # blob, never a row that points at nothing.
-    for path in paths:
-        try:
-            if os.path.isfile(path):
-                os.remove(path)
-        except OSError as e:
-            logger.warning("file delete: could not remove %s: %s", path, e)
-        try:
-            await storage.adiscard(path)
-        except Exception as e:  # noqa: BLE001 — best effort, like the local unlink
-            logger.warning("file delete: could not discard %s: %s", path, e)
+    # Bytes last, after the rows are gone: a failure here never leaves a row
+    # that points at nothing. The bytes it could not remove are kept in
+    # pending_blob_deletes and retried every night (retention/blobs.py), so a
+    # deleted file does not stay in storage.
+    from app.services.retention.blobs import discard_paths, remember_failed
+
+    failed = await discard_paths(paths)
+    for path, error in failed.items():
+        logger.warning("file delete: could not remove %s: %s (will retry)", path, error)
+    await remember_failed(failed)

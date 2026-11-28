@@ -197,6 +197,14 @@ class LoadablesResolver:
         """
         if not self.enable_load_step:
             return None
+        from app.services.dashboard_data import release_has_company_policy
+        from app.services.viewer_data_policy import report_has_company_policy
+        if self.release and await release_has_company_policy(self.db, self.release):
+            return None
+        if self.report and await report_has_company_policy(
+            self.db, self.report.id, getattr(self.report, "organization_id", None)
+        ):
+            return None
         steps = await self._report_default_steps(
             limit=limit, max_age_seconds=self.step_max_age_seconds, light=True
         )
@@ -374,11 +382,15 @@ class LoadablesResolver:
             # resolve to the RUN USER's own slice (cached per viewer, executed
             # with their identity binding on a miss); other entities serve the
             # shared snapshot unless the credential policy withholds it.
-            from app.services.entity_service import EntityService
+            from app.services.entity_service import CallerTransactionLost, EntityService
             try:
                 data = await EntityService().resolve_entity_data_for_user(
                     self.db, entity, self.organization, self.current_user
                 )
+            except CallerTransactionLost:
+                # This run's own writes are gone with its transaction: it
+                # cannot go on as if only this entity were missing.
+                raise
             except Exception as e:
                 result["errors"].append(
                     f"load_entity({key!r}): failed to resolve the caller's slice: {str(e)[:200]}"

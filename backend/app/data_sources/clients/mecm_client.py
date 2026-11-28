@@ -149,6 +149,12 @@ class _BudgetExceeded(Exception):
     pass
 
 
+def _dot_segment(path: str) -> bool:
+    """Whether the percent-decoded `path` has a '.' or '..' segment, split on
+    '/' and on '\\': a path the server may read differently."""
+    return any(seg in (".", "..") for seg in re.split(r"[/\\]", unquote(path)))
+
+
 def normalize_base_url(server_url: str) -> str:
     """Accept what an admin is likely to paste and return the AdminService root.
 
@@ -518,7 +524,8 @@ class MecmClient(DataSourceClient):
         if path.lower().startswith("adminservice/"):
             path = path.split("/", 1)[1]
         segments = [s for s in path.split("/") if s]
-        if not segments or any(s in (".", "..") for s in segments):
+        # Percent-decoded too: a path the server may read differently.
+        if not segments or _dot_segment(path):
             raise ValueError(f"Invalid class path '{path}'.")
         if segments[0].lower() not in (_WMI, _V1):
             segments.insert(0, _WMI)
@@ -565,7 +572,7 @@ class MecmClient(DataSourceClient):
         if idx < 0:
             raise MecmError("The server returned a paging link outside the AdminService; stopping.")
         rest = parts.path[idx + len("/adminservice/"):]
-        if any(seg in (".", "..") for seg in unquote(rest).split("/")):
+        if _dot_segment(rest):
             raise MecmError("The server returned a paging link with '..' segments; stopping.")
         return self._url(rest) + (f"?{parts.query}" if parts.query else "")
 

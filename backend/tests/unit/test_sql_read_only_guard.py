@@ -175,11 +175,269 @@ def test_teradata_reads_pass(sql):
     check_sql(sql, "teradata")
 
 
+@pytest.fixture
+def unparsable(monkeypatch):
+    """sqlglot fails on every query (any exception, not only its own)."""
+    from app.ai.code_execution import sql_parser
+
+    def broken(sql, dialect):
+        raise RecursionError("parser bug")
+
+    monkeypatch.setattr(sql_parser, "parse_guard_sql", broken)
+
+
+NON_TERADATA = [d for d in DIALECTS if d != "teradata"]
+# What the fallback must still refuse: more than one statement, a verb that
+# is not a read, and a write word anywhere outside literals.
+UNPARSED_WRITES = WRITES + [
+    "SELECT 1; COMMIT",
+    "SELECT 1; NOTIFY c",
+    "LOCK TABLE orders",
+    "START TRANSACTION",
+    "COMMIT",
+    "SECURITY LABEL ON TABLE orders IS 'x'",
+    "IMPORT FOREIGN SCHEMA s FROM SERVER x INTO y",
+    "REASSIGN OWNED BY a TO b",
+    "UNLISTEN c",
+    "SELECT id INTO orders_copy FROM orders",
+    "SELECT id FROM orders WHERE x = 1 INTO orders_copy",
+    "TABLE orders",
+    "CALL p()",
+    "SELECT 1 FROM orders WHERE a = 1 AND REFRESH",
+]
+
+
+@pytest.mark.parametrize("dialect", NON_TERADATA)
+@pytest.mark.parametrize("sql", UNPARSED_WRITES)
+def test_the_unparsed_fallback_refuses_anything_but_one_read(unparsable, dialect, sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("dialect", NON_TERADATA)
+@pytest.mark.parametrize("sql", READS + ["VALUES (1)", "(SELECT 1)", "SELECT \"into\" FROM t"])
+def test_the_unparsed_fallback_lets_reads_through(unparsable, dialect, sql):
+    check_sql(sql, dialect)
+
+
+# Postgres and Redshift text is read by the Postgres lexer, as the server
+# reads it, not by the generic readings below (test_sql_guard_postgres.py,
+# test_sql_guard_dialects.py).
+LEXED = {"postgres", "redshift"}
+
+
+@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d not in LEXED])
+def test_the_unparsed_fallback_keeps_describe_outside_postgres(unparsable, dialect):
+    check_sql("DESCRIBE orders", dialect)
+    check_sql("DESC orders", dialect)
+
+
+# Unparsed text is read with the dialect's own string and comment rules: a
+# quote inside a `#` comment, or a backslash-escaped quote, must not let a
+# write or a second statement pass as the inside of a literal.
+NL = chr(10)
+BS = chr(92)
+HASH_COMMENT_DIALECTS = ["mysql", "bigquery", "clickhouse"]
+BACKSLASH_DIALECTS = ["mysql", "bigquery", "clickhouse", "snowflake", "databricks", "hive", "spark", "athena"]
+HASH_COMMENT_HIDES = [
+    "SELECT a FROM t # it's" + NL + "INTO OUTFILE '/tmp/x' #'",
+    "SELECT a FROM t # it's" + NL + "; DROP TABLE t #'",
+    "SELECT a FROM t # it's" + NL + "UNION SELECT b FROM u WHERE c = 1 FOR UPDATE; DELETE FROM t #'",
+]
+BACKSLASH_HIDES = [
+    "SELECT 'x" + BS + "'' AS a INTO OUTFILE '/tmp/x' -- '",
+    "SELECT 'x" + BS + "'' AS a; DROP TABLE t -- '",
+    "SELECT \"x" + BS + "\"\" AS a, 1 INTO OUTFILE '/tmp/x' -- \"",
+]
+
+
+@pytest.mark.parametrize("dialect", HASH_COMMENT_DIALECTS)
+@pytest.mark.parametrize("sql", HASH_COMMENT_HIDES)
+def test_the_unparsed_fallback_reads_hash_comments_as_the_dialect_does(unparsable, dialect, sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("dialect", BACKSLASH_DIALECTS)
+@pytest.mark.parametrize("sql", BACKSLASH_HIDES)
+def test_the_unparsed_fallback_reads_backslash_escapes_as_the_dialect_does(unparsable, dialect, sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d not in LEXED])
+@pytest.mark.parametrize("sql", HASH_COMMENT_HIDES)
+def test_the_unparsed_fallback_refuses_what_any_reading_would_run(unparsable, dialect, sql):
+    # Every reading is checked: one where `#` starts a comment and the plain
+    # one (and, where the engine reads them, backslash escapes). Postgres
+    # and Redshift text is read by their lexer, as the server reads it.
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("dialect", ["duckdb", "spark2"])
+@pytest.mark.parametrize("sql", BACKSLASH_HIDES)
+def test_the_unparsed_fallback_reads_backslash_escapes_on_every_engine_that_has_them(unparsable, dialect, sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, dialect)
+
+
+# Engines that never read a backslash as an escape: a backslash at the end
+# of a literal is a plain character, and the literal ends at the next quote.
+NO_BACKSLASH_ESCAPE_DIALECTS = ["tsql", "fabric", "trino", "presto", "oracle", "sqlite"]
+PLAIN_BACKSLASH_READS = [
+    "SELECT a FROM t WHERE p = 'C:" + BS + "' AND note = ' set x'",
+    "SELECT a FROM t WHERE p LIKE 'x" + BS + "' OR q = ' delete it' OR r = 'y'",
+]
+
+
+@pytest.mark.parametrize("dialect", NO_BACKSLASH_ESCAPE_DIALECTS)
+@pytest.mark.parametrize("sql", PLAIN_BACKSLASH_READS)
+def test_the_unparsed_fallback_reads_a_backslash_as_a_plain_character_where_the_engine_does(unparsable, dialect, sql):
+    check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("sql", PLAIN_BACKSLASH_READS)
+def test_mysql_still_reads_those_backslashes_as_escapes(unparsable, sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, "mysql")
+
+
+def test_a_refusal_names_the_reading_that_refused(unparsable):
+    with pytest.raises(ReadOnlyViolation, match="backslash"):
+        check_sql(PLAIN_BACKSLASH_READS[0], "duckdb")  # DuckDB's own tokenizer reads it as plain
+    with pytest.raises(ReadOnlyViolation, match="#"):
+        check_sql(HASH_COMMENT_HIDES[0], "tsql")
+
+
+# A hex, octal or binary number, or one with digit separators, ends where
+# the engine ends it: a word glued to it is a separate word.
+@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
+def test_the_unparsed_fallback_reads_a_word_after_a_hex_number_as_a_word(unparsable, dialect):
+    # Refused before the parser runs too (the glued-constant rule), or by
+    # the fallback's word scan.
+    with pytest.raises(ReadOnlyViolation, match="INTO|hex or money constant"):
+        check_sql("SELECT 0x1into x FROM t", dialect)
+    check_sql("SELECT 0x1F", dialect)
+    check_sql("SELECT 0x1F AS v, 0xdeadbeef AS w FROM t", dialect)
+
+
+@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d not in LEXED])
+def test_the_unparsed_fallback_reads_a_double_dash_without_a_space_as_code_as_mysql_does(unparsable, dialect):
+    # MySQL starts a `--` comment only before whitespace; `1--1` is arithmetic.
+    # (Postgres and Redshift always start one there, and their lexer reads it so.)
+    with pytest.raises(ReadOnlyViolation):
+        check_sql("SELECT a FROM t WHERE b = 1--1 INTO OUTFILE '/tmp/x'", dialect)
+
+
+def test_the_unparsed_fallback_refuses_text_the_dialect_cannot_tokenize(unparsable):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql("SELECT 'unterminated FROM t", "mysql")
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    *[(d, "SELECT a FROM t # a note" + NL + "WHERE b = 1") for d in HASH_COMMENT_DIALECTS],
+    # Not Athena: its query engine has no backslash escapes, and its
+    # tokenizer cannot read this text, so it is refused. Not MySQL: a
+    # server in another SQL mode ends the string at the backslash, so it is
+    # refused (test_sql_guard_dialects.py, server modes).
+    *[(d, "SELECT a FROM t WHERE b = 'it" + BS + "'s'") for d in BACKSLASH_DIALECTS if d not in ("athena", "mysql")],
+    *[(d, "SELECT a FROM t WHERE b = 'x # y' AND c = '-- z'") for d in NON_TERADATA],
+    *[(d, "SELECT t1do, col2set FROM t WHERE note = 'please delete'") for d in NON_TERADATA],
+])
+def test_the_unparsed_fallback_still_lets_ordinary_reads_through(unparsable, dialect, sql):
+    check_sql(sql, dialect)
+
+
+def test_the_unparsed_fallback_stays_linear():
+    import time
+
+    def took(n):
+        sql = ("SELECT 'it" + BS + "'s' AS a, `b`, \"c\" FROM t # x" + NL + "/* y */ -- z" + NL) * n
+        start = time.perf_counter()
+        try:
+            check_sql(sql + " @@ x", "mysql")
+        except ReadOnlyViolation:
+            pass
+        return time.perf_counter() - start
+
+    took(100)
+    small, large = min(took(500) for _ in range(3)), min(took(5_000) for _ in range(3))
+    assert large < small * 30  # 10x the text, far below quadratic growth
+
+
+# A MySQL 8 read sqlglot cannot parse, so the guard takes its unparsed path.
+MYSQL_UNPARSABLE_READ = "SELECT WEIGHT_STRING('a' AS CHAR(3)) AS w"
+
+
+def _docker_available() -> bool:
+    try:
+        import docker
+
+        docker.from_env().ping()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="module")
+def mysql_root():
+    """A cursor on a throwaway MySQL 8 server, as root (who may write files)."""
+    if not _docker_available():
+        pytest.skip("Docker daemon not reachable")
+    import pymysql
+    from testcontainers.mysql import MySqlContainer
+
+    with MySqlContainer("mysql:8") as db:
+        con = pymysql.connect(host=db.get_container_host_ip(), port=int(db.get_exposed_port(3306)),
+                              user="root", password=db.root_password, autocommit=True)
+        yield con.cursor()
+        con.close()
+
+
+def _file_on_server(cur, path):
+    cur.execute("SELECT LOAD_FILE(%s)", (path,))
+    return cur.fetchone()[0]
+
+
+@pytest.mark.parametrize("name, hidden", [
+    ("hash", " # it's" + NL + "INTO OUTFILE '{path}' #'"),
+    ("backslash", ", 'x" + BS + "'' AS q INTO OUTFILE '{path}' -- '"),
+])
+def test_mysql_writes_a_file_for_text_the_guard_now_refuses_before_sending(mysql_root, name, hidden):
+    from app.data_sources.clients.mysql_client import MysqlClient
+
+    path = f"/var/lib/mysql-files/guard-{name}.txt"
+    sql = MYSQL_UNPARSABLE_READ + hidden.format(path=path)
+    try:
+        ensure_read_only(object.__new__(MysqlClient), sql)
+        refused = None
+    except ReadOnlyViolation as e:
+        refused = e
+    assert _file_on_server(mysql_root, path) is None  # the guard sends nothing
+    mysql_root.execute(sql)  # the same text, sent as it is
+    assert _file_on_server(mysql_root, path) is not None
+    assert refused is not None, "the guard let through text that writes a file on MySQL"
+
+
 def test_non_sql_clients_are_not_checked():
     class SalesforceClient:  # SOQL / HogQL / etc. go through unchanged
         pass
 
     ensure_read_only(SalesforceClient(), "DELETE whatever this API means")
+
+
+def test_statement_that_is_not_a_plain_str_is_refused():
+    # A str subclass can answer the string methods the guard calls with
+    # something other than its text, so only a plain str is checked as text.
+    class Statement(str):
+        def strip(self, *args):
+            return ""
+
+    client = SqliteClient()
+    assert ensure_read_only(client, "SELECT 1") == "SELECT 1"
+    with pytest.raises(ReadOnlyViolation, match="plain str"):
+        ensure_read_only(client, Statement("DELETE FROM orders"))
 
 
 def test_splunk_writing_commands_are_refused():

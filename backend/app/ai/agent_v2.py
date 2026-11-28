@@ -1369,6 +1369,14 @@ class AgentV2:
         if not _demo_gen_enabled(self.organization_settings):
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'create_demo_dataset']
 
+        # Agent sandboxes ship dark: the four tools are offered only when the
+        # deployment flag and the organization switch are both on. The user's
+        # `use_agent_sandbox` permission is checked with the other
+        # required_permissions in _apply_tool_permission_filter.
+        from app.services.sandbox.feature import SANDBOX_TOOL_NAMES as _SBX_TOOLS, sandboxes_enabled_for_org as _sbx_on
+        if not _sbx_on(self.organization_settings):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in _SBX_TOOLS]
+
         # Check-in runs (the agent following up on its own) never create
         # recurring work or re-arm themselves, and reach the user only through
         # `notify` (whose check-in guardrails send_email would bypass).
@@ -4848,6 +4856,35 @@ class AgentV2:
                 if t.name not in denied_tools
             ]
 
+    async def _apply_agent_sandbox_filter(self) -> None:
+        """Agent sandbox tools: offered only when this user can actually use
+        one (permission, an environment they may use, a backend that can run
+        it). When they are offered, the tool descriptions say what the
+        report's sandbox can reach, so the agent does not attempt downloads
+        that cannot work. A no-op unless the tools survived the earlier gates
+        (deployment flag, organization switch, use_agent_sandbox)."""
+        from app.services.sandbox.feature import SANDBOX_TOOL_NAMES
+
+        catalog = self.planner.tool_catalog or []
+        if not any(t.name in SANDBOX_TOOL_NAMES for t in catalog):
+            return
+        note = None
+        try:
+            from app.services.sandbox.catalog import sandbox_run_note
+
+            user = getattr(self.head_completion, 'user', None)
+            note = await sandbox_run_note(
+                self.db, self.organization, self.report, user, self.data_sources,
+            )
+        except Exception:
+            logger.exception("agent sandbox availability check failed; hiding the tools")
+        if note is None:
+            self.planner.tool_catalog = [t for t in catalog if t.name not in SANDBOX_TOOL_NAMES]
+            return
+        for tool in catalog:
+            if tool.name in ("run_in_sandbox", "create_sandbox"):
+                tool.description = (tool.description or "").rstrip() + note
+
     def _user_picked_model(self) -> bool:
         """True when the user explicitly chose the model for this run.
 
@@ -6058,8 +6095,8 @@ class AgentV2:
           request) per call, and same-source queries already run
           concurrently across completions with no coordination — so the
           lock guarded nothing and made single-source workspaces (the
-          common case) fully serial. Any genuinely stateful client (e.g.
-          verticapy's module-level connection) must guard internally.
+          common case) fully serial. Any genuinely stateful client (one
+          that keeps a connection shared between calls) must guard internally.
         - a crashed action becomes an error outcome, never a lost one.
         """
         concurrency = 1
@@ -6688,6 +6725,7 @@ class AgentV2:
             # Early scoring will be launched as a background task using an isolated session
             await self._apply_tool_permission_filter()
             await self._apply_email_availability_filter()
+            await self._apply_agent_sandbox_filter()
             # Add native MCP tools AFTER the permission/availability filters so
             # they are never stripped by a filter that doesn't know about them,
             # and before routing/fallback so the catalog is final by loop start.
@@ -11410,6 +11448,7 @@ class AgentV2:
                         # fetches the step after tool.finished; this commit precedes it.
                         await self.project_manager.finalize_tool_step(
                             fresh_db, step_obj,
+                            organization_id=self.organization.id if self.organization else None,
                             code=code,
                             data=widget_data,
                             data_model=merged,

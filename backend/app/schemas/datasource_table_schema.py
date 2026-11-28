@@ -85,6 +85,9 @@ class DataSourceTableSchema(BaseModel):
     last_refreshed_at: OptionalUTCDatetime = None
     last_refresh_status: Optional[str] = None
     rls_enabled: bool = False
+    # A custom table on a connection where each person signs in with their own
+    # credentials: cached once per person, so it has no row count of its own.
+    per_user: bool = False
     # Topology and richness metrics
     centrality_score: Optional[float] = None
     richness: Optional[float] = None

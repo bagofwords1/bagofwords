@@ -79,6 +79,15 @@ async def resolve_step_data(
     bow_access = await step_access(db, step)
     if bow_access and not await can_read(db, bow_access, requesting_user):
         return StepDataResolution(data={}, withheld=True)
+    if report is not None and await report_has_company_policy(
+        db, report.id, getattr(report, "organization_id", None)
+    ):
+        return StepDataResolution(data={}, withheld=True)
+    if report is None and step_report_id is not None:
+        from app.models.report import Report
+        org_id = await db.scalar(select(Report.organization_id).where(Report.id == str(step_report_id)))
+        if await report_has_company_policy(db, step_report_id, org_id):
+            return StepDataResolution(data={}, withheld=True)
     shared = step.data or {}
 
     owner_id = str(report.user_id) if report is not None and getattr(report, "user_id", None) else None
@@ -571,6 +580,82 @@ async def _any_user_scoped_connection(db: AsyncSession, data_source_ids: list[st
     return bool((await db.execute(stmt)).scalar() or 0)
 
 
+async def has_company_policy(db, data_source_ids) -> bool:
+    """An active live-warehouse policy makes even the owner's stored slice stale."""
+    if not data_source_ids:
+        return False
+    stmt = (select(Connection.id).join(domain_connection, Connection.id == domain_connection.c.connection_id)
+            .where(domain_connection.c.data_source_id.in_(data_source_ids),
+                   Connection.active_company_policy.is_not(None)).limit(1))
+    return (await db.scalar(stmt)) is not None
+
+
+async def org_has_company_policy(db, organization_id) -> bool:
+    if not organization_id:
+        return False
+    from app.models.organization import Organization
+
+    active_connection = select(Connection.id).where(
+        Connection.organization_id == Organization.id,
+        Connection.active_company_policy.is_not(None),
+    ).exists()
+    return bool(await db.scalar(select(Organization.id).where(
+        Organization.id == str(organization_id),
+        Organization.withhold_unverified_company_content.is_(True) | active_connection,
+    )))
+
+
+async def withhold_step_storage(db, step, *, organization_id=None):
+    from app.models.artifact_release import ArtifactRelease
+    from app.models.organization import Organization
+    from app.models.query import Query
+    from app.models.report import Report
+    from app.services.row_owner import step_owner
+
+    org = await db.scalar(select(Query.organization_id).where(Query.id == str(step.query_id))) if step.query_id else None
+    if not org:
+        owner = await step_owner(db, step)
+        if owner:
+            model = Report if owner.kind == "report" else ArtifactRelease
+            org = await db.scalar(select(model.organization_id).where(model.id == owner.id))
+    if org and organization_id and str(org) != str(organization_id):
+        return True
+    # Only server-side execution context can identify a detached step's workspace.
+    if not org and organization_id:
+        org = await db.scalar(select(Organization.id).where(Organization.id == str(organization_id)))
+    return not org or await org_has_company_policy(db, org)
+
+
+async def entity_has_company_policy(db, entity):
+    return await org_has_company_policy(db, getattr(entity, "organization_id", None))
+
+
+async def report_has_company_policy(db, report_id, organization_id):
+    # Current source links cannot establish the origin of already-rendered content.
+    return await org_has_company_policy(db, organization_id)
+
+
+async def delivery_has_company_policy(db, subject_id, organization_id=None):
+    """A delivery subject can be a conversation or a published dashboard."""
+    from app.models.artifact import Artifact
+    from app.models.report import Report
+    from app.services.dashboard_access import published_release
+    from app.services.dashboard_data import release_has_company_policy
+
+    if organization_id and await org_has_company_policy(db, organization_id):
+        return True
+    if not subject_id:
+        return False
+    report_org = await db.scalar(select(Report.organization_id).where(Report.id == str(subject_id)))
+    if report_org and await report_has_company_policy(db, subject_id, report_org):
+        return True
+    artifact = await db.scalar(select(Artifact).options(lazyload("*")).where(Artifact.id == str(subject_id)))
+    if artifact is None:
+        return False
+    release = await published_release(db, artifact)
+    return bool(release and await release_has_company_policy(db, release))
+
+
 async def _any_rls_relation(db: AsyncSession, data_source_ids: list[str]) -> bool:
     """True when any of the given data sources exposes an active bow relation
     with row-level security enabled.
@@ -581,6 +666,8 @@ async def _any_rls_relation(db: AsyncSession, data_source_ids: list[str]) -> boo
     identity-differentiation than user_required auth, and one that lives on a
     system_only connection (RLS is only permitted there today).
     """
+    if await has_company_policy(db, data_source_ids):
+        return True
     if not data_source_ids:
         return False
     from app.models.connection_table import ConnectionTable, KIND_BOW
@@ -595,7 +682,7 @@ async def _any_rls_relation(db: AsyncSession, data_source_ids: list[str]) -> boo
             DataSourceTable.is_active.is_(True),
             DataSourceTable.deleted_at.is_(None),
             ConnectionTable.kind == KIND_BOW,
-            ConnectionTable.rls_enabled.is_(True),
+            (ConnectionTable.rls_enabled.is_(True) | ConnectionTable.cls_enabled.is_(True)),
             ConnectionTable.deleted_at.is_(None),
         )
     )
@@ -646,6 +733,8 @@ async def entity_data_withheld(
     from app.services.bow_source_access import can_read
     bow_access = getattr(entity, "bow_source_access", None)
     if bow_access and not await can_read(db, bow_access, requesting_user):
+        return True
+    if await entity_has_company_policy(db, entity):
         return True
     owner_id = str(getattr(entity, "owner_id", "") or "")
     if requesting_user is not None and owner_id and str(requesting_user.id) == owner_id:
@@ -769,6 +858,8 @@ async def report_snapshot_withheld(
     )).first()
     if row is None:
         return False
+    if await org_has_company_policy(db, row[1]):
+        return True
     return await snapshot_withheld_for_viewers(
         db, report_id, row[0], fallback_org_id=row[1], code=code
     )

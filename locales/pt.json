@@ -1,4 +1,113 @@
 {
+  "samplePreview": {
+    "filterHelp": "Escolha a coluna que determina que linhas um membro pode ver.",
+    "mappingHelp": "Associe uma propriedade do membro a uma linha de permissões. O valor concedido determina o acesso.",
+    "previewHelp": "Veja uma amostra das linhas e colunas que este membro pode ler com o rascunho guardado.",
+    "summary": "{member} · Linhas de exemplo: {rows} · Colunas visíveis: {columns}",
+    "checkColumn": "Verificar uma coluna",
+    "check": "Verificar visibilidade",
+    "visible": "{column} está visível para {member}.",
+    "hidden": "{column} não está visível para {member}.",
+    "noColumns": "Nenhuma coluna visível para este membro."
+  },
+  "grantMapping": {
+    "previewError": "Falha na pré-visualização. Verifique a regra e a conexão.",
+    "importTyped": "Uma tabela por linha. Para criar uma regra, introduza tabela, coluna de filtro e tipo de recurso.",
+    "importSimple": "Uma tabela por linha. Para criar uma regra, separe a tabela e a coluna de filtro por vírgula.",
+    "target": "Coluna a filtrar",
+    "principal": "Propriedade do membro",
+    "principalColumn": "Coluna de permissão correspondente",
+    "valueColumn": "Coluna do valor autorizado",
+    "useType": "Distinguir permissões por tipo de recurso",
+    "typeColumn": "Coluna do tipo de recurso",
+    "resourceTypeValue": "Valor do tipo de recurso",
+    "chooseColumn": "Escolher coluna"
+  },
+  "accessEditor": {
+    "tables": "Acesso às tabelas",
+    "chooseTable": "Selecione uma tabela para editar as regras e verificar o acesso.",
+    "connectionSetup": "Mapeamento da conexão",
+    "status": "Estado",
+    "import": "Importar",
+    "noTables": "Nenhuma tabela encontrada.",
+    "rows": "Acesso às linhas",
+    "columns": "Acesso às colunas",
+    "grantVia": "Conceder acesso por",
+    "property": "Propriedade do membro",
+    "allColumns": "Todas as colunas das linhas acessíveis estão visíveis.",
+    "selectedColumns": "Selecione as colunas visíveis. As restantes e as novas ficam ocultas.",
+    "audience": "Acesso à coluna",
+    "everyReader": "Todos com acesso às linhas",
+    "match": "Membros com uma propriedade correspondente",
+    "values": "Valores permitidos (separados por vírgulas)",
+    "columnName": "Nome da coluna",
+    "add": "Adicionar",
+    "removeRule": "Remover regra",
+    "previewAs": "Pré-visualizar como",
+    "previewHint": "Teste o rascunho guardado para um membro.",
+    "saveFirst": "Guarde o rascunho para testar as alterações.",
+    "runPreview": "Pré-visualizar",
+    "hideCompare": "Ocultar comparação",
+    "compare": "Comparar outro membro",
+    "applySetup": "Voltar às regras",
+    "myself": "A minha conta"
+  },
+  "liveAccess": {
+    "title": "Access rules",
+    "coverage": "Table coverage",
+    "all": "All tables",
+    "protected": "Protected",
+    "missing": "Missing mapping",
+    "pending": "Pending changes",
+    "search": "Search the connection catalog",
+    "inventory": "Only tables from the imported inventory",
+    "active": "Active policy",
+    "identity": "Reader identity",
+    "email": "Verified member email",
+    "bulk": "Import table mappings",
+    "bulkHint": "One table per line. To map a table, enter table, company column, grant source.",
+    "apply": "Apply to draft",
+    "rowAttribute": "Match row key to identity property",
+    "columns": "Visible columns, one per line. To restrict a column, add its property and allowed values.",
+    "review": "Review activation",
+    "impact": "Activation withholds unverified historical reports, exports and scheduled attachments across this workspace.",
+    "activate": "Activate saved policy",
+    "compare": "Compare access",
+    "member": "Member email",
+    "previewMember": "Preview member",
+    "rows": "Visible rows",
+    "empty": "No matching data",
+    "denied": "No grant",
+    "multi": "Multiple values (one per line)",
+    "custom": "Admin property",
+    "submitted": "Submitted SQL",
+    "sent": "SQL sent to the database",
+    "blocked": "Blocked before execution",
+    "restrict": "Limit visible columns",
+    "freshness": "Data and company grants are read from the source on each protected query.",
+    "cachedFreshness": "Data comes from the last refresh. Row access is evaluated for the reader.",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "fabricCompany": {
+    "preview": "Visualizar minhas linhas",
+    "previewFailed": "Entre com a identidade Entra configurada e verifique o mapeamento.",
+    "tab": "RLS por empresa",
+    "mapping": "Acesso por empresa",
+    "scope": "Salve um rascunho para testar o mapeamento. Ele se aplica apenas às prévias da política.",
+    "tenant_id": "ID do locatário Entra",
+    "grants_table": "Tabela de permissões",
+    "employee_column": "Coluna de funcionário",
+    "company_column": "Coluna de empresa",
+    "source_column": "Coluna de origem",
+    "tables": "Tabelas protegidas",
+    "table": "Tabela de origem",
+    "source": "Valor de origem da permissão",
+    "add": "Adicionar tabela",
+    "save": "Salvar rascunho",
+    "saved": "Rascunho salvo",
+    "failed": "Não foi possível carregar ou salvar o rascunho."
+  },
   "world": {
     "tree": "Árvore",
     "usage": "Uso",
@@ -2388,7 +2497,8 @@
     "saveFailed": "Falha ao salvar entidade",
     "stepRequired": "Etapa necessária para salvar",
     "publishedToast": "Consulta publicada no catálogo",
-    "suggestedToast": "Sugestão enviada para revisão"
+    "suggestedToast": "Sugestão enviada para revisão",
+    "savedRunFailed": "Salva, mas a execução da consulta falhou"
   },
   "mentionInput": {
     "placeholder": "Digite {'@'} para mencionar...",
@@ -3570,7 +3680,11 @@
         },
         "workspace": {
           "title": "Espaço de trabalho",
-          "description": "Webhooks, forks e retenção de dados"
+          "description": "Links públicos, pedidos de acesso, webhooks e forks"
+        },
+        "retention": {
+          "title": "Retenção de dados",
+          "description": "Excluir definitivamente relatórios, painéis e arquivos antigos"
         },
         "other": {
           "title": "Outros",
@@ -3741,6 +3855,26 @@
           "name": "Limite de solicitações da tabela personalizada",
           "description": "Máximo de solicitações que uma atualização pode fazer a uma origem lida página a página (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Aumente-o junto com o limite de linhas: o Power BI devolve no máximo 100.000 linhas por solicitação e permite cerca de 120 solicitações por minuto. De 16 a 10.000."
         },
+        "custom_table_user_copy_max_age_hours": {
+          "name": "Idade máxima da cópia por pessoa (horas)",
+          "description": "Em uma conexão em que cada pessoa entra com as próprias credenciais, uma tabela personalizada é armazenada em cache separadamente para cada pessoa. Uma cópia mais antiga do que isso é recriada com as credenciais dessa pessoa antes de ser usada novamente, de modo que uma mudança no acesso dela na origem passa a valer dentro desse tempo. De 1 a 720."
+        },
+        "custom_table_user_copy_idle_days": {
+          "name": "Dias de inatividade da cópia por pessoa",
+          "description": "A cópia de uma pessoa que não é usada por esse número de dias é excluída. Ela é recriada na próxima pergunta dessa pessoa. De 1 a 365."
+        },
+        "custom_table_user_copy_wait_seconds": {
+          "name": "Espera pela cópia por pessoa (segundos)",
+          "description": "Quanto tempo uma pergunta espera a cópia de uma pessoa ser criada pela primeira vez. Se a criação demorar mais, ela continua em segundo plano e a pergunta é respondida pela origem ao vivo. De 0 a 600."
+        },
+        "custom_table_user_copies_max_gb": {
+          "name": "Limite de armazenamento das cópias por pessoa (GB)",
+          "description": "Maior espaço em disco que todas as cópias por pessoa desta organização podem ocupar juntas. Quando ele é ultrapassado, as cópias usadas há mais tempo são excluídas primeiro. De 1 a 2.048."
+        },
+        "custom_table_user_copy_concurrency": {
+          "name": "Criações simultâneas de cópias por pessoa",
+          "description": "Quantas cópias por pessoa podem ser criadas ao mesmo tempo em uma conexão. Reduza para proteger uma origem que não aguenta a carga. De 1 a 32."
+        },
         "enable_agent_notes": {
           "name": "Notas do agente",
           "description": "Permite que o agente mantenha notas de trabalho por relatório (um rascunho) que ele escreve e lê enquanto responde: planos, achados e tarefas. As notas aparecem no relatório, mas não são conhecimento compartilhado. Quando desativado, as ferramentas de notas ficam ocultas e as notas não são inseridas no contexto."
@@ -3783,7 +3917,15 @@
         },
         "file_retention_days": {
           "name": "Retenção de arquivos (dias)",
-          "description": "Exclui todas as noites os arquivos mais antigos que este número de dias. Arquivos usados por um painel, arquivos na biblioteca de um agente ou projeto e envios para um relatório agendado são mantidos. 0 mantém os arquivos para sempre."
+          "description": "Exclui definitivamente, toda noite, os arquivos com mais desse número de dias. Arquivos usados por um painel, arquivos na biblioteca de um agente ou projeto e envios que alimentam um relatório agendado são mantidos. Vazio mantém os arquivos para sempre."
+        },
+        "report_retention_days": {
+          "name": "Retenção de relatórios (dias)",
+          "description": "Exclui definitivamente, toda noite, os relatórios que ninguém usou por esse número de dias: cada mensagem, execução do agente, chamada de ferramenta, consulta e resultado, e os arquivos que nada mais usa. Relatórios agendados, compartilhados e publicados, e relatórios com um painel ativo, são mantidos. Vazio mantém os relatórios para sempre."
+        },
+        "artifact_retention_days": {
+          "name": "Retenção de painéis (dias)",
+          "description": "Exclui definitivamente, toda noite, os painéis e páginas que ninguém editou nem executou por esse número de dias, com suas versões, dados e arquivos. Painéis publicados, compartilhados, agendados e incorporados são mantidos. Vazio os mantém para sempre."
         },
         "enable_excel_addin": {
           "name": "Suplemento do Excel",
@@ -3829,6 +3971,12 @@
           "name": "Top K colunas por tabela",
           "description": "Quantas colunas de uma tabela larga o agente vê por completo no contexto, ordenadas por uso das colunas, referências em instruções e chaves/carimbos de data/hora. O resto é resumido por prefixo e continua pesquisável com describe_tables. 0 = sem limite."
         }
+      },
+      "retention": {
+        "keepForever": "Manter para sempre",
+        "warning": "A retenção exclui definitivamente. Relatórios, painéis e arquivos excluídos não podem ser restaurados.",
+        "preview": "A execução desta noite excluiria {reports} relatórios, {artifacts} painéis e {files} arquivos.",
+        "previewNone": "A execução desta noite não excluiria nada."
       },
       "permissionMode": {
         "title": "Modo de permissões de ferramentas",
@@ -5120,6 +5268,7 @@
     "locale.invalid": "O idioma não está ativado",
     "report.not_found": "Relatório não encontrado",
     "entity.not_found": "Entidade não encontrada",
+    "entity.run_failed": "Não foi possível executar a consulta salva. Peça ao proprietário dela que a verifique.",
     "user.not_found": "Usuário não encontrado",
     "membership.not_found": "Associação não encontrada",
     "role.not_found": "Função não encontrada",
@@ -5138,7 +5287,8 @@
     "resource.duplicate": "Recurso duplicado",
     "setting.update_failed": "Falha ao atualizar configuração",
     "query": {
-      "failed_silently": "Uma consulta falhou, mas o código gerado retornou um resultado vazio em vez de informar o erro"
+      "failed_silently": "Uma consulta falhou, mas o código gerado retornou um resultado vazio em vez de informar o erro: {query_errors}",
+      "timeout": "A consulta levou mais de {timeout_seconds} segundos e foi interrompida. Restrinja-a com filtros, um limite de linhas ou uma agregação, ou divida-a em consultas menores."
     },
     "llm": {
       "model_id_required": "O ID do modelo não pode ficar vazio",
@@ -5572,9 +5722,12 @@
   },
   "toolbar": {
     "polishDashboard": "Aprimorar painel",
-    "polishRequestLabel": "Aprimorar"
+    "polishRequestLabel": "Aprimorar",
+    "fixErrorRequestLabel": "Corrigir erro de exibição"
   },
   "artifactFrame": {
+    "renderFailedTitle": "Não foi possível exibir o painel",
+    "fixError": "Corrigir erro",
     "dataAddQuery": "Adicionar consulta",
     "dataNoQueriesToAdd": "Sem consultas para adicionar",
     "dataAddFailed": "Falha ao adicionar a consulta ao painel",
@@ -7285,6 +7438,7 @@
     "cache": "Cache",
     "cached": "Em cache",
     "notCached": "Sem cache",
+    "cachedPerPerson": "Em cache por pessoa",
     "searchTables": "Pesquisar tabelas…",
     "suggested": "Sugerida",
     "suggestedHint": "Sugerida por nomes de chaves · não verificada",
@@ -7715,7 +7869,8 @@
       "deniedTitle": "Acesso negado",
       "deniedBody": "Você não tem acesso a esta página. Peça ao proprietário para compartilhá-la com você.",
       "goHome": "Ir para o início",
-      "backToApp": "Voltar ao app"
+      "backToDashboards": "Voltar aos painéis",
+      "backToHome": "Voltar ao início"
     },
     "accessRequest": {
       "noAccessTitle": "Você não tem acesso",
@@ -8410,31 +8565,100 @@
       "set_by_admin": "definida por um administrador"
     }
   },
+  "customTableCopies": {
+    "subtitle": "Armazenada localmente para cada pessoa, de modo que os agentes respondem a partir da cópia em cache dessa pessoa em vez de consultar {connection} toda vez.",
+    "noticeTitle": "Em cache separadamente para cada pessoa",
+    "notice": "Cada pessoa entra em {connection} com as próprias credenciais, então esta tabela é armazenada em cache separadamente para cada pessoa. A cópia de uma pessoa é criada com as credenciais dela na primeira vez que ela faz uma pergunta. A prévia é executada com as suas credenciais.",
+    "settingsIntro": "Quão antiga a cópia de uma pessoa pode ficar. Uma cópia mais antiga é recriada com as credenciais dessa pessoa na próxima vez que ela fizer uma pergunta.",
+    "ruleInterval": "Recriar a cópia de uma pessoa quando ela tiver mais de {age}",
+    "ruleTime": "Recriar a cópia de uma pessoa quando ela for anterior às últimas {time}",
+    "age15m": "15 minutos",
+    "age30m": "30 minutos",
+    "age1h": "1 hora",
+    "age6h": "6 horas",
+    "age12h": "12 horas",
+    "age24h": "24 horas",
+    "statusChecked": "Última verificação da consulta: {when}",
+    "statusNever": "nunca",
+    "statusPeople": "Pessoas com uma cópia: {count}",
+    "statusSize": "Tamanho total em disco: {size}",
+    "statusError": "Último erro: {error}",
+    "deleteTableHint": "A exclusão remove a cópia de cada pessoa e retira esta tabela de {count} agente(s) que a usam no momento. Os dados de origem não são alterados.",
+    "tab": "Cópias",
+    "intro": "Uma cópia para cada pessoa que fez uma pergunta que usa esta tabela, criada com as credenciais dela.",
+    "reload": "Recarregar",
+    "loadError": "Não foi possível carregar as cópias",
+    "empty": "Ninguém tem uma cópia ainda. A cópia de uma pessoa é criada na primeira vez que ela faz uma pergunta que usa esta tabela.",
+    "person": "Pessoa",
+    "status": "Status",
+    "rows": "Linhas",
+    "size": "Tamanho",
+    "built": "Criada",
+    "lastUsed": "Último uso",
+    "stateBuilding": "Sendo criada",
+    "stateOk": "Pronta",
+    "stateStale": "Reconstruída na próxima pergunta",
+    "stateError": "Falhou",
+    "stateEvicted": "Removida",
+    "deleteCopy": "Excluir cópia",
+    "deleteAll": "Excluir todas as cópias",
+    "confirmOne": "Excluir a cópia de {name}? Ela será recriada com as credenciais dessa pessoa na próxima pergunta.",
+    "confirmAll": "Excluir as cópias de todos para esta tabela? Cada cópia será recriada com as credenciais da pessoa na próxima pergunta dela.",
+    "deleted": "Cópia excluída",
+    "deletedAll": "Todas as cópias excluídas",
+    "deletedDetail": "{size} liberados",
+    "deleteFailed": "Não foi possível excluir a cópia",
+    "rebuildAll": "Recriar as cópias de todos",
+    "rebuildAllHint": "A cópia de cada pessoa é recriada com as credenciais dela na próxima pergunta.",
+    "rebuildQueued": "As cópias de todos serão recriadas",
+    "rebuildFailed": "Não foi possível recriar as cópias",
+    "create": "Criar",
+    "created": "Tabela personalizada criada",
+    "updated": "Tabela personalizada atualizada",
+    "savedDetail": "{name}: a cópia de cada pessoa é criada na primeira pergunta dela."
+  },
   "apps": {
-    "title": "Seus aplicativos",
-    "subtitle": "Abra um aplicativo para começar.",
+    "title": "Compartilhado com você",
+    "subtitle": "Aplicativos, painéis e documentos que você pode abrir.",
     "openWorkspace": "Abrir o espaço de trabalho",
-    "search": "Buscar aplicativos",
-    "untitled": "Aplicativo sem título",
+    "search": "Pesquisar",
+    "untitled": "Sem título",
     "inApplication": "Em {name}",
-    "allApps": "Todos os aplicativos",
+    "backToLauncher": "Voltar para Compartilhado com você",
     "language": "Idioma",
     "account": "Conta",
     "signOut": "Sair",
-    "loadFailed": "Não foi possível carregar seus aplicativos.",
+    "loadFailed": "Não foi possível carregar esta lista.",
     "retry": "Tentar novamente",
-    "noMatches": "Nenhum aplicativo corresponde a “{query}”.",
+    "noMatches": "Nada corresponde a “{query}”.",
     "empty": {
-      "title": "Ainda não há aplicativos",
-      "body": "Quando alguém compartilhar um aplicativo com você, ele aparecerá aqui."
+      "title": "Nada foi compartilhado com você ainda",
+      "body": "Quando alguém compartilhar um aplicativo, painel ou documento com você, ele aparecerá aqui."
     },
     "requestAccess": {
-      "prompt": "Precisa de mais do que estes aplicativos?",
+      "prompt": "Precisa de mais do que o que foi compartilhado com você?",
       "button": "Solicitar acesso completo",
       "sent": "Solicitação enviada. Um administrador irá analisá-la.",
       "failed": "Não foi possível enviar a solicitação. Tente novamente."
     },
-    "showMore": "Mostrar mais"
+    "showMore": "Mostrar mais",
+    "filter": {
+      "label": "Filtrar por tipo",
+      "all": "Todos",
+      "apps": "Aplicativos",
+      "dashboards": "Painéis",
+      "docs": "Documentos"
+    },
+    "kind": {
+      "app": "Aplicativo",
+      "dashboard": "Painel",
+      "doc": "Documento"
+    },
+    "emptyKind": {
+      "app": "Nenhum aplicativo foi compartilhado com você ainda.",
+      "dashboard": "Nenhum painel foi compartilhado com você ainda.",
+      "doc": "Nenhum documento foi compartilhado com você ainda."
+    }
   },
   "hostApps": {
     "newUserRole": "Novas pessoas entram como",

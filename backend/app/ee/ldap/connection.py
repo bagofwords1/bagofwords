@@ -236,6 +236,7 @@ class LDAPConnectionManager:
         attrs = [
             self.config.user_email_attribute,
             self.config.user_name_attribute,
+            *self.config.policy_attributes,
         ]
 
         conn = self.get_connection()
@@ -255,6 +256,8 @@ class LDAPConnectionManager:
                         "dn": str(entry.entry_dn),
                         "email": str(email_val).lower(),
                         "name": str(name_val) if name_val else None,
+                        "policy_attributes": {key: [str(v) for v in entry[key].values]
+                                              for key in self.config.policy_attributes if key in entry},
                     })
             return users
         finally:

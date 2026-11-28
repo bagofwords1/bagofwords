@@ -163,13 +163,17 @@ compares BOW's answer against the source's own answer for a real user.
 
 - **Not a substitute for source RLS.** Where the source enforces per-user
   visibility and the org wants that to remain the authority, the answer stays
-  `per_user`: no shared copy, no acceleration.
+  a per-user connection: no shared copy. Such a connection is still
+  accelerated, with one copy per person extracted under their own credentials
+  (`custom-table-user-copies.md`).
 - **Not row-level security on the file.** The artifact on disk still holds every
   row; filtering happens at read. Encryption at rest and container access
   control carry real weight here — which is already true and already the reason
   artifacts are encrypted rather than Parquet.
-- **No per-user artifacts.** One copy per relation (or per role in phase 4).
-  Per-user copies defeat the point of caching.
+- **No per-user artifacts on a shared-credential connection.** One copy per
+  relation (or per role in phase 4), filtered at read time. Copies per person
+  exist only where each person signs in to the source themselves, and are a
+  separate design: `custom-table-user-copies.md`.
 
 ## Identity parameters — the bind check is a guardrail, not isolation
 

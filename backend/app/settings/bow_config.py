@@ -62,6 +62,7 @@ class DeploymentConfig(BaseModel):
 class FeatureFlags(BaseModel):
     allow_uninvited_signups: bool = False
     allow_multiple_organizations: bool = False
+    fabric_company_rls_activation: bool = False
     verify_emails: bool = False
 
 class OTELConfig(BaseModel):
@@ -364,6 +365,16 @@ class LDAPConfig(BaseModel):
     user_search_filter: str = "(objectClass=person)"
     user_email_attribute: str = "mail"
     user_name_attribute: str = "displayName"
+    policy_attributes: list[str] = Field(default_factory=list)
+
+    @field_validator("policy_attributes")
+    @classmethod
+    def valid_policy_attributes(cls, values):
+        import re
+        if len(values) > 50 or any(not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9-]{0,63}", v) for v in values):
+            raise ValueError("Invalid directory attribute")
+        return list(dict.fromkeys(values))
+
     group_search_base: Optional[str] = None            # defaults to base_dn
     group_search_filter: str = "(objectClass=group)"
     group_name_attribute: str = "cn"
@@ -583,11 +594,14 @@ class SecurityConfig(BaseModel):
                     raise ValueError(f"organization_file_roots[{org_id}]: {root!r} is not an absolute path")
             out[str(org_id).strip()] = list(roots)
         return out
-    # UNSAFE. Restores the old behaviour: no path policy, no session lock, no
-    # read-only check for csv/qvd/pbix, SQLite opened read-write. Anyone who
-    # can query such a connection can then read and write any file the app
-    # user can. Only for a single-tenant install that depends on it (e.g. a
-    # .duckdb file whose views read files elsewhere) while it migrates.
+    # UNSAFE. Restores the old behaviour. It lifts the path policy; the
+    # session lock on DuckDB, CSV, QVD, PBIX, Report Server and Iceberg
+    # connections; the file connections' statement checks; and the in-process
+    # DuckDB checks for Iceberg and network folders. SQLite is opened
+    # read-write. Accelerated (FAST) tables and network folders stay locked.
+    # Anyone who can query such a connection can then read and write any file
+    # the app user can. Only for a single-tenant install that depends on it
+    # (e.g. a .duckdb file whose views read files elsewhere) while it migrates.
     # Env: BOW_UNSAFE_ALLOW_UNRESTRICTED_FILE_CONNECTORS (true/1/yes/on).
     unsafe_allow_unrestricted_file_connectors: bool = Field(
         default_factory=lambda: (os.getenv("BOW_UNSAFE_ALLOW_UNRESTRICTED_FILE_CONNECTORS") or "").strip().lower()
@@ -702,6 +716,24 @@ class AuditConfig(BaseModel):
     retention_days: Optional[int] = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_RETENTION_DAYS")) if os.getenv("BOW_AUDIT_RETENTION_DAYS") else None)
     legal_hold: bool = Field(default_factory=lambda: (os.getenv("BOW_AUDIT_LEGAL_HOLD") or "").strip().lower() in ("1", "true", "yes", "on"))
     platform_stream: AuditPlatformStream = AuditPlatformStream()
+
+
+class AgentSandboxesConfig(BaseModel):
+    """Agent sandboxes: containers on operator-provided servers where a
+    report's agent can run code (``create_sandbox`` / ``run_in_sandbox``).
+
+    Level 1 of three gates, all off by default. Off here means the feature
+    does not exist for this deployment: no Sandbox admin section, every
+    sandbox route answers ``agent_sandboxes.disabled``, the agent and the MCP
+    server list no sandbox tools, the two sandbox permissions are not offered
+    in the role editor and no sandbox job is scheduled. Read it through
+    ``app.services.sandbox.feature.sandbox_feature_enabled()``, never directly.
+    See docs/design/agent-sandboxes.md.
+    """
+    # Env: BOW_AGENT_SANDBOXES_ENABLED.
+    enabled: bool = Field(
+        default_factory=lambda: os.getenv("BOW_AGENT_SANDBOXES_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on"),
+    )
 
 
 class SystemLogsConfig(BaseModel):
@@ -915,6 +947,7 @@ class BowConfig(BaseModel):
     security: SecurityConfig = SecurityConfig()
     audit: AuditConfig = AuditConfig()
     system_logs: SystemLogsConfig = Field(default_factory=SystemLogsConfig)
+    agent_sandboxes: AgentSandboxesConfig = Field(default_factory=AgentSandboxesConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     mcp_apps: McpAppsConfig = Field(default_factory=McpAppsConfig)
     pii: PiiConfig = Field(default_factory=PiiConfig)

@@ -112,15 +112,24 @@ class SqliteClient(DataSourceClient):
             yield conn
 
     def check_config_paths(self) -> None:
-        """Path policy for the configured database file. Raises ValueError."""
+        """Path policy for the configured database file, at the path it is
+        opened at (`_database_file`). Raises ValueError."""
         if self.database and self.database != ":memory:":
             from app.data_sources.clients._duckdb_lockdown import check_local_path
 
             # The owning organization, when whoever built the client knew it.
-            check_local_path(self.database, organization_id=getattr(self, "_bow_organization_id", None))
+            check_local_path(self._database_file(), organization_id=getattr(self, "_bow_organization_id", None))
+
+    def _database_file(self) -> str:
+        """The configured file as it is opened: relative to the working
+        directory, links followed, then `..` taken (what the path policy
+        resolves it to)."""
+        from app.data_sources.clients._duckdb_lockdown import opened_path
+
+        return os.path.realpath(opened_path(self.database))
 
     def _read_only_file_uri(self) -> str:
-        return "file:" + urllib.parse.quote(os.path.abspath(self.database)) + "?mode=ro"
+        return "file:" + urllib.parse.quote(self._database_file()) + "?mode=ro"
 
     def _check_file(self) -> None:
         """Path policy, then a clear error for a file that is not there: a
@@ -131,7 +140,7 @@ class SqliteClient(DataSourceClient):
         if unrestricted():
             return
         self.check_config_paths()
-        if not os.path.isfile(self.database):
+        if not os.path.isfile(self._database_file()):
             raise FileNotFoundError(f"database file not found: {self.database}")
 
     def _open(self) -> sqlite3.Connection:

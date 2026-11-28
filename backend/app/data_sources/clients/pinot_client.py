@@ -7,9 +7,37 @@ from typing import List, Generator, Optional, Dict, Any
 from contextlib import contextmanager
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 
-from pinotdb import connect as pinot_connect
+from pinotdb import db as pinot_db
 
 from app.core.egress import pinned_request
+
+
+class _ExactTextCursor(pinot_db.Cursor):
+    """pinotdb's cursor, sending the text it is given unchanged when no
+    parameters come with it. pinotdb formats every statement with Python's
+    `%` operator, parameters or not, so `%%` became `%` and `%(` raised:
+    the text the read-only guard checked was not the text sent."""
+
+    def finalize_query_payload(self, operation, parameters=None, queryOptions=None):
+        if parameters:
+            return super().finalize_query_payload(operation, parameters, queryOptions)
+        # The payload as pinotdb builds it (options, type hints), for an empty
+        # statement that formatting leaves empty, with the text put first.
+        payload = super().finalize_query_payload("", None, queryOptions)
+        payload["sql"] = operation + payload["sql"]
+        return payload
+
+
+class _ExactTextConnection(pinot_db.Connection):
+    def cursor(self):
+        cursor = super().cursor()
+        cursor.__class__ = _ExactTextCursor
+        return cursor
+
+
+def pinot_connect(**kwargs) -> _ExactTextConnection:
+    """pinotdb.connect, with cursors that send text unchanged."""
+    return _ExactTextConnection(**kwargs)
 
 
 class PinotClient(DataSourceClient):

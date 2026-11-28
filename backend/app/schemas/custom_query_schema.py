@@ -1,5 +1,7 @@
 from typing import Union, Any, List, Optional
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -97,16 +99,33 @@ class CustomQueryRlsUpdate(BaseModel):
     rls_default_deny: bool = True
 
 
+class CustomQueryClsUpdate(BaseModel):
+    """Column-level security on one relation.
+
+    Its own payload and route, parallel to `CustomQueryRlsUpdate`: enabling or
+    editing which columns a person can see is a security-relevant assertion and
+    is audited as `connection.custom_query.cls_changed`, which only works if it
+    cannot ride along inside an unrelated edit.
+    """
+
+    cls_enabled: bool
+    # {restricted_columns: [...], grants: [{principal_type, principal_id, columns}]}
+    cls_policy: Optional[dict] = None
+
+
 class CustomQueryRlsPreviewRequest(BaseModel):
     """Preview the relation as a specific member would see it."""
 
     user_id: str
     # The policy to try, so an admin can see the effect BEFORE saving. Omitted
-    # means preview what is currently stored.
+    # means preview what is currently stored. Row and column policies can be
+    # tried together — the preview runs the same path that serves an agent.
     rls_enabled: Optional[bool] = None
     rls_mode: Optional[str] = None
     rls_policy: Optional[dict] = None
     rls_default_deny: Optional[bool] = None
+    cls_enabled: Optional[bool] = None
+    cls_policy: Optional[dict] = None
 
 
 class CustomQueryRlsPreviewResponse(BaseModel):
@@ -119,6 +138,12 @@ class CustomQueryRlsPreviewResponse(BaseModel):
     denied: bool = False
     column: Optional[str] = None
     allowed_values: List[str] = []
+    # Column-level verdict, kept separate from the row verdict above so neither
+    # is mislabelled as the other. `columns` already reflects the projection;
+    # `hidden_columns` names what is gone, `column_denied` means none are visible.
+    column_filtered: bool = False
+    column_denied: bool = False
+    hidden_columns: List[str] = []
     reason: str = ""
 
 
@@ -131,6 +156,7 @@ class CustomQueryRlsOptions(BaseModel):
     """What the policy editor can offer, drawn from what the org actually has."""
 
     attribute_keys: List[str] = []
+    custom_attribute_keys: List[str] = []
     groups: List[RlsPrincipal] = []
     roles: List[RlsPrincipal] = []
     members: List[RlsPrincipal] = []
@@ -161,6 +187,8 @@ class CustomQueryCapability(BaseModel):
     id: str
     name: str
     type: Optional[str] = None
+    # 'user_required' means a table created here is cached once per person.
+    auth_policy: Optional[str] = None
 
 
 class CustomQueryProgress(BaseModel):
@@ -249,6 +277,8 @@ class CustomQuerySchema(BaseModel):
     rls_mode: Optional[str] = None
     rls_policy: Optional[dict] = None
     rls_default_deny: bool = True
+    cls_enabled: bool = False
+    cls_policy: Optional[dict] = None
     target: Optional[dict] = None
     refresh_mode: str = "full"
     refresh_config: Optional[dict] = None
@@ -262,13 +292,20 @@ class CustomQuerySchema(BaseModel):
     # "trigger"}. `source_rows` is None until the source has been counted.
     # Set by the list route only; absent when nothing is running.
     refresh_progress: Optional[dict] = None
+    # The connection has each person sign in with their own credentials, so
+    # this table is cached once per person: there is no shared copy, no
+    # schedule, and `no_rows` / `artifact_bytes` describe nothing.
+    per_user: bool = False
+    # Per-user tables only: {"copies": people holding a copy, "bytes": on disk}.
+    user_copies: Optional[dict] = None
 
     class Config:
         from_attributes = True
 
     @classmethod
     def from_model(cls, cq, active_agent_count: int = 0, next_run_at=None,
-                   refresh_progress: Optional[dict] = None) -> "CustomQuerySchema":
+                   refresh_progress: Optional[dict] = None, per_user: bool = False,
+                   user_copies: Optional[dict] = None) -> "CustomQuerySchema":
         meta = cq.metadata_json if isinstance(getattr(cq, "metadata_json", None), dict) else {}
         target = meta.get("target") if isinstance(meta.get("target"), dict) else None
         state = getattr(cq, "refresh_state", None)
@@ -311,6 +348,8 @@ class CustomQuerySchema(BaseModel):
             rls_mode=getattr(cq, "rls_mode", None),
             rls_policy=getattr(cq, "rls_policy", None),
             rls_default_deny=bool(getattr(cq, "rls_default_deny", True)),
+            cls_enabled=bool(getattr(cq, "cls_enabled", False)),
+            cls_policy=getattr(cq, "cls_policy", None),
             target=target or None,
             refresh_mode=getattr(cq, "refresh_mode", None) or "full",
             refresh_config=config if isinstance(config, dict) else None,
@@ -318,7 +357,25 @@ class CustomQuerySchema(BaseModel):
             last_full_refresh_at=state.get("last_full_refresh_at"),
             load_progress=progress,
             refresh_progress=refresh_progress,
+            per_user=per_user,
+            user_copies=user_copies,
         )
+
+
+class CustomTableUserCopySchema(BaseModel):
+    """One person's cached copy of a custom table, as its admin sees it."""
+    id: str
+    user_id: str
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+    # building | ok | stale (rebuilt at the person's next question) | error | evicted
+    status: str
+    error: Optional[str] = None
+    row_count: Optional[int] = None
+    artifact_bytes: Optional[int] = None
+    refreshed_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+    build_ms: Optional[int] = None
 
 
 class CustomTableRunSummary(BaseModel):

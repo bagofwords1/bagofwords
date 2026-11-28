@@ -158,6 +158,41 @@ def test_a_filter_run_is_cached_per_reader_and_values(corpus, corpus_rows, test_
 
 
 @pytest.mark.e2e
+def test_a_filter_run_whose_metering_is_lost_still_answers_and_says_so(
+        corpus, corpus_rows, test_client, monkeypatch, caplog):
+    """Persisting the run's usage fails at the database: the reader still gets
+    the rows, and the loss is logged with the run's source, without the
+    statement or its values."""
+    import logging
+
+    from sqlalchemy.exc import IntegrityError
+
+    from app.services.usage_policy_service import UsageLimitContext
+
+    async def usage_store_rejects(self):
+        raise IntegrityError("INSERT INTO usage_events (usage_metadata) VALUES (?)",
+                             ('{"sql": "SELECT genre FROM songs WHERE genre = \'ינואר\'"}',),
+                             Exception("NOT NULL constraint failed: usage_events.connection_id"))
+
+    monkeypatch.setattr(UsageLimitContext, "flush", usage_store_rejects)
+    # Migrations disable loggers that already exist; this one must be live.
+    monkeypatch.setattr(logging.getLogger("app.services.query_service"), "disabled", False)
+    caplog.set_level(logging.WARNING)
+    aid, release, copies = _published(corpus, corpus_rows, test_client, "options_sources/dash")
+    by_id = next(c for c in copies if c["title"] == "שירים לפי ז'אנר")
+
+    resp = test_client.post(f"/api/d/{aid}/queries/{by_id['id']}/run", json={"params": {"genre": "ינואר"}},
+                            headers=as_(corpus, "member"))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "success" and _months(resp.json())
+    lost = [r for r in caplog.records if r.levelno == logging.WARNING and "dashboard_filter_run" in r.getMessage()]
+    assert len(lost) == 1, [r.getMessage() for r in caplog.records]
+    assert "IntegrityError" in lost[0].getMessage()
+    for content in ("INSERT INTO usage_events", "SELECT genre", "NOT NULL constraint"):
+        assert content not in caplog.text, caplog.text
+
+
+@pytest.mark.e2e
 def test_only_the_live_releases_copies_run(corpus, corpus_rows, test_client):
     aid, first, (old,) = _published(corpus, corpus_rows, test_client, "conv_three_dash/dash_sales")
     publish(aid)

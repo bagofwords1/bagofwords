@@ -1,3 +1,4 @@
+from app.services.fabric_company_policy import bind_company_reader
 from app.data_sources.client_parameters import merge_client_credentials, filter_client_parameters
 import asyncio
 import copy
@@ -190,6 +191,29 @@ AGENT_DELETE_CLEARS = frozenset({
     "user_data_source_credentials",      # explicit delete
     "webhook_data_source_association",   # explicit detach (Webhook-side M2M)
 })
+
+
+# DataSource relationships whose rows delete_data_source removes in bulk.
+_AGENT_BULK_CLEARED_COLLECTIONS = (
+    "tables", "table_stats", "table_usage_events", "table_feedback_events",
+    "metadata_resources", "metadata_indexing_jobs",
+)
+
+
+def catalog_row_child_models():
+    """Models with a foreign key to datasource_tables that its database rule
+    does not delete or null (no ON DELETE CASCADE / SET NULL).
+
+    delete_data_source_tables removes catalog rows with one set-based DELETE,
+    bypassing the ORM cascade, so it clears these first. A new such model must
+    be added here; tests/unit/test_agent_delete_covers_every_reference.py
+    enforces it.
+    """
+    from app.models.table_stats import TableStats
+    from app.models.table_usage_event import TableUsageEvent
+    from app.models.table_feedback_event import TableFeedbackEvent
+    return (TableStats, TableUsageEvent, TableFeedbackEvent)
+
 # Deliberately left pointing at the deleted id: history, and no database-level
 # constraint (the model declares a ForeignKey, the migration never created it).
 AGENT_DELETE_KEEPS = frozenset({
@@ -2325,19 +2349,35 @@ class DataSourceService:
             )
         )
 
-        # 3) Delete dependent metadata resources first (they FK both data source and jobs)
-        resources_q = await db.execute(
-            select(MetadataResource).where(MetadataResource.data_source_id == data_source_id)
+        # 3) Delete dependent metadata resources first (they FK both data source
+        #    and jobs), then the indexing jobs. Set-based: an agent over a large
+        #    file source has thousands of them, and loading and deleting each
+        #    through the ORM made deleting such an agent take minutes. Nothing
+        #    else is lost: instructions.source_metadata_resource_id and
+        #    instruction_builds.metadata_indexing_job_id are ON DELETE SET NULL
+        #    in the database.
+        await db.execute(
+            delete(MetadataResource)
+            .where(MetadataResource.data_source_id == data_source_id)
+            .execution_options(synchronize_session=False)
         )
-        for resource in resources_q.scalars().all():
-            await db.delete(resource)
 
         # 4) Delete metadata indexing jobs for this data source
-        jobs_q = await db.execute(
-            select(MetadataIndexingJob).where(MetadataIndexingJob.data_source_id == data_source_id)
+        await db.execute(
+            delete(MetadataIndexingJob)
+            .where(MetadataIndexingJob.data_source_id == data_source_id)
+            .execution_options(synchronize_session=False)
         )
-        for job in jobs_q.scalars().all():
-            await db.delete(job)
+
+        # 4b) The agent's table stats and usage/feedback history. The ORM
+        #     cascade on DataSource deleted these one row at a time on the final
+        #     DELETE; do it in one statement each, once, outside the retry loop.
+        for model in catalog_row_child_models():
+            await db.execute(
+                delete(model)
+                .where(model.data_source_id == data_source_id)
+                .execution_options(synchronize_session=False)
+            )
 
         # 5) Delete any linked git repository for this data source
         repo_q = await db.execute(
@@ -2364,6 +2404,11 @@ class DataSourceService:
         for attempt in range(max_attempts):
             # Delete (possibly re-created) schema tables for this data source
             await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
+            # The bulk deletes bypass the session (expire_on_commit=False keeps
+            # whatever it loaded). Expire the collections the ORM cascades over
+            # on this DELETE so it reads them afresh — empty — instead of acting
+            # on rows that are already gone.
+            db.expire(data_source, list(_AGENT_BULK_CLEARED_COLLECTIONS))
             try:
                 await db.delete(data_source)
                 await db.commit()
@@ -2639,10 +2684,28 @@ class DataSourceService:
         return deleted
 
     async def delete_data_source_tables(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
-        result = await db.execute(select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source_id))
-        tables = result.scalars().all()
-        for table in tables:
-            await db.delete(table)
+        """Delete the agent's catalog rows and the rows hanging off each of them.
+
+        Set-based on purpose: a file agent (OneDrive, SharePoint, Drive, S3)
+        keeps one catalog row per file — up to tens of thousands — and the ORM
+        cascade issued a DELETE plus a lazy SELECT per child relationship for
+        every row, which made deleting such an agent take minutes. The children
+        are cleared first (catalog_row_child_models); keys with their own
+        ON DELETE rule (column_stats, user overlay tables) are left to the
+        database, as the ORM did.
+        """
+        table_ids = select(DataSourceTable.id).where(DataSourceTable.datasource_id == data_source_id)
+        for model in catalog_row_child_models():
+            await db.execute(
+                delete(model)
+                .where(model.datasource_table_id.in_(table_ids))
+                .execution_options(synchronize_session=False)
+            )
+        await db.execute(
+            delete(DataSourceTable)
+            .where(DataSourceTable.datasource_id == data_source_id)
+            .execution_options(synchronize_session=False)
+        )
         await db.commit()
         return {"message": "Data source tables deleted successfully"}
     
@@ -2950,7 +3013,8 @@ class DataSourceService:
         allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(conn.type, params)
         from app.data_sources.clients._duckdb_lockdown import bind_organization
-        return bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
+        client = bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
+        return await bind_company_reader(db, conn, client, current_user)
 
     @staticmethod
     def is_execution_live(ds) -> bool:
@@ -3272,6 +3336,8 @@ class DataSourceService:
                 await _acheck_connection_destination(conn.type, params)
                 from app.data_sources.clients._duckdb_lockdown import bind_organization
                 client = bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
+                viewer = current_user if row_filter_user is SAME_AS_CURRENT_USER else row_filter_user
+                await bind_company_reader(db, conn, client, viewer)
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
                 await self._attach_table_scope(db, client, data_source, conn)
@@ -3286,6 +3352,10 @@ class DataSourceService:
                     db, data_source, conn,
                     row_filter_user=current_user if row_filter_user is SAME_AS_CURRENT_USER
                     else row_filter_user,
+                    credential_user=current_user,
+                    credentials=creds,
+                    make_client=lambda ClientClass=ClientClass, allowed=allowed, conn=conn: bind_organization(
+                        ClientClass(**allowed), getattr(conn, "organization_id", None)),
                 )
                 if fast_client is not None:
                     fast_key = f"{key}::fast"
@@ -3388,7 +3458,9 @@ class DataSourceService:
                            getattr(data_source, "id", None), exc_info=True)
 
     async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
-                                     connection, row_filter_user: User | None = None):
+                                     connection, row_filter_user: User | None = None,
+                                     credential_user: User | None = None,
+                                     credentials: dict | None = None, make_client=None):
         """Build the FastQueryClient for the custom tables this agent activated.
 
         Returns None when the agent has activated none — most agents, most of the
@@ -3398,7 +3470,17 @@ class DataSourceService:
         an RLS policy. It has no permissive default: None resolves to an
         anonymous identity, which sees nothing from a protected relation. A
         background path that legitimately needs rows must name a real user.
+
+        On a connection where everyone queries with their own credentials
+        there is no shared artifact to attach: the relations come from
+        `credential_user`'s own copies (built here, with `credentials`, when
+        missing — see custom_table_user_copy_service). The copy belongs to
+        whoever's credentials run the live queries, so the cached rows and the
+        live rows are always the same person's. With no such user there is no
+        cached client at all.
         """
+        if getattr(connection, "active_company_policy", None) is not None:
+            return None
         from app.models.connection_table import ConnectionTable, KIND_BOW
         from app.services.custom_query_service import CustomQueryService
 
@@ -3425,14 +3507,37 @@ class DataSourceService:
             return None
 
         identity = None
-        if any(getattr(r, "rls_enabled", False) for r in rows):
+        if any(getattr(r, "rls_enabled", False) or getattr(r, "cls_enabled", False) for r in rows):
             # Only pay for identity resolution when something actually needs it.
             from app.services.rls_identity_service import resolve_identity
             identity = await resolve_identity(
                 db, row_filter_user, str(data_source.organization_id)
             )
+        copies = None
+        if CustomQueryService.is_per_user(connection):
+            if credential_user is None or make_client is None:
+                return None
+            from app.services.custom_table_user_copy_service import user_copy_service
+
+            async def client_for(table):
+                client = make_client()
+                await self._attach_stored_table_metadata(
+                    db, client, data_source, connection, current_user=credential_user)
+                return client
+
+            try:
+                copies = await user_copy_service.serve(
+                    db, connection=connection, tables=list(rows), user=credential_user,
+                    credentials=credentials, client_factory=client_for,
+                )
+            except Exception as e:
+                # The live client still answers; a cache that cannot be
+                # prepared must not take the agent's connection down with it.
+                logger.error(f"_construct_fast_client: per-user copies failed: {e}", exc_info=True)
+                return None
         return CustomQueryService.build_fast_client(
-            list(rows), connection_name=connection.name, identity=identity
+            list(rows), connection_name=connection.name, identity=identity,
+            user_copies_by_table=copies,
         )
 
     async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection, current_user=None) -> None:
@@ -3577,11 +3682,14 @@ class DataSourceService:
         Covers the rows of THIS connection plus unlinked legacy rows, the same
         set `_attach_stored_table_metadata` reads. Nothing is attached when the
         data source has no table rows (never indexed: there is no selection to
-        enforce) or the client is not a SQL dialect the check can parse.
+        enforce) or the client is not SQL. SQL without a sqlglot dialect
+        (guard profile "nonparsing_sql") gets the scope too: its queries are
+        checked while the selection disables any table.
 
         Errors propagate: a client that should be scoped must not be handed
         out unscoped.
         """
+        from app.ai.code_execution.client_profiles import guard_profile
         from app.ai.code_execution.sql_guard import dialect_for_client
         from app.ai.code_execution.table_scope import TABLE_SCOPE_ATTR, TableScope
         from app.models.datasource_table import DataSourceTable
@@ -3609,7 +3717,8 @@ class DataSourceService:
             ))).all()
             attach_catalog(client, selected, files)
             return
-        if not dialect_for_client(client):
+        profile = guard_profile(client)
+        if not dialect_for_client(client) and not (profile is not None and profile.kind == "nonparsing_sql"):
             return
         rows = (await db.execute(
             select(DataSourceTable.name, DataSourceTable.is_active)
@@ -4005,6 +4114,11 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
         
+        if getattr(organization, "withhold_unverified_company_content", False) is True:
+            from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+            context = await SchemaContextBuilder(db, [data_source], organization, None, user=current_user).build()
+            return [table for source in context.data_sources for table in source.tables]
+
         # Per-connection identity scoping. This used to read auth_policy off
         # `connections[0]` and then return EITHER the caller's overlay OR the
         # canonical catalog for the whole agent. On a mixed agent (delegated
@@ -4535,6 +4649,11 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
+        if getattr(organization, "withhold_unverified_company_content", False) is True:
+            # This selector includes indexed values, usage stats and unselected tables.
+            # The schema endpoint above serves the live reader's column-only projection.
+            raise HTTPException(status_code=403, detail="Stored table catalog unavailable")
+
         # Deselected tables are the agent manager's working set, not part of the
         # agent: they are names the manager considered and turned off. Someone
         # who can only read the agent sees what the agent itself reasons over.
@@ -4988,6 +5107,11 @@ class DataSourceService:
                 last_refreshed_at=table.connection_table.last_refreshed_at if table.connection_table and table.connection_table.kind == "bow" else None,
                 last_refresh_status=table.connection_table.last_refresh_status if table.connection_table and table.connection_table.kind == "bow" else None,
                 rls_enabled=bool(table.connection_table.rls_enabled) if table.connection_table and table.connection_table.kind == "bow" else False,
+                per_user=bool(
+                    table.connection_table and table.connection_table.kind == "bow"
+                    and (getattr(getattr(table.connection_table, "connection", None), "auth_policy", None)
+                         or "system_only") == "user_required"
+                ),
                 # Metrics
                 centrality_score=table.centrality_score,
                 richness=table.richness,
@@ -5473,7 +5597,8 @@ class DataSourceService:
         allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(connection.type, params)
         from app.data_sources.clients._duckdb_lockdown import bind_organization
-        return bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
+        return await bind_company_reader(db, connection, client, user)
 
     async def get_user_data_source_schema(
         self,
@@ -7063,6 +7188,11 @@ class DataSourceService:
         third time.
         """
         from app.ai.prompt_formatters import TableFormatter
+
+        if getattr(organization, "withhold_unverified_company_content", False) is True:
+            tables = await self.get_data_source_schema(db, str(data_source.id), organization=organization,
+                                                      current_user=current_user)
+            return TableFormatter(tables).table_str
 
         delegated = [
             c for c in (getattr(data_source, "connections", None) or [])

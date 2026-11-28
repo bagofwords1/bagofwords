@@ -8,9 +8,11 @@ import requests
 from app.core.egress import pinned_request, pinned_session
 from defusedxml import ElementTree as ET
 
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.prompt_formatters import ServiceFormatter, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, discovery_items, discovery_progress
+from app.data_sources.clients.xmla_base import check_xmla_statement
 
 # Payload conventions shared with the BOW_* Application Engine processes.
 # The processes are plain BI# functions that return a string; these markers
@@ -33,6 +35,23 @@ _STATUS_KEYS = ("status", "Status", "state", "State")
 
 _BRACKET_RE = re.compile(r"\[([^\]]*)\]")
 _XML_PROLOG_RE = re.compile(r"<\?xml[^>]*\?>")
+
+
+def check_mdx_statement(statement: str) -> None:
+    """Refuse MDX that is not one read query before it reaches ``BOW_ExecuteMdx``.
+
+    The process runs the text through ``XMLAExecuteMdxString`` on the farm's
+    XMLA connection (docs/design/infor-epm-appengine-connector.md), so the
+    XMLA statement rules apply (`check_xmla_statement`). The process is the
+    customer's own BI# code and may pass a lone CR on as written, which the
+    XML of a direct XMLA request would have turned into a line end; whether
+    the server then ends a comment there is not known, so a CR is allowed
+    only before a LF. The OLAP database is the connection's own
+    (``olap_database``); the caller cannot name another one.
+    """
+    if isinstance(statement, str) and re.search("\r(?!\n)", statement):
+        raise ReadOnlyViolation("MDX statement refused: use only LF or CR LF line ends.")
+    check_xmla_statement(statement)
 
 
 class InforEpmError(RuntimeError):
@@ -453,6 +472,7 @@ class InforEpmClient(DataSourceClient):
         """Run an MDX statement through ``BOW_ExecuteMdx`` and return a DataFrame."""
         if not query or not query.strip():
             raise ValueError("MDX query is required")
+        check_mdx_statement(query)
         limit = int(max_rows) if max_rows and int(max_rows) > 0 else self.max_rows
         params = {"OLAPName": self.olap_database, "mdxQuery": query.strip(), "rowLimit": limit}
         try:

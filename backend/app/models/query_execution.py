@@ -59,6 +59,8 @@ class QueryExecution(BaseSchema):
     # payload, encrypted at rest when data_encryption is on, like
     # Step.applied_params and Entity.code. The DDL stays plain TEXT.
     query_text = Column(EncryptedText, nullable=True)
+    policy_version = Column(String(64), nullable=True)
+    protected_statement = Column(EncryptedText, nullable=True)
     query_truncated = Column(Integer, nullable=False, default=0)
 
     # queued | running | success | error | timeout | busy | cancelled | stale

@@ -81,6 +81,18 @@ RUNTIME_GLOBALS = (
     "LoadingSpinner", "Modal", "Drawer", "InfoOverlay", "InfoPopover", "BowFile", "BowPdfViewer",
     "ChatComposer", "ChatMessage", "ChatMessages", "ChatResult", "ChatSuggestions", "ChatThreads",
 )
+# TrendChart/RankChart (artifact-globals.js) log console.warn('[bow-chart] ' +
+# message) when their props can't draw a chart, beside the warning box the
+# viewer sees. Empty results and a removed viz show their own empty state
+# and log nothing.
+CHART_ERROR_PREFIX = "[bow-chart] "
+
+
+def is_chart_error(msg_type: str, text: str) -> bool:
+    """True for a browser console message from a chart that can't draw from its props."""
+    return msg_type == "warning" and (text or "").startswith(CHART_ERROR_PREFIX)
+
+
 _NOT_DEFINED_RE = re.compile(r"^(?:Uncaught )?(?:ReferenceError: )?([A-Za-z_$][\w$]*) is not defined")
 _NOT_A_FUNCTION_RE = re.compile(r"^(?:Uncaught )?(?:TypeError: )?((?:[A-Za-z_$][\w$]*\.)*)([A-Za-z_$][\w$]*) is not a function")
 

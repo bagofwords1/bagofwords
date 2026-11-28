@@ -68,8 +68,8 @@ const dataWatcher = ast.statements.find((s) => ts.isExpressionStatement(s)
 assert.ok(dataWatcher, 'the frame re-sends its data when it changes (watcher)')
 
 const FUNCTIONS = ['fetchData', 'runParamQueries', 'sendDataToIframe', 'paramSubsetForQuery', 'queriesWithIdentityParams', 'replaceVisualizationsData',
-  'handleIframeMessage', 'frameContext', 'frameHasSeedData']
-const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'srcdocSeed', 'seededFrom'].filter(declaration)
+  'handleIframeMessage', 'frameContext', 'frameHasSeedData', 'postHeldParamsStatus', 'selectedLoadInFlight']
+const DECLARED = ['useMyFetch', 'visualizationsData', 'visualizationsSendDue', 'dataLoadsInFlight', 'loadSent', 'sendHeld', 'heldParamsStatus', 'builtSrcdoc', 'srcdocSeed', 'seededFrom'].filter(declaration)
 const present = FUNCTIONS.filter(fn)
 const frameCode = "'use strict';\n" + transpile([
   ...DECLARED.map(declaration),
@@ -418,10 +418,10 @@ test('after ARTIFACT_READY: a filter run, an in-place refresh and new files each
   assert.deepEqual(refreshed.visualizations[0].rows, [{ region: 'LATAM', amount: 7 }], 'the in-place refresh sends the refreshed rows')
   const withFile = await count(() => { state.filesData.value = [{ id: 'file-1', url: 'https://files.test/1' }] })
   assert.deepEqual(withFile.files, [{ id: 'file-1', url: 'https://files.test/1' }], 'new files are sent')
-  // Unchanged by the ARTIFACT_READY change: an in-place refresh sends three
-  // times as before (the watcher for the new list, again for its re-resolved
-  // files list, and fetchData's own send at its end).
-  assert.deepEqual(sends, [1, 3, 1], 'sends per change (filter run end, in-place refresh, files)')
+  // An in-place refresh sends once (it used to send three times: the watcher
+  // for the new list, again for its re-resolved files list, and fetchData's
+  // own send at its end).
+  assert.deepEqual(sends, [1, 1, 1], 'sends per change (filter run end, in-place refresh, files)')
 })
 
 test('the verification preview is always sent its data on ARTIFACT_READY, with its data_sent event', async () => {

@@ -54,7 +54,7 @@ class MembershipCreate(BaseModel):
     # Admin-set attributes identifying the member in other systems (e.g.
     # {"qlik_user_id": "dana"}); consumed by connection identity mappings.
     # Validated by services/member_attributes.normalize_custom_attributes.
-    custom_attributes: Optional[Dict[str, str]] = None
+    custom_attributes: Optional[Dict[str, str | list[str]]] = None
     # Roles (system or custom) and groups to give the new member, applied in
     # the same transaction as the invite. When role_ids is non-empty it wins
     # over `role` (which is then derived from it for the legacy column).
@@ -67,7 +67,7 @@ class MembershipUpdate(BaseModel):
     role: Optional[str] = None
     note: Optional[str] = Field(default=None, max_length=MEMBERSHIP_NOTE_MAX_LENGTH)
     # Replaces the member's whole attribute set when present ({} clears it).
-    custom_attributes: Optional[Dict[str, Optional[str]]] = None
+    custom_attributes: Optional[Dict[str, str | list[str] | None]] = None
 
 
 # Import row outcomes returned to the caller. Mirrors what the UI shows
@@ -78,7 +78,7 @@ class MembershipImportRow(BaseModel):
     note: Optional[str] = None
     # Attributes this row sets (from attr.<key> columns); merged into the
     # member's existing attributes, never replacing ones the file omits.
-    custom_attributes: Optional[Dict[str, str]] = None
+    custom_attributes: Optional[Dict[str, str | list[str]]] = None
     status: str  # "created" | "updated" | "unchanged" | "error"
     error: Optional[str] = None
 

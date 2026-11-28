@@ -298,6 +298,8 @@ class SchemaContextBuilder:
                 as scope descriptors and their per-file rows leave `tables`.
                 False keeps them as tables (for callers resolving a table by id).
         """
+        if getattr(self.organization, "withhold_unverified_company_content", False) is True:
+            return await self._company_schema(data_source_ids, connection_ids, table_names, name_patterns, top_k)
         ds_sections: List[TablesSchemaContext.DataSource] = []
 
         ds_filter = set(str(x) for x in (data_source_ids or [])) if data_source_ids else None
@@ -702,7 +704,41 @@ class SchemaContextBuilder:
             # overlay branch above rather than instead of it — that either/or is
             # exactly what dropped a mixed agent's warehouse tables the moment
             # the caller had their own token on its Power BI connection.
-            _canonical_rows = [t for t in ds_tables if _row_is_open(t)]
+            #
+            # A custom table on a per-user connection is the exception to
+            # "open or overlay": what the agent can query is this user's own
+            # copy of it, whichever way the connection is classified. It is
+            # shown exactly when the DuckDB session will hold it (the clients
+            # are built, and the copy with them, before this context is), so
+            # the prompt never names a cached relation that is not there.
+            from app.data_sources.fast.user_copies import is_per_user_connection
+            from app.models.connection_table import KIND_BOW as _KIND_BOW
+
+            def _per_user_table(t):
+                ct = getattr(t, 'connection_table', None)
+                if ct is None or getattr(ct, 'kind', None) != _KIND_BOW:
+                    return None
+                conn = getattr(ct, 'connection', None)
+                return ct if conn is not None and is_per_user_connection(conn) else None
+
+            _per_user_cts = [ct for ct in (_per_user_table(t) for t in ds_tables) if ct is not None]
+            _user_copies: Dict[str, Any] = {}
+            if _per_user_cts and self.user is not None:
+                try:
+                    from app.services.custom_table_user_copy_service import user_copy_service
+                    _user_copies = await user_copy_service.servable(
+                        self.db, str(self.user.id), _per_user_cts)
+                except Exception:
+                    logger.warning("schema context: per-user copies lookup failed", exc_info=True)
+                    _user_copies = {}
+
+            def _row_is_served(t):
+                ct = _per_user_table(t)
+                if ct is not None:
+                    return str(ct.id) in _user_copies
+                return _row_is_open(t)
+
+            _canonical_rows = [t for t in ds_tables if _row_is_served(t)]
             if _canonical_rows:
                 for t in _canonical_rows:
                     table_is_active = bool(getattr(t, 'is_active', False))
@@ -725,6 +761,13 @@ class SchemaContextBuilder:
                         ct = t.connection_table
                         (is_cached, cached_as_of, cached_next_refresh,
                          cached_description) = _cached_meta_for(ct)
+                        _copy = _user_copies.get(str(ct.id))
+                        if _copy is not None:
+                            # This user's own copy: its age is the copy's, and
+                            # no clock refreshes it.
+                            _at = getattr(_copy, 'refreshed_at', None)
+                            cached_as_of = _at.isoformat(timespec="minutes") if _at else None
+                            cached_next_refresh = None
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
                             conn_name, conn_type = _connection_identity_for(ct, ct.connection)
@@ -1028,6 +1071,61 @@ class SchemaContextBuilder:
                 logger.warning("agent list tables skipped: %s", exc)
 
         return TablesSchemaContext(data_sources=ds_sections)
+
+    async def _company_schema(self, source_ids, connection_ids, names, patterns, top_k):
+        """Only selected physical names and column types can enter protected schema context."""
+        from app.models.connection import Connection
+        from app.services.fabric_company_policy import ConnectionCompanyPolicy, policy_identity
+
+        sections = []
+        for source in self.data_sources:
+            if source_ids and str(source.id) not in source_ids:
+                continue
+            stmt = (select(Connection.id, Connection.name, Connection.type, Connection.active_company_policy,
+                           ConnectionTable.name, ConnectionTable.columns, DataSourceTable.excluded_columns)
+                    .select_from(DataSourceTable)
+                    .join(ConnectionTable, ConnectionTable.id == DataSourceTable.connection_table_id)
+                    .join(Connection, Connection.id == ConnectionTable.connection_id)
+                    .where(DataSourceTable.datasource_id == source.id, DataSourceTable.is_active.is_(True),
+                           Connection.organization_id == self.organization.id,
+                           Connection.active_company_policy.is_not(None),
+                           ConnectionTable.deleted_at.is_(None), DataSourceTable.deleted_at.is_(None))
+                    .order_by(ConnectionTable.name))
+            if connection_ids:
+                stmt = stmt.where(Connection.id.in_(connection_ids))
+            if names:
+                stmt = stmt.where(ConnectionTable.name.in_(names))
+            tables = []
+            regexes = compile_bounded_all(patterns or [])
+            employees = {}
+            for cid, connection, connection_type, policy, name, columns, excluded in (await self.db.execute(stmt)).all():
+                mapping = ConnectionCompanyPolicy.model_validate(policy)
+                rule = next((r for r in mapping.tables if r.table == name), None)
+                if rule is None:
+                    continue
+                if patterns and not any(pattern.search(name) for pattern in regexes):
+                    continue
+                if rule.columns is not None:
+                    if cid not in employees:
+                        try:
+                            employees[cid] = await policy_identity(self.db, self.organization.id, self.user, mapping)
+                        except ValueError:
+                            employees[cid] = None
+                    if not employees[cid]:
+                        continue
+                    visible = set(rule.visible_columns(*employees[cid]))
+                    columns = [c for c in columns or [] if c.get("name") in visible]
+                    if not columns:
+                        continue
+                fields = [PromptTableColumn(name=c["name"], dtype=c.get("dtype"))
+                          for c in filter_columns(columns or [], excluded_column_set(excluded))]
+                tables.append(PromptTable(name=name, columns=fields, pks=[], fks=[], connection_id=str(cid),
+                                          connection_name=connection, connection_type=connection_type))
+            if tables:
+                sections.append(TablesSchemaContext.DataSource(
+                    info=DataSourceSummarySchema(id=str(source.id), name=source.name, type=tables[0].connection_type),
+                    tables=tables[:top_k] if top_k else tables))
+        return TablesSchemaContext(data_sources=sections)
 
     def _column_budget(self) -> int:
         from app.ai.context.column_ranking import DEFAULT_COLUMN_BUDGET

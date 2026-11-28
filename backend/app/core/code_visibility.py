@@ -76,7 +76,17 @@ CODE_PRODUCING_TOOLS = frozenset({
     "inspect_data",
     "write_csv",
     "create_widget",
+    # Agent sandbox: the code is in the CALL (see _ARGUMENT_CODE_KEYS).
+    "run_in_sandbox",
 })
+
+# Keys of a tool's ``arguments_json`` that carry code, per tool. ``code`` is the
+# rule for every code-producing tool; a tool whose call carries source under
+# other keys as well lists them here. run_in_sandbox takes a shell command and
+# extra source files next to ``code``.
+_ARGUMENT_CODE_KEYS = {
+    "run_in_sandbox": ("code", "command", "files"),
+}
 
 _RESULT_CODE_KEYS = (
     "code",              # the generated query/script
@@ -97,6 +107,26 @@ def can_run_custom_code(resolved) -> bool:
     if resolved is None:
         return False
     return resolved.has_org_permission(RUN_CUSTOM_CODE)
+
+
+async def require_run_custom_code(db, user, organization) -> None:
+    """Gate caller-supplied code execution behind ``run_custom_code``.
+
+    This is the check the removed ``enable_code_editing`` org setting never
+    performed: it lived only in two Vue components, so the API accepted
+    arbitrary caller-supplied SQL/Python from any member regardless of the
+    toggle. Hiding an editor is not a permission check.
+    """
+    from fastapi import HTTPException
+
+    from app.core.permission_resolver import resolve_permissions
+
+    resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+    if not can_run_custom_code(resolved):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to edit and run custom code",
+        )
 
 
 def redact_step_dict(step: dict, allowed: bool) -> dict:
@@ -207,10 +237,12 @@ def redact_tool_arguments(arguments, allowed: bool, tool_name: str | None = None
         return arguments
     if tool_name is not None and tool_name not in CODE_PRODUCING_TOOLS:
         return arguments
-    if "code" not in arguments:
+    keys = [k for k in _ARGUMENT_CODE_KEYS.get(tool_name or "", ("code",)) if k in arguments]
+    if not keys:
         return arguments
     redacted = dict(arguments)
-    redacted["code"] = None
+    for key in keys:
+        redacted[key] = None
     return redacted
 
 

@@ -1,10 +1,11 @@
-"""The app launcher: ``GET /api/apps`` (the apps this member can open) and
+"""The app launcher: ``GET /api/apps`` (the apps, dashboards and docs this
+member can open, "Shared with you") and
 ``POST /api/apps/access-request`` (an app user asking for the workspace).
 
 Open to every member, with or without ``access_workspace`` — it is the one
 page of BOW an app user has (see core/workspace_access).
 """
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -28,6 +29,8 @@ class AppCard(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     mode: Optional[str] = None
+    # app (an enabled host application may show it), dashboard or doc.
+    kind: Optional[Literal["app", "dashboard", "doc"]] = None
     thumbnail_url: Optional[str] = None
     applications: List[str] = []
 
@@ -50,6 +53,7 @@ class AccessRequestSchema(BaseModel):
 @router.get("/apps", response_model=AppLauncherSchema)
 async def list_apps(
     q: Optional[str] = Query(None, max_length=200, description="Search titles and descriptions"),
+    kind: Optional[Literal["app", "dashboard", "doc"]] = Query(None, description="Only apps, dashboards or docs"),
     after: int = Query(0, ge=0),
     limit: int = Query(app_launcher.PAGE_SIZE, ge=1, le=app_launcher.MAX_PAGE_SIZE),
     user: User = Depends(current_user),
@@ -60,7 +64,10 @@ async def list_apps(
 
     workspace = await has_workspace_access(db, user, str(organization.id))
     requested = False if workspace else await app_launcher.access_requested(db, user, organization)
-    apps, following = await app_launcher.list_apps(db, user, organization, search=q, after=after, limit=limit)
+    if getattr(organization, "withhold_unverified_company_content", False) is True:
+        return AppLauncherSchema(apps=[], next=None, workspace_access=workspace, access_requested=requested)
+    apps, following = await app_launcher.list_apps(db, user, organization, search=q, kind=kind,
+                                                    after=after, limit=limit)
     return AppLauncherSchema(apps=[AppCard(**a) for a in apps], next=following, workspace_access=workspace,
                              access_requested=requested)
 

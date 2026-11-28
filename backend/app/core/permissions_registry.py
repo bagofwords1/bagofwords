@@ -95,11 +95,35 @@ HIDDEN_PERMISSION_CATEGORIES = {
     ],
 }
 
+# Feature-gated categories: valid permission strings always (so a stored grant
+# survives the feature being switched off and on again), but added to the role
+# editor's categories only while the feature exists for this deployment. Kept
+# apart from PERMISSION_CATEGORIES so that, with the feature off, the editor
+# payload is exactly what it was before the feature existed.
+#
+# Agent sandboxes (BOW_AGENT_SANDBOXES_ENABLED, see services/sandbox/feature.py):
+#   - `use_agent_sandbox`: this user's agent is offered the agent-sandbox tools
+#     (create_sandbox / run_in_sandbox / ...). Deliberately NOT in
+#     DEFAULT_ON_PERMISSIONS: an admin adds it to the roles that should have it.
+#   - `manage_sandboxes`: sandbox computes, environments, settings and the
+#     fleet view (Settings → Sandbox). Separate from `manage_settings` on
+#     purpose: whoever holds it is effectively root on the sandbox hosts.
+AGENT_SANDBOX_PERMISSION_CATEGORIES = {
+    "Code": [
+        "use_agent_sandbox",
+    ],
+    "Settings": [
+        "manage_sandboxes",
+    ],
+}
+
 # Flatten to get all valid permission strings (excludes the full_admin_access wildcard)
 ALL_PERMISSIONS = set()
 for perms in PERMISSION_CATEGORIES.values():
     ALL_PERMISSIONS.update(perms)
 for perms in HIDDEN_PERMISSION_CATEGORIES.values():
+    ALL_PERMISSIONS.update(perms)
+for perms in AGENT_SANDBOX_PERMISSION_CATEGORIES.values():
     ALL_PERMISSIONS.update(perms)
 
 # ── Baseline permissions ─────────────────────────────────────────────────
@@ -155,6 +179,14 @@ RESOURCE_PERMISSIONS = {
         "view",
         "manage",
     ],
+}
+
+# Feature-gated resource permissions (see AGENT_SANDBOX_PERMISSION_CATEGORIES).
+# `use` on a sandbox environment: create and run agent sandboxes from it. An
+# environment that carries secrets or internet access is limited to the roles,
+# groups or users granted it.
+AGENT_SANDBOX_RESOURCE_PERMISSIONS = {
+    "sandbox_environment": ["use"],
 }
 
 # ── Merged categories for the role editor UI ─────────────────────────────

@@ -1,5 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import check_one_select
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 from typing import List, Dict, Optional
 import requests
@@ -33,6 +34,10 @@ def _col_type_name(type_code) -> str:
     if isinstance(type_code, int):
         return _COLUMN_TYPE_MAP.get(type_code, f"type_{type_code}")
     return str(type_code) if type_code else "unknown"
+
+
+class SisenseTableNotFound(RuntimeError):
+    """get_schema found no table of the given name."""
 
 
 class SisenseClient(DataSourceClient):
@@ -416,7 +421,7 @@ class SisenseClient(DataSourceClient):
             if sis.get("datamodelId") == table_name:
                 return tbl
 
-        raise RuntimeError(f"Table not found for '{table_name}'")
+        raise SisenseTableNotFound(f"Table not found for '{table_name}'")
 
     # ------------------------------------------------------------------
     # Query execution
@@ -440,15 +445,22 @@ class SisenseClient(DataSourceClient):
         """
         if not query:
             raise ValueError("SQL query is required")
+        # Checked before any request, the schema lookup for table_name too.
+        check_one_select(query, "sqlite")
 
-        # Resolve datasource title from table_name if needed
+        # Resolve datasource title from table_name if needed. Only a table
+        # that is not found is answered by naming the data model; any other
+        # failure (auth, transport) keeps its own type and text.
         if table_name and not datasource_title:
             try:
                 table = self.get_schema(table_name)
-                sis = (table.metadata_json or {}).get("sisense") or {}
-                datasource_title = sis.get("datamodelTitle")
-            except Exception:
-                pass
+            except SisenseTableNotFound as e:
+                raise ValueError(
+                    f"Could not find the data model of table_name {table_name!r} ({e}); "
+                    "pass datasource_title instead"
+                ) from e
+            sis = (table.metadata_json or {}).get("sisense") or {}
+            datasource_title = sis.get("datamodelTitle")
 
         if not datasource_title:
             raise ValueError("datasource_title is required (pass table_name or datasource_title)")
@@ -461,7 +473,16 @@ class SisenseClient(DataSourceClient):
         sql: str,
         max_rows: Optional[int] = None,
     ) -> pd.DataFrame:
-        """Execute SQL query against an ElastiCube."""
+        """Execute SQL query against an ElastiCube.
+
+        Only one SELECT is sent: Sisense documents this endpoint as SELECT
+        only, in "standard SQL" with names in double quotes, and the guide
+        below teaches names in square brackets; how it treats anything else
+        on a live model is not documented. SQLite is the sqlglot dialect that
+        reads both kinds of quoted name and LIMIT; what Sisense's own reader
+        could read differently is refused (`check_one_select`).
+        """
+        check_one_select(sql, "sqlite")
         self.connect()
         headers = self._build_headers()
 

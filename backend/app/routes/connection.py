@@ -49,8 +49,10 @@ from app.schemas.connection_tool_schema import (
     BatchToolUpdate,
 )
 from app.schemas.custom_query_schema import (
+    CustomTableUserCopySchema,
     CustomQueryCreate,
     CustomQueryUpdate,
+    CustomQueryClsUpdate,
     CustomQueryPreviewRequest,
     CustomQueryPreviewResponse,
     CustomQueryRlsOptions,
@@ -68,8 +70,10 @@ from app.schemas.custom_query_schema import (
 )
 from app.services import custom_table_runs
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
+from app.services.custom_table_user_copy_service import user_copy_service
 from app.services.table_preview_service import table_preview_service, is_previewable_table
 from app.errors import AppError, ErrorCode
+from app.services.fabric_company_policy import ConnectionCompanyPolicy, POLICY_CONNECTORS, policy_identity, visible_company_tables
 from app.services.member_attributes import require_attribute_admin
 from app.services.member_identity import (
     member_mapped,
@@ -398,7 +402,6 @@ async def list_connections(
             custom_queries_count=custom_query_count_by_conn.get(str(conn.id), 0),
             custom_queries_supported=(
                 is_accelerable_type(conn.type)
-                and (conn.auth_policy or "system_only") == "system_only"
             ),
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
@@ -472,7 +475,6 @@ async def create_connection(
         custom_queries_count=_catalog_custom_queries,
         custom_queries_supported=(
             is_accelerable_type(connection.type)
-            and connection.auth_policy == "system_only"
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
@@ -578,7 +580,6 @@ async def get_connection(
         custom_queries_count=_catalog_custom_queries,
         custom_queries_supported=(
             is_accelerable_type(connection.type)
-            and connection.auth_policy == "system_only"
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
@@ -699,7 +700,6 @@ async def update_connection(
         custom_queries_count=_catalog_custom_queries,
         custom_queries_supported=(
             is_accelerable_type(connection.type)
-            and connection.auth_policy == "system_only"
         ),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
@@ -802,6 +802,8 @@ async def test_connection_tool(
         # Edit mode: the form doesn't hold the saved secret, so merge the
         # stored connection underneath what the form sent.
         connection = await connection_service.get_connection(db, data.connection_id, organization)
+        if connection.active_company_policy is not None:
+            raise HTTPException(status_code=403, detail="Tool testing unavailable on a protected connection")
         stored_config = connection.config
         if isinstance(stored_config, str):
             stored_config = _json.loads(stored_config or "{}")
@@ -1484,7 +1486,12 @@ async def get_connection_tables(
                 selected_ids = {str(r) for (r,) in rows.all()}
 
     result = []
+    visible = visible_company_tables(connection)
+    from app.services.fabric_company_policy import reader_columns
+    allowed_columns = await reader_columns(db, connection, current_user) if visible is not None else {}
     for table in (connection.connection_tables or []):
+        if visible is not None and table.name not in visible:
+            continue
         # BOW custom tables are served by their own endpoint; they are not
         # introspected source tables and must not appear here. Soft-deleted
         # rows must not appear either.
@@ -1495,7 +1502,7 @@ async def get_connection_tables(
         result.append(ConnectionTableSchema(
             id=str(table.id),
             name=table.name,
-            column_count=len(table.columns) if table.columns else 0,
+            column_count=len(allowed_columns.get(table.name, table.columns or [])),
             preview_supported=can_manage and is_previewable_table(connection.type, table),
         ))
     return result
@@ -1516,7 +1523,7 @@ async def get_connection_completions(
     with the text to insert, quoted only where the dialect needs it.
     """
     connection = await connection_service.get_connection(db, connection_id, organization)
-    return await table_preview_service.completions(db, connection)
+    return await table_preview_service.completions(db, connection, current_user)
 
 
 @router.get(
@@ -1607,15 +1614,32 @@ async def list_custom_queries(
     # (nothing running) costs no extra query.
     busy = [r.id for r in rows if r.last_refresh_status in ("pending", "running")]
     live = await custom_table_runs.live_progress(db, busy) if busy else {}
+    per_user = custom_query_service.is_per_user(connection)
+    copies = await user_copy_service.summary_for_tables(db, [r.id for r in rows]) if per_user else {}
     return [
         CustomQuerySchema.from_model(
             r,
             await _active_agent_count(db, r.id),
             next_run_at=custom_query_service.next_run_at(str(r.id)),
             refresh_progress=live.get(str(r.id)),
+            per_user=per_user,
+            user_copies=copies.get(str(r.id)) if per_user else None,
         )
         for r in rows
     ]
+
+
+async def _custom_query_schema(db: AsyncSession, connection, cq) -> CustomQuerySchema:
+    """One custom table as the API returns it, with its per-user copies
+    counted when the connection caches per user."""
+    per_user = custom_query_service.is_per_user(connection)
+    copies = await user_copy_service.summary_for_tables(db, [cq.id]) if per_user else {}
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+        per_user=per_user,
+        user_copies=(copies.get(str(cq.id)) or {"copies": 0, "bytes": 0}) if per_user else None,
+    )
 
 
 @router.post("/{connection_id}/custom-queries/preview", response_model=CustomQueryPreviewResponse)
@@ -1756,10 +1780,7 @@ async def create_custom_query(
         )
     except Exception:
         pass
-    return CustomQuerySchema.from_model(
-        cq, await _active_agent_count(db, cq.id),
-        next_run_at=custom_query_service.next_run_at(str(cq.id)),
-    )
+    return await _custom_query_schema(db, connection, cq)
 
 
 @router.put("/{connection_id}/custom-queries/{cq_id}", response_model=CustomQuerySchema)
@@ -1799,10 +1820,7 @@ async def update_custom_query(
         )
     except Exception:
         pass
-    return CustomQuerySchema.from_model(
-        cq, await _active_agent_count(db, cq.id),
-        next_run_at=custom_query_service.next_run_at(str(cq.id)),
-    )
+    return await _custom_query_schema(db, connection, cq)
 
 
 @router.post("/{connection_id}/custom-queries/{cq_id}/refresh", response_model=CustomQuerySchema)
@@ -1821,10 +1839,7 @@ async def refresh_custom_query(
     connection = await connection_service.get_connection(db, connection_id, organization)
     cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
     cq = await custom_query_service.refresh(db, connection, cq, current_user=current_user, full=full)
-    return CustomQuerySchema.from_model(
-        cq, await _active_agent_count(db, cq.id),
-        next_run_at=custom_query_service.next_run_at(str(cq.id)),
-    )
+    return await _custom_query_schema(db, connection, cq)
 
 
 @router.get("/{connection_id}/custom-queries/{cq_id}/runs", response_model=CustomTableRunList)
@@ -1891,6 +1906,60 @@ async def delete_custom_query(
     return res
 
 
+# ==================== Custom Table per-user copies ====================
+#
+# On a connection where each person signs in with their own credentials, a
+# custom table is cached once per person. These let the connection's admin see
+# whose copies exist and remove them; a removed copy is rebuilt with that
+# person's credentials the next time they ask.
+
+@router.get("/{connection_id}/custom-queries/{cq_id}/user-copies",
+            response_model=List[CustomTableUserCopySchema])
+@requires_resource_permission('connection', 'manage_connection')
+async def list_custom_query_user_copies(
+    connection_id: str,
+    cq_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    return await user_copy_service.list_for_table(db, str(cq.id))
+
+
+@router.delete("/{connection_id}/custom-queries/{cq_id}/user-copies")
+@requires_resource_permission('connection', 'manage_connection')
+async def purge_custom_query_user_copies(
+    connection_id: str,
+    cq_id: str,
+    copy_id: Optional[str] = None,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Delete every user's copy of this table, or one (`copy_id`)."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    scope = {"table_id": str(cq.id)}
+    if copy_id:
+        scope["copy_id"] = copy_id
+    res = await user_copy_service.purge(db, **scope)
+    try:
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.custom_query.user_copies_purged",
+            resource_type="connection", resource_id=str(connection.id),
+            details={"connection": connection.name, "name": cq.name,
+                     "copy_id": copy_id, "copies": res["copies"]},
+        )
+    except Exception:
+        pass
+    return res
+
+
 # ==================== Custom Table RLS ====================
 
 @router.get("/{connection_id}/custom-queries/rls-options", response_model=CustomQueryRlsOptions)
@@ -1932,6 +2001,7 @@ async def custom_query_rls_options(
 
     return CustomQueryRlsOptions(
         attribute_keys=await available_attribute_keys(db, str(organization.id)),
+        custom_attribute_keys=await available_attribute_keys(db, str(organization.id), custom=True),
         groups=[RlsPrincipal(id=str(i), name=n or "") for i, n in groups],
         roles=[RlsPrincipal(id=str(i), name=n or "") for i, n in roles],
         members=[RlsPrincipal(id=str(i), name=e or "") for i, e in members],
@@ -1985,6 +2055,51 @@ async def set_custom_query_rls(
         )
     except Exception:
         pass
+    return await _custom_query_schema(db, connection, cq)
+
+
+@router.put("/{connection_id}/custom-queries/{cq_id}/cls", response_model=CustomQuerySchema)
+@requires_resource_permission('connection', 'manage_connection')
+async def set_custom_query_cls(
+    connection_id: str,
+    cq_id: str,
+    payload: CustomQueryClsUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Store which columns each person sees on this relation."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    before = {
+        "cls_enabled": bool(cq.cls_enabled),
+        "cls_policy": cq.cls_policy,
+    }
+    cq = await custom_query_service.set_cls(
+        db, cq,
+        cls_enabled=payload.cls_enabled,
+        cls_policy=payload.cls_policy,
+    )
+    try:
+        # Who changed a column policy, and from what to what — the record an
+        # auditor asks for, carrying both sides rather than just the new one.
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.custom_query.cls_changed",
+            resource_type="connection", resource_id=str(connection.id),
+            details={
+                "connection": connection.name,
+                "name": cq.name,
+                "before": before,
+                "after": {
+                    "cls_enabled": bool(cq.cls_enabled),
+                    "cls_policy": cq.cls_policy,
+                },
+            },
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("audit log failed for connection.custom_query.cls_changed")
     return CustomQuerySchema.from_model(
         cq, await _active_agent_count(db, cq.id),
         next_run_at=custom_query_service.next_run_at(str(cq.id)),
@@ -2013,6 +2128,8 @@ async def preview_custom_query_as_user(
             "rls_mode": payload.rls_mode,
             "rls_policy": payload.rls_policy,
             "rls_default_deny": payload.rls_default_deny,
+            "cls_enabled": payload.cls_enabled,
+            "cls_policy": payload.cls_policy,
         },
     )
 
@@ -2198,6 +2315,11 @@ async def list_connection_queries(
     """
     from app.services import query_execution_service
 
+    from app.services.viewer_data_policy import org_has_company_policy
+    held = await org_has_company_policy(db, organization.id)
+    if held:
+        custom_query_service.ensure_rls_licensed()
+        await require_org_permission(db, str(current_user.id), str(organization.id), "full_admin_access")
     statuses = [s.strip() for s in (status or "").split(",") if s.strip()]
     return await query_execution_service.list_queries(
         db, organization, connection_id,
@@ -2207,7 +2329,7 @@ async def list_connection_queries(
         search=(search or None),
         limit=limit,
         offset=offset,
-        viewer=current_user,
+        viewer=current_user, policy_only=held,
     )
 
 
@@ -2252,3 +2374,197 @@ async def kill_connection_query(
     except Exception:
         pass
     return item
+
+
+# A staged mapping can be exercised with the signed-in manager's identity.
+# Keep activation separate from authoring so saving an incomplete mapping
+# cannot advertise a security guarantee to report readers.
+
+
+async def _fabric_policy_connection(db, connection_id, organization):
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    if connection.type.lower() not in POLICY_CONNECTORS:
+        raise HTTPException(status_code=400, detail="Unsupported access policy connector")
+    return connection
+
+
+@router.get("/{connection_id}/company-policy/draft", response_model=ConnectionCompanyPolicy | None)
+@requires_resource_permission("connection", "manage_connection")
+async def get_company_policy_draft(
+    connection_id: str, current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
+):
+    connection = await _fabric_policy_connection(db, connection_id, organization)
+    custom_query_service.ensure_rls_licensed()
+    return connection.company_policy
+
+
+@router.put("/{connection_id}/company-policy/draft", response_model=ConnectionCompanyPolicy)
+@requires_resource_permission("connection", "manage_connection")
+async def save_company_policy_draft(
+    connection_id: str, payload: ConnectionCompanyPolicy, current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
+):
+    custom_query_service.ensure_rls_licensed()
+    connection = await _fabric_policy_connection(db, connection_id, organization)
+    connection.company_policy = payload.model_dump(mode="json")
+    await audit_service.log(db, organization_id=str(organization.id), user_id=str(current_user.id),
+                            action="connection.company_policy.drafted", resource_type="connection",
+                            resource_id=str(connection.id), details={"tables": len(payload.tables)}, commit=False)
+    await db.commit()
+    return payload
+
+
+@router.post("/{connection_id}/company-policy/activate", status_code=204)
+@requires_resource_permission("connection", "manage_connection")
+async def activate_saved_company_policy(
+    connection_id: str, payload: ConnectionCompanyPolicy, current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
+):
+    from app.services.fabric_company_policy import activate_company_policy
+    from app.settings.config import settings
+
+    if not settings.bow_config.features.fabric_company_rls_activation:
+        raise HTTPException(404, "Activation unavailable")
+    await require_org_permission(db, str(current_user.id), str(organization.id), "manage_connections")
+    custom_query_service.ensure_rls_licensed()
+    await activate_company_policy(db, organization, connection_id, payload, current_user)
+
+
+@router.get("/{connection_id}/company-policy/draft/preview")
+@requires_resource_permission("connection", "manage_connection")
+async def preview_company_policy_draft(
+    connection_id: str, table: str, member_email: str | None = None, checked_column: str | None = None,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
+):
+    custom_query_service.ensure_rls_licensed()
+    connection = await _fabric_policy_connection(db, connection_id, organization)
+    if not connection.company_policy:
+        raise HTTPException(status_code=404, detail="No saved mapping")
+    policy = ConnectionCompanyPolicy.model_validate(connection.company_policy)
+    rule = next((r for r in policy.tables if r.table == table), None)
+    if rule is None:
+        raise HTTPException(status_code=404, detail="Table unavailable")
+    if connection.active_company_policy and policy != ConnectionCompanyPolicy.model_validate(connection.active_company_policy):
+        await require_org_permission(db, str(current_user.id), str(organization.id), "full_admin_access")
+    reader = current_user
+    if member_email and member_email.casefold() != current_user.email.casefold():
+        await require_org_permission(db, str(current_user.id), str(organization.id), "full_admin_access")
+        from app.models.membership import Membership
+        reader = await db.scalar(select(User).join(Membership, Membership.user_id == User.id).where(
+            func.lower(User.email) == member_email.lower(), Membership.organization_id == organization.id,
+            Membership.deleted_at.is_(None), User.is_active.is_(True)))
+        if reader is None:
+            raise HTTPException(404, "Member unavailable")
+    try:
+        employee, identity = await policy_identity(db, organization.id, reader, policy)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Sign in with the configured Entra tenant") from None
+    if connection.auth_policy != "system_only":
+        raise HTTPException(409, "A system-credential connection is required")
+    await audit_service.log(db, organization_id=str(organization.id), user_id=str(current_user.id),
+                            action="connection.access_policy.preview", resource_type="connection",
+                            resource_id=str(connection.id), details={"member_id": str(reader.id), "table": table})
+    client = await connection_service.construct_client(db, connection, reader,
+                                                        policy_preview=(policy, employee, identity))
+    try:
+        import json
+        from sqlglot import exp
+        from app.data_sources.fabric_company_rls import preview_projection
+
+        catalog = await asyncio.to_thread(client._validated_policy_catalog, policy.model_copy(update={"tables": (rule,)}))
+        visible_count, columns = preview_projection(catalog[table], rule, employee, identity, checked_column)
+        result = {"columns": [], "data": []}
+        state = "no_columns"
+        if columns:
+            dialect = getattr(client, "policy_dialect", "fabric")
+            sql = exp.select("*").from_(exp.to_table(table)).limit(10).sql(dialect=dialect, identify=True)
+            frame = await asyncio.to_thread(client.execute_company_query, sql, policy, employee, identity,
+                                           preview_columns=columns)
+            result = json.loads(frame.to_json(orient="split", index=False, date_format="iso"))
+            state = "rows"
+            if frame.empty:
+                state = "empty" if await asyncio.to_thread(client.has_company_grant, rule) else "denied"
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Company-filtered preview unavailable") from None
+    await audit_service.log(db, organization_id=str(organization.id), user_id=str(current_user.id),
+                            action="connection.company_policy.previewed", resource_type="connection",
+                            resource_id=str(connection.id), details={"table": table})
+    from fastapi.responses import JSONResponse
+    checked_visible = checked_column in columns if checked_column else None
+    return JSONResponse(content={**result, "access_status": state, "visible_column_count": visible_count,
+                                 "checked_visible": checked_visible},
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.get("/{connection_id}/company-policy/columns")
+@requires_resource_permission("connection", "manage_connection")
+async def company_policy_columns(connection_id: str, table: str, current_user: User = Depends(current_user),
+                                db: AsyncSession = Depends(get_async_db),
+                                organization: Organization = Depends(get_current_organization)):
+    """Read one indexed schema for the policy editor without expanding the catalog page."""
+    custom_query_service.ensure_rls_licensed()
+    connection = await _fabric_policy_connection(db, connection_id, organization)
+    if connection.active_company_policy is not None:
+        await require_org_permission(db, str(current_user.id), str(organization.id), "full_admin_access")
+    columns = await db.scalar(select(ConnectionTable.columns).where(
+        ConnectionTable.connection_id == connection_id, ConnectionTable.name == table,
+        ConnectionTable.kind == KIND_TABLE, ConnectionTable.deleted_at.is_(None)))
+    return [column["name"] for column in columns or [] if isinstance(column, dict) and column.get("name")]
+
+
+@router.get("/{connection_id}/company-policy/coverage")
+@requires_resource_permission("connection", "manage_connection")
+async def access_policy_coverage(connection_id: str, search: str = "", status: str = "all",
+                                 inventory_only: bool = False, offset: int = 0, limit: int = 50,
+                                 current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db),
+                                 organization: Organization = Depends(get_current_organization)):
+    """Count and page the indexed connection catalog independently of agent selection."""
+    from app.settings.config import settings
+    custom_query_service.ensure_rls_licensed()
+    conn = await _fabric_policy_connection(db, connection_id, organization)
+    def table_rules(policy):
+        return {r.table: r for r in ConnectionCompanyPolicy.model_validate(policy).tables} if policy else {}
+    live, draft = table_rules(conn.active_company_policy), table_rules(conn.company_policy)
+    pending = {n for n in live.keys() | draft.keys() if live.get(n) != draft.get(n)}
+    def shared_settings(policy):
+        return ConnectionCompanyPolicy.model_validate(policy).model_dump(exclude={"tables", "inventory"}) if policy else {}
+    if shared_settings(conn.active_company_policy) != shared_settings(conn.company_policy):
+        pending.update(live.keys() | draft.keys())
+    base = select(ConnectionTable.name).where(ConnectionTable.connection_id == connection_id,
+        ConnectionTable.deleted_at.is_(None), ConnectionTable.kind == KIND_TABLE)
+    inventory = (conn.company_policy or {}).get("inventory") or []
+    unresolved = set(inventory)
+    for start in range(0, len(inventory), 500):
+        indexed = await db.scalars(base.where(ConnectionTable.name.in_(inventory[start:start + 500])))
+        unresolved.difference_update(indexed)
+    if inventory_only:
+        base = base.where(ConnectionTable.name.in_(inventory))
+    if search:
+        base = base.where(ConnectionTable.name.icontains(search[:256], autoescape=True))
+    grant_table = (conn.company_policy or {}).get("grants_table")
+    mapped = set(live) | ({grant_table} if grant_table else set())
+    filters = {"protected": ConnectionTable.name.in_(live), "missing": ConnectionTable.name.not_in(mapped),
+               "pending": ConnectionTable.name.in_(pending)}
+    if status not in {*filters, "all"}:
+        raise HTTPException(400, "Unknown coverage filter")
+    async def count(stmt):
+        return await db.scalar(select(func.count()).select_from(stmt.subquery()))
+    counts = {"all": await count(base)}
+    for key, expr in filters.items():
+        counts[key] = await count(base.where(expr))
+    if status in filters:
+        base = base.where(filters[status])
+    page = await db.scalars(base.order_by(ConnectionTable.name).offset(max(0, offset)).limit(min(max(limit, 1), 100)))
+    from app.services.rls_identity_service import available_attribute_keys
+    properties = ["user.email", "groups", "roles"]
+    for custom in (False, True):
+        keys = await available_attribute_keys(db, str(organization.id), custom=custom)
+        properties.extend(("custom." if custom else "profile.") + key for key in keys)
+    return {"counts": counts, "pending_total": len(pending), "pending_tables": sorted(pending)[:12],
+            "unresolved_total": len(unresolved), "unresolved": sorted(unresolved)[:50], "properties": properties, "activation_enabled": settings.bow_config.features.fabric_company_rls_activation,
+            "active": bool(conn.active_company_policy), "tables": [
+                {"table": name, "protected": name in live, "pending": name in pending,
+                 "projected_columns": len(live[name].columns) if name in live and live[name].columns is not None else None}
+                for name in page]}

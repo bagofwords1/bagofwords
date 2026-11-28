@@ -52,6 +52,9 @@ async def purge_orphaned_fast_artifacts(session_factory=None) -> dict:
                 load = state.get("load") if isinstance(state, dict) else None
                 if isinstance(load, dict) and load.get("path"):
                     references.append(load["path"])
+            # Per-user copies are referenced from their own table.
+            from app.services.custom_table_user_copy_service import referenced_paths
+            references.extend(await referenced_paths(db))
         protected = artifacts.protected_paths(references)
     except Exception:
         logger.exception("fast.artifact.reference_snapshot_failed")

@@ -3105,6 +3105,13 @@ function _dtDetectDir(cols, rows) {
 
   window.__bowCharts = { buildTrend: _buildTrend, buildRank: _buildRank, parseTime: _chParseTime, number: _chNumber };
 
+  // "RankChart needs …" → "RankChart (Sales by rep) needs …": the viz title,
+  // else its id. Not the position on the page, which an edit shifts.
+  function _chWarnName(error, viz) {
+    var name = viz ? (viz.title || (viz.id != null ? String(viz.id) : '')) : '';
+    return name ? error.replace(/^(TrendChart|RankChart)/, function(m) { return m + ' (' + name + ')'; }) : error;
+  }
+
   function _chartComponent(kind) {
     return function(props) {
       props = props || {};
@@ -3130,11 +3137,22 @@ function _dtDetectDir(cols, rows) {
       try { built = kind === 'rank' ? _buildRank(props, theme, lang, rtl) : _buildTrend(props, theme, lang); }
       catch (e) { built = { error: (kind === 'rank' ? 'RankChart' : 'TrendChart') + ' could not draw: ' + (e && e.message ? e.message : String(e)) }; }
       builtRef.current = built;
+      // A chart whose props can't draw names itself by its viz. The render
+      // check counts the warning boxes on screen by data-bow-chart-warning
+      // (a remount or StrictMode can repeat the console warning, never the
+      // box); the console warning is for the live preview and as fallback.
+      // The box itself shows the message alone. Titles repeat across vizzes,
+      // so the viz id rides along (data-bow-chart-viz, and in the console
+      // warning in the same "[viz <id>]" form the render check writes).
+      var named = built.error ? _chWarnName(built.error, props.viz) : null;
+      var warning = named ? named + (vizId ? ' [viz ' + vizId + ']' : '') : null;
+      React.useEffect(function() {
+        if (warning && typeof console !== 'undefined') console.warn('[bow-chart] ' + warning);
+      }, [warning]);
       var height = built.height || props.height || 300;
       var body;
       if (built.error) {
-        if (typeof console !== 'undefined') console.warn('[bow-chart] ' + built.error);
-        body = h('div', { key: 'err', role: 'alert', dir: 'auto', className: 'rounded-chip border border-warning/40 bg-warning/10 text-sm text-ink-2 p-3' }, built.error);
+        body = h('div', { key: 'err', role: 'alert', dir: 'auto', 'data-bow-chart-warning': named, 'data-bow-chart-viz': vizId || undefined, className: 'rounded-chip border border-warning/40 bg-warning/10 text-sm text-ink-2 p-3' }, built.error);
       } else if (built.empty) {
         body = h('div', { key: 'empty', className: 'flex items-center justify-center text-sm text-ink-3', style: { height: Math.min(height, 160) } }, built.noData);
       } else {

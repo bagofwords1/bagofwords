@@ -103,6 +103,8 @@ class QueryContextBuilder:
         status_filter: Optional[List[str]] = None,
         include_data_preview: bool = True
     ) -> QueriesSection:
+        if getattr(self.organization, "withhold_unverified_company_content", False) is True:
+            return QueriesSection(items=[])
         items: List[QueryObservation] = []
         queries = await self._get_report_queries(self.report.id, max_queries=max_queries)
         if not queries:

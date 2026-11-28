@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String
+from sqlalchemy import Boolean, Column, String, false
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 from sqlalchemy import select
@@ -13,6 +13,7 @@ from app.models.instruction import Instruction
 class Organization(BaseSchema):
     __tablename__ = "organizations"
     
+    withhold_unverified_company_content = Column(Boolean, nullable=False, server_default=false())
     name = Column(String, unique=True, nullable=False)
     description = Column(String, nullable=True)
     

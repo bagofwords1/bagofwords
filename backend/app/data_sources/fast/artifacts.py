@@ -146,6 +146,16 @@ def try_refresh_lock(connection_id: str):
     return _try_lock(artifact_dir(connection_id) / ".refresh.lock")
 
 
+def try_user_copy_lock(connection_id: str, table_id: str, user_id: str):
+    """One build of a given user's copy of a table at a time, across workers.
+
+    Non-blocking: a caller that does not get it knows another worker is
+    building this very copy, and waits for that result instead of repeating
+    the extraction.
+    """
+    return _try_lock(artifact_dir(connection_id) / f".copy-{table_id}-{user_id}.lock")
+
+
 # A refresh waiting for the volume says so with a marker file, touched while
 # it waits. A long load that gives the volume up between its windows looks for
 # them, so a sibling table's refresh gets in rather than losing every race to

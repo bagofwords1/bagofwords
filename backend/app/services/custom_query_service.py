@@ -6,10 +6,16 @@ file shared by every agent that activates it — if it were per-agent, N agents
 would extract the same data N times on N schedules, multiplying exactly the
 source load the feature exists to remove.
 
-Gated on `manage_connection` (same class of action as reindex) and on
-`auth_policy == 'system_only'`: with per-user credentials, one shared copy would
-collapse every user's row visibility into whoever ran the refresh. RLS lands in
-phase 2 and is what will unlock `user_required`.
+Gated on `manage_connection` (same class of action as reindex).
+
+**Per-user connections.** On `auth_policy == 'user_required'` one shared copy
+would collapse every user's row visibility into whoever ran the refresh. There
+the definition is still one connection-level object, but nothing is
+materialized on the row: each user gets a copy of their own, extracted with
+their own credentials the first time they need it
+(`custom_table_user_copy_service`, `fast/user_copies.py`). No schedule runs
+for such a table — nobody is signed in at 3am — and its refresh settings say
+how old a person's copy may get before it is rebuilt.
 """
 
 import asyncio
@@ -30,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduler import scheduler
 from app.core.telemetry import telemetry
-from app.data_sources.fast import artifacts, extractor, incremental, loader, rls
+from app.data_sources.fast import artifacts, extractor, incremental, loader, rls, user_copies
 from app.data_sources.fast import column_metadata, lineage
 from app.data_sources.fast import events as table_events
 from app.data_sources.fast import limits as fast_limits
@@ -178,7 +184,40 @@ def is_accelerable_type(conn_type) -> bool:
     against these lowercase sets silently excluded every SQL Server connection.
     """
     kind = (conn_type or "").lower()
+    if _is_unchecked(kind):
+        # The query checks neither check nor exempt its statements.
+        return False
     return kind in ACCELERABLE_TYPES or kind in REQUEST_TYPES or _is_queryable(kind)
+
+
+_UNCHECKED: dict = {}
+
+
+def _is_unchecked(kind: str) -> bool:
+    """Whether a connection type's client is one the query checks do not
+    know (`client_profiles.classify_type` is "unknown"), or one that cannot
+    be resolved (`_unchecked_reason`)."""
+    return _unchecked_reason(kind) is not None
+
+
+def _unchecked_reason(kind: str) -> Optional[str]:
+    """"unknown" when the query checks do not know a connection type's
+    client, "unresolved" when that client cannot be resolved (kept for the
+    life of the process, so it stays refused; logged once per type), else
+    None."""
+    if kind not in _UNCHECKED:
+        try:
+            from app.ai.code_execution.client_profiles import classify_type
+            from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+            key = next((k for k in REGISTRY if k.lower() == kind), None)
+            cls = resolve_client_class(key) if key else None
+            _UNCHECKED[kind] = "unknown" if cls is not None and classify_type(cls) == "unknown" else None
+        except Exception as e:
+            # Kept in _UNCHECKED, so this runs (and logs) once per type.
+            _UNCHECKED[kind] = "unresolved"
+            logger.warning("custom_query.client_not_resolved error=%s", type(e).__name__)
+    return _UNCHECKED[kind]
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
@@ -430,6 +469,27 @@ class CustomQueryService:
             )
 
     @staticmethod
+    def ensure_cls_licensed() -> None:
+        """Enterprise gate on AUTHORING column policies — not on enforcing them.
+
+        Column-level security is the same enterprise feature family as RLS and
+        shares its `rls` entitlement: both move access enforcement from the
+        source's credential into BOW, and an org licensed for one is licensed
+        for the other. The authoring/enforcement asymmetry is identical —
+        enabling or editing a column policy needs the license; a saved policy
+        keeps projecting even if the license lapses, because an expired license
+        must fail closed, never widen anyone's column visibility.
+        """
+        if not has_feature("rls"):
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    "Column-level security requires an enterprise license. "
+                    "Add a license key in Settings → License (or set BOW_LICENSE_KEY)."
+                ),
+            )
+
+    @staticmethod
     async def _org_timezone(db: AsyncSession, organization) -> str:
         """IANA timezone the org schedules in, mirroring scheduled prompts.
 
@@ -447,6 +507,25 @@ class CustomQueryService:
 
     @staticmethod
     def ensure_accelerable(connection: Connection) -> None:
+        if getattr(connection, "active_company_policy", None) is not None:
+            raise HTTPException(status_code=403, detail="Materialization unavailable on a company-filtered connection")
+        reason = _unchecked_reason((connection.type or "").lower())
+        if reason == "unresolved":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"The client for '{connection.type}' connections could not be loaded, "
+                    "so custom tables are refused for them."
+                ),
+            )
+        if reason == "unknown":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Queries to '{connection.type}' connections are not checked yet, "
+                    "so custom tables are refused for them."
+                ),
+            )
         if not is_accelerable_type(connection.type):
             raise HTTPException(
                 status_code=400,
@@ -455,14 +534,23 @@ class CustomQueryService:
                     f"connections yet."
                 ),
             )
-        if getattr(connection, "auth_policy", "system_only") != "system_only":
+
+    @staticmethod
+    def is_per_user(connection: Connection) -> bool:
+        """Whether this connection's custom tables are cached once per user."""
+        return user_copies.is_per_user_connection(connection)
+
+    @staticmethod
+    def ensure_per_user_settings(connection: Connection, config: incremental.RefreshConfig) -> None:
+        """A per-user copy is always a full load: there is no single
+        checkpoint to advance when every user holds different rows."""
+        if user_copies.is_per_user_connection(connection) and config.incremental:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Custom tables require a connection with shared (system) "
-                    "credentials. On a per-user connection, one materialized copy "
-                    "cannot represent each user's row visibility — row-level "
-                    "security support is planned."
+                    "Incremental refresh is not available on a connection where each "
+                    "person signs in with their own credentials. Each person's copy is "
+                    "rebuilt in full; choose full refresh."
                 ),
             )
 
@@ -1042,7 +1130,8 @@ class CustomQueryService:
             except HTTPException:
                 supported = False
         return {"supported": supported, "id": str(connection.id), "name": connection.name,
-                "type": connection.type}
+                "type": connection.type,
+                "auth_policy": getattr(connection, "auth_policy", None) or "system_only"}
 
     async def progress_of(self, db: AsyncSession, connection_id: str, name: str) -> dict:
         """One custom table's load state, by name: whether it exists, how its
@@ -1108,6 +1197,7 @@ class CustomQueryService:
         # refreshing exactly as they did.
         refresh_config.setdefault("row_drop_guard_pct", incremental.DEFAULT_ROW_DROP_GUARD_PCT)
         config = self.refresh_settings(refresh_mode, refresh_config, definition_sql, connection.type)
+        self.ensure_per_user_settings(connection, config)
 
         cq = ConnectionTable(
             name=name,
@@ -1142,7 +1232,8 @@ class CustomQueryService:
         await self._activate_for_agents(
             db, connection, cq, activate_for_datasource_id=activate_for_datasource_id
         )
-        self._schedule(connection.id, cq, timezone=await self._org_timezone(db, organization))
+        self._schedule(connection.id, cq, timezone=await self._org_timezone(db, organization),
+                       per_user=self.is_per_user(connection))
 
         try:
             await telemetry.capture(
@@ -1269,6 +1360,7 @@ class CustomQueryService:
             merged = {**before.to_dict(), **(refresh_config or {})}
             config = self.refresh_settings(refresh_mode or before.mode, merged, cq.definition_sql,
                                            connection.type)
+            self.ensure_per_user_settings(connection, config)
             cq.refresh_mode, cq.refresh_config = config.mode, config.to_dict()
         else:
             config = self.refresh_settings(before.mode, before.to_dict(), cq.definition_sql, connection.type)
@@ -1298,7 +1390,8 @@ class CustomQueryService:
         # volume; scheduled_refresh is the backstop and unschedules a deleted
         # table on its first tick.
         cq = await self.get_custom_query(db, connection.id, cq.id)
-        self._schedule(connection.id, cq, timezone=organization_timezone or "UTC")
+        self._schedule(connection.id, cq, timezone=organization_timezone or "UTC",
+                       per_user=self.is_per_user(connection))
         return cq
 
     async def delete(
@@ -1336,6 +1429,13 @@ class CustomQueryService:
         cq.refresh_state = None
         await db.commit()
         artifacts.delete_artifact(old_path)
+        # Every user's copy goes with the table. A build still running sees
+        # the table gone when it tries to publish and discards its file.
+        from app.services.custom_table_user_copy_service import user_copy_service
+        try:
+            await user_copy_service.purge(db, table_id=str(cq.id), forget=True)
+        except Exception:
+            logger.exception("custom_query.delete.user_copies_failed")
         # A first load still in progress notices the deletion at its next
         # window; if none is running, its file would otherwise wait for GC.
         with artifacts.try_refresh_lock(connection.id) as free:
@@ -1377,7 +1477,12 @@ class CustomQueryService:
 
         `full` rebuilds an incremental table from scratch instead of reading
         only what is new (it changes nothing for a table that is always full).
+
+        On a per-user connection there is no shared artifact to bring up to
+        date; see `_refresh_per_user`.
         """
+        if self.is_per_user(connection):
+            return await self._refresh_per_user(db, connection, cq, current_user, trigger=trigger)
         run = _Run(
             db=db, connection=connection, cq=cq, trigger=trigger, force_full=full,
             user_id=str(current_user.id) if current_user is not None else None,
@@ -1409,6 +1514,114 @@ class CustomQueryService:
                                       events=run.take_events())
                 raise
         return cq
+
+    async def _refresh_per_user(
+        self, db: AsyncSession, connection: Connection, cq: ConnectionTable,
+        current_user: User = None, *, trigger: str = TRIGGER_MANUAL,
+    ) -> ConnectionTable:
+        """What "refresh" means when every user holds their own copy.
+
+        Nothing is extracted into the row. The query is run bounded, with the
+        caller's own credentials, only to learn its columns — the schema the
+        agent is shown has to exist before anyone's copy does. Then every
+        existing copy is invalidated, so each person's next question rebuilds
+        theirs: an admin pressing Refresh, or editing the query, must not
+        leave anyone answering from the old data.
+
+        A scheduled tick does nothing: there is no one whose credentials it
+        could use, and a copy's age is checked when it is served.
+        """
+        from app.services.custom_table_user_copy_service import user_copy_service
+
+        await db.refresh(cq)
+        if cq.deleted_at is not None or trigger in (TRIGGER_SCHEDULE, TRIGGER_RESUME):
+            return cq
+        if cq.artifact_path:
+            # Left over from when this connection used shared credentials. It
+            # holds rows read with those; it must not outlive the switch.
+            old_path, cq.artifact_path, cq.artifact_key_enc = cq.artifact_path, None, None
+            cq.artifact_bytes, cq.refresh_state = None, None
+            await db.commit()
+            artifacts.delete_artifact(old_path)
+        try:
+            client = await self.connection_service.construct_client(db, connection, current_user)
+            await self._prepare_client(db, connection, client, self.target_of(cq))
+            sql = cq.definition_sql or ""
+
+            def _shape():
+                extractor.estimate(client, sql)
+                return extractor.preview(client, sql, extractor.PREVIEW_ROW_LIMIT)
+
+            cols, _rows = await asyncio.to_thread(_shape)
+        except HTTPException as e:
+            await self._per_user_failed(db, cq, e.detail)
+            raise
+        except _PASS_THROUGH as e:
+            await self._per_user_failed(db, cq, str(e))
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            await self._per_user_failed(db, cq, str(e))
+            raise HTTPException(status_code=400, detail=f"Query failed: {e}")
+
+        await db.refresh(cq)
+        enriched = await self.describe_columns(
+            db, connection, definition=cq.definition_sql or "", target=self.target_of(cq),
+            columns=cols, previous=cq.columns, overrides=self.overrides_of(cq),
+        )
+        cq.columns = enriched.columns
+        cq.metadata_json = self._described(cq, connection, enriched, cq.metadata_json)
+        cq.last_refresh_status = "ok"
+        cq.last_refresh_error = None
+        cq.last_refreshed_at = datetime.utcnow()
+        # No row count of its own: every user's copy has a different one.
+        cq.no_rows = 0
+        await db.commit()
+        await db.refresh(cq)
+        await self._sync_activations(db, cq)
+        await user_copy_service.invalidate(db, table_id=str(cq.id))
+        return cq
+
+    @staticmethod
+    async def _per_user_failed(db: AsyncSession, cq: ConnectionTable, message) -> None:
+        with suppress(Exception):
+            await db.rollback()
+            cq.last_refresh_status = "error"
+            cq.last_refresh_error = str(message)[:2000]
+            await db.commit()
+
+    async def on_auth_policy_changed(self, db: AsyncSession, connection: Connection) -> None:
+        """Bring a connection's custom tables in line with its new auth policy.
+
+        Shared → per-user: the shared artifacts hold rows read with the
+        system credentials and stop being served at once (the client is built
+        from users' copies only); remove them and their schedules. Per-user →
+        shared: users' copies are no longer what is served; remove them and
+        put the tables back on their schedules, to be built on the next tick
+        or an admin's Refresh.
+        """
+        from app.services.custom_table_user_copy_service import user_copy_service
+
+        rows = (await db.execute(
+            select(ConnectionTable).where(
+                ConnectionTable.connection_id == str(connection.id),
+                ConnectionTable.kind == KIND_BOW,
+                ConnectionTable.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        per_user = self.is_per_user(connection)
+        for cq in rows:
+            if per_user:
+                self._unschedule(cq.id)
+                self._unschedule_resume(cq.id)
+                if cq.artifact_path:
+                    old_path, cq.artifact_path, cq.artifact_key_enc = cq.artifact_path, None, None
+                    cq.artifact_bytes, cq.refresh_state, cq.no_rows = None, None, 0
+                    await db.commit()
+                    artifacts.delete_artifact(old_path)
+            else:
+                self._schedule(str(connection.id), cq)
+        if rows and not per_user:
+            await user_copy_service.purge(db, connection_id=str(connection.id), forget=True)
 
     @staticmethod
     async def _drain(coro) -> None:
@@ -1456,8 +1669,10 @@ class CustomQueryService:
             "custom_query.refresh.failed",
             extra={"custom_query": cq.name, "error": str(error)},
         )
+        # What the failed run sent (or tried to), when it got that far.
+        sent = {"rendered_query": run.rendered_query} if run.rendered_query else {}
         await runs.finish(run.run_id, status=STATUS_FAILED, error=str(error),
-                          events=run.take_events(), chunks=run.chunk_log())
+                          events=run.take_events(), chunks=run.chunk_log(), **sent)
 
     async def _in_thread(self, run: "_Run", work):
         """Run one unit of blocking work without letting go of the volume.
@@ -1679,6 +1894,8 @@ class CustomQueryService:
                     # Stored rows cannot be given the new shape, so the copy
                     # would stop matching the source. Rebuild instead of
                     # failing every scheduled run until someone notices.
+                    # The run keeps the increment's sent text until the
+                    # rebuild sends its own.
                     run.note(f"The query's columns changed ({e}); rebuilding in full.", "warning")
                     await runs.progress(run.run_id, mode=RUN_MODE_FULL, events=run.take_events())
                 else:
@@ -1713,7 +1930,7 @@ class CustomQueryService:
                                       error="The table was deleted while it was loading.",
                                       events=run.take_events(), chunks=run.chunk_log())
                     return
-                rows, rendered = await self._in_thread(run, lambda i=index: self._work_window(run, i))
+                rows, _sent = await self._in_thread(run, lambda i=index: self._work_window(run, i))
                 window = load["windows"][index]
                 window["status"], window["rows"] = "done", rows
                 load["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
@@ -1721,7 +1938,6 @@ class CustomQueryService:
                 load["rows"] = int(load.get("rows") or 0) + rows
                 run.rows_read += rows
                 run.windows_done += 1
-                run.rendered_query = run.rendered_query or rendered
                 await self._save_state(run)
             await runs.progress(run.run_id, chunks=run.chunk_log(), rows_read=run.rows_read,
                                 rendered_query=run.rendered_query, events=run.take_events())
@@ -1793,13 +2009,17 @@ class CustomQueryService:
             est = extractor.estimate(run.client, run.sql)
             self._check_budget(est, run.limits)
             run.source_rows = int(est.rows) if est.rows else None
-            run.rendered_query = run.sql
-            return extractor.extract_to_artifact(
+            # Only text that passed the checks is recorded: the text the
+            # extraction sends (the guard returns the same text every time).
+            _src, run.rendered_query = extractor.checked_source(run.client, run.sql)
+            result = extractor.extract_to_artifact(
                 run.client, run.sql, run.name, run.connection_id,
                 max_rows=run.limits.max_rows, max_bytes=run.limits.max_bytes,
                 should_abort=run.abort.is_set, run_id=run.run_id, config=run.config,
                 previous_rows=run.previous_rows, on_rows=on_rows,
             )
+            run.rendered_query = result.checked_sql
+            return result
         except _PASS_THROUGH:
             raise
         except Exception as e:
@@ -1808,11 +2028,13 @@ class CustomQueryService:
     def _render(self, run: "_Run", window: incremental.Window) -> str:
         return incremental.render(run.client, run.sql, run.config.cursor_column, run.cursor_kind, window)
 
-    def _source(self, run: "_Run", rendered: str):
-        src = extractor._source(run.client, rendered)
+    def _checked_source(self, run: "_Run", rendered: str) -> tuple:
+        """(source, the text to send it): `rendered` as the read-only guard
+        returned it. Callers send that text, never `rendered` itself."""
+        src, checked = extractor.checked_source(run.client, rendered)
         if src is None:
             raise incremental.IncrementalConfigError("This connection cannot run queries.")
-        return src
+        return src, checked
 
     def _work_plan_load(self, run: "_Run") -> dict:
         """Size a load from scratch and cut it into windows. Moves no rows."""
@@ -1833,7 +2055,8 @@ class CustomQueryService:
                 run.sql, incremental.dialect_for(run.client), config.cursor_column, run.cursor_kind, whole)
             if probe is not None:
                 try:
-                    _cols, rows = self._source(run, probe).preview(probe, 1)
+                    src, checked = self._checked_source(run, probe)
+                    _cols, rows = src.preview(checked, 1)
                     lo, hi, total, with_cursor = rows[0][0], rows[0][1], int(rows[0][2] or 0), int(rows[0][3] or 0)
                 except Exception as e:
                     # Sizing is an optimisation; a source that cannot answer
@@ -1892,7 +2115,8 @@ class CustomQueryService:
 
         def count_between(a, b) -> int:
             sql = incremental.count_sql(run.sql, dialect, column, kind, incremental.Window(lo=a, hi=b))
-            _cols, rows = self._source(run, sql).preview(sql, 1)
+            src, checked = self._checked_source(run, sql)
+            _cols, rows = src.preview(checked, 1)
             return int(rows[0][0] or 0)
 
         try:
@@ -1906,14 +2130,17 @@ class CustomQueryService:
         load = run.load
         window = incremental.Window.from_json(load["windows"][index])
         try:
-            rendered = self._render(run, window)
+            src, checked = self._checked_source(run, self._render(run, window))
+            # Once checked and before the send: the run records the last
+            # window it sent, whether or not that window loads.
+            run.rendered_query = checked
             rows = loader.load_window(
-                self._source(run, rendered), rendered, load["path"],
+                src, checked, load["path"],
                 artifacts.decrypt_key(load["key_enc"]), run.name, run.run_id, self._limits(run),
                 batch_rows=extractor.BATCH_ROWS, rows_before=int(load.get("rows") or 0),
                 window=index,
             )
-            return rows, rendered
+            return rows, checked
         except _PASS_THROUGH:
             raise
         except Exception as e:
@@ -1937,11 +2164,14 @@ class CustomQueryService:
         run.window_from = window.lo
         try:
             rendered = self._render(run, window)
-            run.rendered_query = rendered
             est = extractor.estimate(run.client, rendered)
             self._check_budget(est, run.limits)
+            src, checked = self._checked_source(run, rendered)
+            # Once checked and before the send, so a failed increment records
+            # the text it sent and a refused one records nothing.
+            run.rendered_query = checked
             return loader.apply_increment(
-                self._source(run, rendered), rendered, run.previous_path, run.previous_key,
+                src, checked, run.previous_path, run.previous_key,
                 run.name, run.connection_id, run.run_id, run.config, window, self._limits(run),
                 batch_rows=extractor.BATCH_ROWS, previous_rows=run.previous_rows, wrapped=run.wrapped,
                 filter_locally=not run.at_source,
@@ -2134,7 +2364,9 @@ class CustomQueryService:
                     )
                 )
             ).scalar_one_or_none()
-            if not conn or not cq:
+            if not conn or not cq or self.is_per_user(conn):
+                # A per-user table has no shared artifact for a tick to
+                # refresh; a job for one was left by a change of auth policy.
                 self._unschedule(cq_id)
                 return
             try:
@@ -2177,8 +2409,13 @@ class CustomQueryService:
         except (JobLookupError, Exception):
             pass
 
-    def _schedule(self, connection_id: str, cq: ConnectionTable, timezone: str = "UTC") -> None:
+    def _schedule(self, connection_id: str, cq: ConnectionTable, timezone: str = "UTC",
+                  per_user: bool = False) -> None:
         self._unschedule(cq.id)
+        if per_user:
+            # Nothing to run on a clock: a copy is rebuilt when its user next
+            # needs it and it is older than these settings allow.
+            return
         try:
             if cq.refresh_schedule_mode == "time" and cq.refresh_at_time:
                 hh, mm = cq.refresh_at_time.split(":")
@@ -2229,6 +2466,7 @@ class CustomQueryService:
         rows: list[ConnectionTable],
         connection_name: str = "",
         identity: Optional[rls.Identity] = None,
+        user_copies_by_table: Optional[dict] = None,
     ) -> Optional[FastQueryClient]:
         """Assemble a FastQueryClient from ACTIVATED custom tables.
 
@@ -2242,10 +2480,34 @@ class CustomQueryService:
         from any relation with `rls_enabled`. That has to be the default,
         because the alternative (None means trusted) turns every background
         path that forgot to thread a user into a full-table leak.
+
+        `user_copies_by_table` switches to per-user serving: when it is not
+        None (an empty dict included), a relation is attached only from the
+        asking user's own copy in it, and the row's shared artifact — if a
+        change of auth policy left one behind — is never used. A table with
+        no copy there is simply not in the session.
         """
         who = identity or rls.ANONYMOUS
         relations = []
         for r in rows:
+            if user_copies_by_table is not None:
+                ref = user_copies_by_table.get(str(r.id))
+                if ref is None:
+                    continue
+                relations.append(
+                    FastRelation(
+                        name=r.name,
+                        artifact_path=ref.artifact_path,
+                        artifact_key=ref.artifact_key,
+                        columns=ref.columns or r.columns or [],
+                        as_of=ref.refreshed_at.isoformat(timespec="minutes")
+                        if ref.refreshed_at else None,
+                        row_count=ref.row_count or 0,
+                        description=r.description,
+                        rls_filter=CustomQueryService.compile_rls(r, who),
+                    )
+                )
+                continue
             if not r.artifact_path or not r.artifact_key_enc:
                 continue
             try:
@@ -2293,13 +2555,10 @@ class CustomQueryService:
         that case. It exists so an admin learns about a typo when they press
         Save rather than by wondering why a report came back empty.
         """
-        if rls_enabled:
-            # Enterprise-only to enable or edit; turning OFF stays open so a
-            # lapsed license never traps an org behind its own policy.
+        if rls_enabled or cq.rls_enabled:
             self.ensure_rls_licensed()
-            columns = [
-                c.get("name") for c in (cq.columns or []) if isinstance(c, dict)
-            ]
+        if rls_enabled:
+            columns = _column_names(cq)
             try:
                 rls.validate_policy(rls_policy, rls_mode, columns)
             except ValueError as e:
@@ -2309,6 +2568,43 @@ class CustomQueryService:
         cq.rls_mode = rls_mode if rls_enabled else None
         cq.rls_policy = rls_policy if rls_enabled else None
         cq.rls_default_deny = bool(rls_default_deny)
+        await db.commit()
+        await db.refresh(cq)
+        return cq
+
+    async def set_cls(
+        self,
+        db: AsyncSession,
+        cq: ConnectionTable,
+        *,
+        cls_enabled: bool,
+        cls_policy: Optional[dict] = None,
+    ) -> ConnectionTable:
+        """Store a column policy, rejecting one that cannot mean what it says.
+
+        Its own method and route, parallel to `set_rls`: enabling column
+        security is a security-relevant change and is audited on its own, so it
+        cannot ride along inside an unrelated edit. Save-time validation is a
+        convenience, not the enforcement boundary — the relation's columns can
+        change under a saved policy and `compile_column_policy` copes.
+        """
+        if cls_enabled or cq.cls_enabled:
+            self.ensure_cls_licensed()
+        if cls_enabled:
+            columns = _column_names(cq)
+            # Normalise before validating AND storing, so a name is compared the
+            # same way everywhere: `" Email"` from an API write is stored as
+            # `Email` rather than kept raw and silently matching nothing at
+            # compile time (compile strips too, but storing clean is clearer).
+            cls_policy = _normalize_cls_policy(cls_policy)
+            try:
+                rls.validate_column_policy(cls_policy, columns)
+                cls_policy["reviewed_columns"] = list(columns)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
+        cq.cls_enabled = bool(cls_enabled)
+        cq.cls_policy = cls_policy if cls_enabled else None
         await db.commit()
         await db.refresh(cq)
         return cq
@@ -2374,6 +2670,14 @@ class CustomQueryService:
             raise HTTPException(status_code=400, detail=f"Preview failed: {e}")
 
         f = rls_filter
+        visible = set(str(c) for c in df.columns)
+        hidden_columns = [
+            c for c in _column_names(cq) if c is not None and c not in visible
+        ]
+        # Row and column verdicts are reported SEPARATELY and never conflated:
+        # a row deny (`deny_all`) is not a "no columns" state, and an all-columns
+        # deny (`column_denied`) is not row filtering. The UI branches on each.
+        allowed_cols = getattr(f, "allowed_columns", None) if f is not None else None
         return {
             "columns": [{"name": c, "dtype": str(df[c].dtype)} for c in df.columns],
             "rows": [
@@ -2381,32 +2685,71 @@ class CustomQueryService:
                 for row in df.astype(object).where(df.notna(), None).values.tolist()
             ],
             "row_limit": limit,
-            "filtered": bool(f is not None and not f.unrestricted),
+            # Rows (the RLS tab's verdict):
+            "filtered": bool(f is not None and f.is_row_filtered and not f.deny_all),
             "denied": bool(f is not None and f.deny_all),
             "column": getattr(f, "column", None),
             "allowed_values": list(getattr(f, "allowed_values", None) or []),
+            # Columns (the CLS tab's verdict):
+            "column_filtered": bool(isinstance(allowed_cols, list) and allowed_cols != []),
+            "column_denied": bool(f is not None and f.column_denied),
+            "hidden_columns": hidden_columns,
             "reason": getattr(f, "reason", "") or "no policy",
         }
 
     @staticmethod
     def compile_rls(row: ConnectionTable, identity: rls.Identity) -> Optional[rls.Filter]:
-        """The filter to apply to `row` for `identity`, or None if unprotected.
+        """The full relation filter — rows AND columns — for `identity`.
+
+        Returns None only when neither row nor column security is enabled;
+        otherwise a single `Filter` carrying whichever halves apply, so the one
+        enforcement point in `_register_relation` has everything it needs.
 
         Deliberately NOT license-checked: a saved policy is enforced whether or
         not the enterprise license is still active. Skipping the filter on a
         lapsed license would turn a billing event into a data leak.
         """
-        if not getattr(row, "rls_enabled", False):
+        rls_on = bool(getattr(row, "rls_enabled", False))
+        cls_on = bool(getattr(row, "cls_enabled", False))
+        if not rls_on and not cls_on:
             return None
-        return rls.compile_policy(
-            row.rls_policy,
-            identity,
-            available_columns=[
-                c.get("name") for c in (row.columns or []) if isinstance(c, dict)
-            ],
-            default_deny=bool(getattr(row, "rls_default_deny", True)),
-            mode=getattr(row, "rls_mode", None) or rls.MODE_ATTRIBUTE,
-        )
+
+        available = _column_names(row)
+
+        if rls_on:
+            f = rls.compile_policy(
+                row.rls_policy,
+                identity,
+                available_columns=available,
+                default_deny=bool(getattr(row, "rls_default_deny", True)),
+                mode=getattr(row, "rls_mode", None) or rls.MODE_ATTRIBUTE,
+            )
+        else:
+            # Columns restricted, rows not: start from an unrestricted-rows filter
+            # and layer the projection on. A denied *row* policy already means no
+            # rows, so there is no point compiling columns on top of it.
+            f = rls.Filter(reason="no row policy")
+
+        if cls_on:
+            allowed_columns = rls.compile_column_policy(
+                row.cls_policy, identity, available_columns=available
+            )
+            if allowed_columns is not None:
+                # A list projects; an empty list is a COLUMN-level deny — kept
+                # distinct from `deny_all` (rows) so a preview labels each
+                # correctly. `Filter.column_denied` / `is_empty` read it.
+                f.allowed_columns = allowed_columns
+                if not allowed_columns:
+                    # Every column restricted and none granted → a COLUMN deny.
+                    # Signalled by allowed_columns==[] (read via Filter.column_denied
+                    # / is_empty), NOT by deny_all, so the RLS and CLS previews each
+                    # label their own verdict instead of a column deny showing as a
+                    # row deny. Enforcement still serves an empty relation.
+                    f.reason = (
+                        (f.reason + "; " if f.reason else "")
+                        + "no columns are visible to this user"
+                    )
+        return f
 
 
 class _RlsProbe:
@@ -2427,6 +2770,41 @@ class _RlsProbe:
         if name in self._over:
             return self._over[name]
         return getattr(self._row, name)
+
+
+def _column_names(cq) -> list:
+    """The materialized column names of a custom table.
+
+    One definition, used by `set_rls`, `set_cls`, `compile_rls` and the preview,
+    so an RLS/CLS policy is always validated and compiled against the same list.
+    """
+    return [c.get("name") for c in (getattr(cq, "columns", None) or []) if isinstance(c, dict)]
+
+
+def _normalize_cls_policy(policy):
+    """Strip column names in a column policy so they compare consistently.
+
+    Returns a new dict; leaves a falsy/non-dict policy untouched. Applied at save
+    time so stored `restricted_columns` / grant `columns` never carry stray
+    whitespace that would match nothing at compile time.
+    """
+    if not isinstance(policy, dict):
+        return policy
+    out = dict(policy)
+    out["restricted_columns"] = [
+        str(c).strip() for c in (policy.get("restricted_columns") or []) if str(c).strip()
+    ]
+    grants = []
+    for g in (policy.get("grants") or []):
+        if not isinstance(g, dict):
+            grants.append(g)
+            continue
+        ng = dict(g)
+        if "columns" in ng:
+            ng["columns"] = [str(c).strip() for c in (ng.get("columns") or []) if str(c).strip()]
+        grants.append(ng)
+    out["grants"] = grants
+    return out
 
 
 def _jsonable(v):

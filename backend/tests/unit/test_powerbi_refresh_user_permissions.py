@@ -150,9 +150,11 @@ def test_query_path_does_not_flush():
     """execute_query resolves the dataset from attached metadata and never calls
     get_schemas, so a hot query must not trigger a permission flush."""
     t = _Tenant()
-    meta = {"powerbi": {"datasetId": "ds1", "workspaceId": "ws1",
+    ws = "c0000001-0000-4000-8000-000000000001"
+    ds = "c0000002-0000-4000-8000-000000000002"
+    meta = {"powerbi": {"datasetId": ds, "workspaceId": ws,
                         "datasetName": "m", "tableName": "T"}}
-    t.route("POST", "/groups/ws1/datasets/ds1/executeQueries",
+    t.route("POST", f"/groups/{ws}/datasets/{ds}/executeQueries",
             _resp(200, {"results": [{"tables": [{"rows": [{"T[id]": 1}]}]}]}))
     t.route("POST", REFRESH, _resp(200))
 

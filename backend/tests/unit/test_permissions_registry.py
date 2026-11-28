@@ -1,5 +1,6 @@
 """Unit tests for the MVP permissions registry."""
 from app.core.permissions_registry import (
+    AGENT_SANDBOX_PERMISSION_CATEGORIES,
     ALL_PERMISSIONS,
     BASELINE_PERMISSIONS,
     DEFAULT_ADMIN_PERMISSIONS,
@@ -22,6 +23,9 @@ EXPECTED_ORG_PERMS = {
     "manage_evals",
     "access_workspace",
     "view_code", "run_custom_code",
+    # Agent sandboxes: valid always (AGENT_SANDBOX_PERMISSION_CATEGORIES),
+    # offered in the role editor only while BOW_AGENT_SANDBOXES_ENABLED is on.
+    "use_agent_sandbox", "manage_sandboxes",
     "view_members", "manage_members", "manage_service_accounts",
     "manage_settings", "manage_llm",
     "view_audit_logs", "manage_identity_providers",
@@ -30,7 +34,7 @@ EXPECTED_ORG_PERMS = {
 
 def test_all_permissions_is_exactly_expected_set():
     assert ALL_PERMISSIONS == EXPECTED_ORG_PERMS
-    assert len(ALL_PERMISSIONS) == 22
+    assert len(ALL_PERMISSIONS) == 24
 
 
 def test_full_admin_access_is_not_in_all_permissions():
@@ -74,6 +78,8 @@ def test_default_admin_uses_wildcard():
 def test_categories_flat_equals_all_permissions():
     flat = {p for perms in PERMISSION_CATEGORIES.values() for p in perms}
     flat |= {p for perms in HIDDEN_PERMISSION_CATEGORIES.values() for p in perms}
+    # Feature-gated permissions are valid strings too, offered only with their flag on.
+    flat |= {p for perms in AGENT_SANDBOX_PERMISSION_CATEGORIES.values() for p in perms}
     assert flat == ALL_PERMISSIONS
 
 

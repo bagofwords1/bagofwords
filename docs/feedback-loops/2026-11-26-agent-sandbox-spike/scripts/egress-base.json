@@ -1,0 +1,10 @@
+{
+ "admin": {"listen": "unix//run/caddy-admin/admin.sock"},
+ "logging": {"logs": {"default": {"exclude": ["http.log.access.egress"]}, "egress": {"include": ["http.log.access.egress"], "encoder": {"format": "json"}}}},
+ "apps": {"http": {"servers": {"egress": {
+    "listen": [":3128"],
+    "automatic_https": {"disable": true},
+    "logs": {"default_logger_name": "egress"},
+    "routes": [{"@id": "deny", "handle": [{"handler": "static_response", "status_code": 403, "body": "bow-sandbox egress: this sandbox has no internet access\n"}]}]
+ }}}}
+}

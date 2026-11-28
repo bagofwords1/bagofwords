@@ -36,7 +36,7 @@ MAX_VALUE_LENGTH = 256
 IMPORT_COLUMN_PREFIX = "attr."
 
 
-def normalize_custom_attributes(raw: Optional[Mapping[str, Any]]) -> Dict[str, str]:
+def normalize_custom_attributes(raw: Optional[Mapping[str, Any]]) -> Dict[str, str | list[str]]:
     """Validate and normalize an attributes dict.
 
     Keys and values are trimmed; an entry with an empty value is dropped (that
@@ -50,7 +50,7 @@ def normalize_custom_attributes(raw: Optional[Mapping[str, Any]]) -> Dict[str, s
             ErrorCode.MEMBER_ATTRIBUTES_INVALID,
             "Member attributes must be an object of key/value pairs.",
         )
-    out: Dict[str, str] = {}
+    out: Dict[str, str | list[str]] = {}
     for key, value in raw.items():
         k = str(key or "").strip()
         if not ATTRIBUTE_KEY_RE.match(k):
@@ -62,7 +62,14 @@ def normalize_custom_attributes(raw: Optional[Mapping[str, Any]]) -> Dict[str, s
             )
         if value is None:
             continue
-        if isinstance(value, (dict, list)):
+        if isinstance(value, list):
+            if len(value) > 256 or any(not isinstance(v, str) or len(v) > MAX_VALUE_LENGTH for v in value):
+                raise AppError.bad_request(ErrorCode.MEMBER_ATTRIBUTES_INVALID, "Invalid member attribute values")
+            values = list(dict.fromkeys(v.strip() for v in value if v.strip()))
+            if values:
+                out[k] = values
+            continue
+        if isinstance(value, dict):
             raise AppError.bad_request(
                 ErrorCode.MEMBER_ATTRIBUTES_INVALID,
                 f"Attribute '{k}' must be a single text value.",
@@ -96,7 +103,11 @@ def effective_member_attributes(membership: Any) -> Dict[str, Any]:
     if isinstance(synced, dict):
         merged.update(synced)
     if isinstance(custom, dict):
-        merged.update(custom)
+        for key, value in custom.items():
+            if isinstance(value, list):
+                merged.pop(key, None)  # Scalar external credential mappings cannot use sets.
+            else:
+                merged[key] = value
     return merged
 
 

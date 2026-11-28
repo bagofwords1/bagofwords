@@ -1,23 +1,21 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
+import logging
+
 import pandas as pd
+from contextlib import contextmanager
 from typing import List
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 
-from contextlib import contextmanager
-import decimal
-
-# The driver verticapy itself is built on. verticapy keeps ONE current
-# connection per process and stores connection details in a file; this client
-# opens its own connection per call instead, so two connections can never
-# run on each other's session and nothing is written to disk.
 try:
     import vertica_python
 except ImportError:
     vertica_python = None
+
+logger = logging.getLogger(__name__)
 
 
 class VerticaClient(DataSourceClient):
@@ -29,79 +27,78 @@ class VerticaClient(DataSourceClient):
 
     def __init__(self, host, port, database, user, password, schema="public", **kwargs):
         if vertica_python is None:
-            raise ImportError("vertica-python is required for Vertica connections. Please install it with: pip install verticapy")
-        
+            raise ImportError(
+                "vertica-python is required for Vertica connections. Please install it with: pip install vertica-python")
+
         self.host = host
         self.port = port
         self.database = database
         self.schema = schema
         self.user = user
         self.password = password
-        self._connection_name = f"vertica_conn_{hash(f'{host}_{port}_{database}_{user}_{schema}')}"
-        self._connected = False
 
     @cached_property
     def connection_params(self):
+        """The driver's connection details, as verticapy passed them before
+        (the port as a number, undecodable bytes ignored)."""
         return {
             "host": self.host,
-            "port": str(self.port),
+            "port": int(self.port),
             "database": self.database,
             "user": self.user,
-            "password": self.password
+            "password": self.password,
+            "unicode_error": "ignore",
         }
 
     @contextmanager
     def connect(self):
-        """Yield a connection of this client's own, closed on exit."""
+        """A vertica_python connection of this client's own, for one call,
+        closed after it. Nothing is shared between calls or clients (verticapy
+        kept one connection for the whole process, which the last client to
+        connect replaced) and no credentials are written to disk."""
         try:
-            conn = vertica_python.connect(
-                host=self.host,
-                port=int(self.port),
-                database=self.database,
-                user=self.user,
-                password=self.password,
-                # What verticapy set on the connections it opened.
-                unicode_error="ignore",
-                session_label="BagOfWords",
-            )
+            conn = vertica_python.connect(**self.connection_params)
         except IndexingCancelled:
             raise
         except Exception as e:
-            raise RuntimeError(f"Failed to connect to Vertica: {e}")
+            # The type only: a driver message may hold connection details
+            # (the cause keeps it).
+            raise RuntimeError(f"Failed to connect to Vertica ({type(e).__name__})") from e
         try:
             yield conn
         finally:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                # The type only: a driver message may hold connection details.
+                logger.warning("vertica: closing the connection failed (%s)", type(e).__name__)
 
-    def _query_df(self, sql: str) -> pd.DataFrame:
-        """Run one query on a connection of its own.
-
-        Same shape as before: the statement is read as a relation (so it must
-        be a query) and NUMERIC values come back as floats.
-        """
-        statement = str(sql).strip()
-        while statement.endswith(";"):
-            statement = statement[:-1].rstrip()
+    def _frame(self, sql: str) -> pd.DataFrame:
+        """Run `sql` once on a connection of this client's own and return
+        the result as vDataFrame.to_pandas built it: the driver's rows, the
+        cursor's column names, every row, and an empty result as an empty
+        frame."""
         with self.connect() as conn:
-            cur = conn.cursor()
-            cur.execute(f"SELECT * FROM (\n{statement}\n) VERTICAPY_SUBTABLE")
-            rows = cur.fetchall()
-            columns = [d[0] for d in (cur.description or [])]
-        data = [
-            [float(v) if isinstance(v, decimal.Decimal) else v for v in row]
-            for row in rows
-        ]
-        return pd.DataFrame(data, columns=columns)
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            rows = cursor.fetchall()
+            columns = [column[0] for column in (cursor.description or [])]
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df.columns = columns
+        return df
 
     def execute_query(self, sql: str) -> pd.DataFrame:
-        """Execute SQL statement and return the result as a DataFrame."""
+        """Execute SQL statement and return the result as a DataFrame.
+
+        `sql` is sent exactly as given (the read-only guard checked this
+        text), once, on a vertica_python cursor. Not through verticapy's
+        vDataFrame, which rewrites a query before sending it."""
         try:
-            return self._query_df(sql)
+            return self._frame(sql)
         except Exception as e:
-            print(f"Error executing SQL: {e}")
+            # The type only: a driver message may hold connection details.
+            logger.warning("vertica: the query failed (%s)", type(e).__name__)
             raise
 
     def get_tables(self) -> List[Table]:
@@ -110,7 +107,9 @@ class VerticaClient(DataSourceClient):
             return self._get_tables_enriched()
         except IndexingCancelled:
             raise
-        except Exception:
+        except Exception as e:
+            logger.warning("vertica: reading the catalog with comments failed (%s); reading it without them",
+                           type(e).__name__)
             return self._get_tables_basic()
 
     def _get_tables_enriched(self) -> List[Table]:
@@ -162,7 +161,7 @@ class VerticaClient(DataSourceClient):
         ORDER BY table_name, column_name;
         """
 
-        result = self._query_df(query)
+        result = self._frame(query)
 
         tables = {}
         for _, row in discovery_items(result.iterrows(), 'columns', total=len(result), label=lambda pair: str(pair[1]['table_name']) + '.' + str(pair[1]['column_name'])):
@@ -221,7 +220,7 @@ class VerticaClient(DataSourceClient):
             ORDER BY table_name, column_name;
             """
 
-            result = self._query_df(query)
+            result = self._frame(query)
 
             tables = {}
             for _, row in discovery_items(result.iterrows(), 'columns', total=len(result), label=lambda pair: str(pair[1]['table_name']) + '.' + str(pair[1]['column_name'])):
@@ -240,7 +239,7 @@ class VerticaClient(DataSourceClient):
             raise
         except Exception as e:
             self.mark_discovery_incomplete("vertica catalog")
-            print(f"Error retrieving tables: {e}")
+            logger.warning("vertica: reading the catalog failed (%s)", type(e).__name__)
             return []
 
     def get_schema(self, table_id: str) -> Table:
@@ -260,8 +259,9 @@ class VerticaClient(DataSourceClient):
     def test_connection(self):
         """Test connection to Vertica and return status information."""
         try:
-            test_result = self._query_df("SELECT 1 as test")
-            
+            # Test with a simple query
+            test_result = self._frame("SELECT 1 as test")
+
             if not test_result.empty:
                 return {
                     "success": True,
@@ -281,7 +281,7 @@ class VerticaClient(DataSourceClient):
     @property
     def description(self):
         system_prompt = """
-        You can call the execute_query method to run SQL queries using verticapy.
+        You can call the execute_query method to run SQL queries using vertica_python.
         
         The below are examples for how to use the execute_query method. Note that the actual SQL will vary based on the schema.
         Notice only the SQL syntax and instructions on how to use the execute_query method, not the actual SQL queries.
@@ -300,13 +300,3 @@ class VerticaClient(DataSourceClient):
         description += system_prompt
 
         return description
-
-    def __del__(self):
-        """Clean up connection when object is destroyed."""
-        if self._connected:
-            try:
-                # verticapy manages connections internally
-                # No explicit cleanup needed
-                pass
-            except:
-                pass

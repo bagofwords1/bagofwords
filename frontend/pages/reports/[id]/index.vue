@@ -278,6 +278,7 @@
 											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" :dir="promptDir(m.prompt?.content)">
 												<CollapsiblePrompt v-if="m.prompt?.content" class="pt-1">
 													<PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
+													<FixErrorRequestCard v-else-if="parseFixErrorPrompt(m.prompt.content)" :request="parseFixErrorPrompt(m.prompt.content)!" />
 													<ClarifyAnswerCard v-else-if="parseClarifyPrompt(m.prompt.content)" :answers="parseClarifyPrompt(m.prompt.content)!" />
 													<InstructionText
 														v-else
@@ -1317,6 +1318,8 @@ import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import GenerateImageTool from '~/components/tools/GenerateImageTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
+import RunInSandboxTool from '~/components/tools/RunInSandboxTool.vue'
+import SandboxTool from '~/components/tools/SandboxTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
@@ -1386,8 +1389,10 @@ import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
+import FixErrorRequestCard from '~/components/report/FixErrorRequestCard.vue'
 import CollapsiblePrompt from '~/components/report/CollapsiblePrompt.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
+import { parseFixErrorPrompt } from '~/utils/fixErrorPrompt'
 import ClarifyAnswerCard from '~/components/report/ClarifyAnswerCard.vue'
 import { parseClarifyPrompt } from '~/utils/clarifyPrompt'
 import { isToolRunning } from '~/utils/toolOutcome'
@@ -3657,6 +3662,10 @@ function hasCompletedContent(block: CompletionBlock): boolean {
 	return !!(block.content || block.tool_execution || block.status === 'completed' || block.status === 'stopped' || block.plan_decision?.analysis_complete || block.plan_decision?.final_answer)
 }
 
+// Streamed process output kept per stream while a tool runs (the result
+// carries the last 20 KB of each; this is the same order of size).
+const LIVE_OUTPUT_MAX_CHARS = 64 * 1024
+
 function getToolComponent(toolName: string) {
 	// Native per-list tools (submit_<list>) stream under their own name
 	// before the gateway rewrite to submit_list.
@@ -3755,6 +3764,12 @@ function getToolComponent(toolName: string) {
 			return GenerateImageTool
 		case 'attach_file':
 			return AttachFileTool
+		case 'run_in_sandbox':
+			return RunInSandboxTool
+		case 'create_sandbox':
+		case 'sandbox_status':
+		case 'delete_sandbox':
+			return SandboxTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'create_instruction':
@@ -4549,6 +4564,19 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						nextTE.confirmation = prevTE.confirmation
 						if (!nextTE.progress_stage) nextTE.progress_stage = prevTE.progress_stage
 					}
+					// Same for the output a running tool has streamed so far
+					// (run_in_sandbox): only this client holds it until the result lands.
+					if (incomingHasTE && prevTE?.live_output && nextTE && !nextTE.live_output &&
+						String(prevTE.id) === String(nextTE.id) && isToolRunning(nextTE.status)) {
+						nextTE.live_output = prevTE.live_output
+						if (!nextTE.progress_stage) nextTE.progress_stage = prevTE.progress_stage
+					}
+					// ... and for where a run_in_sandbox call said it runs (its first
+					// progress event), which the stored row gets only with the result.
+					if (incomingHasTE && prevTE?.sandbox_target && nextTE && !nextTE.sandbox_target &&
+						String(prevTE.id) === String(nextTE.id)) {
+						nextTE.sandbox_target = prevTE.sandbox_target
+					}
 					Object.assign(existing, merged)
 					reapplyVizRefinement(existing.tool_execution)
 				} else {
@@ -4788,6 +4816,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							}
 						}
 
+						// run_in_sandbox: its first progress event says where it will run,
+						// so the block can show it while the run is still going.
+						if (payload.tool_name === 'run_in_sandbox' && payload.payload.environment) {
+							;(lastBlock.tool_execution as any).sandbox_target = {
+								environment: payload.payload.environment,
+								network_policy: payload.payload.network_policy || null
+							}
+						}
+
 						// create_demo_dataset: per-table generation progress for its card
 						if (payload.tool_name === 'create_demo_dataset' && Array.isArray(payload.payload.tables)) {
 							;(lastBlock.tool_execution as any).demo_progress = {
@@ -4993,6 +5030,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					const msg = typeof payload.payload === 'string' ? payload.payload : (payload.payload?.message || '')
 					if (msg) {
 						te.progress_stdout.push(msg)
+					}
+					// run_in_sandbox streams its process output as {stream, text}
+					// chunks. Kept as the tail of each stream: the block shows it
+					// while the run works and the result replaces it at the end.
+					const chunk = payload.payload
+					if (chunk && typeof chunk === 'object' && typeof chunk.text === 'string' && (chunk.stream === 'stdout' || chunk.stream === 'stderr')) {
+						const live = te.live_output || { stdout: '', stderr: '' }
+						const next = live[chunk.stream] + chunk.text
+						te.live_output = { ...live, [chunk.stream]: next.length > LIVE_OUTPUT_MAX_CHARS ? next.slice(-LIVE_OUTPUT_MAX_CHARS) : next }
 					}
 				}
 			}

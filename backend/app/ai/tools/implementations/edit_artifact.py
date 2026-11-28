@@ -9,6 +9,7 @@ planner can correct in its own loop — the planner IS the repair loop here.
 """
 
 import logging
+from collections import Counter
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional, Type
 
@@ -331,6 +332,7 @@ class EditArtifactTool(Tool):
 
         screenshot_b64: Optional[str] = None
         render_errors: List[str] = []
+        known_charts: List[str] = []
         _pptx_tmp = None
 
         if artifact.mode == "slides":
@@ -404,14 +406,26 @@ class EditArtifactTool(Tool):
             try:
                 html = self._create_tool._build_thumbnail_html(artifact_data, new_code, mode="page")
                 screenshot_b64, render_errors = await self._create_tool._take_preview_screenshot(html)
-                fatal = self._create_tool.fatal_render_errors(render_errors)
+                # Charts the page already got wrong don't block this edit (they
+                # stay in render_errors, reported as a note); the ones it breaks
+                # do (no in-tool repair here: the planner fixes them).
+                chart_cache: Dict[str, Any] = {}
+                gating, known_charts = await self._create_tool._split_known_chart_errors(
+                    render_errors, artifact_data, code, chart_cache, previous_render_errors=artifact.render_errors)
+                fatal = self._create_tool.fatal_render_errors(gating)
                 if fatal:
                     from app.ai.tools.implementations._artifact_refs import render_error_hint
                     _fix_hint = render_error_hint(fatal[0])
+                    _maybe_old = (fatal == self._create_tool.chart_render_errors(fatal)
+                                  and chart_cache.get("baseline", Counter()) is None)
                     yield self._fail(
                         artifact, "render_failed",
-                        f"The edited code fails to render: {fatal[0]}",
-                        {"render_errors": render_errors, "remediation": (
+                        f"The edited code fails to render: {fatal[0]}"
+                        + (self._create_tool.CHART_BASELINE_MISSING_NOTE if _maybe_old else ""),
+                        {"render_errors": render_errors,
+                         # In render_errors too, but not why the edit failed.
+                         **({"known_chart_errors": known_charts} if known_charts else {}),
+                         "remediation": (
                             (f"{_fix_hint} " if _fix_hint else "")
                             + "Fix the ops to resolve the render error and retry.")},
                     )
@@ -557,6 +571,7 @@ class EditArtifactTool(Tool):
                         f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{version_number}. "
                         "Contracts verified. "
                         + ("Render validated. " if render_checked is not False else self._create_tool.RENDER_UNCHECKED_NOTE.strip() + " ")
+                        + (self._create_tool.known_chart_errors_note(known_charts) + " " if known_charts else "")
                         + partial_data_warning(partial_data)
                         + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),
@@ -567,6 +582,7 @@ class EditArtifactTool(Tool):
                     "diff_applied": True,
                     "applied_ops": len(data.edits),
                     **({"render_checked": False} if render_checked is False else {}),
+                    **({"known_chart_errors": known_charts} if known_charts else {}),
                     **({"warnings": id_notes} if id_notes else {}),
                 },
             },
