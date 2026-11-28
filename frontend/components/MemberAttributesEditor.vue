@@ -15,7 +15,9 @@
         <p v-if="keyError(row)" class="text-2xs text-red-500 mt-0.5">{{ keyError(row) }}</p>
       </div>
       <div class="flex-1 min-w-0">
-        <UInput
+        <label class="block text-xs"><input v-model="row.multiple" type="checkbox" @change="emitValue"> {{ t('liveAccess.multi') }}</label>
+        <textarea v-if="row.multiple" v-model="row.value" rows="3" class="block w-full rounded border" :aria-label="t('liveAccess.multi')" @input="emitValue" />
+        <UInput v-else
           v-model="row.value"
           size="sm"
           maxlength="256"
@@ -53,17 +55,17 @@
 // Key/value editor for admin-set member attributes. Mirrors the backend rules
 // (services/member_attributes.py): identifier-like keys, single-line values;
 // rows with an empty value are dropped on save (that is how one is removed).
-const props = defineProps<{ modelValue: Record<string, string> | null | undefined; suggestions?: string[] }>()
-const emit = defineEmits<{ (e: 'update:modelValue', value: Record<string, string>): void; (e: 'valid', ok: boolean): void }>()
+const props = defineProps<{ modelValue: Record<string, string | string[]> | null | undefined; suggestions?: string[] }>()
+const emit = defineEmits<{ (e: 'update:modelValue', value: Record<string, string | string[]>): void; (e: 'valid', ok: boolean): void }>()
 const { t } = useI18n()
 
 const KEY_RE = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/
 const datalistId = `member-attr-keys-${Math.random().toString(36).slice(2, 8)}`
 let nextId = 0
-const rows = ref<{ id: number; key: string; value: string }[]>([])
+const rows = ref<{ id: number; key: string; value: string; multiple: boolean }[]>([])
 
-function load(value: Record<string, string> | null | undefined) {
-  rows.value = Object.entries(value || {}).map(([key, v]) => ({ id: nextId++, key, value: String(v ?? '') }))
+function load(value: Record<string, string | string[]> | null | undefined) {
+  rows.value = Object.entries(value || {}).map(([key, v]) => ({ id: nextId++, key, value: Array.isArray(v) ? v.join('\n') : String(v ?? ''), multiple: Array.isArray(v) }))
 }
 load(props.modelValue)
 
@@ -76,18 +78,18 @@ function keyError(row: { key: string; value: string }): string | null {
 }
 
 function emitValue() {
-  const out: Record<string, string> = {}
+  const out: Record<string, string | string[]> = {}
   for (const row of rows.value) {
     const key = row.key.trim()
     const value = row.value.trim()
-    if (key && value) out[key] = value
+    if (key && value) out[key] = row.multiple ? value.split('\n').map(v=>v.trim()).filter(Boolean) : value
   }
   emit('update:modelValue', out)
   emit('valid', rows.value.every(r => !keyError(r)))
 }
 
 function addRow() {
-  rows.value.push({ id: nextId++, key: '', value: '' })
+  rows.value.push({ id: nextId++, key: '', value: '', multiple: false })
 }
 
 function removeRow(idx: number) {

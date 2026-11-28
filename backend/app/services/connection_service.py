@@ -971,7 +971,7 @@ class ConnectionService:
         connection = await self.get_connection(db, connection_id, organization)
         if connection.active_company_policy is not None and {"config", "auth_policy"}.intersection(updates):
             raise HTTPException(409, "The destination and authentication mode of a protected connection are fixed")
-        if connection.type == "ms_fabric" and {"config", "auth_policy"}.intersection(updates):
+        if connection.type.lower() in {"ms_fabric","mssql","postgresql","oracledb"} and {"config", "auth_policy"}.intersection(updates):
             # Serialize destination changes against activation, including on SQLite.
             reserved = await db.execute(update(Connection).where(
                 Connection.id == connection.id, Connection.updated_at == connection.updated_at,
@@ -3096,6 +3096,7 @@ class ConnectionService:
         current_user: User = None,
         config_overrides: dict = None,
         credential_overrides: dict = None,
+        *, policy_preview=None,
     ):
         """Construct a database client for this connection."""
         logger.info(f"construct_client: Building client for connection {connection.id} (type={connection.type})")
@@ -3158,7 +3159,11 @@ class ConnectionService:
         from app.data_sources.clients._duckdb_lockdown import bind_organization
         client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
         from app.services.fabric_company_policy import bind_company_reader
-        await bind_company_reader(db, connection, client, current_user)
+        if policy_preview is None:
+            await bind_company_reader(db, connection, client, current_user)
+        else:
+            # Only the privileged draft-preview service supplies this server-resolved tuple.
+            client.bind_company_reader(*policy_preview)
         if connection.type in ("network_dir", "postgresql_multi"):
             client._bow_connection_id = str(connection.id)
         if connection.type in ("remote_ssh", "remote_smb"):

@@ -20,7 +20,7 @@
           @click="activeTab = tab.key"
         >{{ tab.label }}</button>
       </div>
-      <FabricCompanyPolicy v-if="activeTab === 'company' && canSeeQueries && connection.type === 'ms_fabric'" :key="connection.id" :connection-id="connection.id" />
+      <FabricCompanyPolicy v-if="activeTab === 'company' && canSeeQueries && supportsAccessRules" :key="connection.id" :connection-id="connection.id" />
       <div v-else-if="activeTab === 'queries' && canSeeQueries" class="min-h-0 overflow-y-auto -mx-5 border-t border-gray-100 dark:border-gray-800 px-6 py-6 md:px-8 md:max-h-[70vh]" role="tabpanel">
         <ConnectionQueriesPanel :connection-id="connection.id" :active="open && activeTab === 'queries'" />
       </div>
@@ -92,9 +92,10 @@ const activeTab = ref<'settings' | 'tools' | 'queries' | 'company'>('settings')
 // built-in connectors with write actions (Outlook, Teams).
 const TOOL_TYPES = ['mcp', 'custom_api', 'remote_ssh', 'remote_smb', 'outlook_mail', 'teams_messages']
 const hasTools = computed(() => TOOL_TYPES.includes(props.connection?.type))
+const supportsAccessRules = computed(() => ['ms_fabric', 'mssql', 'oracledb', 'postgresql'].includes(String(props.connection?.type).toLowerCase()))
 const tabs = computed(() => [
   { key: 'settings' as const, label: t('connectionQueries.tabSettings') },
-  ...(props.connection?.type === 'ms_fabric' ? [{ key: 'company' as const, label: t('fabricCompany.tab') }] : []),
+  ...(supportsAccessRules.value ? [{ key: 'company' as const, label: t('liveAccess.title') }] : []),
   ...(hasTools.value ? [{ key: 'tools' as const, label: t('connectionTools.tab') }] : []),
   { key: 'queries' as const, label: t('connectionQueries.tabQueries') },
 ])

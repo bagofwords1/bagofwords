@@ -2,6 +2,10 @@
 import json
 import time
 from uuid import UUID
+from datetime import datetime, timedelta
+from typing import Literal
+
+from pydantic import model_validator
 
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import select, update
@@ -12,13 +16,31 @@ from app.models.oauth_account import OAuthAccount
 from app.models.user import User
 
 
+POLICY_CONNECTORS = {"ms_fabric", "postgresql", "mssql", "oracledb"}
+
+
 class ConnectionCompanyPolicy(CompanyPolicy):
-    tenant_id: UUID
+    inventory: tuple[str, ...] = ()
+    tenant_id: UUID | None = None
+    reader_source: Literal["entra", "verified_email"] = "entra"
+
+    @model_validator(mode="after")
+    def validate_tenant(self):
+        if self.reader_source == "entra" and not self.tenant_id:
+            raise ValueError("An Entra policy requires its tenant")
+        return self
 
 
 async def employee_for(db, organization_id, user, policy: ConnectionCompanyPolicy) -> str:
     if user is None:
         raise ValueError("A verified employee identity is required")
+    if policy.reader_source == "verified_email":
+        login = await db.scalar(select(User.email).join(Membership, Membership.user_id == User.id).where(
+            User.id == str(user.id), User.is_verified.is_(True), User.is_active.is_(True),
+            Membership.organization_id == str(organization_id), Membership.deleted_at.is_(None)))
+        if not login:
+            raise ValueError("A verified workspace member is required")
+        return str(TypeAdapter(EmailStr).validate_python(login)).lower()
     stmt = (
         select(OAuthAccount.entra_identity)
         .join(User, User.id == OAuthAccount.user_id)
@@ -36,22 +58,51 @@ async def employee_for(db, organization_id, user, policy: ConnectionCompanyPolic
     raise ValueError("A verified employee identity is required")
 
 
+async def policy_identity(db, organization_id, user, policy):
+    from app.services.rls_identity_service import resolve_identity
+    employee = await employee_for(db, organization_id, user, policy)
+    identity = await resolve_identity(db, user, organization_id)
+    if identity.is_anonymous:
+        raise ValueError("An active workspace member is required")
+    identity.email = employee
+    verified = await db.scalar(select(Membership.profile_verified_at).where(
+        Membership.user_id == str(user.id), Membership.organization_id == str(organization_id),
+        Membership.deleted_at.is_(None)))
+    if not verified or verified < datetime.utcnow() - timedelta(days=1):
+        identity.profile_attributes = {}
+    return employee, identity
+
+
 async def bind_company_reader(db, connection, client, viewer):
     """Called after credentials are resolved. A credential owner is never a default viewer."""
     policy_data = getattr(connection, "active_company_policy", None)
     if policy_data is None:
         return client
     from app.data_sources.clients.ms_fabric_client import MsFabricClient
-    if not isinstance(client, MsFabricClient):
+    from app.data_sources.clients._protected_sql import ProtectedSql
+    if not isinstance(client, (MsFabricClient, ProtectedSql)):
         raise ValueError("Company-filtered connection unavailable")
     config = json.loads(connection.config) if isinstance(connection.config, str) else connection.config
-    if (client.database != config.get("database") or client.server_hostname != config.get("server_hostname")
-            or connection.auth_policy != "system_only"):
+    keys = (("server_hostname", "database") if connection.type == "ms_fabric" else
+            ("host", "port", "service_name" if connection.type.lower() == "oracledb" else "database"))
+    if connection.auth_policy != "system_only" or any(
+        str(getattr(client, k)) != str(config.get(k)) for k in keys):
         raise ValueError("Protected connection destination or authentication changed")
     policy = ConnectionCompanyPolicy.model_validate(policy_data)
-    employee = await employee_for(db, connection.organization_id, viewer, policy)
-    client.bind_company_reader(policy, employee)
+    employee, identity = await policy_identity(db, connection.organization_id, viewer, policy)
+    client.bind_company_reader(policy, employee, identity)
     return client
+
+async def reader_columns(db, connection, user):
+    policy = ConnectionCompanyPolicy.model_validate(connection.active_company_policy)
+    if not any(r.columns is not None for r in policy.tables):
+        return {}
+    try:
+        employee, identity = await policy_identity(db, connection.organization_id, user, policy)
+    except ValueError:
+        return {r.table: set() for r in policy.tables}
+    return {r.table: set(r.visible_columns(employee, identity)) for r in policy.tables if r.columns is not None}
+
 
 def visible_company_tables(connection):
     policy_data = getattr(connection, "active_company_policy", None)
@@ -73,10 +124,10 @@ async def activate_company_policy(db, organization, connection_id, expected, act
         Connection.id == connection_id, Connection.organization_id == organization.id,
         Connection.deleted_at.is_(None),
     ).with_for_update().execution_options(populate_existing=True))
-    if connection is None or connection.type != "ms_fabric":
+    if connection is None or connection.type.lower() not in POLICY_CONNECTORS:
         raise HTTPException(404, "Fabric connection unavailable")
     payload = expected.model_dump(mode="json")
-    if payload != connection.company_policy:
+    if not connection.company_policy or expected != ConnectionCompanyPolicy.model_validate(connection.company_policy):
         raise HTTPException(409, "Reload the saved mapping before activation")
     if connection.auth_policy != "system_only":
         raise HTTPException(409, "A system-credential Fabric connection is required")

@@ -71,6 +71,7 @@ class Identity:
     user_id: Optional[str] = None
     email: Optional[str] = None
     profile_attributes: Dict[str, Any] = field(default_factory=dict)
+    custom_attributes: Dict[str, Any] = field(default_factory=dict)
     group_ids: Set[str] = field(default_factory=set)
     group_names: Set[str] = field(default_factory=set)
     role_ids: Set[str] = field(default_factory=set)
@@ -138,6 +139,8 @@ def resolve_source(source: str, identity: Identity) -> List[str]:
         return sorted(identity.group_names)
     if source == SOURCE_ROLES:
         return sorted(identity.role_names)
+    if source.startswith("custom."):
+        return _as_values(identity.custom_attributes.get(source.removeprefix("custom.")))
     if source.startswith(SOURCE_PROFILE_PREFIX):
         key = source[len(SOURCE_PROFILE_PREFIX):]
         return _as_values((identity.profile_attributes or {}).get(key))
@@ -278,6 +281,7 @@ def validate_policy(
         source == SOURCE_EMAIL
         or source == SOURCE_GROUPS
         or source == SOURCE_ROLES
+        or source.startswith("custom.")
         or source.startswith(SOURCE_PROFILE_PREFIX)
     )
     grants = policy.get("grants") or []

@@ -63,12 +63,17 @@ async def resolve_identity(
             select(Membership).where(
                 Membership.user_id == user_id,
                 Membership.organization_id == str(organization_id),
+                Membership.deleted_at.is_(None),
             )
         )).scalars().first()
-        if membership is not None and isinstance(membership.profile_attributes, dict):
+        if membership is None:
+            return ANONYMOUS
+        identity.custom_attributes = dict(membership.custom_attributes or {})
+        if isinstance(membership.profile_attributes, dict):
             identity.profile_attributes = dict(membership.profile_attributes)
     except Exception:
         logger.warning("rls.identity.profile_lookup_failed", exc_info=True)
+        return ANONYMOUS
 
     # --- groups -------------------------------------------------------------
     try:
@@ -77,7 +82,7 @@ async def resolve_identity(
             .join(GroupMembership, GroupMembership.group_id == Group.id)
             .where(
                 GroupMembership.user_id == user_id,
-                Group.organization_id == str(organization_id),
+                Group.organization_id == str(organization_id), Group.deleted_at.is_(None),
             )
         )).all()
         identity.group_ids = {str(gid) for gid, _ in rows}
@@ -114,7 +119,7 @@ async def resolve_identity(
     return identity
 
 
-async def available_attribute_keys(db: AsyncSession, organization_id: str) -> list[str]:
+async def available_attribute_keys(db: AsyncSession, organization_id: str, *, custom: bool = False) -> list[str]:
     """Profile attribute keys the org actually syncs, for the policy editor.
 
     Offering the real keys (rather than a hardcoded Entra list) is what stops an
@@ -123,12 +128,13 @@ async def available_attribute_keys(db: AsyncSession, organization_id: str) -> li
     """
     from app.models.membership import Membership
 
+    attribute = Membership.custom_attributes if custom else Membership.profile_attributes
     keys: set[str] = set()
     try:
         rows = (await db.execute(
-            select(Membership.profile_attributes).where(
+            select(attribute).where(
                 Membership.organization_id == str(organization_id),
-                Membership.profile_attributes.isnot(None),
+                attribute.isnot(None), Membership.deleted_at.is_(None),
             )
         )).scalars().all()
         for attrs in rows:

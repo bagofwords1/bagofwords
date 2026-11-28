@@ -1974,11 +1974,12 @@ class QueryCapturingClientWrapper:
             # Stopped between the slot claim and the handoff: the statement
             # must not reach the source at all.
             raise query_executions.QueryRunStoppedError()
+        from app.data_sources.policy_history import track_policy
         from app.core.egress import observing_sends
 
         observed = observing_sends(send_observer) if send_observer is not None else contextlib.nullcontext()
         if getattr(self._original, "_manages_query_deadline", False):
-            with query_tag.applied_query_tag(self._query_tag), observed:
+            with query_tag.applied_query_tag(self._query_tag), observed, track_policy(handle):
                 try:
                     if query is _NO_QUERY:
                         # Keyword-only call, as in the threaded branch below.
@@ -1993,7 +1994,7 @@ class QueryCapturingClientWrapper:
                 # A fresh thread starts with an empty context: re-apply the
                 # run's query tag so the client can stamp it on the session,
                 # and the send observer, which lives in the context too.
-                with query_tag.applied_query_tag(self._query_tag), observed:
+                with query_tag.applied_query_tag(self._query_tag), observed, track_policy(handle):
                     if query is _NO_QUERY:
                         # Keyword-only client call — there was no positional to
                         # forward (args is necessarily empty in this case).

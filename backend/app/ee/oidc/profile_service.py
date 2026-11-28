@@ -267,6 +267,8 @@ async def store_profile_attributes(
     if not membership:
         return {}
 
+    from datetime import datetime
+    membership.profile_verified_at = datetime.utcnow()
     membership.profile_attributes = attrs
     flag_modified(membership, "profile_attributes")
     db.add(membership)

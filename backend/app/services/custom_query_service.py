@@ -2362,10 +2362,9 @@ class CustomQueryService:
         that case. It exists so an admin learns about a typo when they press
         Save rather than by wondering why a report came back empty.
         """
-        if rls_enabled:
-            # Enterprise-only to enable or edit; turning OFF stays open so a
-            # lapsed license never traps an org behind its own policy.
+        if rls_enabled or cq.rls_enabled:
             self.ensure_rls_licensed()
+        if rls_enabled:
             columns = [
                 c.get("name") for c in (cq.columns or []) if isinstance(c, dict)
             ]

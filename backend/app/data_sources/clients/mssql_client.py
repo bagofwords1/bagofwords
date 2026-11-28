@@ -169,7 +169,11 @@ def _session_setup_hook(sql: str):
     return hook
 
 
-class MSSQLClient(DataSourceClient):
+from app.data_sources.clients._protected_sql import ProtectedSql
+
+
+class MSSQLClient(ProtectedSql, DataSourceClient):
+    policy_dialect = "tsql"
 
     # T-SQL: '' only, backslash is ordinary (sqlglot tsql).
     sql_literal_style = "standard"
@@ -360,7 +364,7 @@ class MSSQLClient(DataSourceClient):
         return manager.service_ccache(self.kerberos_principal)
 
     @contextmanager
-    def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
+    def _policy_session(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to a SQL Server database."""
         conn = None
         try:
@@ -438,6 +442,8 @@ class MSSQLClient(DataSourceClient):
     DEADLOCK_RETRIES = 1
 
     def execute_query(self, sql: str) -> pd.DataFrame:
+        if self.company_filtered:
+            return self.execute_company_query(sql, *self._company_reader)
         """Execute SQL statement and return the result as a DataFrame."""
         attempt = 0
         while True:

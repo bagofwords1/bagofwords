@@ -27,7 +27,11 @@ from app.data_sources.clients._sa_url import (
 logger = logging.getLogger(__name__)
 
 
-class PostgresqlClient(DataSourceClient):
+from app.data_sources.clients._protected_sql import ProtectedSql
+
+
+class PostgresqlClient(ProtectedSql, DataSourceClient):
+    policy_dialect = "postgres"
 
     # Postgres with standard_conforming_strings on (the default since 9.1): ''
     # only (sqlglot postgres).
@@ -103,7 +107,7 @@ class PostgresqlClient(DataSourceClient):
         return render(effective_url(self._sa_url))
 
     @contextmanager
-    def connect(self, *, read_only: bool = False) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
+    def _policy_session(self, *, read_only: bool = False) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to a Postgres db.
 
         `read_only=True` is for reads of agent and custom-table SQL: the
@@ -173,6 +177,8 @@ class PostgresqlClient(DataSourceClient):
         # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
+        if self.company_filtered:
+            return self.execute_company_query(sql, *self._company_reader)
         """Execute SQL statement and return the result as a DataFrame.
 
         `sql` is sent exactly as given (the read-only guard returned it), in

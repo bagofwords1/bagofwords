@@ -632,6 +632,7 @@
                 <select data-testid="cq-rls-source" v-model="rls.source"
                         class="w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-xs bg-white dark:bg-gray-900">
                   <option value="">Nothing — use grants only</option>
+                  <option v-for="k in rlsOptions.custom_attribute_keys" :key="'custom.'+k" :value="`custom.${k}`">{{ k }} · {{ t('liveAccess.custom') }}</option>
                   <option v-for="k in rlsOptions.attribute_keys" :key="k" :value="`profile.${k}`">
                     Profile: {{ k }}
                   </option>
@@ -639,6 +640,7 @@
                   <option value="groups">Their groups</option>
                   <option value="roles">Their roles</option>
                 </select>
+                <p class="text-xs text-ink-muted">{{ t('liveAccess.cachedFreshness') }}</p>
                 <p v-if="!rlsOptions.attribute_keys.length" class="text-2xs text-ink-muted mt-1">
                   No profile attributes have synced for this org yet.
                 </p>
@@ -1228,7 +1230,7 @@ const rls = reactive({
   grants: [] as any[],
   default_deny: true,
 })
-const rlsOptions = reactive({ attribute_keys: [] as string[], groups: [] as any[], roles: [] as any[], members: [] as any[] })
+const rlsOptions = reactive({ custom_attribute_keys: [] as string[], attribute_keys: [] as string[], groups: [] as any[], roles: [] as any[], members: [] as any[] })
 const rlsError = ref('')
 const savingRls = ref(false)
 const rlsPreviewUserId = ref('')

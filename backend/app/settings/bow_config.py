@@ -365,6 +365,16 @@ class LDAPConfig(BaseModel):
     user_search_filter: str = "(objectClass=person)"
     user_email_attribute: str = "mail"
     user_name_attribute: str = "displayName"
+    policy_attributes: list[str] = Field(default_factory=list)
+
+    @field_validator("policy_attributes")
+    @classmethod
+    def valid_policy_attributes(cls, values):
+        import re
+        if len(values) > 50 or any(not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9-]{0,63}", v) for v in values):
+            raise ValueError("Invalid directory attribute")
+        return list(dict.fromkeys(values))
+
     group_search_base: Optional[str] = None            # defaults to base_dn
     group_search_filter: str = "(objectClass=group)"
     group_name_attribute: str = "cn"

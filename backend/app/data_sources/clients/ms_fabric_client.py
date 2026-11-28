@@ -241,14 +241,16 @@ class MsFabricClient(DataSourceClient):
     def company_filtered(self):
         return self._company_reader is not None
 
-    def bind_company_reader(self, policy, employee):
+    def bind_company_reader(self, policy, employee, identity=None):
         if self.company_filtered:
             raise ValueError("Company reader already bound")
-        self._company_reader = (policy, employee)
+        self._company_reader = (policy, employee, identity)
 
     def validate_company_policy(self, policy):
         """Check the exact catalog objects and comparable key types before publishing a mapping."""
-        expected = [policy.grants_table, *(rule.table for rule in policy.tables)]
+        expected = [rule.table for rule in policy.tables]
+        if policy.grants_table:
+            expected.append(policy.grants_table)
         catalog = {}
         try:
             with self._session() as conn:
@@ -266,6 +268,13 @@ class MsFabricClient(DataSourceClient):
                                               if s == schema and n == name}
                 finally:
                     cursor.close()
+            for rule in policy.tables:
+                if rule.columns is not None and set(rule.columns).difference(catalog[rule.table]):
+                    raise ValueError("Unknown projected column")
+                if rule.company_column not in catalog[rule.table]:
+                    raise ValueError("Invalid row policy column")
+            if not any(r.source for r in policy.tables):
+                return
             grants = catalog[policy.grants_table]
             identifier_types = {"tinyint", "smallint", "int", "bigint", "uniqueidentifier"}
             text_types = {"nvarchar", "varchar"}
@@ -273,22 +282,40 @@ class MsFabricClient(DataSourceClient):
                     or grants.get(policy.source_column) not in text_types
                     or grants.get(policy.company_column) not in identifier_types
                     or any(catalog[r.table].get(r.company_column) != grants[policy.company_column]
-                           for r in policy.tables)):
+                           for r in policy.tables if r.source)):
                 raise ValueError("Incompatible grant schema")
         except Exception:
             raise ValueError("The configured base tables and grant columns could not be verified") from None
 
-    def execute_company_query(self, sql, policy, employee):
+    def has_company_grant(self, rule):
+        from app.data_sources.fabric_company_rls import protect_query
+        from app.data_sources.fast.rls import resolve_source
+        policy, employee, identity = self._company_reader
+        if rule.row_attribute:
+            return bool(resolve_source(rule.row_attribute, identity))
+        statement, bindings = protect_query(f"SELECT * FROM {rule.table}", policy, employee,
+            identity=identity, dialect=getattr(self, "policy_dialect", "fabric"), grant_probe=True)
+        with self._session() as conn:
+            cursor = conn.cursor()
+            try:
+                return bool(cursor.execute(statement, *bindings).fetchone()[0])
+            finally:
+                cursor.close()
+
+    def execute_company_query(self, sql, policy, employee, identity=None):
         """Host-side execution. The authenticated caller supplies the binding."""
         from app.data_sources.fabric_company_rls import protect_query
 
+        from app.data_sources.policy_history import record_policy
+        record_policy(policy)
         try:
-            if self.company_filtered and (policy, employee) != self._company_reader:
+            if self.company_filtered and (policy, employee, identity) != self._company_reader:
                 raise ValueError("Company reader mismatch")
-            statement, bindings = protect_query(sql, policy, employee)
+            statement, bindings = protect_query(sql, policy, employee, identity=identity)
             with self._session() as conn:
                 cursor = conn.cursor()
                 try:
+                    record_policy(policy, statement)
                     cursor.execute(statement, *bindings)
                     columns = [desc[0] for desc in cursor.description]
                     return pd.DataFrame.from_records(cursor.fetchall(), columns=columns)

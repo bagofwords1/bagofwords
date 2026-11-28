@@ -1034,13 +1034,13 @@ class SchemaContextBuilder:
     async def _company_schema(self, source_ids, connection_ids, names, patterns, top_k):
         """Only selected physical names and column types can enter protected schema context."""
         from app.models.connection import Connection
-        from app.services.fabric_company_policy import ConnectionCompanyPolicy
+        from app.services.fabric_company_policy import ConnectionCompanyPolicy, policy_identity
 
         sections = []
         for source in self.data_sources:
             if source_ids and str(source.id) not in source_ids:
                 continue
-            stmt = (select(Connection.id, Connection.name, Connection.active_company_policy,
+            stmt = (select(Connection.id, Connection.name, Connection.type, Connection.active_company_policy,
                            ConnectionTable.name, ConnectionTable.columns, DataSourceTable.excluded_columns)
                     .select_from(DataSourceTable)
                     .join(ConnectionTable, ConnectionTable.id == DataSourceTable.connection_table_id)
@@ -1056,18 +1056,33 @@ class SchemaContextBuilder:
                 stmt = stmt.where(ConnectionTable.name.in_(names))
             tables = []
             regexes = compile_bounded_all(patterns or [])
-            for cid, connection, policy, name, columns, excluded in (await self.db.execute(stmt)).all():
-                if not any(rule.table == name for rule in ConnectionCompanyPolicy.model_validate(policy).tables):
+            employees = {}
+            for cid, connection, connection_type, policy, name, columns, excluded in (await self.db.execute(stmt)).all():
+                mapping = ConnectionCompanyPolicy.model_validate(policy)
+                rule = next((r for r in mapping.tables if r.table == name), None)
+                if rule is None:
                     continue
                 if patterns and not any(pattern.search(name) for pattern in regexes):
                     continue
+                if rule.columns is not None:
+                    if cid not in employees:
+                        try:
+                            employees[cid] = await policy_identity(self.db, self.organization.id, self.user, mapping)
+                        except ValueError:
+                            employees[cid] = None
+                    if not employees[cid]:
+                        continue
+                    visible = set(rule.visible_columns(*employees[cid]))
+                    columns = [c for c in columns or [] if c.get("name") in visible]
+                    if not columns:
+                        continue
                 fields = [PromptTableColumn(name=c["name"], dtype=c.get("dtype"))
                           for c in filter_columns(columns or [], excluded_column_set(excluded))]
                 tables.append(PromptTable(name=name, columns=fields, pks=[], fks=[], connection_id=str(cid),
-                                          connection_name=connection, connection_type="ms_fabric"))
+                                          connection_name=connection, connection_type=connection_type))
             if tables:
                 sections.append(TablesSchemaContext.DataSource(
-                    info=DataSourceSummarySchema(id=str(source.id), name=source.name, type="ms_fabric"),
+                    info=DataSourceSummarySchema(id=str(source.id), name=source.name, type=tables[0].connection_type),
                     tables=tables[:top_k] if top_k else tables))
         return TablesSchemaContext(data_sources=sections)
 

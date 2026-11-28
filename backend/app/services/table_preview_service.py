@@ -326,8 +326,9 @@ class TablePreviewService:
 
         if getattr(client, "company_filtered", False) is True:
             from app.data_sources.fast.sources import QuerySource
+            sql = preview_sql(conn_type, table, PREVIEW_ROW_LIMIT, named=False)
             cols, rows = QuerySource(client).preview(sql, PREVIEW_ROW_LIMIT)
-            return sql, base_table_sql(conn_type, table), cols, rows, "query"
+            return sql, base_table_sql(conn_type, table, named=False), cols, rows, "query"
 
         src = source_for(client)
         reader = getattr(src, "sample_table", None)
@@ -365,8 +366,8 @@ class TablePreviewService:
             "table_id": str(table.id),
             "table_name": table.name,
             "language": spec.language,
-            "sql": preview_sql(connection.type, table, PREVIEW_ROW_LIMIT),
-            "base_sql": base_table_sql(connection.type, table),
+            "sql": preview_sql(connection.type, table, PREVIEW_ROW_LIMIT, named=not connection.active_company_policy),
+            "base_sql": base_table_sql(connection.type, table, named=not connection.active_company_policy),
             "row_limit": PREVIEW_ROW_LIMIT,
         }
 
@@ -419,7 +420,7 @@ class TablePreviewService:
             "total_rows": None if getattr(connection, "active_company_policy", None) is not None else table.no_rows or None,
         }
 
-    async def completions(self, db: AsyncSession, connection: Connection) -> dict:
+    async def completions(self, db: AsyncSession, connection: Connection, user=None) -> dict:
         """The editor's suggestion catalog for `connection`.
 
         Loads only the four fields a suggestion needs, bounded: the catalog
@@ -447,7 +448,15 @@ class TablePreviewService:
         visible = visible_company_tables(connection)
         if visible is not None:
             rows = [row for row in rows if row.name in visible]
-        return completion_catalog(connection.type, rows)
+        catalog = completion_catalog(connection.type, rows)
+        if visible is not None:
+            from app.services.fabric_company_policy import reader_columns
+            columns = await reader_columns(db, connection, user)
+            for table in catalog["tables"]:
+                allowed = columns.get(table["name"])
+                if allowed is not None:
+                    table["columns"] = [c for c in table["columns"] if c["name"] in allowed]
+        return catalog
 
 
 

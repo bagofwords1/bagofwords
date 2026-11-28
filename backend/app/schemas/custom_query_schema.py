@@ -131,6 +131,7 @@ class CustomQueryRlsOptions(BaseModel):
     """What the policy editor can offer, drawn from what the org actually has."""
 
     attribute_keys: List[str] = []
+    custom_attribute_keys: List[str] = []
     groups: List[RlsPrincipal] = []
     roles: List[RlsPrincipal] = []
     members: List[RlsPrincipal] = []

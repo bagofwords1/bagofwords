@@ -73,7 +73,11 @@ def init_thick_mode_if_available() -> bool:
         return False
 
 
-class OracledbClient(DataSourceClient):
+from app.data_sources.clients._protected_sql import ProtectedSql
+
+
+class OracledbClient(ProtectedSql, DataSourceClient):
+    policy_dialect = "oracle"
 
     # Oracle: '' only (sqlglot oracle).
     sql_literal_style = "standard"
@@ -149,7 +153,7 @@ class OracledbClient(DataSourceClient):
         return args
 
     @contextmanager
-    def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
+    def _policy_session(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to an Oracle database."""
         conn = None
         try:
@@ -187,6 +191,8 @@ class OracledbClient(DataSourceClient):
         # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
+        if self.company_filtered:
+            return self.execute_company_query(sql, *self._company_reader)
         """Execute SQL statement and return the result as a DataFrame."""
         try:
             with self.connect() as conn:

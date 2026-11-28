@@ -70,8 +70,7 @@ from app.services import custom_table_runs
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
 from app.services.table_preview_service import table_preview_service, is_previewable_table
 from app.errors import AppError, ErrorCode
-from app.routes.company_content import require_stored_company_content
-from app.services.fabric_company_policy import ConnectionCompanyPolicy, employee_for, visible_company_tables
+from app.services.fabric_company_policy import ConnectionCompanyPolicy, POLICY_CONNECTORS, policy_identity, visible_company_tables
 from app.services.member_attributes import require_attribute_admin
 from app.services.member_identity import (
     member_mapped,
@@ -1489,6 +1488,8 @@ async def get_connection_tables(
 
     result = []
     visible = visible_company_tables(connection)
+    from app.services.fabric_company_policy import reader_columns
+    allowed_columns = await reader_columns(db, connection, current_user) if visible is not None else {}
     for table in (connection.connection_tables or []):
         if visible is not None and table.name not in visible:
             continue
@@ -1502,7 +1503,7 @@ async def get_connection_tables(
         result.append(ConnectionTableSchema(
             id=str(table.id),
             name=table.name,
-            column_count=len(table.columns) if table.columns else 0,
+            column_count=len(allowed_columns.get(table.name, table.columns or [])),
             preview_supported=can_manage and is_previewable_table(connection.type, table),
         ))
     return result
@@ -1523,7 +1524,7 @@ async def get_connection_completions(
     with the text to insert, quoted only where the dialect needs it.
     """
     connection = await connection_service.get_connection(db, connection_id, organization)
-    return await table_preview_service.completions(db, connection)
+    return await table_preview_service.completions(db, connection, current_user)
 
 
 @router.get(
@@ -1939,6 +1940,7 @@ async def custom_query_rls_options(
 
     return CustomQueryRlsOptions(
         attribute_keys=await available_attribute_keys(db, str(organization.id)),
+        custom_attribute_keys=await available_attribute_keys(db, str(organization.id), custom=True),
         groups=[RlsPrincipal(id=str(i), name=n or "") for i, n in groups],
         roles=[RlsPrincipal(id=str(i), name=n or "") for i, n in roles],
         members=[RlsPrincipal(id=str(i), name=e or "") for i, e in members],
@@ -2183,7 +2185,7 @@ async def update_tool(
 # org-level manage_connections permission). See app/data_sources/query_executions.py.
 
 
-@router.get("/{connection_id}/queries", dependencies=[Depends(require_stored_company_content)])
+@router.get("/{connection_id}/queries")
 @requires_resource_permission('connection', 'manage_connection')
 async def list_connection_queries(
     connection_id: str,
@@ -2205,6 +2207,11 @@ async def list_connection_queries(
     """
     from app.services import query_execution_service
 
+    from app.services.viewer_data_policy import org_has_company_policy
+    held = await org_has_company_policy(db, organization.id)
+    if held:
+        custom_query_service.ensure_rls_licensed()
+        await require_org_permission(db, str(current_user.id), str(organization.id), "full_admin_access")
     statuses = [s.strip() for s in (status or "").split(",") if s.strip()]
     return await query_execution_service.list_queries(
         db, organization, connection_id,
@@ -2214,7 +2221,7 @@ async def list_connection_queries(
         search=(search or None),
         limit=limit,
         offset=offset,
-        viewer=current_user,
+        viewer=current_user, policy_only=held,
     )
 
 
@@ -2268,8 +2275,8 @@ async def kill_connection_query(
 
 async def _fabric_policy_connection(db, connection_id, organization):
     connection = await connection_service.get_connection(db, connection_id, organization)
-    if connection.type != "ms_fabric":
-        raise HTTPException(status_code=400, detail="A Fabric connection is required")
+    if connection.type.lower() not in POLICY_CONNECTORS:
+        raise HTTPException(status_code=400, detail="Unsupported access policy connector")
     return connection
 
 
@@ -2280,6 +2287,7 @@ async def get_company_policy_draft(
     db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
 ):
     connection = await _fabric_policy_connection(db, connection_id, organization)
+    custom_query_service.ensure_rls_licensed()
     return connection.company_policy
 
 
@@ -2318,7 +2326,7 @@ async def activate_saved_company_policy(
 @router.get("/{connection_id}/company-policy/draft/preview")
 @requires_resource_permission("connection", "manage_connection")
 async def preview_company_policy_draft(
-    connection_id: str, table: str, current_user: User = Depends(current_user),
+    connection_id: str, table: str, member_email: str | None = None, current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
 ):
     custom_query_service.ensure_rls_licensed()
@@ -2328,14 +2336,34 @@ async def preview_company_policy_draft(
     policy = ConnectionCompanyPolicy.model_validate(connection.company_policy)
     if table not in {rule.table for rule in policy.tables}:
         raise HTTPException(status_code=404, detail="Table unavailable")
+    if connection.active_company_policy and policy != ConnectionCompanyPolicy.model_validate(connection.active_company_policy):
+        await require_org_permission(db, str(current_user.id), str(organization.id), "full_admin_access")
+    reader = current_user
+    if member_email and member_email.casefold() != current_user.email.casefold():
+        await require_org_permission(db, str(current_user.id), str(organization.id), "full_admin_access")
+        from app.models.membership import Membership
+        reader = await db.scalar(select(User).join(Membership, Membership.user_id == User.id).where(
+            func.lower(User.email) == member_email.lower(), Membership.organization_id == organization.id,
+            Membership.deleted_at.is_(None), User.is_active.is_(True)))
+        if reader is None:
+            raise HTTPException(404, "Member unavailable")
     try:
-        employee = await employee_for(db, organization.id, current_user, policy)
+        employee, identity = await policy_identity(db, organization.id, reader, policy)
     except ValueError:
         raise HTTPException(status_code=403, detail="Sign in with the configured Entra tenant") from None
-    client = await connection_service.construct_client(db, connection, current_user)
+    if connection.auth_policy != "system_only":
+        raise HTTPException(409, "A system-credential connection is required")
+    await audit_service.log(db, organization_id=str(organization.id), user_id=str(current_user.id),
+                            action="connection.access_policy.preview", resource_type="connection",
+                            resource_id=str(connection.id), details={"member_id": str(reader.id), "table": table})
+    client = await connection_service.construct_client(db, connection, reader,
+                                                        policy_preview=(policy, employee, identity))
     try:
         await asyncio.to_thread(client.validate_company_policy, policy)
-        frame = await asyncio.to_thread(client.execute_company_query, f"SELECT TOP 25 * FROM {table}", policy, employee)
+        from sqlglot import exp
+        dialect = getattr(client, "policy_dialect", "fabric")
+        sql = exp.select("*").from_(exp.to_table(table)).limit(25).sql(dialect=dialect, identify=True)
+        frame = await asyncio.to_thread(client.execute_company_query, sql, policy, employee, identity)
     except ValueError:
         raise HTTPException(status_code=400, detail="Company-filtered preview unavailable") from None
     await audit_service.log(db, organization_id=str(organization.id), user_id=str(current_user.id),
@@ -2343,5 +2371,54 @@ async def preview_company_policy_draft(
                             resource_id=str(connection.id), details={"table": table})
     import json
     from fastapi.responses import JSONResponse
-    return JSONResponse(content=json.loads(frame.to_json(orient="split", index=False, date_format="iso")),
+    state = "rows"
+    if frame.empty:
+        rule = next(r for r in policy.tables if r.table == table)
+        state = "empty" if await asyncio.to_thread(client.has_company_grant, rule) else "denied"
+    return JSONResponse(content={**json.loads(frame.to_json(orient="split", index=False, date_format="iso")), "access_status": state},
                         headers={"Cache-Control": "no-store"})
+
+
+@router.get("/{connection_id}/company-policy/coverage")
+@requires_resource_permission("connection", "manage_connection")
+async def access_policy_coverage(connection_id: str, search: str = "", status: str = "all",
+                                 inventory_only: bool = False, offset: int = 0, limit: int = 50,
+                                 current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db),
+                                 organization: Organization = Depends(get_current_organization)):
+    """Count and page the indexed connection catalog independently of agent selection."""
+    from app.settings.config import settings
+    custom_query_service.ensure_rls_licensed()
+    conn = await _fabric_policy_connection(db, connection_id, organization)
+    def table_rules(policy):
+        return {r.table: r for r in ConnectionCompanyPolicy.model_validate(policy).tables} if policy else {}
+    live, draft = table_rules(conn.active_company_policy), table_rules(conn.company_policy)
+    pending = {n for n in live.keys() | draft.keys() if live.get(n) != draft.get(n)}
+    base = select(ConnectionTable.name).where(ConnectionTable.connection_id == connection_id,
+        ConnectionTable.deleted_at.is_(None), ConnectionTable.kind == KIND_TABLE)
+    inventory = (conn.company_policy or {}).get("inventory") or []
+    if inventory_only:
+        base = base.where(ConnectionTable.name.in_(inventory))
+    if search:
+        base = base.where(ConnectionTable.name.icontains(search[:256], autoescape=True))
+    filters = {"protected": ConnectionTable.name.in_(live), "missing": ConnectionTable.name.not_in(live),
+               "pending": ConnectionTable.name.in_(pending)}
+    if status not in {*filters, "all"}:
+        raise HTTPException(400, "Unknown coverage filter")
+    async def count(stmt):
+        return await db.scalar(select(func.count()).select_from(stmt.subquery()))
+    counts = {"all": await count(base)}
+    for key, expr in filters.items():
+        counts[key] = await count(base.where(expr))
+    if status in filters:
+        base = base.where(filters[status])
+    page = await db.scalars(base.order_by(ConnectionTable.name).offset(max(0, offset)).limit(min(max(limit, 1), 100)))
+    from app.services.rls_identity_service import available_attribute_keys
+    properties = ["user.email", "groups", "roles"]
+    for custom in (False, True):
+        keys = await available_attribute_keys(db, str(organization.id), custom=custom)
+        properties.extend(("custom." if custom else "profile.") + key for key in keys)
+    return {"counts": counts, "properties": properties, "activation_enabled": settings.bow_config.features.fabric_company_rls_activation,
+            "active": bool(conn.active_company_policy), "tables": [
+                {"table": name, "protected": name in live, "pending": name in pending,
+                 "projected_columns": len(live[name].columns) if name in live and live[name].columns is not None else None}
+                for name in page]}

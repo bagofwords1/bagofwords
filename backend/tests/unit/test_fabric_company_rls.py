@@ -92,3 +92,26 @@ def test_grant_table_mappings_must_be_unambiguous(policy):
     duplicate_column["source_column"] = duplicate_column["employee_column"].upper()
     with pytest.raises(ValueError, match="distinct grant columns"):
         CompanyPolicy.model_validate(duplicate_column)
+
+
+def test_protected_projection_scopes_star_predicates_and_new_columns(policy):
+    data = policy.model_dump()
+    data["tables"][0]["columns"] = {"company": None, "amount": ["finance@example.com"]}
+    scoped = CompanyPolicy.model_validate(data)
+    with sqlite3.connect(":memory:") as db:
+        db.create_function("CONCAT", 2, lambda a, b: (a or "") + b)
+        db.create_collation("Latin1_General_100_BIN2_UTF8", lambda a, b: (a > b) - (a < b))
+        db.executescript("""
+            ATTACH ':memory:' AS demo;
+            CREATE TABLE demo.sales(company INTEGER, amount INTEGER, added_later TEXT);
+            CREATE TABLE demo.access_map(employee TEXT, company INTEGER, source TEXT);
+            INSERT INTO demo.sales VALUES (1,10,'private');
+            INSERT INTO demo.access_map VALUES ('member@example.com',1,'sales'),
+                                              ('finance@example.com',1,'sales');
+        """)
+        for viewer, expected in (("member@example.com", (1,)), ("finance@example.com", (1,10))):
+            statement, params = protect_query("SELECT * FROM demo.sales", scoped, viewer)
+            assert db.execute(statement, params).fetchone() == expected
+        statement, params = protect_query("SELECT company FROM demo.sales WHERE amount > 0", scoped, "member@example.com")
+        with pytest.raises(sqlite3.OperationalError):
+            db.execute(statement, params)
