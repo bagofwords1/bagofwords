@@ -809,6 +809,22 @@ def sandbox_helpers_directive(lists_sink, browser, sb) -> str:
     return ("\n\n" + "\n\n".join(parts)) if parts else ""
 
 
+async def sandbox_llm_directive(llm_helper) -> str:
+    """Coder prompt text for `llm`: the API and the models this user may use,
+    each with its provider model id AND its record id (the value to pass as
+    model=). Empty when the run has no `llm` or no usable model."""
+    if llm_helper is None:
+        return ""
+    from app.ai.code_execution.sandbox_llm import llm_directive_text
+    try:
+        cat = await llm_helper.catalog()
+    except Exception as e:  # noqa: BLE001 - the helper still errors clearly if used
+        logger.warning("create_data: llm model catalog unavailable: %s", e)
+        return ""
+    text = llm_directive_text(cat, llm_helper.max_values)
+    return ("\n\n" + text) if text else ""
+
+
 class CreateDataTool(Tool):
     # --- Visualization inference (post-execution) ---------------------------------------------
     @staticmethod
@@ -1685,7 +1701,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         with the same build_sandbox_helpers (their `lists` saves nothing)."""
         from app.ai.code_execution.sandbox_helpers import build_sandbox_helpers, sandbox_settings
         sb = sandbox_settings(organization_settings)
-        if not (sb.lists or sb.browser):
+        if not (sb.lists or sb.browser or sb.llm):
             return None, ""
         lists_sink = None
         if sb.lists and runtime_ctx.get("list_writes_allowed"):
@@ -1701,18 +1717,43 @@ Do not use generic placeholders like "value" unless that is the actual column na
             except Exception as e:
                 logger.warning("create_data: sandbox lists unavailable: %s", e)
         # The same builder every re-run of this code uses (Publish, refresh).
+        from app.ai.code_execution.sandbox_helpers import LLMScope
+        _org = runtime_ctx.get("organization")
+        _user = runtime_ctx.get("user")
+        _report = runtime_ctx.get("report")
         helpers = build_sandbox_helpers(
-            organization_settings, getattr(runtime_ctx.get("report"), "data_sources", None),
+            organization_settings, getattr(_report, "data_sources", None),
             rerun=False, lists_sink=lists_sink,
+            llm_scope=LLMScope(
+                organization_id=str(_org.id) if _org is not None else None,
+                user_id=str(_user.id) if _user is not None else None,
+                report_id=str(_report.id) if _report is not None else None,
+            ),
         )
         if helpers is None:
             return None, ""
-        return helpers, sandbox_helpers_directive(helpers.lists, helpers.browser, sb)
+        directive = sandbox_helpers_directive(helpers.lists, helpers.browser, sb)
+        directive += await sandbox_llm_directive(helpers.llm)
+        return helpers, directive
 
     async def _commit_sandbox_helpers(self, helpers, runtime_ctx: Dict[str, Any]) -> Dict[str, Any]:
         """Save queued list rows and summarize what the code did (counts only)."""
         if helpers is None:
             return {}
+        if getattr(helpers, "llm", None) is not None:
+            # The code's LLM usage rows are written in the background; end the
+            # agent session's open transaction first so they are not queued
+            # behind it on SQLite, and wait so they exist when the run's cost
+            # is rolled up (and summary() can say if any were dropped).
+            try:
+                _lock = runtime_ctx.get("tool_db_lock")
+                _writer = runtime_ctx.get("db")
+                if _writer is not None:
+                    async with (_lock if _lock is not None else nullcontext()):
+                        await _writer.commit()
+                await helpers.llm.drain()
+            except Exception as e:
+                logger.warning("create_data: waiting for llm usage writes failed: %s", e)
         activity: Dict[str, Any] = dict(helpers.summary())
         sink = helpers.lists
         if sink is None:

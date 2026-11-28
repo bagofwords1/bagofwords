@@ -4421,6 +4421,14 @@
           "name": "Max list rows per code run",
           "description": "How many rows one run of generated code may submit to Agent Lists. 1 to 50,000."
         },
+        "enable_sandbox_llm": {
+          "name": "LLM functions in code",
+          "description": "Give generated code an `llm` helper that classifies, filters, scores, extracts or rewrites a whole column of values at once. It runs on the models the user may use; classify, filter and score use the organization's decision model when there is one. Repeated values are sent once and answers are reused on refresh. Every request is recorded as LLM usage."
+        },
+        "sandbox_llm_max_values": {
+          "name": "Max LLM values per code run",
+          "description": "How many distinct values one run of generated code may send to an LLM. Answers reused from earlier runs do not count. 1 to 50,000."
+        },
         "allow_access_requests": {
           "name": "Allow access requests",
           "description": "Let members ask a dashboard's editors for view access from the no-access page. When off, the page just names the owner to ask, and no new requests can be sent; requests already sent stay answerable."

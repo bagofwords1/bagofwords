@@ -152,6 +152,7 @@ class SandboxJob:
     load_step_enabled: bool = False
     lists_enabled: bool = False
     browser_enabled: bool = False
+    llm_enabled: bool = False
     search_summaries: bool = False
     # pptx mode
     visualizations: Optional[List[Dict]] = None
@@ -680,6 +681,7 @@ def run_job(
     lists_submit: Optional[Callable[[str, list], Any]] = None,
     lists_available: Optional[Callable[[], Any]] = None,
     browser_call: Optional[Callable[[str, list, dict], Any]] = None,
+    llm_call: Optional[Callable[[str, dict], Any]] = None,
     limits: Optional[SandboxLimits] = None,
     cancel_event: Optional[threading.Event] = None,
     on_abort: Optional[Callable[[], None]] = None,
@@ -718,6 +720,7 @@ def run_job(
             "load_step_enabled": bool(job.load_step_enabled),
             "lists_enabled": bool(job.lists_enabled and lists_submit is not None),
             "browser_enabled": bool(job.browser_enabled and browser_call is not None),
+            "llm_enabled": bool(job.llm_enabled and llm_call is not None),
             "visualizations": job.visualizations,
             "report": job.report,
             "images": job.images,
@@ -813,6 +816,12 @@ def run_job(
                         _bargs = list(header.get("args") or [])
                         _bkwargs = {k: v for k, v in dict(header.get("kwargs") or {}).items() if v is not None}
                         handler = lambda: browser_call(_op, _bargs, _bkwargs)  # noqa: E731
+                    elif method == "llm":
+                        if llm_call is None:
+                            raise RuntimeError("LLM functions are not enabled for code in this run")
+                        _lop = str(header.get("op") or "")
+                        _lpayload = dict(header.get("payload") or {})
+                        handler = lambda: llm_call(_lop, _lpayload)  # noqa: E731
                     else:
                         raise RuntimeError(f"unknown sandbox rpc {method!r}")
                     value = _call_supervised(handler, child, deadline, cancel_event, limits)

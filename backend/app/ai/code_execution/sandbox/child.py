@@ -37,6 +37,7 @@ from app.ai.code_execution.sandbox.namespace import (
     CLIENTS_GLOBAL,
     BrowserHelper,
     ClientsDict,
+    LLMHelper,
     ListsHelper,
     SandboxFile,
     build_loadable_closures,
@@ -227,6 +228,9 @@ def _run_data_job(job: Dict[str, Any], rpc: _Rpc):
     browser = BrowserHelper(
         lambda op, args, kwargs: rpc.call("browser", op=op, args=json_safe(args), kwargs=json_safe(kwargs)),
     ) if job.get("browser_enabled") else None
+    llm = LLMHelper(
+        lambda op, payload: rpc.call("llm", op=op, payload=json_safe(payload)),
+    ) if job.get("llm_enabled") else None
     load_step, load_entity = build_loadable_closures(
         job.get("loadables"), enable_load_step=bool(job.get("load_step_enabled"))
     )
@@ -245,6 +249,8 @@ def _run_data_job(job: Dict[str, Any], rpc: _Rpc):
         namespace["lists"] = lists
     if browser is not None:
         namespace["browser"] = browser
+    if llm is not None:
+        namespace["llm"] = llm
 
     exec_dataframe_code(job["code"], namespace, search_summaries=job.get("search_summaries", False))
     generate_df = namespace.get("generate_df")
@@ -253,7 +259,7 @@ def _run_data_job(job: Dict[str, Any], rpc: _Rpc):
     return invoke_generate_df(
         generate_df, clients, excel_files, http,
         load_step=load_step, load_entity=load_entity, params=job.get("params"),
-        lists=lists, browser=browser,
+        lists=lists, browser=browser, llm=llm,
     )
 
 

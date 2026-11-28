@@ -4,13 +4,15 @@
     browser  headless browser     enable_sandbox_browser, sandbox_browser_allow_mutating_requests,
                                   sandbox_browser_max_pages
     lists    Agent List writes    enable_sandbox_lists, sandbox_lists_max_rows
+    llm      column LLM functions enable_sandbox_llm, sandbox_llm_max_values
+                                  (engine: sandbox_llm.py)
 
 Everything here runs on the trusted side. The sandbox child only holds
 stand-in objects whose calls come back over the RPC pipe (sandbox/child.py),
 so the allowlists, limits and audit below apply however the code behaves.
 
-`http` is built for every executor from the org settings. `browser` and
-`lists` come from `build_sandbox_helpers`, for the agent's run and every
+`http` is built for every executor from the org settings. `browser`,
+`lists` and `llm` come from `build_sandbox_helpers`, for the agent's run and every
 re-run of saved code alike (Publish, refresh, a reader's run): saved code
 finds the same helpers when it runs again. A re-run's `lists` saves nothing
 (ReplayLists): the rows were saved when the agent first ran the code.
@@ -64,6 +66,8 @@ class SandboxSettings:
     max_pages: int = 200
     lists: bool = False
     max_list_rows: int = 5000
+    llm: bool = False
+    max_llm_values: int = 5000
 
 
 def sandbox_settings(organization_settings) -> SandboxSettings:
@@ -77,6 +81,8 @@ def sandbox_settings(organization_settings) -> SandboxSettings:
         max_pages=_clamped_int(s, "sandbox_browser_max_pages", 200, 1, 2_000),
         lists=_flag(s, "enable_sandbox_lists"),
         max_list_rows=_clamped_int(s, "sandbox_lists_max_rows", 5000, 1, 50_000),
+        llm=_flag(s, "enable_sandbox_llm"),
+        max_llm_values=_clamped_int(s, "sandbox_llm_max_values", 5000, 1, 50_000),
     )
 
 
@@ -431,9 +437,11 @@ class SandboxHelpers:
     every attempt so a retried attempt starts clean."""
 
     def __init__(self, *, lists=None, browser: Optional[SandboxBrowser] = None,
-                 page_texts: Optional[PageTextStore] = None):
+                 page_texts: Optional[PageTextStore] = None, llm=None):
         self.lists = lists
         self.browser = browser
+        # app.ai.code_execution.sandbox_llm.SandboxLLM, or None
+        self.llm = llm
         self.page_texts = page_texts or PageTextStore()
         self.urls_fetched = 0
 
@@ -444,6 +452,10 @@ class SandboxHelpers:
     def end_attempt(self) -> None:
         if self.browser is not None:
             self.browser.close()
+        if self.llm is not None:
+            # Requests of a call the attempt abandoned (timeout, cancel, crash)
+            # stop here instead of running, and billing, after the run ended.
+            self.llm.cancel()
 
     def summary(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
@@ -453,6 +465,8 @@ class SandboxHelpers:
             out["browser_pages_loaded"] = self.browser.pages_loaded
             if self.browser.blocked_requests:
                 out["browser_requests_blocked"] = self.browser.blocked_requests
+        if self.llm is not None and self.llm.calls:
+            out["llm"] = self.llm.summary()
         return out
 
 
@@ -489,8 +503,32 @@ class ReplayLists:
         return 0
 
 
+@dataclass(frozen=True)
+class LLMScope:
+    """Who and what a run's `llm` calls are for: whose model access applies,
+    and where their usage is recorded (report, and `step_id` as the usage
+    row's scope_ref_id). `enforce_access` checks the user's access to each
+    model; a re-run of saved code leaves it off (see build_sandbox_helpers)."""
+    organization_id: Optional[str] = None
+    user_id: Optional[str] = None
+    report_id: Optional[str] = None
+    step_id: Optional[str] = None
+    enforce_access: Optional[bool] = None
+
+
+def llm_scope_for(organization=None, user=None, report=None, step=None, *,
+                  organization_id=None, enforce: Optional[bool] = None) -> LLMScope:
+    """LLMScope from the ORM rows a run already has (any may be None)."""
+    def _id(obj):
+        v = getattr(obj, "id", None) if obj is not None else None
+        return str(v) if v else None
+    org_id = organization_id or _id(organization) or (str(getattr(report, "organization_id", "") or "") or None)
+    return LLMScope(organization_id=org_id, user_id=_id(user), report_id=_id(report),
+                    step_id=_id(step), enforce_access=enforce)
+
+
 def build_sandbox_helpers(organization_settings, data_sources, *, rerun: bool,
-                          lists_sink=None) -> Optional[SandboxHelpers]:
+                          lists_sink=None, llm_scope: Optional[LLMScope] = None) -> Optional[SandboxHelpers]:
     """The helpers generated code gets beyond queries, or None.
 
     `browser`: when the org allows it and a browser connection is among
@@ -513,9 +551,26 @@ def build_sandbox_helpers(organization_settings, data_sources, *, rerun: bool,
                 max_pages=sb.max_pages, page_texts=page_texts,
             )
     lists = ReplayLists() if rerun else lists_sink
-    if browser is None and lists is None:
+    llm = None
+    if sb.llm:
+        scope = llm_scope or LLMScope()
+        org_id = scope.organization_id or getattr(organization_settings, "organization_id", None)
+        if org_id:
+            from app.ai.code_execution.sandbox_llm import SandboxLLM
+            # The agent's run checks the user's access to every model the code
+            # names. A re-run of saved code (refresh, a reader's run) runs the
+            # model the code was written with, as long as the org still has it
+            # enabled: a reader without access to that model must still see
+            # the dashboard. Code a user supplies on a re-run (code_override)
+            # passes enforce_access=True.
+            enforce = (not rerun) if scope.enforce_access is None else bool(scope.enforce_access)
+            llm = SandboxLLM(
+                organization_id=str(org_id), user_id=scope.user_id, report_id=scope.report_id,
+                step_id=scope.step_id, enforce_access=enforce, max_values=sb.max_llm_values,
+            )
+    if browser is None and lists is None and llm is None:
         return None
-    return SandboxHelpers(lists=lists, browser=browser, page_texts=page_texts)
+    return SandboxHelpers(lists=lists, browser=browser, page_texts=page_texts, llm=llm)
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +620,10 @@ def missing_helper_error(code: Optional[str], helpers: Optional[SandboxHelpers],
         return HelperUnavailableError(
             f"This code uses `browser`, but no browser is available for this run: {reason}. "
             "Enable it, or rewrite the code to fetch pages with `http`.")
+    if code_uses_helper(code, "llm") and getattr(helpers, "llm", None) is None:
+        return HelperUnavailableError(
+            "This code uses `llm`, but LLM functions are not available for this run: "
+            "the organization's 'LLM functions in code' setting is off. Enable it, or remove the `llm` calls.")
     if code_uses_helper(code, "lists") and getattr(helpers, "lists", None) is None:
         reason = ("the organization's 'Write to Agent Lists from code' setting is off" if not sb.lists
                   else "this conversation has no Agent List the code may write to")

@@ -1123,6 +1123,82 @@ class LLM:
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
     ) -> str:
+        sanitized, usage = self._inference_call(
+            prompt, system=system, images=images, should_record=should_record,
+        )
+        self._schedule_usage_record(
+            scope=usage_scope,
+            scope_ref_id=usage_scope_ref_id,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cache_read_tokens=usage.cache_read_tokens,
+            cache_creation_tokens=usage.cache_creation_tokens,
+            cache_write_5m_tokens=usage.cache_write_5m_tokens,
+            cache_write_1h_tokens=usage.cache_write_1h_tokens,
+            cache_write_12h_tokens=usage.cache_write_12h_tokens,
+            reasoning_tokens=usage.reasoning_tokens,
+            should_record=should_record,
+        )
+        self._record_usage_limit_sync(
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cache_read_tokens=usage.cache_read_tokens,
+            cache_creation_tokens=usage.cache_creation_tokens,
+            cache_write_12h_tokens=usage.cache_write_12h_tokens,
+            scope=usage_scope,
+            scope_ref_id=usage_scope_ref_id,
+            should_record=should_record,
+        )
+        return sanitized
+
+    async def ainference(
+        self,
+        prompt: str,
+        *,
+        system: Optional[str] = None,
+        usage_scope: str,
+        usage_scope_ref_id: Optional[str] = None,
+        should_record: bool = True,
+        usage_sink: Optional[list] = None,
+    ) -> str:
+        """`inference` for async callers. The provider call runs in a worker
+        thread; the spend-cap update is awaited here, and so is the usage row
+        unless ``usage_sink`` is given: then the row is appended to it (see
+        ``usage_row``) for the caller to write many at once with
+        ``write_usage_rows`` (a fan-out of calls from one tool call, where one
+        write per request would contend for SQLite's single writer)."""
+        attribution = get_usage_attribution()
+        sanitized, usage = await asyncio.to_thread(
+            self._inference_call, prompt, system=system, images=None, should_record=should_record,
+        )
+        if should_record and usage_sink is not None and (usage.prompt_tokens or usage.completion_tokens):
+            usage_sink.append(self.usage_row(
+                attribution, scope=usage_scope, scope_ref_id=usage_scope_ref_id, usage=usage))
+        elif should_record and (usage.prompt_tokens or usage.completion_tokens) and self._usage_session_maker:
+            await self._write_usage_record(
+                attribution, scope=usage_scope, scope_ref_id=usage_scope_ref_id,
+                prompt_tokens=usage.prompt_tokens, completion_tokens=usage.completion_tokens,
+                cache_read_tokens=usage.cache_read_tokens, cache_creation_tokens=usage.cache_creation_tokens,
+                cache_write_5m_tokens=usage.cache_write_5m_tokens, cache_write_1h_tokens=usage.cache_write_1h_tokens,
+                cache_write_12h_tokens=usage.cache_write_12h_tokens, reasoning_tokens=usage.reasoning_tokens,
+            )
+        await self._record_usage_limit_async(
+            prompt_tokens=usage.prompt_tokens, completion_tokens=usage.completion_tokens,
+            scope=usage_scope, scope_ref_id=usage_scope_ref_id, should_record=should_record,
+        )
+        return sanitized
+
+    def _inference_call(
+        self,
+        prompt: str,
+        *,
+        system: Optional[str],
+        images: Optional[list[ImageInput]],
+        should_record: bool,
+    ) -> tuple[str, LLMUsage]:
+        """The provider call behind inference/ainference: PII, the spend-cap
+        pre-check, retries. Returns the answer and the tokens it used
+        (estimated when the provider reports none); records nothing."""
         with tracer.start_as_current_span("llm.inference") as span:
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
@@ -1181,31 +1257,9 @@ class LLM:
 
             span.set_attribute("llm.prompt_tokens", prompt_tokens)
             span.set_attribute("llm.completion_tokens", completion_tokens)
-
-            self._schedule_usage_record(
-                scope=usage_scope,
-                scope_ref_id=usage_scope_ref_id,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                cache_read_tokens=usage.cache_read_tokens,
-                cache_creation_tokens=usage.cache_creation_tokens,
-                cache_write_5m_tokens=usage.cache_write_5m_tokens,
-                cache_write_1h_tokens=usage.cache_write_1h_tokens,
-                cache_write_12h_tokens=usage.cache_write_12h_tokens,
-                reasoning_tokens=usage.reasoning_tokens,
-                should_record=should_record,
+            return sanitized, dataclasses.replace(
+                usage, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             )
-            self._record_usage_limit_sync(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                cache_read_tokens=usage.cache_read_tokens,
-                cache_creation_tokens=usage.cache_creation_tokens,
-                cache_write_12h_tokens=usage.cache_write_12h_tokens,
-                scope=usage_scope,
-                scope_ref_id=usage_scope_ref_id,
-                should_record=should_record,
-            )
-            return sanitized
 
     async def _text_stream_with_policy(self, prompt, images, *, max_output_tokens=None):
         from contextlib import aclosing
@@ -1632,6 +1686,7 @@ class LLM:
         usage_scope: str = "decision",
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
+        usage_sink: Optional[list] = None,
     ):
         """Ask a decision model typed questions (see app.ai.llm.decisions).
 
@@ -1686,11 +1741,18 @@ class LLM:
             result = await client.decide(input_value, questions)
             span.set_attribute("llm.prompt_tokens", result.input_tokens)
             span.set_attribute("llm.latency_ms", result.latency_ms)
-        await self._record_usage_now(
-            scope=usage_scope, scope_ref_id=usage_scope_ref_id,
-            prompt_tokens=result.input_tokens, completion_tokens=result.output_tokens,
-            should_record=should_record,
-        )
+        if usage_sink is not None:
+            if should_record and (result.input_tokens or result.output_tokens):
+                usage_sink.append(self.usage_row(
+                    get_usage_attribution(), scope=usage_scope, scope_ref_id=usage_scope_ref_id,
+                    usage=LLMUsage(prompt_tokens=result.input_tokens, completion_tokens=result.output_tokens),
+                    routed=False))
+        else:
+            await self._record_usage_now(
+                scope=usage_scope, scope_ref_id=usage_scope_ref_id,
+                prompt_tokens=result.input_tokens, completion_tokens=result.output_tokens,
+                should_record=should_record,
+            )
         await self._record_usage_limit_async(
             prompt_tokens=result.input_tokens, completion_tokens=result.output_tokens,
             scope=usage_scope, scope_ref_id=usage_scope_ref_id, should_record=should_record,
@@ -2154,59 +2216,13 @@ class LLM:
         attribution = get_usage_attribution()
 
         async def _record_usage():
-            # SQLite: the agent's writer transaction can hold the lock while a
-            # tool/code execution is in flight, so the first attempt may lose.
-            # This is a background task — a few spaced retries recover nearly
-            # every record instead of silently dropping it (these rows back
-            # /monitoring and cost accounting; the drop was measurable — see
-            # docs/feedback-loops/agent-latency-deep-dive.md).
-            delays = (0.0, 0.5, 2.0, 5.0)
-            for attempt, delay in enumerate(delays, start=1):
-                if delay:
-                    await asyncio.sleep(delay)
-                try:
-                    async with session_maker() as session:
-                        recorder = LLMUsageRecorderService(session)
-                        await recorder.record(
-                            scope=scope,
-                            scope_ref_id=scope_ref_id,
-                            llm_model=self.model,
-                            prompt_tokens=prompt_tokens or 0,
-                            completion_tokens=completion_tokens or 0,
-                            cache_read_tokens=cache_read_tokens or 0,
-                            cache_creation_tokens=cache_creation_tokens or 0,
-                            cache_write_5m_tokens=cache_write_5m_tokens or 0,
-                            cache_write_1h_tokens=cache_write_1h_tokens or 0,
-                            cache_write_12h_tokens=cache_write_12h_tokens or 0,
-                            reasoning_tokens=reasoning_tokens or 0,
-                            organization_id=attribution.get("organization_id"),
-                            user_id=attribution.get("user_id"),
-                            report_id=attribution.get("report_id"),
-                            agent_execution_id=attribution.get("agent_execution_id"),
-                            data_source_id=attribution.get("data_source_id"),
-                            routed=bool(attribution.get("routed")),
-                            baseline_model_id=attribution.get("baseline_model_id"),
-                        )
-                        await session.commit()
-                        # A record landing after the run finished (late judge
-                        # scoring) re-rolls the run's cost/tokens; in-flight
-                        # runs are rolled up at their own finish.
-                        _ae_id = attribution.get("agent_execution_id")
-                        if _ae_id:
-                            from app.services.diagnosis.rollup import refresh_if_finished
-                            await refresh_if_finished(session, _ae_id)
-                    return
-                except Exception as exc:
-                    if self._is_sqlite_lock_error(exc):
-                        if attempt < len(delays):
-                            continue
-                        logger.warning(
-                            "Dropping LLM usage record after %d lock retries: scope=%s",
-                            attempt, scope,
-                        )
-                        return
-                    logger.warning("Skipping LLM usage record after unexpected failure: %s", exc)
-                    return
+            await self._write_usage_record(
+                attribution, scope=scope, scope_ref_id=scope_ref_id,
+                prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read_tokens, cache_creation_tokens=cache_creation_tokens,
+                cache_write_5m_tokens=cache_write_5m_tokens, cache_write_1h_tokens=cache_write_1h_tokens,
+                cache_write_12h_tokens=cache_write_12h_tokens, reasoning_tokens=reasoning_tokens,
+            )
 
         global _MAIN_LOOP
         try:
@@ -2232,6 +2248,128 @@ class LLM:
             task.add_done_callback(_PENDING_RECORD_TASKS.discard)
         except Exception as exc:
             logger.warning("Unable to schedule LLM usage recording: %s", exc)
+
+    async def _write_usage_record(
+        self,
+        attribution: dict,
+        *,
+        scope: str,
+        scope_ref_id: Optional[str],
+        prompt_tokens: int,
+        completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+        cache_write_5m_tokens: int = 0,
+        cache_write_1h_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
+        reasoning_tokens: int = 0,
+    ) -> None:
+        """Write one usage row, retrying SQLite lock contention. Never raises."""
+        session_maker = self._usage_session_maker
+        if session_maker is None:
+            return
+        # SQLite: the agent's writer transaction can hold the lock while a
+        # tool/code execution is in flight, so the first attempt may lose.
+        # This is a background task — a few spaced retries recover nearly
+        # every record instead of silently dropping it (these rows back
+        # /monitoring and cost accounting; the drop was measurable — see
+        # docs/feedback-loops/agent-latency-deep-dive.md).
+        delays = (0.0, 0.5, 2.0, 5.0)
+        for attempt, delay in enumerate(delays, start=1):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                async with session_maker() as session:
+                    recorder = LLMUsageRecorderService(session)
+                    await recorder.record(
+                        scope=scope,
+                        scope_ref_id=scope_ref_id,
+                        llm_model=self.model,
+                        prompt_tokens=prompt_tokens or 0,
+                        completion_tokens=completion_tokens or 0,
+                        cache_read_tokens=cache_read_tokens or 0,
+                        cache_creation_tokens=cache_creation_tokens or 0,
+                        cache_write_5m_tokens=cache_write_5m_tokens or 0,
+                        cache_write_1h_tokens=cache_write_1h_tokens or 0,
+                        cache_write_12h_tokens=cache_write_12h_tokens or 0,
+                        reasoning_tokens=reasoning_tokens or 0,
+                        organization_id=attribution.get("organization_id"),
+                        user_id=attribution.get("user_id"),
+                        report_id=attribution.get("report_id"),
+                        agent_execution_id=attribution.get("agent_execution_id"),
+                        data_source_id=attribution.get("data_source_id"),
+                        routed=bool(attribution.get("routed")),
+                        baseline_model_id=attribution.get("baseline_model_id"),
+                    )
+                    await session.commit()
+                    # A record landing after the run finished (late judge
+                    # scoring) re-rolls the run's cost/tokens; in-flight
+                    # runs are rolled up at their own finish.
+                    _ae_id = attribution.get("agent_execution_id")
+                    if _ae_id:
+                        from app.services.diagnosis.rollup import refresh_if_finished
+                        await refresh_if_finished(session, _ae_id)
+                return
+            except Exception as exc:
+                if self._is_sqlite_lock_error(exc):
+                    if attempt < len(delays):
+                        continue
+                    logger.warning(
+                        "Dropping LLM usage record after %d lock retries: scope=%s",
+                        attempt, scope,
+                    )
+                    return
+                logger.warning("Skipping LLM usage record after unexpected failure: %s", exc)
+                return
+
+    def usage_row(self, attribution: dict, *, scope: str, scope_ref_id: Optional[str],
+                  usage: LLMUsage, routed: Optional[bool] = None) -> dict:
+        """One usage record, not yet written (see ``write_usage_rows``)."""
+        return {
+            "llm_model": self.model, "scope": scope, "scope_ref_id": scope_ref_id,
+            "prompt_tokens": usage.prompt_tokens or 0, "completion_tokens": usage.completion_tokens or 0,
+            "cache_read_tokens": usage.cache_read_tokens or 0,
+            "cache_creation_tokens": usage.cache_creation_tokens or 0,
+            "cache_write_5m_tokens": usage.cache_write_5m_tokens or 0,
+            "cache_write_1h_tokens": usage.cache_write_1h_tokens or 0,
+            "cache_write_12h_tokens": usage.cache_write_12h_tokens or 0,
+            "reasoning_tokens": usage.reasoning_tokens or 0,
+            "organization_id": attribution.get("organization_id") or getattr(self.model, "organization_id", None),
+            "user_id": attribution.get("user_id"),
+            "report_id": attribution.get("report_id"),
+            "agent_execution_id": attribution.get("agent_execution_id"),
+            "data_source_id": attribution.get("data_source_id"),
+            "routed": bool(attribution.get("routed")) if routed is None else routed,
+            "baseline_model_id": attribution.get("baseline_model_id") if routed is not False else None,
+        }
+
+    @staticmethod
+    async def write_usage_rows(session_maker, rows: list, *,
+                               delays=(0.0, 0.5, 2.0, 5.0, 15.0, 30.0)) -> bool:
+        """Write ``usage_row`` dicts in one transaction, retrying SQLite lock
+        contention. Returns whether they were written. Never raises."""
+        if not rows or session_maker is None:
+            return True
+        for attempt, delay in enumerate(delays, start=1):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                async with session_maker() as session:
+                    recorder = LLMUsageRecorderService(session)
+                    for row in rows:
+                        await recorder.record(**row)
+                    await session.commit()
+                    from app.services.diagnosis.rollup import refresh_if_finished
+                    for ae_id in {r.get("agent_execution_id") for r in rows if r.get("agent_execution_id")}:
+                        await refresh_if_finished(session, ae_id)
+                return True
+            except Exception as exc:
+                if LLM._is_sqlite_lock_error(exc) and attempt < len(delays):
+                    continue
+                logger.warning("Dropping %d LLM usage records (scope=%s) after %d attempts: %s",
+                               len(rows), rows[0].get("scope"), attempt, exc)
+                return False
+        return False
 
     @staticmethod
     def _is_sqlite_lock_error(exc: Exception) -> bool:

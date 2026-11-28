@@ -10365,6 +10365,7 @@ class AgentV2:
             "sandbox_web_fetch_enabled": sb.web_fetch and "web_fetch" not in self._disabled_tools,
             "sandbox_browser_enabled": sb.browser and get_browser_connection({"report": self.report}) is not None,
             "sandbox_lists_enabled": sb.lists and bool(routing),
+            "sandbox_llm_enabled": sb.llm,
         }
 
     def _web_search_enabled(self) -> bool:

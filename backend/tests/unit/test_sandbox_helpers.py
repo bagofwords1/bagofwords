@@ -364,10 +364,13 @@ def test_every_helper_the_code_can_ask_for_reaches_it_in_every_kind_of_run(sandb
     re-run does not get fails here."""
     from app.ai.code_execution.sandbox.namespace import INJECTABLE_NAMES
 
+    from app.ai.code_execution.sandbox_helpers import LLMScope
+
     settings = _org(enable_sandbox_browser=True, enable_sandbox_lists=True, enable_sandbox_web_fetch=True,
-                    enable_load_step=True)
+                    enable_load_step=True, enable_sandbox_llm=True)
     sources = [_browser_source(["https://e.com/**"])]
-    helpers = _build(settings, sources, rerun=rerun, lists_sink=None if rerun else _sink())
+    helpers = _build(settings, sources, rerun=rerun, lists_sink=None if rerun else _sink(),
+                     llm_scope=LLMScope(organization_id="org-1", user_id="u-1"))
     args = ", ".join(INJECTABLE_NAMES)
     checks = ", ".join(f"{n!r}: {n} is None" for n in INJECTABLE_NAMES)
     code = f"def generate_df(ds_clients, excel_files, {args}):\n    return pd.DataFrame([{{{checks}}}])\n"

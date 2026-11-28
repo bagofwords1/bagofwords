@@ -328,6 +328,7 @@ class StepService:
         params: Optional[dict] = None,
         param_specs: Optional[list] = None,
         return_raw_df: bool = False,
+        enforce_llm_access: bool = False,
     ) -> dict:
         """Execute a step's saved code and return the formatted result frame.
 
@@ -393,10 +394,14 @@ class StepService:
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.data_sources.clients.bow_client import install_bow_client
         await install_bow_client(db, org, ctx.credential_user, ctx.report, db_clients, release=ctx.release)
-        from app.ai.code_execution.sandbox_helpers import build_sandbox_helpers
+        from app.ai.code_execution.sandbox_helpers import build_sandbox_helpers, llm_scope_for
         executor = StreamingCodeExecutor(
             organization_settings=org_settings,
-            sandbox_helpers=build_sandbox_helpers(org_settings, ctx.data_sources, rerun=True),
+            sandbox_helpers=build_sandbox_helpers(
+                org_settings, ctx.data_sources, rerun=True,
+                llm_scope=llm_scope_for(org, ctx.loadables_user or ctx.credential_user, ctx.report, step,
+                                     enforce=enforce_llm_access),
+            ),
         )
 
         # Execution is fully synchronous (DB drivers + pandas):
@@ -493,6 +498,8 @@ class StepService:
         )
         df = await self._execute_step_code(
             db, step, ctx, db_clients=db_clients, params=params, param_specs=specs,
+            # Code this caller supplies runs `llm` under their own model access.
+            enforce_llm_access=code_override is not None,
         )
 
         # Update existing step instead of creating new one

@@ -376,6 +376,17 @@ class PromptBuilderV3:
                 + (", and never write scraped rows yourself with a submit_<list> tool" if _sb_lists else "")
                 + ". Check the result's sandbox_activity counts and report them."
             )
+        if getattr(planner_input, "sandbox_llm_enabled", False):
+            web_fetch_directives_text += (
+                ("\n" if web_fetch_directives_text else "")
+                + "- **LLM over many rows runs in code (Sandbox):** generated code in `create_data` has `llm` "
+                "(classify, filter, score, extract, generate) that answers one question for a whole column, "
+                "batched and cached, on the user's models (decision models for classify/filter/score when the "
+                "org has one). When the user wants rows labeled, categorized, scored, filtered by meaning or "
+                "fields pulled out of free text, make ONE `create_data` call whose interpreted_prompt names the "
+                "column, the labels or question, and to filter/aggregate first; never label rows yourself or "
+                "read them back to classify. The result's sandbox_activity.llm has the counts and models used."
+            )
 
         # Native web search runs inside the provider (OpenAI/Azure Responses) and
         # is model-decided. Scope it tightly so it doesn't fire on questions that

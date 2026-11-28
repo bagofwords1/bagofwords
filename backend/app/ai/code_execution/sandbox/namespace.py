@@ -267,10 +267,156 @@ class ClientsDict(dict):
         return dict.__contains__(self, key) or (isinstance(key, str) and key in self.former)
 
 
+# Largest text one llm call sends (the RPC header carries it as JSON).
+LLM_MAX_CALL_CHARS = 24_000_000
+
+
+def _llm_cell(v) -> Optional[str]:
+    if v is None:
+        return None
+    try:
+        if v != v:  # NaN / NaT
+            return None
+    except Exception:
+        pass
+    return v if isinstance(v, str) else str(v)
+
+
+class LLMHelper:
+    """`llm` in generated code: one LLM question over a whole column.
+
+    Every call de-duplicates its values here and sends the distinct ones in a
+    single call to the trusted side (app/ai/code_execution/sandbox_llm.py),
+    which picks the model, answers from its cache, batches the rest and
+    validates every answer. Results come back one per input row, aligned to
+    the input's index; None (NaN for scores) where no valid answer came back.
+    """
+
+    __slots__ = ("_call",)
+
+    def __init__(self, call: Callable):
+        self._call = call
+
+    # ── plumbing ──────────────────────────────────────────────────────────
+    @staticmethod
+    def _inputs(values):
+        import pandas as pd
+
+        if isinstance(values, str) or values is None or not hasattr(values, "__iter__"):
+            return [_llm_cell(values)], None, True
+        if isinstance(values, pd.DataFrame):
+            cols = [str(c) for c in values.columns]
+            texts = []
+            for row in values.itertuples(index=False, name=None):
+                parts = [f"{c}: {_llm_cell(x)}" for c, x in zip(cols, row) if _llm_cell(x) is not None]
+                texts.append("\n".join(parts) if parts else None)
+            return texts, values.index, False
+        if isinstance(values, pd.Series):
+            return [_llm_cell(v) for v in values.tolist()], values.index, False
+        if isinstance(values, dict):
+            raise TypeError("llm: pass a Series, list or DataFrame of values, not a dict")
+        return [_llm_cell(v) for v in list(values)], None, False
+
+    def _ask(self, op: str, values, spec: Dict[str, Any], model):
+        rows, index, scalar = self._inputs(values)
+        slot: Dict[str, int] = {}
+        distinct: List[str] = []
+        keys: List[Optional[int]] = []
+        chars = 0
+        for v in rows:
+            if v is None:
+                keys.append(None)
+                continue
+            k = slot.get(v)
+            if k is None:
+                k = slot[v] = len(distinct)
+                distinct.append(v)
+                chars += len(v)
+            keys.append(k)
+        if chars > LLM_MAX_CALL_CHARS:
+            raise ValueError(f"llm.{op}: {chars} characters of distinct values in one call; "
+                             f"the limit is {LLM_MAX_CALL_CHARS}. Shorten or split the values.")
+        if not distinct:
+            return [None] * len(rows), index, scalar
+        res = self._call(op, {"values": distinct, "spec": spec, "model": model, "rows": len(rows)})
+        answers = res.get("answers") or []
+        m = res.get("model") or {}
+        print(f"llm.{op}: {len(rows)} rows, {len(distinct)} distinct, {res.get('cached', 0)} from cache, "
+              f"{res.get('sent', 0)} sent in {res.get('requests', 0)} requests"
+              + (f", {res['failed']} without an answer (not cached; a rerun asks again)" if res.get("failed") else "")
+              + (f", {res['declined']} answered with no value" if res.get("declined") else "")
+              + f" (model {m.get('model_id')}, record {m.get('record_id')})")
+        return [answers[k] if k is not None and k < len(answers) else None for k in keys], index, scalar
+
+    @staticmethod
+    def _series(values, index, scalar, dtype=None):
+        import pandas as pd
+
+        if scalar:
+            return values[0]
+        return pd.Series(values, index=index, dtype=dtype)
+
+    # ── operations ────────────────────────────────────────────────────────
+    def classify(self, values, labels, instructions=None, model=None, with_proba=False):
+        if isinstance(labels, dict):
+            labels = {str(k): (None if v is None else str(v)) for k, v in labels.items()}
+        else:
+            labels = [str(x) for x in list(labels)]
+        got, index, scalar = self._ask("classify", values, {"labels": labels, "instructions": instructions}, model)
+        out = [a["a"] if a else None for a in got]
+        if with_proba:
+            import pandas as pd
+            probs = [a.get("p") if a else None for a in got]
+            if scalar:
+                return {"label": out[0], "p": probs[0]}
+            return pd.DataFrame({"label": out, "p": probs}, index=index)
+        return self._series(out, index, scalar, dtype=object)
+
+    def filter(self, values, condition, model=None, threshold=0.5, with_proba=False):
+        got, index, scalar = self._ask("filter", values, {"condition": condition}, model)
+        thr = float(threshold)
+        out, probs = [], []
+        for a in got:
+            p = a.get("p") if a else None
+            probs.append(p)
+            out.append(bool(p >= thr) if p is not None else bool(a and a.get("a")))
+        if with_proba:
+            import pandas as pd
+            if scalar:
+                return {"match": out[0], "p": probs[0]}
+            return pd.DataFrame({"match": out, "p": probs}, index=index)
+        return self._series(out, index, scalar, dtype=bool)
+
+    def score(self, values, criterion, low=1, high=5, model=None):
+        got, index, scalar = self._ask("score", values, {"criterion": criterion, "low": low, "high": high}, model)
+        out = [float(a["a"]) if a and a.get("a") is not None else float("nan") for a in got]
+        return self._series(out, index, scalar, dtype=float)
+
+    def extract(self, values, fields, instructions=None, model=None):
+        import pandas as pd
+
+        if not isinstance(fields, dict):
+            raise TypeError("llm.extract: fields must be a dict of {name: type}")
+        fields = {str(k): ("str" if v is None else (v if isinstance(v, str) else getattr(v, "__name__", str(v))))
+                  for k, v in fields.items()}
+        got, index, scalar = self._ask("extract", values, {"fields": fields, "instructions": instructions}, model)
+        rows = [(a["a"] if a and isinstance(a.get("a"), dict) else {}) for a in got]
+        if scalar:
+            return {f: rows[0].get(f) for f in fields}
+        return pd.DataFrame([{f: r.get(f) for f in fields} for r in rows], index=index, columns=list(fields))
+
+    def generate(self, values, prompt, model=None):
+        got, index, scalar = self._ask("generate", values, {"prompt": prompt}, model)
+        return self._series([a["a"] if a else None for a in got], index, scalar, dtype=object)
+
+    def models(self):
+        return self._call("models", {})
+
+
 # What generated code can ask for by parameter name (invoke_generate_df).
 # Every run -- the agent's and each re-run of saved code -- must be able to
 # hand each of these over when the org allows it (test_sandbox_helpers).
-INJECTABLE_NAMES = ("calendar_date_bounds", "http", "load_step", "load_entity", "params", "lists", "browser")
+INJECTABLE_NAMES = ("calendar_date_bounds", "http", "load_step", "load_entity", "params", "lists", "browser", "llm")
 
 
 def invoke_generate_df(
@@ -278,12 +424,12 @@ def invoke_generate_df(
     http_client: Any,
     load_step: Optional[Callable] = None, load_entity: Optional[Callable] = None,
     params: Optional[Dict] = None,
-    lists: Any = None, browser: Any = None,
+    lists: Any = None, browser: Any = None, llm: Any = None,
 ):
     """Call generate_df, binding injectables by parameter name.
 
     `ds_clients` and `excel_files` are always passed positionally. Any of
-    `calendar_date_bounds`, `http`, `load_step`, `load_entity`, `params`, `lists`, `browser` are passed by keyword only
+    `calendar_date_bounds`, `http`, `load_step`, `load_entity`, `params`, `lists`, `browser`, `llm` are passed by keyword only
     when the function declares a parameter of that name — so legacy two-arg
     `(ds_clients, excel_files)` and three-arg `(…, http)` signatures keep
     working unchanged. `params` is always a dict (possibly empty) when the
@@ -299,6 +445,7 @@ def invoke_generate_df(
         "params": dict(params or {}),
         "lists": lists,
         "browser": browser,
+        "llm": llm,
     }
     try:
         names = set(inspect.signature(fn).parameters.keys())

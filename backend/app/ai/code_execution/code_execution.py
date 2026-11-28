@@ -32,6 +32,7 @@ from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exporte
     build_read_text as _build_read_text,
     invoke_generate_df as _invoke_generate_df_impl,
     BrowserHelper,
+    LLMHelper,
     ListsHelper,
 )
 from app.ai.code_execution.sandbox.runner import SandboxJob, run_job as _run_sandbox_job
@@ -1763,6 +1764,9 @@ class StreamingCodeExecutor:
                 self.logger.debug(f"Executing code:\n{code}")
             if helpers is not None:
                 helpers.begin_attempt()
+                if getattr(helpers, "llm", None) is not None and helpers.llm.usage_context is None:
+                    # Spend caps apply to the code's LLM calls like to the agent's.
+                    helpers.llm.usage_context = self.usage_context
             try:
                 if sandbox_mode() == MODE_INPROCESS:
                     df, output_log = self._execute_inprocess(
@@ -1817,6 +1821,7 @@ class StreamingCodeExecutor:
         helpers = self.sandbox_helpers
         lists_sink = getattr(helpers, "lists", None)
         browser = getattr(helpers, "browser", None)
+        llm_helper = getattr(helpers, "llm", None)
 
         def _execute_query(client_key: str, args: list, kwargs: dict):
             client = wrapped_clients.get(client_key)
@@ -1845,6 +1850,7 @@ class StreamingCodeExecutor:
             load_step_enabled=load_step_enabled,
             lists_enabled=lists_sink is not None,
             browser_enabled=browser is not None,
+            llm_enabled=llm_helper is not None,
         )
 
         def _cancel_queries():
@@ -1860,6 +1866,7 @@ class StreamingCodeExecutor:
             lists_submit=lists_sink.submit if lists_sink is not None else None,
             lists_available=lists_sink.names if lists_sink is not None else None,
             browser_call=browser.call if browser is not None else None,
+            llm_call=llm_helper.call if llm_helper is not None else None,
             cancel_event=cancel_event,
             on_abort=_cancel_queries,
             log=self.logger or logger,
@@ -1899,6 +1906,8 @@ class StreamingCodeExecutor:
         _drv = getattr(helpers, "browser", None)
         local_lists = ListsHelper(_sink.submit, _sink.names) if _sink is not None else None
         local_browser = BrowserHelper(_drv.call) if _drv is not None else None
+        _llm = getattr(helpers, "llm", None)
+        local_llm = LLMHelper(_llm.call) if _llm is not None else None
 
         wait_started = _time.monotonic()
         router = _stdout_router()
@@ -1918,7 +1927,7 @@ class StreamingCodeExecutor:
                 df = self._invoke_generate_df(
                     generate_df, wrapped_clients, excel_files, http_client,
                     load_step=load_step, load_entity=load_entity,
-                    params=params, lists=local_lists, browser=local_browser,
+                    params=params, lists=local_lists, browser=local_browser, llm=local_llm,
                 )
                 output_log = stdout_capture.getvalue()
                 lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - capture_started_at) * 1000.0, 3))
@@ -1995,13 +2004,13 @@ class StreamingCodeExecutor:
         http_client: Optional[SafeHttpClient],
         load_step: Optional[Callable] = None, load_entity: Optional[Callable] = None,
         params: Optional[Dict] = None,
-        lists: Any = None, browser: Any = None,
+        lists: Any = None, browser: Any = None, llm: Any = None,
     ):
         """See sandbox.namespace.invoke_generate_df."""
         return _invoke_generate_df_impl(
             fn, wrapped_clients, excel_files, http_client,
             load_step=load_step, load_entity=load_entity, params=params,
-            lists=lists, browser=browser,
+            lists=lists, browser=browser, llm=llm,
         )
 
     async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,

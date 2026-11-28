@@ -4320,6 +4320,14 @@
           "name": "Máximo de filas de lista por ejecución",
           "description": "Cuántas filas puede enviar a las listas del agente una ejecución del código generado. De 1 a 50.000."
         },
+        "enable_sandbox_llm": {
+          "name": "Funciones LLM en el código",
+          "description": "Da al código generado un asistente `llm` que clasifica, filtra, puntúa, extrae o reescribe una columna completa de valores de una vez. Usa los modelos que el usuario puede usar; clasificar, filtrar y puntuar usan el modelo de decisión de la organización cuando existe. Los valores repetidos se envían una sola vez y las respuestas se reutilizan al actualizar. Cada solicitud se registra como uso de LLM."
+        },
+        "sandbox_llm_max_values": {
+          "name": "Máximo de valores LLM por ejecución",
+          "description": "Cuántos valores distintos puede enviar a un LLM una ejecución del código generado. Las respuestas reutilizadas de ejecuciones anteriores no cuentan. De 1 a 50.000."
+        },
         "allow_access_requests": {
           "name": "Permitir solicitudes de acceso",
           "description": "Permite que los miembros pidan acceso de lectura a los editores de un panel desde la página de sin acceso. Cuando está desactivado, la página solo indica a quién pedírselo y no se pueden enviar nuevas solicitudes; las ya enviadas siguen pudiéndose responder."

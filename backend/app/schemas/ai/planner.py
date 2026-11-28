@@ -204,6 +204,8 @@ class PlannerInput(BaseModel):
     sandbox_web_fetch_enabled: bool = False
     sandbox_browser_enabled: bool = False
     sandbox_lists_enabled: bool = False
+    # `llm` in code: column-level classify / filter / score / extract / generate.
+    sandbox_llm_enabled: bool = False
     # Org `enable_ml_training` (default on). Off: the code sandbox rejects
     # sklearn/scipy imports, so the planner must not promise or claim a model.
     ml_training_enabled: bool = True
