@@ -39,8 +39,11 @@ class SandboxSettings(BaseModel):
     idle_timeout_seconds: int = Field(default=30 * 60, ge=60, le=7 * 24 * 3600)
     # A stopped sandbox is deleted after this long.
     stopped_retention_seconds: int = Field(default=7 * 24 * 3600, ge=60, le=365 * 24 * 3600)
-    # Any sandbox is deleted this long after it was created.
-    max_lifetime_seconds: int = Field(default=30 * 24 * 3600, ge=300, le=365 * 24 * 3600)
+    # Any sandbox is deleted this long after it was created. 0: no maximum lifetime.
+    max_lifetime_seconds: int = Field(default=30 * 24 * 3600, ge=0, le=365 * 24 * 3600)
+    # How long before a retention or lifetime deletion it is announced (in the
+    # sandbox's timeline, to the admin, and to the agent on the next run).
+    delete_warning_seconds: int = Field(default=24 * 3600, ge=0, le=30 * 24 * 3600)
     # What the "package registries only" policy allows.
     registry_domains: List[str] = Field(default_factory=lambda: list(DEFAULT_REGISTRY_DOMAINS))
     max_running_per_user: int = Field(default=3, ge=1, le=1000)
@@ -52,6 +55,13 @@ class SandboxSettings(BaseModel):
     # Not editable: set once by BoW.
     instance_id: Optional[str] = None
     builtin_environment_seeded: bool = False
+
+    @field_validator("max_lifetime_seconds")
+    @classmethod
+    def _lifetime(cls, value):
+        if value and value < 300:
+            raise ValueError("must be 0 (no maximum lifetime) or at least 300 seconds")
+        return value
 
     @field_validator("registry_domains")
     @classmethod
@@ -78,7 +88,8 @@ class SandboxSettingsUpdate(BaseModel):
     mark_idle_after_seconds: Optional[int] = Field(default=None, ge=30, le=24 * 3600)
     idle_timeout_seconds: Optional[int] = Field(default=None, ge=60, le=7 * 24 * 3600)
     stopped_retention_seconds: Optional[int] = Field(default=None, ge=60, le=365 * 24 * 3600)
-    max_lifetime_seconds: Optional[int] = Field(default=None, ge=300, le=365 * 24 * 3600)
+    max_lifetime_seconds: Optional[int] = Field(default=None, ge=0, le=365 * 24 * 3600)
+    delete_warning_seconds: Optional[int] = Field(default=None, ge=0, le=30 * 24 * 3600)
     registry_domains: Optional[List[str]] = None
     max_running_per_user: Optional[int] = Field(default=None, ge=1, le=1000)
     max_running_total: Optional[int] = Field(default=None, ge=1, le=100000)

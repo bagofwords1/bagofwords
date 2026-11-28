@@ -75,6 +75,8 @@ TRANSITIONS: Dict[str, frozenset] = {
     "deleted": frozenset(),
 }
 
+MAX_RESTORED_FILES = 200                  # report files put back into a recreated sandbox
+MAX_RESTORED_BYTES = 500 * 1024 * 1024
 MAX_LISTED_PROCESSES = 20
 KILL_GRACE_SECONDS = 5  # between SIGTERM and SIGKILL when an admin stops a run
 
@@ -179,7 +181,15 @@ class RunOutcome:
     # Programs the run started that are still running in the sandbox after it
     # ended (a server left in the background, for example): "pid command".
     background_processes: List[str] = field(default_factory=list)
+    # After a recreation: files of the report put back into the new sandbox
+    # (earlier outputs under outputs/, earlier inputs under inputs/).
+    restored_files: List[str] = field(default_factory=list)
+    # Things the caller should pass on, e.g. "this sandbox is deleted on <date>".
+    notices: List[str] = field(default_factory=list)
 
+
+# load_file(file_id) -> the report file with that id, or None when it is gone.
+FileLoader = Callable[[str], Awaitable[Optional["InputFile"]]]
 
 # save_artifact(name, size, chunks) -> the saved file's id (or None when not saved)
 ArtifactSaver = Callable[[str, int, AsyncIterator[bytes]], Awaitable[Optional[Artifact]]]
@@ -497,7 +507,8 @@ class SandboxService:
         sandbox = Sandbox(
             organization_id=str(report.organization_id), report_id=str(report.id), user_id=actor_id,
             compute_id=compute.id, environment_id=env.id, image_digest=env.image_digest, state="provisioning",
-            token=token, expires_at=_now() + timedelta(seconds=settings.max_lifetime_seconds),
+            token=token,
+            expires_at=(_now() + timedelta(seconds=settings.max_lifetime_seconds)) if settings.max_lifetime_seconds else None,
             limits={
                 "cpus": env.cpus, "memory_mb": env.memory_mb, "disk_mb": env.disk_mb,
                 "run_timeout_seconds": env.run_timeout_seconds, "network_policy": env.network_policy,
@@ -707,6 +718,7 @@ class SandboxService:
         save_artifact: Optional[ArtifactSaver] = None,
         completion_id: Optional[str] = None,
         tool_execution_id: Optional[str] = None,
+        load_file: Optional[FileLoader] = None,
     ) -> RunOutcome:
         """Run code in the report's sandbox: create or resume it, upload the
         code and files, install packages, stream the output, collect artifacts."""
@@ -775,6 +787,7 @@ class SandboxService:
             return await self._run_claimed(
                 db, report, actor_id, request, plan, sandbox, run, outcome, policy, timeout,
                 progress=progress, on_output=on_output, cancel=cancel, save_artifact=save_artifact,
+                load_file=load_file,
             )
         except asyncio.CancelledError:
             # The caller's task was cancelled (the turn was torn down, the client
@@ -811,7 +824,7 @@ class SandboxService:
 
     async def _run_claimed(self, db: AsyncSession, report: ReportRef, actor_id: Optional[str], request: RunRequest,
                            plan: "_Plan", sandbox: Sandbox, run: SandboxRun, outcome: RunOutcome, policy: str,
-                           timeout: int, *, progress, on_output, cancel, save_artifact) -> RunOutcome:
+                           timeout: int, *, progress, on_output, cancel, save_artifact, load_file=None) -> RunOutcome:
         """The part of a run that happens while the sandbox is claimed (busy)."""
         started = time.monotonic()
         sink = _OutputSink(self._sessions(), run.id)
@@ -821,6 +834,9 @@ class SandboxService:
             _, driver = await self._driver(db, sandbox)
             try:
                 async with self._runtime(driver, sandbox) as runtime:
+                    if outcome.recreated and load_file is not None:
+                        # A fresh filesystem: put back what the report still has of the old one.
+                        outcome.restored_files = await self._restore_files(db, runtime, report, sandbox, load_file)
                     await self._upload(db, runtime, report, sandbox, actor_id, request, plan, run.id)
                     if plan.packages:
                         await progress("installing_packages")
@@ -890,6 +906,16 @@ class SandboxService:
                     "keeps its files; use less memory or process the data in smaller pieces.", status=503,
                 )
 
+        if not sandbox.pinned:
+            settings = await load_settings(db, sandbox.organization_id)
+            due_at, _why = deletion_due(sandbox, settings)
+            if due_at is not None and settings.delete_warning_seconds and \
+                    due_at - _now() <= timedelta(seconds=settings.delete_warning_seconds):
+                outcome.notices.append(
+                    f"This sandbox will be deleted on {due_at.strftime('%Y-%m-%d %H:%M')} UTC "
+                    f"({'it reached its maximum lifetime' if _why == 'expired' else 'it has been stopped for too long'}). "
+                    "Files under outputs/ are saved to the report; everything else in it will be gone."
+                )
         killed_by_admin = await self._was_killed(db, sandbox.id, run.id)
         if killed_by_admin and not died_stopped and lost_reason is None:
             outcome.status = "cancelled"
@@ -1103,6 +1129,53 @@ class SandboxService:
         if request.inputs:
             await db.commit()
 
+    async def _restore_files(self, db: AsyncSession, runtime, report: ReportRef, sandbox: Sandbox,
+                             load_file: FileLoader) -> List[str]:
+        """Rebuild what can be rebuilt of a lost workspace from the report.
+
+        Only ``outputs/`` is durable: every file a run wrote there was saved to
+        the report. Those, and the files earlier runs were given as input, are
+        written back into the new sandbox. Everything else in the old workspace
+        (scripts, caches, installed packages) is gone; the environment's hooks
+        have already run again."""
+        rows = await db.execute(
+            select(SandboxRun).where(SandboxRun.report_id == str(report.id)).order_by(SandboxRun.started_at)
+        )
+        wanted: Dict[str, str] = {}  # path in the sandbox -> file id; a later run wins
+        ids: List[tuple] = []
+        for run in rows.scalars().all():
+            ids += [(WORKSPACE_INPUTS, i) for i in (run.input_file_ids or [])]
+            ids += [(WORKSPACE_OUTPUTS, i) for i in (run.artifact_file_ids or [])]
+        restored: List[str] = []
+        total = 0
+        seen_ids = set()
+        for folder, file_id in reversed(ids):  # newest first, so the newest of a name is the one kept
+            if file_id in seen_ids or len(wanted) >= MAX_RESTORED_FILES:
+                continue
+            seen_ids.add(file_id)
+            try:
+                item = await load_file(str(file_id))
+            except Exception:  # noqa: BLE001 - best effort, file by file
+                logger.warning("could not load report file %s to restore it into sandbox %s", file_id, sandbox.id)
+                continue
+            if item is None:
+                continue
+            name = _clean_path(str(item.name).replace("\\", "/").rsplit("/", 1)[-1])
+            path = f"{folder}/{name}"
+            if path in wanted:
+                continue
+            data = item.data if isinstance(item.data, bytes) else b"".join([chunk async for chunk in item.data])
+            if total + len(data) > MAX_RESTORED_BYTES:
+                continue
+            await runtime.write_file(path, data)
+            wanted[path] = str(file_id)
+            total += len(data)
+            restored.append(path)
+        if restored:
+            await self._event(db, sandbox.id, "files_restored", None, {"files": sorted(restored)[:50], "count": len(restored), "bytes": total})
+            await db.commit()
+        return sorted(restored)
+
     async def _install_packages(self, db: AsyncSession, runtime, sandbox: Sandbox, actor_id: Optional[str],
                                 request: RunRequest, plan: "_Plan", policy: str) -> None:
         result = await runtime.run(plan.install_command, timeout=PACKAGE_INSTALL_TIMEOUT_SECONDS)
@@ -1290,6 +1363,44 @@ class SandboxService:
         await self.delete(db, sandbox, actor_id, reason=reason, title=report.title)
         return True
 
+    async def _deletion_facts(self, db: AsyncSession, sandbox: Sandbox) -> Dict[str, Any]:
+        """When this sandbox will be deleted on its own, and why. What is under
+        ``outputs/`` is already saved to the report; everything else goes with it."""
+        settings = await load_settings(db, sandbox.organization_id)
+        at, reason = deletion_due(sandbox, settings)
+        return {"pinned": bool(sandbox.pinned), "deletes_at": at.isoformat() if at else None, "delete_reason": reason}
+
+    async def set_pinned(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], pinned: bool) -> Sandbox:
+        """Pin: the retention and lifetime deletions skip this sandbox until it is unpinned."""
+        if bool(sandbox.pinned) != bool(pinned):
+            sandbox.pinned = bool(pinned)
+            sandbox.delete_warned_for = None
+            await self._event(db, sandbox.id, "pinned" if pinned else "unpinned", actor_id, {})
+            await audit(db, sandbox.organization_id, "sandbox.pinned" if pinned else "sandbox.unpinned", actor_id,
+                        "sandbox", sandbox.id, {"title": await self._title(db, sandbox), "report_id": sandbox.report_id})
+            await db.commit()
+        return sandbox
+
+    async def extend(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], seconds: int) -> Sandbox:
+        """Push the maximum-lifetime deletion later by ``seconds`` (from the
+        later of now and the current expiry). A stopped sandbox's retention
+        clock is restarted too, so "extend" always buys the time asked for."""
+        if sandbox.state in ("deleted", "failed"):
+            raise SandboxError(errors.INVALID_STATE, f"A {sandbox.state} sandbox cannot be extended", status=409)
+        now = _now()
+        if sandbox.expires_at is not None:
+            sandbox.expires_at = max(sandbox.expires_at, now) + timedelta(seconds=int(seconds))
+        if sandbox.state == "stopped":
+            sandbox.stopped_at = now
+        sandbox.delete_warned_for = None
+        await self._event(db, sandbox.id, "extended", actor_id, {
+            "seconds": int(seconds), "expires_at": sandbox.expires_at.isoformat() if sandbox.expires_at else None,
+        })
+        await audit(db, sandbox.organization_id, "sandbox.extended", actor_id, "sandbox", sandbox.id,
+                    {"title": await self._title(db, sandbox), "report_id": sandbox.report_id, "seconds": int(seconds)})
+        await db.commit()
+        return sandbox
+
     async def describe(self, db: AsyncSession, report: ReportRef) -> Optional[Dict[str, Any]]:
         """What ``sandbox_status`` returns: state, environment, uptime, expiry, recent runs."""
         sandbox = await self.get_for_report(db, report.id)
@@ -1307,6 +1418,7 @@ class SandboxService:
             "uptime_seconds": int((_now() - sandbox.created_at).total_seconds()) if sandbox.created_at else None,
             "last_used_at": sandbox.last_used_at.isoformat() if sandbox.last_used_at else None,
             "expires_at": sandbox.expires_at.isoformat() if sandbox.expires_at else None,
+            **await self._deletion_facts(db, sandbox),
             "error": sandbox.error,
             "recent_runs": [
                 {"run_id": r.id, "language": r.language, "status": r.status, "exit_code": r.exit_code,
@@ -1315,6 +1427,22 @@ class SandboxService:
                 for r in runs
             ],
         }
+
+
+def deletion_due(sandbox: Sandbox, settings: SandboxSettings) -> tuple:
+    """``(when, why)`` this sandbox will be deleted on its own, or ``(None, None)``.
+
+    A pinned sandbox is never deleted by retention or lifetime. Otherwise the
+    earlier of: its maximum lifetime, and (for a stopped one) the end of the
+    stopped retention."""
+    if sandbox.pinned or sandbox.state in ("deleted",):
+        return None, None
+    due = []
+    if sandbox.expires_at is not None:
+        due.append((sandbox.expires_at, "expired"))
+    if sandbox.state == "stopped" and sandbox.stopped_at is not None:
+        due.append((sandbox.stopped_at + timedelta(seconds=settings.stopped_retention_seconds), "stopped too long"))
+    return min(due, key=lambda item: item[0]) if due else (None, None)
 
 
 class _HookFailed(SandboxError):

@@ -176,6 +176,10 @@ def upgrade() -> None:
             sa.Column("last_used_at", sa.DateTime(), nullable=True),
             sa.Column("stopped_at", sa.DateTime(), nullable=True),
             sa.Column("expires_at", sa.DateTime(), nullable=True),
+            sa.Column("pinned", sa.Boolean(), nullable=False, server_default=sa.false()),
+            sa.Column("keep_warm_until", sa.DateTime(), nullable=True),
+            sa.Column("delete_warned_for", sa.DateTime(), nullable=True),
+            sa.Column("snapshot", sa.JSON(), nullable=True),
             sa.Column("error", sa.Text(), nullable=True),
         )
     _index("ix_sandboxes_id", "sandboxes", ["id"], unique=True)

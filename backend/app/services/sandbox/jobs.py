@@ -33,7 +33,8 @@ from app.services.sandbox.drivers.base import (
 )
 from app.services.sandbox.errors import SandboxError
 from app.services.sandbox.feature import sandbox_feature_enabled
-from app.services.sandbox.service import SandboxService
+from app.services.sandbox.audit import audit as service_audit
+from app.services.sandbox.service import SandboxService, deletion_due
 from app.services.sandbox.settings import SandboxSettings, load_settings
 
 logger = logging.getLogger(__name__)
@@ -141,14 +142,24 @@ async def _lifecycle_one(db, service: SandboxService, sandbox: Sandbox, settings
 
     # Deletion: the report is gone, the sandbox reached its maximum lifetime, or it stayed stopped too long.
     reason = None
+    due_at, due_reason = deletion_due(sandbox, settings)  # (None, None) for a pinned one
     if await _report_is_gone(db, sandbox.report_id):
         reason = "report deleted"
-    elif sandbox.expires_at and sandbox.expires_at <= now:
-        reason = "expired"
-    elif sandbox.state == "stopped" and (age(sandbox.stopped_at) or 0) >= settings.stopped_retention_seconds:
-        reason = "stopped too long"
+    elif due_at is not None and due_at <= now:
+        reason = due_reason
     elif sandbox.state == "failed" and (age(sandbox.updated_at) or 0) >= FAILED_RETENTION_SECONDS:
         reason = "failed"
+    elif (due_at is not None and settings.delete_warning_seconds
+          and due_at - now <= timedelta(seconds=settings.delete_warning_seconds)
+          and sandbox.delete_warned_for != due_at):
+        # Announce it once per deletion date, while there is still time to pin or extend.
+        sandbox.delete_warned_for = due_at
+        await service._event(db, sandbox.id, "deletion_scheduled", None, {"at": due_at.isoformat(), "reason": due_reason})
+        await service_audit(db, sandbox.organization_id, "sandbox.deletion_scheduled", None, "sandbox", sandbox.id, {
+            "title": await service._title(db, sandbox), "report_id": sandbox.report_id,
+            "at": due_at.isoformat(), "reason": due_reason,
+        })
+        await db.commit()
     if reason:
         if reason == "expired":
             await service._event(db, sandbox.id, "expired", None, {"expires_at": sandbox.expires_at.isoformat()})

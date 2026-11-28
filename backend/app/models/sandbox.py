@@ -232,6 +232,14 @@ class Sandbox(BaseSchema):
     last_used_at = Column(DateTime, nullable=True)
     stopped_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True)
+    # Kept by an admin: the retention and lifetime deletions skip it.
+    pinned = Column(Boolean, nullable=False, default=False)
+    # Not stopped for being idle before this moment.
+    keep_warm_until = Column(DateTime, nullable=True)
+    # When "this sandbox is about to be deleted" was last recorded, and for which moment.
+    delete_warned_for = Column(DateTime, nullable=True)
+    # The last snapshot of its workspace: {"path", "bytes", "at"}.
+    snapshot = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
 
 

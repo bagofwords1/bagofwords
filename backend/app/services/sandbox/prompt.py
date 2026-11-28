@@ -25,8 +25,10 @@ PROMPT_SECTION = (
     "it to query the connected data sources: it holds none of their credentials (use create_data / inspect_data "
     "for that). Nothing from the report is in the sandbox unless you pass it with `input_file_ids`; those files "
     "appear under /workspace/inputs. Write results under /workspace/outputs: every new or changed file there is "
-    "saved to the report after the run and returned with a file_id. The sandbox keeps its files and installed "
-    "packages between runs; one run at a time. Check the network access stated in the tool description before "
+    "saved to the report after the run and returned with a file_id. Only /workspace/outputs is durable. The "
+    "sandbox keeps its other files and installed packages between runs, but treat them as a cache: a sandbox "
+    "can be deleted after a period of disuse or recreated after a failure, and then only what was saved to the "
+    "report is put back. One run at a time. Check the network access stated in the tool description before "
     "trying to download anything.</agent_sandbox_guidance>"
 )
 

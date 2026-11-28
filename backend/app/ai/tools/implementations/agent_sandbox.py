@@ -197,7 +197,10 @@ How it works:
       saved to the report after the run and returned with a file_id.
     - `packages` are installed first with pip / npm / go get, and only if the
       sandbox's network access allows the package registries.
-    - Files and installed packages persist between runs. One run at a time.
+    - Files and installed packages persist between runs, but only what is under
+      /workspace/outputs is durable (it is saved to the report). The rest is a
+      cache: after a deletion or a failure the sandbox starts fresh, and only
+      the report's own files are put back. One run at a time.
 
 Returns: exit_code, the end of stdout and stderr, and the saved artifacts.
 A non-zero exit_code is a normal result: read stderr and fix the code.
@@ -260,10 +263,14 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
                         completion_id=_completion_id(runtime_ctx), saved=saved_files,
                     )
 
+                async def load_file(file_id: str):
+                    return await _report_file(runtime_ctx, file_id)
+
                 return await SandboxService().run(
                     db, ref, actor_id, request, on_output=on_output, on_progress=on_progress,
                     cancel=runtime_ctx.get("sigkill_event"), save_artifact=save_artifact,
                     completion_id=_completion_id(runtime_ctx), tool_execution_id=runtime_ctx.get("tool_execution_id"),
+                    load_file=load_file,
                 )
 
         task = asyncio.ensure_future(run())
@@ -299,7 +306,14 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
 
         notes: List[str] = []
         if outcome.recreated:
-            notes.append("The sandbox had to be recreated: its filesystem is fresh, earlier files and installed packages are gone.")
+            restored = (
+                f" These files of the report were put back: {', '.join(outcome.restored_files[:20])}"
+                + (f" and {len(outcome.restored_files) - 20} more." if len(outcome.restored_files) > 20 else ".")
+            ) if outcome.restored_files else ""
+            notes.append(
+                "The sandbox had to be recreated: its filesystem is fresh. Installed packages and files outside "
+                "outputs/ are gone." + restored
+            )
         elif outcome.created:
             notes.append("A new sandbox was created for this report.")
         elif outcome.resumed:
@@ -310,6 +324,13 @@ A non-zero exit_code is a normal result: read stderr and fix the code.
             notes.append("The run was cancelled.")
         if outcome.skipped_artifacts:
             notes.append(f"{len(outcome.skipped_artifacts)} output file(s) were not saved; see skipped_artifacts.")
+        if outcome.background_processes:
+            notes.append(
+                "Still running in the sandbox after this run: "
+                + "; ".join(outcome.background_processes[:5])
+                + ". They keep using its CPU and memory until they exit or the sandbox stops."
+            )
+        notes.extend(outcome.notices)
 
         output = RunInSandboxOutput(
             success=outcome.status == "succeeded", run_id=outcome.run_id, sandbox_id=outcome.sandbox_id,
@@ -499,6 +520,27 @@ async def _input_files(runtime_ctx: Dict[str, Any], file_ids: List[str]) -> List
             raise SandboxError(errors.INVALID, f"File '{file.filename}' is no longer available.")
         inputs.append(InputFile(file_id=str(file.id), name=file.filename, data=_read_chunks(file.path)))
     return inputs
+
+
+async def _report_file(runtime_ctx: Dict[str, Any], file_id: str):
+    """One of the report's own files as sandbox input, or None when it is not
+    (or no longer) a file of this report. Used to restore files into a
+    recreated sandbox; never raises."""
+    from app.ai.tools.implementations._file_tool_common import resolve_session_file
+    from app.services import storage
+    from app.services.sandbox.service import InputFile
+
+    try:
+        file = resolve_session_file(runtime_ctx, file_id)
+        if file is None:
+            return None
+        await storage.aensure_local(file.path)
+        if not os.path.exists(file.path):
+            return None
+        return InputFile(file_id=str(file.id), name=file.filename, data=_read_chunks(file.path))
+    except Exception:  # noqa: BLE001
+        logger.warning("could not read report file %s for the sandbox", file_id)
+        return None
 
 
 async def _read_chunks(path: str) -> AsyncIterator[bytes]:

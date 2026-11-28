@@ -587,6 +587,12 @@ class SandboxFleetRow(SandboxSchema):
     # sandbox was created: it was set up by the old one, and stays that way
     # until it is deleted and created again.
     setup_outdated: bool = False
+    # Kept by an admin; and when it will be deleted on its own and why
+    # ("expired", "stopped too long"), or null when nothing is scheduled.
+    pinned: bool = False
+    deletes_at: Optional[datetime] = None
+    delete_reason: Optional[str] = None
+    keep_warm_until: Optional[datetime] = None
 
 
 class SandboxDetail(SandboxFleetRow):

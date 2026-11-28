@@ -13,7 +13,7 @@ sandbox tokens.
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import current_user
@@ -226,6 +226,7 @@ class SandboxSettingsResponse(BaseModel):
     idle_timeout_seconds: int
     stopped_retention_seconds: int
     max_lifetime_seconds: int
+    delete_warning_seconds: int = 24 * 3600
     registry_domains: List[str]
     max_running_per_user: int
     max_running_total: Optional[int]
@@ -583,6 +584,9 @@ async def _fleet_rows(db: AsyncSession, service, sandboxes, *, with_usage: bool)
         )
         running = {row[0]: (row[1], row[2]) for row in rows.all()}
     usage = await service.stats(db, sandboxes) if with_usage else {}
+    from app.services.sandbox.service import deletion_due
+
+    settings = await load_settings(db, sandboxes[0].organization_id) if sandboxes else None
 
     out = []
     for sandbox in sandboxes:
@@ -594,6 +598,8 @@ async def _fleet_rows(db: AsyncSession, service, sandboxes, *, with_usage: bool)
             compute_name=computes.get(sandbox.compute_id or ""),
             environment_name=environments.get(sandbox.environment_id or "") or (sandbox.limits or {}).get("environment"),
             running_run_id=run_id, running_since=since,
+            pinned=bool(sandbox.pinned), keep_warm_until=sandbox.keep_warm_until,
+            **dict(zip(("deletes_at", "delete_reason"), deletion_due(sandbox, settings))),
             setup_outdated=bool(
                 (sandbox.limits or {}).get("setup") and sandbox.environment_id in current_setup
                 and (sandbox.limits or {}).get("setup") != current_setup[sandbox.environment_id]
@@ -702,6 +708,56 @@ async def kill_sandbox_run(
     except SandboxError as exc:
         raise _http(exc)
     await db.refresh(sandbox)
+    return (await _fleet_rows(db, service, [sandbox], with_usage=False))[0]
+
+
+class PinRequest(BaseModel):
+    pinned: bool = True
+
+
+class ExtendRequest(BaseModel):
+    days: float = Field(default=7, gt=0, le=365)
+
+
+@router.post("/sandboxes/{sandbox_id}/pin", response_model=SandboxFleetRow)
+@requires_permission("manage_sandboxes")
+async def pin_sandbox(
+    sandbox_id: str,
+    data: PinRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Pin a sandbox so the retention and lifetime deletions skip it, or unpin it."""
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    try:
+        sandbox = await service.get(db, organization.id, sandbox_id)
+        await service.set_pinned(db, sandbox, str(current_user.id), data.pinned)
+    except SandboxError as exc:
+        raise _http(exc)
+    return (await _fleet_rows(db, service, [sandbox], with_usage=False))[0]
+
+
+@router.post("/sandboxes/{sandbox_id}/extend", response_model=SandboxFleetRow)
+@requires_permission("manage_sandboxes")
+async def extend_sandbox(
+    sandbox_id: str,
+    data: ExtendRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Push a sandbox's deletion later by a number of days."""
+    from app.services.sandbox.service import SandboxService
+
+    service = SandboxService()
+    try:
+        sandbox = await service.get(db, organization.id, sandbox_id)
+        await service.extend(db, sandbox, str(current_user.id), int(data.days * 24 * 3600))
+    except SandboxError as exc:
+        raise _http(exc)
     return (await _fleet_rows(db, service, [sandbox], with_usage=False))[0]
 
 
