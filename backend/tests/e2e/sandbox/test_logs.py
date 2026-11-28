@@ -123,3 +123,19 @@ def test_the_process_listing_ignores_itself_and_survives_anything():
 
     assert run(service_module._left_running(Runtime())) == ["12 python server.py", "16 node app.js"]
     assert run(service_module._left_running(Broken())) == []
+
+
+def test_a_run_ends_when_its_program_exits_even_if_it_left_a_child_holding_the_output(world, report):
+    """A server started with `&` and no redirect keeps the output pipes open.
+    The run must not wait for it: it ends shortly after the program that was
+    started exits."""
+    import time as clock
+
+    rep = report()
+    world.run_code(rep, world.admin_id, ECHO)
+    started = clock.monotonic()
+    outcome = world.run_code(rep, world.admin_id, RunRequest(language="bash", code="sleep 30 & echo started", timeout_seconds=20))
+    took = clock.monotonic() - started
+    assert outcome.status == "succeeded" and outcome.stdout == "started\n"
+    assert took < 10, f"the run waited {took:.1f}s for a background child"
+    world.call(lambda db: world.service.delete_for_report(db, world.report_ref(rep), world.admin_id))

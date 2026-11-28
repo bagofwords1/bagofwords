@@ -5189,7 +5189,7 @@
     "network": {
       "none": "No network",
       "registries": "Allowed domains only",
-      "allowlist": "Allowed domains only",
+      "allowlist": "Custom allowed domains",
       "full": "Full internet",
       "noneHint": "Code in the sandbox cannot reach the network at all.",
       "registriesHint": "Only the domains listed under Allowed outbound connections in the Sandbox settings can be reached. By default these are the pip, npm and Go package registries, so runs can install packages. Internal hosts and private addresses can never be reached, and only HTTP and HTTPS work. Not supported yet: networks where the internet is only reachable through a corporate proxy.",
@@ -5298,7 +5298,7 @@
           "image": "Image",
           "id": "Sandbox ID",
           "pinned": "Pinned",
-          "deletes": "Deleted",
+          "deletes": "Will be deleted",
           "keepWarm": "Keep warm ends",
           "snapshot": "Last snapshot"
         },
@@ -5379,7 +5379,7 @@
       "setupOutdated": "Old setup",
       "setupOutdatedHint": "The environment's image or setup script changed after this sandbox was created. It stays as it was set up until it is deleted and created again.",
       "keptWarm": "Kept warm, ends {when}",
-      "deletes": "Deleted {when}",
+      "deletes": "Will be deleted {when}",
       "deleteReason": {
         "expired": "Reaches its maximum lifetime",
         "stoppedTooLong": "Stopped too long"
@@ -5478,10 +5478,10 @@
         "done": "Done",
         "allocation": {
           "title": "Capacity rules",
-          "hint": "A compute is full when its resources are, not after a fixed number of sandboxes. Each sandbox counts with the limits of its environment.",
+          "hint": "A compute is full when its resources are, not after a fixed number of sandboxes. Each sandbox is counted by the limits of its environment.",
           "default": "Default: {value}.",
           "cpu_overcommit": "CPU overcommit",
-          "cpu_overcommitHint": "CPUs of sandbox limits allowed per real CPU. Sandboxes are idle most of the time, so more than 1 is safe.",
+          "cpu_overcommitHint": "How many CPUs sandboxes may be promised for each real CPU. Sandboxes are idle most of the time, so more than 1 is safe.",
           "memory_overcommit": "Memory overcommit",
           "memory_overcommitHint": "1 means the memory limits of running sandboxes must fit in the server's memory. More than 1 risks out-of-memory kills.",
           "reserve_memory_mb": "Memory kept free (MB)",
@@ -5523,7 +5523,7 @@
         "takeOverTitle": "This compute belongs to another BoW instance",
         "takeOverHint": "Taking it over removes every sandbox the other instance has on it and claims the compute for this one. The other instance will no longer be able to use it.",
         "takeOver": "Take over",
-        "takeOverConfirm": "Remove its sandboxes and take over"
+        "takeOverConfirm": "Remove the other instance's sandboxes and take over"
       },
       "delete": {
         "title": "Delete {name}?",
@@ -5744,7 +5744,7 @@
       "registriesSection": "Allowed outbound connections",
       "registriesSectionHint": "The domains a sandbox on the \"Allowed domains only\" network policy can reach. The defaults are the pip, npm and Go package registries. A domain added here is open to all traffic, not only package downloads.",
       "registryDomains": "Allowed domains",
-      "registryDomainsHint": "One domain per line, without a scheme, port or path.",
+      "registryDomainsHint": "One domain per line, without a protocol (https://), port or path.",
       "maxLifetimeLimited": "Delete after a set time",
       "maxLifetimeNone": "No maximum",
       "maxLifetimeNoneHint": "Sandboxes are not deleted for their age. Stopped ones are still deleted after the time set under \"Keep stopped sandboxes\".",
@@ -5758,7 +5758,7 @@
       "snapshotWhy": "It is what lets a sandbox survive the loss of its compute: the sandbox is recreated elsewhere from its last snapshot. Without one, only the files saved to the report come back.",
       "snapshotOnStop": "Snapshot when a sandbox stops",
       "snapshotOnStopHint": "Takes a snapshot each time a sandbox is stopped. Off by default.",
-      "snapshotMax": "Largest snapshot",
+      "snapshotMax": "Maximum snapshot size",
       "snapshotMaxHint": "A workspace whose snapshot would be larger than this is not snapshotted."
     }
   },

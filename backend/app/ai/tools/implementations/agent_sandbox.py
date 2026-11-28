@@ -197,6 +197,10 @@ How it works:
       saved to the report after the run and returned with a file_id.
     - `packages` are installed first with pip / npm / go get, and only if the
       sandbox's network access allows the package registries.
+    - A run ends when the program it started exits. To leave something running
+      in the background (a server), send its output elsewhere, e.g.
+      `nohup python -m http.server 8000 >server.log 2>&1 &`; otherwise the run
+      waits a few more seconds for output. What is left running is reported.
     - Files and installed packages persist between runs, but only what is under
       /workspace/outputs is durable (it is saved to the report). The rest is a
       cache: after a deletion or a failure the sandbox starts fresh, and only

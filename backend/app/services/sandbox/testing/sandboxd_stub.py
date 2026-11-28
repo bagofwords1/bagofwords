@@ -80,6 +80,11 @@ sys.exit(0 if allowed else 1)
 '''
 
 
+# How long output is still read after the started program has exited while a
+# child keeps the pipes open. The real daemon waits about five seconds.
+OUTPUT_GRACE_SECONDS = 0.5
+
+
 @dataclass
 class StubSandbox:
     sandbox_id: str
@@ -564,16 +569,32 @@ class _ProcessService:
         pumps = [asyncio.ensure_future(pump(process.stdout, "stdout")), asyncio.ensure_future(pump(process.stderr, "stderr"))]
         try:
             yield pb.StartResponse(init=pb.InitEvent(process_id=process.pid))
-            open_streams = 2
+            # Like the real daemon: the run ends when the program that was started
+            # exits. A child it left in the background may still hold the output
+            # pipes open; output is drained for a short grace period after the
+            # exit and the stream is then closed, rather than waiting for the child.
+            # (asyncio's own ``process.wait()`` also waits for the pipes to close, so
+            # the exit is read from ``returncode``, which is set as soon as it exits.)
+            open_streams, deadline = 2, None
             while open_streams:
-                kind, chunk = await queue.get()
+                if deadline is None and process.returncode is not None:
+                    deadline = time.monotonic() + OUTPUT_GRACE_SECONDS
+                wait = 0.1 if deadline is None else max(0.0, min(0.1, deadline - time.monotonic()))
+                try:
+                    kind, chunk = await asyncio.wait_for(queue.get(), timeout=wait or 0.01)
+                except asyncio.TimeoutError:
+                    if deadline is not None and time.monotonic() >= deadline:
+                        break
+                    continue
                 if chunk is None:
                     open_streams -= 1
                 elif kind == "stdout":
                     yield pb.StartResponse(stdout=chunk)
                 else:
                     yield pb.StartResponse(stderr=chunk)
-            returncode = await process.wait()
+            while process.returncode is None:
+                await asyncio.sleep(0.05)
+            returncode = process.returncode
             yield pb.StartResponse(exit=pb.ExitEvent(exit_code=_exit_code(returncode)))
         finally:
             for task in pumps:
