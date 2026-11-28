@@ -133,3 +133,44 @@ def test_evacuating_a_compute_moves_its_sandboxes_to_another_with_their_files(wo
         again = world.run_code(its_report, world.admin_id, READ)
         assert again.sandbox_id != original and again.stdout == "package\nwork\nout\n"
         assert _row(world, again.sandbox_id).compute_id == new
+
+
+def test_a_sandbox_that_cannot_be_moved_is_listed_and_the_others_still_move(world, report, test_client, admin):
+    old = world.add_compute("old")
+    world.add_environment("Default", is_default=True)
+    busy_report, calm_report = report(), report()
+    busy_id = world.run_code(busy_report, world.admin_id, WRITE).sandbox_id
+    calm_id = world.run_code(calm_report, world.admin_id, WRITE).sandbox_id
+
+    async def mark_busy(db):
+        (await db.get(Sandbox, busy_id)).state = "busy"  # it is in the middle of a run
+        await db.commit()
+    world.call(mark_busy)
+    world.add_compute("new")
+    test_client.put(f"{COMPUTES}/{old}", json={"enabled": False}, headers=admin)
+
+    result = test_client.post(f"{COMPUTES}/{old}/evacuate", headers=admin)
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["moved"] == [calm_id]
+    assert [(left["sandbox_id"], left["code"]) for left in body["left"]] == [(busy_id, "sandbox.busy")]
+    assert _row(world, busy_id).state == "busy", "left exactly where it is"
+
+
+def test_a_sandbox_that_comes_back_from_a_snapshot_keeps_its_environment(world, report, test_client, admin):
+    old = world.add_compute("old")
+    world.add_environment("Default", is_default=True)
+    world.add_environment("Special", network_policy="registries", start_script="echo special > which.txt")
+    rep = report()
+    first = world.run_code(rep, world.admin_id, RunRequest(language="bash", code="echo work > notes.txt", environment="Special"))
+    special_id = _row(world, first.sandbox_id).environment_id
+
+    world.add_compute("new")
+    test_client.put(f"{COMPUTES}/{old}", json={"enabled": False}, headers=admin)
+    assert test_client.post(f"{COMPUTES}/{old}/evacuate", headers=admin).json()["moved"] == [first.sandbox_id]
+
+    again = world.run_code(rep, world.admin_id, RunRequest(language="bash", code="cat notes.txt which.txt"))  # no environment named
+    row = _row(world, again.sandbox_id)
+    assert row.environment_id == special_id and (row.limits or {})["network_policy"] == "registries", \
+        "it comes back as what it was, not as the default environment"
+    assert again.stdout == "work\nspecial\n"

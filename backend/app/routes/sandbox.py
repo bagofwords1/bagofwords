@@ -535,15 +535,17 @@ async def evacuate_compute(
         compute = await compute_service.get_compute(db, organization.id, compute_id)
         if compute.enabled:
             raise SandboxError("sandbox.invalid_state", "Disable this compute before evacuating it.", status=409)
-        for sandbox in await compute_service.live_sandboxes(db, compute.id):
-            if sandbox.state == "failed":
-                continue
+        # Plain values first: a rollback after one refusal expires every loaded row.
+        organization_id, actor_id = str(organization.id), str(current_user.id)
+        candidates = [(s.id, s.report_id) for s in await compute_service.live_sandboxes(db, compute.id) if s.state != "failed"]
+        for sandbox_id, report_id in candidates:
             try:
-                await service.move_off(db, sandbox, str(current_user.id))
-                moved.append(sandbox.id)
+                sandbox = await service.get(db, organization_id, sandbox_id)
+                await service.move_off(db, sandbox, actor_id)
+                moved.append(sandbox_id)
             except SandboxError as exc:
                 await db.rollback()
-                left.append({"sandbox_id": sandbox.id, "report_id": sandbox.report_id, "reason": exc.message})
+                left.append({"sandbox_id": sandbox_id, "report_id": report_id, "reason": exc.message, "code": exc.code})
     except SandboxError as exc:
         raise _http(exc)
     return {"moved": moved, "left": left}

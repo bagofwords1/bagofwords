@@ -368,6 +368,8 @@ class SandboxEnvironmentSchema(BaseModel):
     # Creations that failed in a row because a hook failed, and the last error.
     hook_failures: int = 0
     hook_last_error: Optional[str] = None
+    # At this many failures in a row the environment stops creating sandboxes.
+    hook_failure_cap: int = 3
     cpus: float
     memory_mb: int
     disk_mb: int

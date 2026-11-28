@@ -180,9 +180,10 @@ async def validation_warnings(db: AsyncSession, organization_id: str, env: Sandb
         warnings.append("No compute has the labels this environment asks for, so it cannot run anywhere yet.")
     elif labelled and not any(compute_fits(b, env) for b in labelled):
         missing = sorted(required_capabilities(env) - set().union(*(set(b.capabilities or []) for b in labelled)))
-        warnings.append(
-            "No matching compute supports what this environment needs: " + ", ".join(missing).replace("_", " ") + "."
-        )
+        if missing:  # (a missing volume has its own warning above)
+            warnings.append(
+                "No matching compute supports what this environment needs: " + ", ".join(missing).replace("_", " ") + "."
+            )
     return warnings
 
 

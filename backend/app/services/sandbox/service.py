@@ -529,6 +529,13 @@ class SandboxService:
             return existing, flags
 
         usable = await self.access.usable_environments(db, report.organization_id, actor_id)
+        if not environment:
+            # A sandbox that is coming back from a snapshot (lost, or moved off its
+            # compute) comes back as what it was: the same environment, with its
+            # mounts, hooks and network policy, not whatever the default is now.
+            previous = await self._snapshot_source(db, report.id)
+            if previous is not None and any(e.id == previous.environment_id and e.enabled for e in usable):
+                environment = previous.environment_id
         env = environment_service.choose_environment(
             usable, requested=environment,
             agent_default_id=await environment_service.agent_default_environment_id(db, report.data_source_ids),
@@ -1354,7 +1361,7 @@ class SandboxService:
             await self._stop_hook(db, driver, sandbox, actor_id)
             await self._final_egress(db, driver, sandbox)
             if snapshot or (await load_settings(db, sandbox.organization_id)).snapshot_on_stop:
-                await self.snapshot(db, sandbox, actor_id, driver=driver, reason=reason)
+                await self.snapshot(db, sandbox, actor_id, driver=driver, reason=f"stop: {reason}")
             try:
                 await driver.stop(self._handle(sandbox))
             except SandboxNotFound:
@@ -1444,16 +1451,20 @@ class SandboxService:
             raise SandboxError(errors.UNAVAILABLE, "The snapshot was not taken, so the sandbox was left where it is.", status=503)
         await self._remove(db, sandbox, actor_id, reason="moved")
 
-    async def _latest_snapshot(self, db: AsyncSession, report_id: str) -> Optional[Dict[str, Any]]:
-        """The newest snapshot any sandbox of this report left behind, if its file is still there."""
+    async def _snapshot_source(self, db: AsyncSession, report_id: str) -> Optional[Sandbox]:
+        """The newest sandbox of this report that left a snapshot whose file is still there."""
         rows = await db.execute(
             select(Sandbox).where(Sandbox.report_id == str(report_id), Sandbox.snapshot.isnot(None))
             .order_by(Sandbox.created_at.desc())
         )
         for row in rows.scalars().all():
             if row.snapshot and await snapshots.available(row.snapshot):
-                return dict(row.snapshot)
+                return row
         return None
+
+    async def _latest_snapshot(self, db: AsyncSession, report_id: str) -> Optional[Dict[str, Any]]:
+        source = await self._snapshot_source(db, report_id)
+        return dict(source.snapshot) if source is not None else None
 
     async def _final_egress(self, db: AsyncSession, driver: SandboxDriver, sandbox: Sandbox) -> None:
         """Collect the domain log one last time before a sandbox goes away."""

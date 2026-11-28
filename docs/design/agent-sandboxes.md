@@ -801,3 +801,18 @@ behind BoW's back coming back from its snapshot; and the admin stop, kill-run, s
 and delete. Not verified on a real server: evacuating to a second compute (there is one
 test server), and the domain log collection job end to end (its parser was exercised in
 phase 1, the storing is covered on the fake compute).
+
+### Known limits after the review round
+
+- **A background program that keeps the run's output open holds the run.** A run that
+  starts a server with `&` and does not redirect its output does not end until the
+  program exits or the run's time limit. With the output redirected
+  (`nohup … >/dev/null 2>&1 &`) the run ends at once and the program is recorded as left
+  running. Seen on the fake compute; the redirected case was checked on the real server.
+- **Shared report links return tool arguments**, including a run's code, as they do for
+  every other tool. "Hidden without `view_code`" applies inside the app, not to a public
+  link.
+- **Server-written sentences are English**: environment warnings, hook errors, event
+  reasons. Run notices carry codes (`note_codes`) and are translated; the others are not
+  yet.
+- **Evacuation was only exercised on the fake compute**; there is one real test server.
