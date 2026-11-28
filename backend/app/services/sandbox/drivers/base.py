@@ -78,6 +78,22 @@ class SandboxNotFound(SandboxDriverError):
 
 
 @dataclass(frozen=True)
+class MountSpec:
+    """One of a compute's volumes, mounted into a sandbox.
+
+    ``source`` is the compute's own way of naming the storage (a path on a
+    server, a claim in a cluster): only the driver reads it. ``subpath`` is a
+    directory inside the volume to mount instead of its root; the driver
+    creates it when it is missing."""
+
+    volume: str
+    source: str
+    path: str
+    read_only: bool = True
+    subpath: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class SandboxSpec:
     """Everything a driver needs to create one sandbox. Maps onto upstream's ``SandboxTemplate``."""
 
@@ -101,6 +117,8 @@ class SandboxSpec:
     registry_username: Optional[str] = None
     registry_password: Optional[str] = None
     labels: Mapping[str, str] = field(default_factory=dict)
+    # Volumes of the compute to mount. They do not count against ``disk_mb``.
+    mounts: Sequence[MountSpec] = ()
 
     def __post_init__(self):
         if self.network_policy not in NETWORK_POLICIES:
@@ -265,6 +283,8 @@ class ComputeContext:
     driver_state: Dict[str, Any] = field(default_factory=dict)
     # Where this BoW instance is reachable (recorded in a compute's owner marker).
     base_url: Optional[str] = None
+    # The volumes the operator declared on this compute: [{"name", "source", ...}].
+    volumes: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class SandboxDriver(abc.ABC):

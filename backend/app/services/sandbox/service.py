@@ -42,6 +42,7 @@ from app.services.sandbox import capacity, errors
 from app.services.sandbox.audit import audit
 from app.services.sandbox.drivers.base import (
     CAP_STOP_RESUME,
+    MountSpec,
     DOMAIN_FILTERED_POLICIES,
     POLICY_ALLOWLIST,
     POLICY_NONE,
@@ -413,7 +414,30 @@ class SandboxService:
 
     # ── create ──
 
-    def _spec(self, sandbox: Sandbox, env: SandboxEnvironment, settings: SandboxSettings, token: str) -> SandboxSpec:
+    @staticmethod
+    def _mounts(sandbox: Sandbox, env: SandboxEnvironment, compute: Optional[SandboxCompute]) -> List[MountSpec]:
+        """The environment's mounts, resolved against the compute's volumes. A
+        writable mount that is not shared gets the report's own directory inside
+        the volume: sandboxes are isolated per report, and so is what they write."""
+        sources = {v.get("name"): v.get("source") for v in ((compute.volumes if compute else None) or [])}
+        mounts: List[MountSpec] = []
+        for mount in env.mounts or []:
+            volume = mount.get("volume")
+            if volume not in sources:
+                raise SandboxError(
+                    errors.NO_COMPUTE, f"The compute has no volume named '{volume}', which this environment mounts.",
+                    status=503,
+                )
+            read_only = bool(mount.get("read_only", True))
+            per_report = not read_only and not mount.get("shared")
+            mounts.append(MountSpec(
+                volume=volume, source=sources[volume], path=mount["path"], read_only=read_only,
+                subpath=f"reports/{sandbox.report_id}" if per_report else None,
+            ))
+        return mounts
+
+    def _spec(self, sandbox: Sandbox, env: SandboxEnvironment, settings: SandboxSettings, token: str,
+              compute: Optional[SandboxCompute] = None) -> SandboxSpec:
         if env.network_policy == POLICY_REGISTRIES:
             domains = list(settings.registry_domains)
         elif env.network_policy == POLICY_ALLOWLIST:
@@ -430,6 +454,7 @@ class SandboxService:
             require_strong_isolation=bool(env.require_strong_isolation), ports=list(env.ports or []),
             registry_username=env.registry_username, registry_password=env.registry_password,
             labels={"report": sandbox.report_id},
+            mounts=self._mounts(sandbox, env, compute),
         )
 
     async def ensure(self, db: AsyncSession, report: ReportRef, actor_id: Optional[str], *,
@@ -477,6 +502,8 @@ class SandboxService:
                 "cpus": env.cpus, "memory_mb": env.memory_mb, "disk_mb": env.disk_mb,
                 "run_timeout_seconds": env.run_timeout_seconds, "network_policy": env.network_policy,
                 "environment": env.name, "setup": environment_service.setup_fingerprint(env),
+                "mounts": [{"volume": m.get("volume"), "path": m.get("path"), "read_only": bool(m.get("read_only", True))}
+                           for m in (env.mounts or [])],
             },
         )
         db.add(sandbox)
@@ -499,7 +526,7 @@ class SandboxService:
         driver = await compute_service.build_driver(db, compute)
         try:
             try:
-                handle = await driver.create(self._spec(sandbox, env, settings, token))
+                handle = await driver.create(self._spec(sandbox, env, settings, token, compute))
                 sandbox.driver_ref = dict(handle.ref)
                 async with self._runtime(driver, sandbox) as runtime:
                     await runtime.wait_healthy(HEALTH_DEADLINE_SECONDS)

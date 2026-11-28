@@ -87,6 +87,7 @@ class _FakeSandbox:
     sandbox_id: str
     instance_id: str
     network_policy: str
+    mounts: List[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -133,6 +134,11 @@ def _stub_id(sandbox_id: str) -> str:
 class FakeDriver(SandboxDriver):
     type_name = "fake"
     potential_capabilities = frozenset({CAP_STOP_RESUME, CAP_STRONG_ISOLATION, CAP_DOMAIN_ALLOWLIST, CAP_LIVE_STATS})
+
+    @staticmethod
+    def validate_volumes(volumes):
+        """The pretend server takes any volume; nothing is really mounted."""
+        return [dict(volume, source=str(volume.get("source") or "").strip()) for volume in volumes]
 
     def __init__(self, ctx: ComputeContext):
         super().__init__(ctx)
@@ -297,7 +303,8 @@ class FakeDriver(SandboxDriver):
         env["BOW_FAKE_NETWORK_POLICY"] = spec.network_policy
         env["BOW_FAKE_ALLOWED_DOMAINS"] = json.dumps(list(spec.allowed_domains))
         self._host.add_sandbox(_stub_id(spec.sandbox_id), spec.token_sha256, env)
-        compute.sandboxes[spec.sandbox_id] = _FakeSandbox(spec.sandbox_id, self.ctx.instance_id, spec.network_policy)
+        compute.sandboxes[spec.sandbox_id] = _FakeSandbox(spec.sandbox_id, self.ctx.instance_id, spec.network_policy,
+                                                         list(spec.mounts))
         return SandboxHandle(
             sandbox_id=spec.sandbox_id,
             ref={"stub_id": _stub_id(spec.sandbox_id), "pid": os.getpid(), "compute": self.ctx.compute_id},

@@ -162,6 +162,18 @@ def prepare_credentials(name: str, config: Dict[str, Any], credentials: Dict[str
     return hook(config, credentials)
 
 
+def validate_volumes(name: str, volumes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Let the driver check the volumes an operator declared on a compute
+    (what ``source`` may be is the driver's business). A type whose driver has
+    no hook does not support volumes."""
+    hook = getattr(driver_class(name), "validate_volumes", None)
+    if hook is None:
+        if volumes:
+            raise SandboxDriverError("This kind of compute does not support volumes.", code="invalid_config")
+        return []
+    return hook(list(volumes))
+
+
 def is_another_compute(name: str, previous_config: Dict[str, Any], config: Dict[str, Any]) -> bool:
     """Whether a settings change points the compute at a different machine or
     cluster, so that what the driver learned about the old one (pinned

@@ -120,6 +120,10 @@ class SandboxCompute(BaseSchema):
     # Cached from the driver: stop_resume, strong_isolation, domain_allowlist, ...
     capabilities = Column(JSON, nullable=False, default=list)
     labels = Column(JSON, nullable=False, default=list)
+    # Storage the operator makes available to sandboxes on this compute:
+    # [{"name", "source", "description"}]. ``source`` is the driver's (a path
+    # on a server). An environment mounts a volume by name.
+    volumes = Column(JSON, nullable=False, default=list)
     capacity = Column(Integer, nullable=False, default=20)
     enabled = Column(Boolean, nullable=False, default=False)
     bootstrap_status = Column(String(20), nullable=False, default="none")
@@ -169,6 +173,9 @@ class SandboxEnvironment(BaseSchema):
     # {NAME: value}; injected as environment variables, never returned by the API.
     secrets = Column(SecretJSON, nullable=True)
     compute_labels = Column(JSON, nullable=False, default=list)
+    # Volumes to mount: [{"volume", "path", "read_only", "shared"}]. A compute
+    # must have every volume named here to run this environment.
+    mounts = Column(JSON, nullable=False, default=list)
     require_strong_isolation = Column(Boolean, nullable=False, default=False)
     # Ports an app in the sandbox may serve. Empty for now; reserved for hosted apps.
     ports = Column(JSON, nullable=False, default=list)

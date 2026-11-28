@@ -12,6 +12,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
+import re
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 NetworkPolicy = Literal["none", "registries", "allowlist", "full"]
@@ -50,6 +52,59 @@ def _clean_labels(value: Optional[List[str]]) -> List[str]:
     return seen
 
 
+# ── Volumes ──────────────────────────────────────────────────────────────
+
+_VOLUME_NAME = r"^[a-z0-9][a-z0-9_-]{0,39}$"
+# Where a volume may not be mounted in a sandbox: the workspace and scratch
+# space BoW provides, and the system's own directories.
+_FORBIDDEN_MOUNT_PATHS = ("/", "/workspace", "/tmp", "/proc", "/sys", "/dev", "/etc", "/usr", "/bin", "/sbin",
+                          "/lib", "/lib64", "/boot", "/root", "/run", "/var")
+
+
+class ComputeVolume(BaseModel):
+    """Storage an operator makes available on a compute, by name."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(pattern=_VOLUME_NAME, description="What environments mount it by.")
+    source: str = Field(min_length=1, max_length=500, description="Where it is on the compute. For a server: a directory.")
+    description: Optional[str] = Field(default=None, max_length=300)
+
+
+class EnvironmentMount(BaseModel):
+    """A compute's volume, mounted in every sandbox of an environment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    volume: str = Field(pattern=_VOLUME_NAME)
+    path: str = Field(min_length=2, max_length=300, description="Where it appears in the sandbox, e.g. /data.")
+    read_only: bool = True
+    # Only for a writable mount. False (default): each report gets its own
+    # directory inside the volume, because sandboxes are isolated per report.
+    # True: every sandbox writes to the volume's root and sees the others' files.
+    shared: bool = False
+
+    @field_validator("path")
+    @classmethod
+    def _path(cls, value):
+        path = "/" + str(value).strip().strip("/")
+        if not re.match(r"^/[A-Za-z0-9._/@+-]+$", path) or ".." in path.split("/") or "//" in path:
+            raise ValueError("must be an absolute path made of letters, digits and . _ - @ + /")
+        if any(path == bad or (bad != "/" and path.startswith(bad + "/")) for bad in _FORBIDDEN_MOUNT_PATHS):
+            raise ValueError(f"{path} is reserved: mount it somewhere else, for example /data or /mnt/shared")
+        return path
+
+
+def _unique(items, key: str, what: str):
+    seen = set()
+    for item in items or []:
+        value = getattr(item, key)
+        if value in seen:
+            raise ValueError(f"{what} '{value}' is listed twice")
+        seen.add(value)
+    return items
+
+
 # ── Computes ─────────────────────────────────────────────────────────────
 
 
@@ -66,8 +121,14 @@ class SandboxComputeCreate(BaseModel):
     capacity: int = Field(default=DEFAULT_COMPUTE_CAPACITY, ge=1, le=1000)
     # How much of the compute sandboxes may be given (services/sandbox/capacity.py: Allocation).
     allocation: Dict[str, Any] = Field(default_factory=dict)
+    volumes: List[ComputeVolume] = Field(default_factory=list, max_length=20)
 
     _labels = field_validator("labels")(_clean_labels)
+
+    @field_validator("volumes")
+    @classmethod
+    def _volumes(cls, value):
+        return _unique(value, "name", "The volume")
 
 
 class SandboxComputeUpdate(BaseModel):
@@ -81,7 +142,14 @@ class SandboxComputeUpdate(BaseModel):
     capacity: Optional[int] = Field(default=None, ge=1, le=1000)
     # Only the keys present are changed.
     allocation: Optional[Dict[str, Any]] = None
+    # The whole list: volumes not in it are removed.
+    volumes: Optional[List[ComputeVolume]] = Field(default=None, max_length=20)
     enabled: Optional[bool] = None
+
+    @field_validator("volumes")
+    @classmethod
+    def _volumes(cls, value):
+        return None if value is None else _unique(value, "name", "The volume")
 
     @field_validator("labels")
     @classmethod
@@ -123,6 +191,7 @@ class SandboxComputeSchema(BaseModel):
     # What the compute has ({"cpus", "memory_mb", "disk_mb"}; a missing key is unknown),
     # the admin's allocation policy with its defaults filled in, what sandboxes
     # may be given in total, and what they hold now by their limits.
+    volumes: List[ComputeVolume] = []
     resources: Dict[str, float] = {}
     allocation: Dict[str, Any] = {}
     allocatable: Dict[str, float] = {}
@@ -155,6 +224,7 @@ class SandboxComputeSchema(BaseModel):
             last_error=compute.last_error,
             info=info,
             running_sandboxes=running_sandboxes,
+            volumes=[ComputeVolume(**v) for v in (compute.volumes or [])],
             resources=dict(compute.resources or {}),
             allocation=dict(allocation or {}),
             allocatable=dict(allocatable or {}),
@@ -177,6 +247,8 @@ class _EnvironmentFields(BaseModel):
     allowed_domains: Optional[List[str]] = None
     env_vars: Optional[Dict[str, str]] = None
     compute_labels: Optional[List[str]] = None
+    # The whole list of volumes to mount.
+    mounts: Optional[List[EnvironmentMount]] = Field(default=None, max_length=10)
     ports: Optional[List[int]] = None
 
     @field_validator("env_vars")
@@ -192,6 +264,14 @@ class _EnvironmentFields(BaseModel):
     @classmethod
     def _labels(cls, value):
         return None if value is None else _clean_labels(value)
+
+    @field_validator("mounts")
+    @classmethod
+    def _mounts(cls, value):
+        if value is None:
+            return None
+        _unique(value, "path", "The mount path")
+        return value
 
     @field_validator("allowed_domains")
     @classmethod
@@ -295,6 +375,7 @@ class SandboxEnvironmentSchema(BaseModel):
     # Names only. Values are never returned.
     secret_names: List[str]
     compute_labels: List[str]
+    mounts: List[EnvironmentMount] = []
     require_strong_isolation: bool
     ports: List[int]
     is_default: bool
@@ -326,6 +407,7 @@ class SandboxEnvironmentSchema(BaseModel):
             env_vars=dict(env.env_vars or {}),
             secret_names=sorted((env.secrets or {}).keys()),
             compute_labels=list(env.compute_labels or []),
+            mounts=[EnvironmentMount(**m) for m in (env.mounts or [])],
             require_strong_isolation=bool(env.require_strong_isolation),
             ports=list(env.ports or []),
             is_default=bool(env.is_default),

@@ -79,9 +79,16 @@ def required_capabilities(env: SandboxEnvironment) -> set:
     return needed
 
 
+def mounted_volumes(env: SandboxEnvironment) -> set:
+    return {m.get("volume") for m in (env.mounts or []) if m.get("volume")}
+
+
 def compute_fits(compute: SandboxCompute, env: SandboxEnvironment) -> bool:
-    """Labels match and the compute supports what the environment needs."""
+    """Labels match, the compute has every volume the environment mounts, and
+    it supports what the environment needs."""
     if not set(env.compute_labels or []) <= set(compute.labels or []):
+        return False
+    if not mounted_volumes(env) <= {v.get("name") for v in (compute.volumes or [])}:
         return False
     return required_capabilities(env) <= set(compute.capabilities or [])
 
@@ -145,6 +152,17 @@ async def validation_warnings(db: AsyncSession, organization_id: str, env: Sandb
     )
     computes = list(rows.scalars().all())
     labelled = [b for b in computes if set(env.compute_labels or []) <= set(b.labels or [])]
+    wanted = mounted_volumes(env)
+    if wanted and labelled and not any(wanted <= {v.get("name") for v in (b.volumes or [])} for b in labelled):
+        warnings.append(
+            "No compute has every volume this environment mounts (" + ", ".join(sorted(wanted)) + "), "
+            "so it cannot run anywhere yet. Add the volume to a compute."
+        )
+    if any(not m.get("read_only", True) and m.get("shared") for m in (env.mounts or [])):
+        warnings.append(
+            "A volume is mounted writable and shared: every sandbox of this environment can read and change "
+            "what the others wrote there, across reports."
+        )
     if computes and not labelled:
         warnings.append("No compute has the labels this environment asks for, so it cannot run anywhere yet.")
     elif labelled and not any(compute_fits(b, env) for b in labelled):
@@ -179,7 +197,7 @@ async def create_environment(db: AsyncSession, organization_id: str, actor_id: O
         run_timeout_seconds=data.run_timeout_seconds, network_policy=data.network_policy,
         allowed_domains=list(data.allowed_domains or []), env_vars=dict(data.env_vars or {}),
         secrets=dict(data.secrets) if data.secrets else None,
-        compute_labels=list(data.compute_labels or []), require_strong_isolation=data.require_strong_isolation,
+        compute_labels=list(data.compute_labels or []), mounts=[m.model_dump() for m in (data.mounts or [])], require_strong_isolation=data.require_strong_isolation,
         ports=list(data.ports or []), is_default=data.is_default, enabled=data.enabled, created_by=actor_id,
     )
     db.add(env)
@@ -225,6 +243,12 @@ async def update_environment(db: AsyncSession, organization_id: str, actor_id: O
         if changes.get(field) is not None and changes[field] != getattr(env, field):
             setattr(env, field, changes[field])
             changed.append(field)
+    if data.mounts is not None:
+        mounts = [m.model_dump() for m in data.mounts]
+        if mounts != list(env.mounts or []):
+            env.mounts = mounts
+            flag_modified(env, "mounts")
+            changed.append("mounts")
     for field in ("allowed_domains", "env_vars", "compute_labels", "ports"):
         if changes.get(field) is not None and changes[field] != getattr(env, field):
             setattr(env, field, changes[field])

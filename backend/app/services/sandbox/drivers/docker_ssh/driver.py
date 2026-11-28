@@ -76,6 +76,12 @@ class DockerSSHDriver(SandboxDriver):
     # ── registry hooks ──
 
     @staticmethod
+    def validate_volumes(volumes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """A volume here is a directory on the server. The operator mounts what
+        it should hold (a local disk, NFS, an object store) there themselves."""
+        return [dict(volume, source=commands.volume_source(volume.get("source"))) for volume in volumes]
+
+    @staticmethod
     def is_another_compute(previous_config: Dict[str, Any], config: Dict[str, Any]) -> bool:
         """A different address or SSH port is a different server: its host key,
         its router's certificate and "bootstrapped" are not this one's."""
@@ -273,6 +279,11 @@ class DockerSSHDriver(SandboxDriver):
                 line("bootstrap", "Bootstrapped", "failed", "Not running: " + ", ".join(down) + ". Bootstrap again to repair.")
             else:
                 line("bootstrap", "Bootstrapped", "ok", "The router, the egress proxy and the firewall helper are running.")
+            for volume in self.ctx.volumes:
+                found = await self.ssh.run(["test", "-d", str(volume.get("source"))], check=False)
+                line(f"volume:{volume.get('name')}", f"Volume {volume.get('name')}", "ok" if found.ok else "warning",
+                     None if found.ok else f"{volume.get('source')} does not exist on the server yet. "
+                                           "Sandboxes that mount it cannot start until it does.")
             running = sum(1 for c in containers.values() if c.get("sandbox") and c.get("state") == "running")
             return ComputeHealth(
                 reachable=True, prepared=prepared, healthy=prepared and not down, running=running,
@@ -329,6 +340,8 @@ class DockerSSHDriver(SandboxDriver):
             await host.pull(spec.image, username=spec.registry_username, password=spec.registry_password)
         env_path = f"{layout.ENV_DIR}/{spec.sandbox_id}.env"
         env_content = commands.env_file(commands.sandbox_environment(spec, self.addr))
+        for argv in commands.mount_prepare(spec.mounts):
+            await host.ssh.run(argv)
         try:
             for argv in commands.workspace_create(spec.sandbox_id, spec.disk_mb):
                 await host.ssh.run(argv)

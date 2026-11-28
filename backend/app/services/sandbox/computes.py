@@ -58,6 +58,7 @@ async def build_driver(db: AsyncSession, compute: SandboxCompute, *,
         credentials=credentials,
         driver_state=dict(compute.driver_state or {}),
         base_url=_bow_base_url(),
+        volumes=[dict(v) for v in (compute.volumes or [])],
     )
     try:
         return registry.create_driver(compute.type, ctx)
@@ -111,6 +112,14 @@ def to_schema(compute: SandboxCompute, running: int = 0, usage: Optional[capacit
         allocation=capacity.allocation_of(compute).model_dump(),
         allocatable=capacity.allocatable(compute), allocated=usage.as_dict(),
     )
+
+
+def _validated_volumes(type_name: str, volumes) -> List[Dict[str, Any]]:
+    """The volumes an operator declared, checked by the compute's driver."""
+    try:
+        return registry.validate_volumes(type_name, [v.model_dump() if hasattr(v, "model_dump") else dict(v) for v in volumes or []])
+    except SandboxDriverError as exc:
+        raise SandboxError(errors.INVALID, exc.message) from exc
 
 
 def _validated_allocation(current: Optional[Dict[str, Any]], changes: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -233,6 +242,7 @@ async def create_compute(db: AsyncSession, organization_id: str, actor_id: Optio
         organization_id=str(organization_id), name=data.name.strip(), type=data.type, config=config,
         credentials=stored or None, driver_state={}, capabilities=[], labels=list(data.labels),
         capacity=data.capacity, allocation=_validated_allocation({}, data.allocation), resources={},
+        volumes=_validated_volumes(data.type, data.volumes),
         enabled=False, bootstrap_status="none", bootstrap_steps=[],
         status="unknown", created_by=actor_id,
     )
@@ -305,6 +315,12 @@ async def update_compute(db: AsyncSession, organization_id: str, actor_id: Optio
     if changes.get("capacity") is not None and changes["capacity"] != compute.capacity:
         compute.capacity = changes["capacity"]
         changed.append("capacity")
+    if data.volumes is not None:
+        volumes = _validated_volumes(compute.type, data.volumes)
+        if volumes != list(compute.volumes or []):
+            compute.volumes = volumes
+            flag_modified(compute, "volumes")
+            changed.append("volumes")
     if changes.get("allocation") is not None:
         allocation = _validated_allocation(compute.allocation, changes["allocation"])
         if allocation != dict(compute.allocation or {}):
