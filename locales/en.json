@@ -1,4 +1,17 @@
 {
+  "grantMapping": {
+    "previewError": "Preview failed. Check the saved rule and the connection.",
+    "importTyped": "One table per line. To add a rule, enter table, filter column, resource type value.",
+    "importSimple": "One table per line. To add a rule, enter table and filter column, separated by a comma.",
+    "target": "Column to filter",
+    "principal": "Member property",
+    "principalColumn": "Matching grant column",
+    "valueColumn": "Granted value column",
+    "useType": "Use a resource type to distinguish grants",
+    "typeColumn": "Resource type column",
+    "resourceTypeValue": "Resource type value",
+    "chooseColumn": "Choose a column"
+  },
   "accessEditor": {
     "tables": "Table access",
     "chooseTable": "Select a table to edit its rules and preview member access.",

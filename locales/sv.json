@@ -1,4 +1,17 @@
 {
+  "grantMapping": {
+    "previewError": "Förhandsvisningen misslyckades. Kontrollera regeln och anslutningen.",
+    "importTyped": "En tabell per rad. Ange tabell, filterkolumn och resurstyp för en regel.",
+    "importSimple": "En tabell per rad. Ange tabell och filterkolumn med komma emellan för en regel.",
+    "target": "Kolumn att filtrera",
+    "principal": "Medlemsegenskap",
+    "principalColumn": "Matchande behörighetskolumn",
+    "valueColumn": "Kolumn med tillåtet värde",
+    "useType": "Skilj behörigheter åt med resurstyp",
+    "typeColumn": "Kolumn för resurstyp",
+    "resourceTypeValue": "Värde för resurstyp",
+    "chooseColumn": "Välj kolumn"
+  },
   "accessEditor": {
     "tables": "Tabellåtkomst",
     "chooseTable": "Välj en tabell för att redigera regler och granska åtkomsten.",

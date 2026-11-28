@@ -2461,7 +2461,7 @@ async def access_policy_coverage(connection_id: str, search: str = "", status: s
     live, draft = table_rules(conn.active_company_policy), table_rules(conn.company_policy)
     pending = {n for n in live.keys() | draft.keys() if live.get(n) != draft.get(n)}
     def shared_settings(policy):
-        return {key: value for key, value in (policy or {}).items() if key not in {"tables", "inventory"}}
+        return ConnectionCompanyPolicy.model_validate(policy).model_dump(exclude={"tables", "inventory"}) if policy else {}
     if shared_settings(conn.active_company_policy) != shared_settings(conn.company_policy):
         pending.update(live.keys() | draft.keys())
     base = select(ConnectionTable.name).where(ConnectionTable.connection_id == connection_id,

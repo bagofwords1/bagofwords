@@ -1,4 +1,17 @@
 {
+  "grantMapping": {
+    "previewError": "No se pudo mostrar la vista previa. Revisa la regla y la conexión.",
+    "importTyped": "Una tabla por línea. Para crear una regla, escribe tabla, columna de filtro y tipo de recurso.",
+    "importSimple": "Una tabla por línea. Para crear una regla, separa la tabla y la columna de filtro con una coma.",
+    "target": "Columna que se filtrará",
+    "principal": "Propiedad del miembro",
+    "principalColumn": "Columna que identifica al destinatario",
+    "valueColumn": "Columna del valor concedido",
+    "useType": "Distinguir los permisos por tipo de recurso",
+    "typeColumn": "Columna del tipo de recurso",
+    "resourceTypeValue": "Valor del tipo de recurso",
+    "chooseColumn": "Selecciona una columna"
+  },
   "accessEditor": {
     "tables": "Acceso por tabla",
     "chooseTable": "Selecciona una tabla para editar sus reglas y comprobar el acceso de un miembro.",

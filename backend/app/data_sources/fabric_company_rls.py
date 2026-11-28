@@ -37,7 +37,7 @@ class TableGrant(BaseModel):
 
     @model_validator(mode="after")
     def validate_projection(self):
-        if bool(self.row_attribute) == bool(self.source):
+        if self.row_attribute and self.source:
             raise ValueError("Choose one row rule source")
         if self.columns is not None and len({c.casefold() for c in self.columns}) != len(self.columns):
             raise ValueError("Column names must be unique")
@@ -56,6 +56,7 @@ class TableGrant(BaseModel):
 class CompanyPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     grants_table: TableName | None = None
+    grant_principal: AttributeSource = "user.email"
     employee_column: Identifier | None = None
     company_column: Identifier | None = None
     source_column: Identifier | None = None
@@ -66,14 +67,17 @@ class CompanyPolicy(BaseModel):
         names = [item.table.casefold() for item in self.tables]
         if len(set(names)) != len(names) or (self.grants_table or "").casefold() in names:
             raise ValueError("Each protected table must be distinct from the grant table")
-        columns = (self.employee_column, self.company_column, self.source_column)
-        grants = [item.source for item in self.tables if item.source]
-        if grants and (not self.grants_table or not all(columns)):
-            raise ValueError("Entitlement rules need a complete grant table mapping")
-        if grants and len({name.casefold() for name in columns}) != len(columns):
-            raise ValueError("Employee, company and source require distinct grant columns")
-        if len(set(grants)) != len(grants):
-            raise ValueError("Each protected table requires its own source value")
+        lookups = [item for item in self.tables if not item.row_attribute]
+        if lookups:
+            if not all((self.grants_table, self.employee_column, self.company_column)):
+                raise ValueError("Entitlement rules need a complete grant table mapping")
+            columns = [name.casefold() for name in (self.employee_column, self.company_column, self.source_column) if name]
+            if len(set(columns)) != len(columns):
+                raise ValueError("Choose distinct grant columns")
+            if any(bool(item.source) != bool(self.source_column) for item in lookups):
+                raise ValueError("A resource type column and its per-table values must be configured together")
+            if self.source_column and len({item.source for item in lookups}) != len(lookups):
+                raise ValueError("Each protected table requires its own source value")
         return self
 
 
@@ -203,13 +207,24 @@ def protect_query(sql: str, policy: CompanyPolicy, employee: str | None, *, iden
                          if allowed else exp.EQ(this=exp.Literal.number(1), expression=exp.Literal.number(0)))
         else:
             grants = exp.to_table(policy.grants_table).as_("g")
-            matches = exp.and_(
-                exact(exp.column(policy.employee_column, table="g", quoted=True)).eq(exact(bind(employee))),
-                exact(exp.column(policy.source_column, table="g", quoted=True)).eq(exact(bind(rule.source))),
-            )
+            principals = ([employee] if policy.grant_principal == "user.email" else
+                          resolve_source(policy.grant_principal, identity) if identity else [])
+            principals = list(dict.fromkeys(value for value in principals if value and value.strip()))
+            if len(principals) > 256:
+                raise ValueError("Too many grant principal values")
+            principal_key = exact(exp.column(policy.employee_column, table="g", quoted=True))
+            if len(principals) == 1:
+                matches = principal_key.eq(exact(bind(principals[0])))
+            elif principals:
+                matches = principal_key.isin(*[exact(bind(value)) for value in principals])
+            else:
+                matches = exp.Literal.number(1).eq(exp.Literal.number(0))
+            if policy.source_column:
+                type_key = exact(exp.column(policy.source_column, table="g", quoted=True))
+                matches = exp.and_(matches, type_key.eq(exact(bind(rule.source))))
             if not grant_probe:
                 granted = exp.column(policy.company_column, table="g", quoted=True)
-                same_company = granted.eq(key) if dialect == "fabric" else exact(granted).eq(exact(key))
+                same_company = exp.and_(granted.copy().eq(key.copy()), exact(granted).eq(exact(key)))
                 matches = exp.and_(matches, same_company)
             predicate = exp.Exists(this=exp.select(exp.Literal.number(1)).from_(grants).where(matches))
         if grant_probe:

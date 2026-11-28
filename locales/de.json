@@ -1,4 +1,17 @@
 {
+  "grantMapping": {
+    "previewError": "Vorschau fehlgeschlagen. Regel und Verbindung prüfen.",
+    "importTyped": "Eine Tabelle pro Zeile. Für Regeln Tabelle, Filterspalte und Ressourcentyp eingeben.",
+    "importSimple": "Eine Tabelle pro Zeile. Für Regeln Tabelle und Filterspalte durch Komma trennen.",
+    "target": "Zu filternde Spalte",
+    "principal": "Mitgliedseigenschaft",
+    "principalColumn": "Passende Berechtigungsspalte",
+    "valueColumn": "Spalte mit berechtigtem Wert",
+    "useType": "Berechtigungen nach Ressourcentyp unterscheiden",
+    "typeColumn": "Spalte für Ressourcentyp",
+    "resourceTypeValue": "Wert des Ressourcentyps",
+    "chooseColumn": "Spalte auswählen"
+  },
   "accessEditor": {
     "tables": "Tabellenzugriff",
     "chooseTable": "Tabelle auswählen, Regeln bearbeiten und Zugriff prüfen.",

@@ -1,4 +1,17 @@
 {
+  "grantMapping": {
+    "previewError": "Échec de l’aperçu. Vérifiez la règle et la connexion.",
+    "importTyped": "Une table par ligne. Pour une règle, saisissez table, colonne de filtre, type de ressource.",
+    "importSimple": "Une table par ligne. Pour une règle, séparez la table et la colonne de filtre par une virgule.",
+    "target": "Colonne à filtrer",
+    "principal": "Propriété du membre",
+    "principalColumn": "Colonne correspondante des droits",
+    "valueColumn": "Colonne de la valeur autorisée",
+    "useType": "Distinguer les droits par type de ressource",
+    "typeColumn": "Colonne du type de ressource",
+    "resourceTypeValue": "Valeur du type de ressource",
+    "chooseColumn": "Choisir une colonne"
+  },
   "accessEditor": {
     "tables": "Accès aux tables",
     "chooseTable": "Sélectionnez une table pour modifier les règles et vérifier les accès.",

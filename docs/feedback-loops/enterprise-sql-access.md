@@ -35,10 +35,20 @@ Seed a disposable PostgreSQL connection with an indexed sales table and grant ta
 
 1. Search for the sales table. Open **Connection mapping**, select verified member email, and confirm the Entra tenant field disappears. Return to the catalog.
 2. Open the sales table. On **Row access**, change the source value, save, restore the original and save again. Member previews must wait for the saved draft.
-3. On **Column access**, inspect the amount column’s audience. In **Preview as**, select the first member and run the preview. Select **Compare another member** and run the second preview. Both panels must show their assigned company and only the first panel should have an amount column.
+3. On **Column access**, inspect the amount column’s audience. In **Preview as**, select the first member and run the preview. Select the second member in the same picker. The previous result must clear immediately. Run the preview again. Each member should see their own company and only the first member should see the amount column.
 4. Open **Review activation** and inspect the pending tables and historical-content warning. Opening review alone must leave the active policy unchanged.
 5. Switch to Hebrew and repeat navigation in a 390-pixel viewport. The editor should stack its panes and scroll vertically.
 
 The prior editor put connection settings, table rules and member comparisons in one scrolling form. It required a delimited string for conditional column visibility. The signed-in browser run confirmed these controls are now independently accessible. It also caught a blank current-user selector, corrected before capture.
 
-[Catalog](../../media/pr/live-access-rules/catalog-redesign.png) · [Connection mapping](../../media/pr/live-access-rules/connection-mapping-redesign.png) · [Row editor](../../media/pr/live-access-rules/row-access-redesign.png) · [Column editor](../../media/pr/live-access-rules/column-access-redesign.png) · [Recorded flow](../../media/pr/live-access-rules/editor-flow.gif)
+### Verify a team-to-project lookup
+
+Use a trusted member property such as `custom.teams`. Set it to `planning` for one member and `delivery` for another. Populate `security.team_grants(team_id, project_id)` with (planning, P-17) and (delivery, P-24). Index a target table containing records for both projects.
+
+In **Connection mapping**, select the member property, matching grant column `team_id`, and granted value column `project_id`. Leave resource type off for this two-column table. On the target table choose **Row access → Column to filter → project_id**. Existing grants that use email and a resource-type column retain that interpretation.
+
+Run a preview for each member using the same picker. The first read returned P-17 and the second returned P-24. Removing the second member’s trusted property produced **No grant** on the next read in the same session. Restoring the property restored P-24. Missing properties grant no rows. Without a resource type, each matching grant applies to every target table configured to use this lookup.
+
+The first automated regression failed because the policy schema required an email-to-resource mapping with a resource type. The updated compiler and schema passed the legacy email tests, multi-value and missing-property tests, and read/probe bind checks for the four SQL dialects. This follow-up ran live PostgreSQL queries. The other three dialects were checked at compilation in this pass.
+
+[Table catalog](../../media/pr/live-access-rules/catalog-redesign.png) · [Team-to-project mapping](../../media/pr/live-access-rules/grant-property-mapping.png) · [Single member preview](../../media/pr/live-access-rules/single-member-preview.png)

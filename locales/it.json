@@ -1,4 +1,17 @@
 {
+  "grantMapping": {
+    "previewError": "Anteprima non riuscita. Verifica regola e connessione.",
+    "importTyped": "Una tabella per riga. Per una regola inserisci tabella, colonna filtro e tipo di risorsa.",
+    "importSimple": "Una tabella per riga. Per una regola separa tabella e colonna filtro con una virgola.",
+    "target": "Colonna da filtrare",
+    "principal": "Proprietà del membro",
+    "principalColumn": "Colonna corrispondente dei permessi",
+    "valueColumn": "Colonna del valore consentito",
+    "useType": "Distingui i permessi per tipo di risorsa",
+    "typeColumn": "Colonna del tipo di risorsa",
+    "resourceTypeValue": "Valore del tipo di risorsa",
+    "chooseColumn": "Scegli una colonna"
+  },
   "accessEditor": {
     "tables": "Accesso alle tabelle",
     "chooseTable": "Seleziona una tabella per modificare le regole e verificare gli accessi.",

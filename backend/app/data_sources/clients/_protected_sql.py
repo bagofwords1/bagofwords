@@ -92,10 +92,10 @@ class ProtectedSql:
                 fields = schemas[rule.table]
                 if rule.company_column not in fields or set(rule.columns or {}).difference(fields):
                     raise ValueError("Invalid protected columns")
-                if rule.source:
+                if not rule.row_attribute:
                     grants = schemas[policy.grants_table]
                     if not all(
-                        c in grants for c in (policy.employee_column, policy.source_column, policy.company_column)
+                        c in grants for c in (policy.employee_column, policy.source_column, policy.company_column) if c
                     ):
                         raise ValueError("Invalid entitlement columns")
                     if str(grants[policy.company_column]) != str(fields[rule.company_column]):

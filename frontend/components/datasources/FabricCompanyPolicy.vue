@@ -46,14 +46,14 @@
               </div>
               <div v-if="!rule" class="mt-4"><UButton @click="addRule">{{ t('fabricCompany.add') }}</UButton></div>
               <div v-else-if="tab === 'rows'" class="mt-4 space-y-4">
-                <label class="label">{{ t('fabricCompany.company_column') }}<select v-if="physicalColumns.length" v-model="rule.company_column" class="control"><option v-for="name in [...new Set([rule.company_column, ...physicalColumns])]" :key="name" :value="name">{{ name }}</option></select><input v-else v-model.trim="rule.company_column" class="control" /></label>
+                <label class="label">{{ t('grantMapping.target') }}<select v-if="physicalColumns.length" v-model="rule.company_column" class="control"><option disabled value="">{{ t('grantMapping.chooseColumn') }}</option><option v-for="name in [...new Set([rule.company_column, ...physicalColumns].filter(Boolean))]" :key="name" :value="name">{{ name }}</option></select><input v-else v-model.trim="rule.company_column" class="control" /></label>
                 <label class="label">{{ t('accessEditor.grantVia') }}
                   <select :value="rule.row_attribute != null ? 'property' : 'table'" class="control" @change="setRowMode(($event.target as HTMLSelectElement).value)">
                     <option value="table">{{ t('fabricCompany.grants_table') }}</option><option value="property">{{ t('accessEditor.property') }}</option>
                   </select>
                 </label>
                 <template v-if="rule.row_attribute == null">
-                  <label class="label">{{ t('fabricCompany.source') }}<input v-model.trim="rule.source" class="control" /></label>
+                  <label v-if="draft.source_column" class="label">{{ t('grantMapping.resourceTypeValue') }}<input v-model.trim="rule.source" class="control" /></label>
                   <button class="flex max-w-full items-center gap-1.5 text-xs text-ink-muted underline" @click="openMapping"><UIcon name="i-heroicons-link" class="size-3.5" />{{ draft.grants_table || t('accessEditor.connectionSetup') }}</button>
                 </template>
                 <label v-else class="label">{{ t('accessEditor.property') }}<select v-model="rule.row_attribute" class="control"><option v-for="prop in propertyOptions(rule.row_attribute)" :key="prop" :value="prop">{{ propertyLabel(prop) }}</option></select></label>
@@ -85,14 +85,13 @@
             <aside class="self-start rounded-lg border border-line bg-surface-subtle p-4">
               <h4 class="flex items-center gap-2 font-semibold"><UIcon name="i-heroicons-eye" class="size-4 text-ink-muted" />{{ t('accessEditor.previewAs') }}</h4>
               <p class="hint">{{ t(saved ? 'accessEditor.previewHint' : 'accessEditor.saveFirst') }}</p>
-              <div v-for="i in (compare ? [0, 1] : [0])" :key="i" class="mt-3 space-y-2">
-                <USelectMenu v-if="canCompare" v-model="readers[i]" searchable :options="memberOptions" option-attribute="label" value-attribute="value" :aria-label="t('accessEditor.previewAs')" />
-                <UButton size="xs" color="white" :loading="previewing === i" :disabled="busy || !saved || !rule" @click="preview(i)">{{ t('accessEditor.runPreview') }}</UButton>
-                <div v-if="samples[i]" class="overflow-x-auto rounded border border-line bg-surface p-2 text-xs"><strong>{{ t('liveAccess.' + samples[i]!.access_status) }}</strong>
-                  <table v-if="samples[i]!.data.length" class="mt-2 w-full"><thead><tr><th v-for="col in samples[i]!.columns" :key="col">{{ col }}</th></tr></thead><tbody><tr v-for="(row,j) in samples[i]!.data" :key="j"><td v-for="(cell,k) in row" :key="k">{{ cell }}</td></tr></tbody></table>
+              <div class="mt-3 space-y-2">
+                <USelectMenu v-if="canChooseMember" v-model="reader" searchable :options="memberOptions" option-attribute="label" value-attribute="value" :aria-label="t('accessEditor.previewAs')" />
+                <UButton size="xs" color="white" :loading="previewing" :disabled="busy || !saved || !rule" @click="preview()">{{ t('accessEditor.runPreview') }}</UButton>
+                <div v-if="sample" class="overflow-x-auto rounded border border-line bg-surface p-2 text-xs"><strong>{{ t('liveAccess.' + sample.access_status) }}</strong>
+                  <table v-if="sample.data.length" class="mt-2 w-full"><thead><tr><th v-for="col in sample.columns" :key="col">{{ col }}</th></tr></thead><tbody><tr v-for="(row,j) in sample.data" :key="j"><td v-for="(cell,k) in row" :key="k">{{ cell }}</td></tr></tbody></table>
                 </div>
               </div>
-              <button v-if="canCompare" class="mt-3 text-xs font-medium text-primary-600 dark:text-primary-400" @click="compare = !compare">{{ t(compare ? 'accessEditor.hideCompare' : 'accessEditor.compare') }}</button>
               <div v-if="coverage?.activation_enabled && saved && hasPending" class="mt-4 border-t border-line pt-3"><UButton size="xs" color="white" @click="openReview">{{ t('liveAccess.review') }}</UButton></div>
             </aside>
           </div>
@@ -106,13 +105,21 @@
           <div class="max-w-2xl space-y-3 border-t border-line pt-4">
             <label class="label">{{ t('fabricCompany.grants_table') }}<input v-model.trim="draft.grants_table" list="grant-tables" class="control" @input="searchGrantTables" /></label>
             <datalist id="grant-tables"><option v-for="name in grantTables" :key="name" :value="name" /></datalist>
-            <div class="grid gap-3 sm:grid-cols-3"><label v-for="field in grantFields" :key="field" class="label">{{ t('fabricCompany.' + field) }}<input v-model.trim="draft[field]" class="control" list="grant-columns" /></label></div>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <label class="label">{{ t('grantMapping.principal') }}
+                <select v-model="draft.grant_principal" class="control" :aria-label="t('grantMapping.principal')"><option v-for="prop in propertyOptions(draft.grant_principal)" :key="prop" :value="prop">{{ propertyLabel(prop) }}</option></select>
+              </label>
+              <label class="label">{{ t('grantMapping.principalColumn') }}<input v-model.trim="draft.employee_column" class="control" list="grant-columns" /></label>
+              <label class="label">{{ t('grantMapping.valueColumn') }}<input v-model.trim="draft.company_column" class="control" list="grant-columns" /></label>
+            </div>
+            <label class="flex items-center gap-2"><input type="checkbox" :checked="draft.source_column != null" @change="toggleResourceType(($event.target as HTMLInputElement).checked)" />{{ t('grantMapping.useType') }}</label>
+            <label v-if="draft.source_column != null" class="label">{{ t('grantMapping.typeColumn') }}<input v-model.trim="draft.source_column" class="control" list="grant-columns" /></label>
             <datalist id="grant-columns"><option v-for="name in grantColumns" :key="name" :value="name" /></datalist>
           </div>
           <UButton color="white" @click="screen = mappingReturn">{{ t('accessEditor.applySetup') }}</UButton>
           <UButton v-if="draft.tables.length && !saved" class="ms-2" :disabled="busy || loadFailed" @click="save">{{ t('fabricCompany.save') }}</UButton>
         </section>
-        <section v-if="screen === 'import'" class="max-w-xl space-y-3"><h3 class="heading">{{ t('liveAccess.bulk') }}</h3><label class="label">{{ t('liveAccess.bulkHint') }}<textarea v-model="bulkText" class="control" rows="5" /></label><UButton @click="applyBulk">{{ t('liveAccess.apply') }}</UButton></section>
+        <section v-if="screen === 'import'" class="max-w-xl space-y-3"><h3 class="heading">{{ t('liveAccess.bulk') }}</h3><label class="label">{{ t(draft.source_column ? 'grantMapping.importTyped' : 'grantMapping.importSimple') }}<textarea v-model="bulkText" class="control" rows="5" /></label><UButton @click="applyBulk">{{ t('liveAccess.apply') }}</UButton></section>
         <section v-if="screen === 'review'" class="max-w-xl space-y-4">
           <h3 class="heading">{{ t('liveAccess.review') }}</h3>
           <p class="text-ink-2">{{ t('liveAccess.impact') }}</p>
@@ -147,15 +154,14 @@ const props = defineProps<{ connectionId: string }>()
 const root = '/connections/' + encodeURIComponent(props.connectionId) + '/company-policy'
 const { hasFeature } = useEnterprise()
 const { organization } = useOrganization()
-const canCompare = computed(() => useCan('full_admin_access'))
+const canChooseMember = computed(() => useCan('full_admin_access'))
 const { t } = useI18n()
 const screen = ref<Screen>('catalog')
 const mappingReturn = ref<Screen>('catalog')
 const modes = ['rows', 'columns'] as const
 const tab = ref<typeof modes[number]>('rows')
-const grantFields = ['employee_column', 'company_column', 'source_column'] as const
 const draft = reactive({
-  reader_source: 'entra', tenant_id: null as string | null, grants_table: null as string | null,
+  grant_principal: 'user.email', reader_source: 'verified_email', tenant_id: null as string | null, grants_table: null as string | null,
   employee_column: null as string | null, company_column: null as string | null, source_column: null as string | null,
   inventory: [] as string[], tables: [] as Rule[]
 })
@@ -171,13 +177,19 @@ const hasPending = computed(() => pendingCount.value > 0)
 const message = ref(''), busy = ref(false), loadFailed = ref(false), savedText = ref('')
 const saved = computed(() => savedText.value === JSON.stringify(draft))
 const self = '__current_reader__'
-const readers = ref([self, self]), samples = ref<(Sample | null)[]>([null, null])
-const previewing = ref<number | null>(null), compare = ref(false)
+const reader = ref(self)
+const sample = ref<Sample | null>(null)
+const previewing = ref(false)
 const members = ref<{email: string, name?: string}[]>([])
 const memberOptions = computed(() => [
   {value: self, label: t('accessEditor.myself')},
   ...members.value.map(member => ({value: member.email, label: member.name ? member.name + ' · ' + member.email : member.email}))
 ])
+let previewRevision = 0
+function clearPreview() {
+  previewRevision++
+  sample.value = null
+}
 let generation = 0
 async function loadCoverage(query: Record<string, unknown>) {
   const {data, error} = await useMyFetch(root + '/coverage', {query})
@@ -214,13 +226,13 @@ async function searchGrantTables() {
 }
 watch([search, filter, inventoryOnly], () => { offset.value = 0; refresh() })
 watch(offset, refresh)
-watch(draft, () => { samples.value = [null, null] }, {deep: true})
+watch(draft, clearPreview, {deep: true, flush: 'sync'})
 watch(() => draft.grants_table, async name => {
   grantColumns.value = []
   const cols = await loadColumns(name || '')
   if (name === draft.grants_table) grantColumns.value = cols
 })
-for (const i of [0, 1]) watch(() => readers.value[i], () => { samples.value[i] = null })
+watch(reader, clearPreview, {flush: 'sync'})
 watch(() => hasFeature('rls'), async enabled => {
   if (!enabled) return
   try {
@@ -228,7 +240,7 @@ watch(() => hasFeature('rls'), async enabled => {
     if (error.value) throw Error()
     if (data.value) { Object.assign(draft, data.value); savedText.value = JSON.stringify(draft) }
     await refresh()
-    if (canCompare.value && organization.value?.id) {
+    if (canChooseMember.value && organization.value?.id) {
       const result = await useMyFetch('/organizations/' + organization.value.id + '/members')
       if (Array.isArray(result.data.value)) members.value = result.data.value.filter(member => member.email)
     }
@@ -245,16 +257,18 @@ async function openTable(name: string) {
   selected.value = name
   screen.value = 'editor'
   tab.value = 'rows'
-  compare.value = false
   newColumn.value = ''
   message.value = ''
-  samples.value = [null, null]
+  clearPreview()
   physicalColumns.value = []
   const cols = await loadColumns(name)
   if (selected.value === name) physicalColumns.value = cols
 }
 function addRule() {
-  if (!rule.value) draft.tables.push({table: selected.value, company_column: 'company_id', source: selected.value.split('.').pop()!, row_attribute: null, columns: null})
+  if (!rule.value) draft.tables.push({
+    table: selected.value, company_column: '', columns: null, row_attribute: null,
+    source: draft.source_column ? selected.value.split('.').pop()! : null
+  })
 }
 function removeRule() {
   draft.tables = draft.tables.filter(row => row.table !== selected.value)
@@ -262,7 +276,13 @@ function removeRule() {
 function setRowMode(mode: string) {
   if (!rule.value) return
   rule.value.row_attribute = mode === 'property' ? 'user.email' : null
-  rule.value.source = mode === 'table' ? selected.value.split('.').pop()! : null
+  rule.value.source = mode === 'table' && draft.source_column ? selected.value.split('.').pop()! : null
+}
+function toggleResourceType(enabled: boolean) {
+  draft.source_column = enabled ? '' : null
+  for (const row of draft.tables) {
+    if (!row.row_attribute) row.source = enabled ? row.table.split('.').pop()! : null
+  }
 }
 function toggleColumns(on: boolean) {
   if (rule.value) rule.value.columns = on ? {} : null
@@ -299,13 +319,13 @@ function openMapping() {
 }
 function applyBulk() {
   const entries = bulkText.value.split('\n').map(line => line.trim()).filter(Boolean).map(line => line.split(',').map(v => v.trim()))
-  if (!entries.length || entries.some(v => ![1, 3].includes(v.length) || v.some(field => !field))) {
-    message.value = t('liveAccess.bulkHint')
+  if (!entries.length || entries.some(v => ![1, draft.source_column ? 3 : 2].includes(v.length) || v.some(field => !field))) {
+    message.value = t(draft.source_column ? 'grantMapping.importTyped' : 'grantMapping.importSimple')
     return
   }
   for (const [table, key, source] of entries) {
     if (!draft.inventory.includes(table)) draft.inventory.push(table)
-    if (key && !draft.tables.some(r => r.table === table)) draft.tables.push({table, company_column: key, source, row_attribute: null, columns: null})
+    if (key && !draft.tables.some(r => r.table === table)) draft.tables.push({table, company_column: key, source: source || null, row_attribute: null, columns: null})
   }
   bulkText.value = ''
   screen.value = 'catalog'
@@ -337,17 +357,18 @@ async function activate() {
   } catch { message.value = t('fabricCompany.failed') }
   finally { busy.value = false }
 }
-async function preview(i: number) {
-  const table = selected.value, email = readers.value[i], version = savedText.value
+async function preview() {
+  const table = selected.value, email = reader.value, version = savedText.value
+  const revision = ++previewRevision
   busy.value = true
-  previewing.value = i
-  samples.value[i] = null
+  previewing.value = true
+  sample.value = null
   try {
     const {data, error} = await useMyFetch(root + '/draft/preview', {query: {table, member_email: email === self ? undefined : email}})
     if (error.value || !data.value) throw Error()
-    if (table === selected.value && email === readers.value[i] && saved.value && version === savedText.value) samples.value[i] = data.value as Sample
-  } catch { message.value = t('fabricCompany.previewFailed') }
-  finally { busy.value = false; previewing.value = null }
+    if (revision === previewRevision && table === selected.value && email === reader.value && saved.value && version === savedText.value) sample.value = data.value as Sample
+  } catch { if (revision === previewRevision) message.value = t('grantMapping.previewError') }
+  finally { busy.value = false; previewing.value = false }
 }
 </script>
 <style scoped>

@@ -274,16 +274,16 @@ class MsFabricClient(DataSourceClient):
                     raise ValueError("Unknown projected column")
                 if rule.company_column not in catalog[rule.table]:
                     raise ValueError("Invalid row policy column")
-            if not any(r.source for r in policy.tables):
+            if not any(not r.row_attribute for r in policy.tables):
                 return
             grants = catalog[policy.grants_table]
             identifier_types = {"tinyint", "smallint", "int", "bigint", "uniqueidentifier"}
             text_types = {"nvarchar", "varchar"}
-            if (grants.get(policy.employee_column) not in text_types
-                    or grants.get(policy.source_column) not in text_types
-                    or grants.get(policy.company_column) not in identifier_types
+            if (grants.get(policy.employee_column) not in (text_types | identifier_types)
+                    or (policy.source_column and grants.get(policy.source_column) not in text_types)
+                    or grants.get(policy.company_column) not in (identifier_types | text_types)
                     or any(catalog[r.table].get(r.company_column) != grants[policy.company_column]
-                           for r in policy.tables if r.source)):
+                           for r in policy.tables if not r.row_attribute)):
                 raise ValueError("Incompatible grant schema")
         except Exception:
             raise ValueError("The configured base tables and grant columns could not be verified") from None

@@ -21,7 +21,7 @@ def policy():
 
 def test_fresh_grants_on_every_read(policy):
     with sqlite3.connect(":memory:") as db:
-        db.create_function("CONCAT", 2, lambda a, b: (a or "") + b)
+        db.create_function("CONCAT", 2, lambda a, b: str(a if a is not None else "") + b)
         db.create_collation("Latin1_General_100_BIN2_UTF8", lambda a, b: (a > b) - (a < b))
         db.executescript("""
             ATTACH ':memory:' AS demo;
@@ -99,7 +99,7 @@ def test_protected_projection_scopes_star_predicates_and_new_columns(policy):
     data["tables"][0]["columns"] = {"company": None, "amount": ["finance@example.com"]}
     scoped = CompanyPolicy.model_validate(data)
     with sqlite3.connect(":memory:") as db:
-        db.create_function("CONCAT", 2, lambda a, b: (a or "") + b)
+        db.create_function("CONCAT", 2, lambda a, b: str(a if a is not None else "") + b)
         db.create_collation("Latin1_General_100_BIN2_UTF8", lambda a, b: (a > b) - (a < b))
         db.executescript("""
             ATTACH ':memory:' AS demo;
@@ -115,3 +115,57 @@ def test_protected_projection_scopes_star_predicates_and_new_columns(policy):
         statement, params = protect_query("SELECT company FROM demo.sales WHERE amount > 0", scoped, "member@example.com")
         with pytest.raises(sqlite3.OperationalError):
             db.execute(statement, params)
+
+
+@pytest.mark.parametrize("teams, expected", [(["east", "west"], [7, 9]), (["west"], [9]), ([], [])])
+def test_project_grants_follow_reader_teams(teams, expected):
+    from app.data_sources.fast.rls import Identity
+    policy = CompanyPolicy.model_validate(dict(
+        grants_table="demo.permissions", grant_principal="custom.teams",
+        employee_column="team_id", company_column="project_id",
+        tables=[{"table": "demo.work", "company_column": "project_id"}],
+    ))
+    identity = Identity(user_id="viewer", email="viewer@example.com", custom_attributes={"teams": teams})
+    sql, bindings = protect_query("SELECT project_id FROM demo.work ORDER BY project_id", policy, identity.email, identity=identity)
+    with sqlite3.connect(":memory:") as db:
+        db.create_function("CONCAT", 2, lambda a,b: str(a)+str(b))
+        db.create_collation("Latin1_General_100_BIN2_UTF8", lambda a,b: (a>b)-(a<b))
+        db.executescript("""
+            ATTACH ':memory:' AS demo;
+            CREATE TABLE demo.work(project_id INTEGER);
+            INSERT INTO demo.work VALUES (7), (9), (10);
+            CREATE TABLE demo.permissions(team_id TEXT, project_id INTEGER);
+            INSERT INTO demo.permissions VALUES ('east',7), ('west',9), ('viewer@example.com',10);
+        """)
+        assert [row[0] for row in db.execute(sql, bindings)] == expected
+
+
+@pytest.mark.parametrize("dialect", ["fabric", "tsql", "postgres", "oracle"])
+def test_grant_probe_and_read_bind_the_same_principals(policy, dialect):
+    from app.data_sources.fast.rls import Identity
+    fields = policy.model_dump()
+    if dialect == "oracle":
+        for key in ("grants_table", "employee_column", "company_column", "source_column"):
+            fields[key] = fields[key].upper()
+        for rule in fields["tables"]:
+            rule["table"] = rule["table"].upper()
+            rule["company_column"] = rule["company_column"].upper()
+    configured = CompanyPolicy.model_validate({**fields, "grant_principal": "roles"})
+    identity = Identity(user_id="viewer", role_names={"planning", "delivery"})
+    for probe in (False, True):
+        statement, bindings = protect_query("SELECT * FROM demo.sales", configured, "person@example.com",
+                                           identity=identity, dialect=dialect, grant_probe=probe)
+        values = list(bindings.values()) if isinstance(bindings, dict) else list(bindings)
+        assert sorted(values) == ["delivery", "planning", "sales"]
+        assert all(value not in statement for value in ("delivery", "planning", "person@example.com"))
+
+
+def test_lookup_rejects_incomplete_resource_type_configuration(policy):
+    data = policy.model_dump()
+    data["source_column"] = None
+    with pytest.raises(ValueError, match="configured together"):
+        CompanyPolicy.model_validate(data)
+    data = policy.model_dump()
+    data["tables"][0]["source"] = None
+    with pytest.raises(ValueError, match="configured together"):
+        CompanyPolicy.model_validate(data)
