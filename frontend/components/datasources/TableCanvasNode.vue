@@ -13,7 +13,7 @@
         </div>
         <div class="text-2xs text-ink-muted line-clamp-2 break-words leading-3 mt-0.5">{{ [data.table.connection_name, data.table.metadata_json?.schema].filter(Boolean).join(' · ') }}</div>
       </div>
-      <UIcon v-if="data.table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 text-ink-muted" :title="t('tableErd.customQuery')" data-testid="erd-custom-query" />
+      <UIcon v-if="data.table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 text-ink-muted" :title="data.table.per_user ? `${t('tableErd.customQuery')} · ${t('tableErd.cachedPerPerson')}` : t('tableErd.customQuery')" data-testid="erd-custom-query" />
       <button v-if="data.editQuery" class="nodrag nopan text-ink-muted hover:text-gray-700 dark:hover:text-gray-200" :aria-label="t('tableErd.editQuery', { name: data.table.name })" @click.stop="data.editQuery()"><UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" /></button>
     </div>
     <div class="px-3 py-2 space-y-1 flex-1">

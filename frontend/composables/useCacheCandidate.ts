@@ -11,8 +11,9 @@
  *     definition to keep
  *   - it was already answered from a cached table (`…::fast` client)
  *   - the result is parameterized, or its card is showing a re-run
- *   - the connection cannot host custom tables (per-user credentials, or a
- *     connector that cannot run a query)
+ *   - the connection cannot host custom tables (a connector that cannot
+ *     run a query). A connection where each person signs in with their own
+ *     credentials can: the table is then cached once per person.
  *   - the viewer is not an admin of that connection
  *   - custom tables are switched off for the organization
  * The backend enforces every one of these again on preview and save.

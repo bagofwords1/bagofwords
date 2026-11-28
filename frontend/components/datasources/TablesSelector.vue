@@ -419,6 +419,7 @@
                     </span>
                     <span v-if="isRoutine(table) && routineMeta(table).definition_available === false" class="ms-2 text-2xs text-amber-600 dark:text-amber-400">{{ t('tableErd.routineSourceHidden') }}</span>
                     <span v-if="table.rls_enabled" class="ms-2 text-2xs text-blue-500">{{ t('tableErd.rowFiltered') }}</span>
+                    <span v-if="table.custom_query_id && table.per_user" :data-testid="`cq-per-user-${table.name}`" class="ms-2 text-2xs text-ink-muted whitespace-nowrap">{{ t('tableErd.cachedPerPerson') }}</span>
                     <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-2xs text-red-500">{{ t('tableErd.refreshFailed') }}</span>
                     <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
                     <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-2xs px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-950 text-yellow-700 dark:text-yellow-300">modified</span>
@@ -801,6 +802,8 @@ type Table = {
   last_refreshed_at?: string;
   last_refresh_status?: string;
   rls_enabled?: boolean;
+  // Custom table cached once per person (connection with per-user sign-in).
+  per_user?: boolean;
   usage_count?: number;
   success_count?: number;
   failure_count?: number;

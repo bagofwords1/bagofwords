@@ -45,6 +45,15 @@ SETTINGS: dict = {
     "custom_table_max_gb": Bound(2, 1, 64),
     "custom_table_max_scan_gb": Bound(100, 1, 10_240),
     "custom_table_max_requests": Bound(512, 16, 10_000),
+    # Per-user copies (fast/user_copies.py). Hours a copy may be served before
+    # it must be rebuilt, days an unused one is kept, seconds a question waits
+    # for a first build, GiB all of an organization's copies may take, and how
+    # many may build at once against one connection.
+    "custom_table_user_copy_max_age_hours": Bound(24, 1, 720),
+    "custom_table_user_copy_idle_days": Bound(7, 1, 365),
+    "custom_table_user_copy_wait_seconds": Bound(30, 1, 600),
+    "custom_table_user_copies_max_gb": Bound(20, 1, 2_048),
+    "custom_table_user_copy_concurrency": Bound(4, 1, 32),
 }
 
 
@@ -60,6 +69,20 @@ class FastLimits:
 
 
 DEFAULTS = FastLimits()
+
+
+@dataclass(frozen=True)
+class UserCopyLimits:
+    """How long a user's own copy lives and what building one may cost."""
+
+    max_age_seconds: int = SETTINGS["custom_table_user_copy_max_age_hours"].default * 3600
+    idle_seconds: int = SETTINGS["custom_table_user_copy_idle_days"].default * 86400
+    wait_seconds: int = SETTINGS["custom_table_user_copy_wait_seconds"].default
+    max_total_bytes: int = SETTINGS["custom_table_user_copies_max_gb"].default * GIB
+    concurrency: int = SETTINGS["custom_table_user_copy_concurrency"].default
+
+
+USER_COPY_DEFAULTS = UserCopyLimits()
 
 
 def validate_setting(key: str, value) -> int:
@@ -94,6 +117,20 @@ def resolve(organization_settings) -> FastLimits:
         max_bytes=_stored(config, "custom_table_max_gb") * GIB,
         max_scan_bytes=_stored(config, "custom_table_max_scan_gb") * GIB,
         max_requests=_stored(config, "custom_table_max_requests"),
+    )
+
+
+def resolve_user_copies(organization_settings) -> UserCopyLimits:
+    """The per-user copy limits for an organization, from its settings row."""
+    config = getattr(organization_settings, "config", None)
+    if not isinstance(config, dict):
+        return USER_COPY_DEFAULTS
+    return UserCopyLimits(
+        max_age_seconds=_stored(config, "custom_table_user_copy_max_age_hours") * 3600,
+        idle_seconds=_stored(config, "custom_table_user_copy_idle_days") * 86400,
+        wait_seconds=_stored(config, "custom_table_user_copy_wait_seconds"),
+        max_total_bytes=_stored(config, "custom_table_user_copies_max_gb") * GIB,
+        concurrency=_stored(config, "custom_table_user_copy_concurrency"),
     )
 
 

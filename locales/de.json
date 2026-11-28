@@ -3741,6 +3741,26 @@
           "name": "Anfragelimit für benutzerdefinierte Tabellen",
           "description": "Höchstzahl an Anfragen, die eine Aktualisierung an eine seitenweise gelesene Quelle senden darf (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Zusammen mit dem Zeilenlimit erhöhen: Power BI liefert höchstens 100.000 Zeilen pro Anfrage und erlaubt etwa 120 Anfragen pro Minute. 16 bis 10.000."
         },
+        "custom_table_user_copy_max_age_hours": {
+          "name": "Höchstalter einer Kopie pro Person (Stunden)",
+          "description": "Bei einer Verbindung, an der sich jede Person mit ihren eigenen Anmeldedaten anmeldet, wird eine benutzerdefinierte Tabelle für jede Person getrennt zwischengespeichert. Eine ältere Kopie wird mit den Anmeldedaten dieser Person neu erstellt, bevor sie wieder verwendet wird, sodass eine Änderung ihres Zugriffs an der Quelle innerhalb dieser Zeit wirksam wird. 1 bis 720."
+        },
+        "custom_table_user_copy_idle_days": {
+          "name": "Inaktive Tage einer Kopie pro Person",
+          "description": "Die Kopie einer Person, die so viele Tage nicht verwendet wurde, wird gelöscht. Sie wird bei der nächsten Frage dieser Person neu erstellt. 1 bis 365."
+        },
+        "custom_table_user_copy_wait_seconds": {
+          "name": "Wartezeit auf eine Kopie pro Person (Sekunden)",
+          "description": "Wie lange eine Frage wartet, bis die Kopie einer Person zum ersten Mal erstellt ist. Dauert die Erstellung länger, läuft sie im Hintergrund weiter und die Frage wird aus der Live-Quelle beantwortet. 0 bis 600."
+        },
+        "custom_table_user_copies_max_gb": {
+          "name": "Speicherlimit für Kopien pro Person (GB)",
+          "description": "Größter Speicherplatz, den alle Kopien pro Person in dieser Organisation zusammen belegen dürfen. Wird er überschritten, werden zuerst die am längsten nicht verwendeten Kopien gelöscht. 1 bis 2.048."
+        },
+        "custom_table_user_copy_concurrency": {
+          "name": "Gleichzeitige Erstellungen von Kopien pro Person",
+          "description": "Wie viele Kopien pro Person gleichzeitig gegen eine Verbindung erstellt werden dürfen. Verringern Sie den Wert, um eine Quelle zu schützen, die die Last nicht verkraftet. 1 bis 32."
+        },
         "enable_agent_notes": {
           "name": "Agenten-Notizen",
           "description": "Erlaubt dem Agenten, pro Bericht Arbeitsnotizen (einen Notizblock) zu führen, die er beim Antworten schreibt und liest — Pläne, Erkenntnisse und Aufgaben. Notizen werden im Bericht angezeigt, sind aber kein geteiltes Wissen. Ist die Option aus, werden die Notiz-Tools ausgeblendet und Notizen nicht in den Kontext eingefügt."
@@ -7285,6 +7305,7 @@
     "cache": "Cache",
     "cached": "Zwischengespeichert",
     "notCached": "Nicht zwischengespeichert",
+    "cachedPerPerson": "Pro Person zwischengespeichert",
     "searchTables": "Tabellen suchen…",
     "suggested": "Vorgeschlagen",
     "suggestedHint": "Aus Schlüsselnamen abgeleitet · ungeprüft",
@@ -8409,6 +8430,58 @@
       "key": "Kennung",
       "set_by_admin": "von einem Administrator festgelegt"
     }
+  },
+  "customTableCopies": {
+    "subtitle": "Wird für jede Person lokal gespeichert, sodass Agenten aus der zwischengespeicherten Kopie dieser Person antworten, statt jedes Mal {connection} abzufragen.",
+    "noticeTitle": "Für jede Person getrennt zwischengespeichert",
+    "notice": "Jede Person meldet sich bei {connection} mit ihren eigenen Anmeldedaten an, daher wird diese Tabelle für jede Person getrennt zwischengespeichert. Die Kopie einer Person wird mit ihren eigenen Anmeldedaten erstellt, wenn sie zum ersten Mal eine Frage stellt. Die Vorschau läuft mit Ihren Anmeldedaten.",
+    "settingsIntro": "Wie alt die Kopie einer Person werden darf. Eine ältere Kopie wird mit den Anmeldedaten dieser Person neu erstellt, wenn sie das nächste Mal eine Frage stellt.",
+    "ruleInterval": "Kopie einer Person neu erstellen, wenn sie älter ist als {age}",
+    "ruleTime": "Kopie einer Person neu erstellen, wenn sie vor dem letzten Zeitpunkt {time} erstellt wurde",
+    "age15m": "15 Minuten",
+    "age30m": "30 Minuten",
+    "age1h": "1 Stunde",
+    "age6h": "6 Stunden",
+    "age12h": "12 Stunden",
+    "age24h": "24 Stunden",
+    "statusChecked": "Abfrage zuletzt geprüft: {when}",
+    "statusNever": "nie",
+    "statusPeople": "Personen mit einer Kopie: {count}",
+    "statusSize": "Gesamtgröße auf dem Datenträger: {size}",
+    "statusError": "Letzter Fehler: {error}",
+    "deleteTableHint": "Beim Löschen wird die Kopie jeder Person entfernt und diese Tabelle {count} Agent(en) entzogen, die sie derzeit verwenden. Die Quelldaten bleiben unberührt.",
+    "tab": "Kopien",
+    "intro": "Eine Kopie für jede Person, die eine Frage gestellt hat, die diese Tabelle verwendet, erstellt mit ihren eigenen Anmeldedaten.",
+    "reload": "Neu laden",
+    "loadError": "Die Kopien konnten nicht geladen werden",
+    "empty": "Noch hat niemand eine Kopie. Die Kopie einer Person wird erstellt, wenn sie zum ersten Mal eine Frage stellt, die diese Tabelle verwendet.",
+    "person": "Person",
+    "status": "Status",
+    "rows": "Zeilen",
+    "size": "Größe",
+    "built": "Erstellt",
+    "lastUsed": "Zuletzt verwendet",
+    "stateBuilding": "Wird erstellt",
+    "stateOk": "Bereit",
+    "stateStale": "Wird bei der nächsten Frage neu erstellt",
+    "stateError": "Fehlgeschlagen",
+    "stateEvicted": "Entfernt",
+    "deleteCopy": "Kopie löschen",
+    "deleteAll": "Alle Kopien löschen",
+    "confirmOne": "Kopie von {name} löschen? Sie wird bei der nächsten Frage mit den Anmeldedaten dieser Person neu erstellt.",
+    "confirmAll": "Die Kopien aller Personen für diese Tabelle löschen? Jede Kopie wird bei der nächsten Frage mit den Anmeldedaten der jeweiligen Person neu erstellt.",
+    "deleted": "Kopie gelöscht",
+    "deletedAll": "Alle Kopien gelöscht",
+    "deletedDetail": "{size} freigegeben",
+    "deleteFailed": "Die Kopie konnte nicht gelöscht werden",
+    "rebuildAll": "Kopien aller Personen neu erstellen",
+    "rebuildAllHint": "Die Kopie jeder Person wird bei ihrer nächsten Frage mit ihren eigenen Anmeldedaten neu erstellt.",
+    "rebuildQueued": "Die Kopien aller Personen werden neu erstellt",
+    "rebuildFailed": "Die Kopien konnten nicht neu erstellt werden",
+    "create": "Erstellen",
+    "created": "Benutzerdefinierte Tabelle erstellt",
+    "updated": "Benutzerdefinierte Tabelle aktualisiert",
+    "savedDetail": "{name}: Die Kopie jeder Person wird bei ihrer ersten Frage erstellt."
   },
   "apps": {
     "title": "Ihre Apps",
