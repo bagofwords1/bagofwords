@@ -1,15 +1,19 @@
 # Release Notes
 
-## Version 0.0.639 (November 27, 2026)
+## Version 0.0.639 (November 28, 2026)
 - Added agent sandboxes: containers on your own Linux servers where a report's agent runs code and saves the files it writes to the report (#1941) — off until `BOW_AGENT_SANDBOXES_ENABLED` is set, then set up in Settings → Sandbox
 - Added report and dashboard retention: reports and dashboards nobody used for N days are deleted for good every night, with their runs, queries and files (#1943) — Settings → AI settings → Data retention, off by default
 - Added a preview of the reader chat bubble on a draft dashboard when "Allow chat" is on (#1935)
+- Added Enterprise row and column access rules on live Fabric, PostgreSQL, SQL Server and Oracle connections and on accelerated custom queries, with a per-member preview (#1948) — activation is off until the `features.fabric_company_rls_activation` setting is on
+- Added per-person copies of custom tables on connections with per-user sign-in, with a Copies tab to see and delete them (#1947)
+- Added Claude Fable 5.2, GPT Image 2.6, Gemini 4 Neon, Carbon and Hydrogen, and Gemini 3.8 Flash models (#1946)
 - Changed `/apps` to "Shared with you", listing every dashboard and doc shared with you, with All / Apps / Dashboards / Docs filters (#1937)
 - Changed a dashboard's back arrow to return to where you opened it from, the launcher or the dashboards list (#1937)
 - Changed Fix Error on a dashboard to send the fix request at once and show it in chat as a card (#1936)
 - Fixed charts that can't draw passing the agent's render check; they are now render errors the agent repairs (#1938)
 - Fixed deleting a file agent (OneDrive, SharePoint, Drive, S3) taking minutes (#1940)
 - Fixed in-app dashboards holding extra copies of their rows and reloading the frame on refresh (#1942)
+- Fixed Sonnet 5, Haiku 5.5 and Gemini 3.1 Pro pricing, including the long-prompt tiers (#1946)
 - Fixed deleted files' bytes staying in storage when removing them failed once; they are now retried every night (#1943)
 
 ## Version 0.0.638 (November 25, 2026)
