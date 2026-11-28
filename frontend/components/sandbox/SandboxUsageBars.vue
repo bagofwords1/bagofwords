@@ -1,34 +1,13 @@
 <template>
     <!-- CPU, memory and disk of one sandbox, as far as its server reports
          them. A value the server did not give is left out; none at all is "—". -->
-    <div v-if="lines.length" class="space-y-1 w-36" data-testid="sandbox-usage">
-        <div v-for="line in lines" :key="line.key" class="text-xs" :data-usage="line.key">
-            <div class="flex items-baseline justify-between gap-2 whitespace-nowrap">
-                <span class="text-ink-muted">{{ line.label }}</span>
-                <span class="nums text-ink-2" dir="ltr">{{ line.text }}</span>
-            </div>
-            <div
-                v-if="line.ratio !== null"
-                class="mt-0.5 h-1 rounded-full bg-surface-muted overflow-hidden"
-                role="progressbar"
-                :aria-label="line.label"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                :aria-valuenow="Math.round(line.ratio * 100)"
-            >
-                <div
-                    class="h-full rounded-full"
-                    :class="line.ratio >= 0.9 ? 'bg-red-500' : line.ratio >= 0.75 ? 'bg-amber-500' : 'bg-blue-500'"
-                    :style="{ width: `${Math.max(line.ratio * 100, line.ratio > 0 ? 2 : 0)}%` }"
-                />
-            </div>
-        </div>
-    </div>
+    <SandboxBars v-if="lines.length" :lines="lines" class="w-32" data-testid="sandbox-usage" />
     <span v-else class="bow-cell-empty" data-testid="sandbox-usage-none">—</span>
 </template>
 
 <script setup lang="ts">
-import type { SandboxFleetRow } from '~/composables/useSandboxApi'
+import type { SandboxBarLine, SandboxFleetRow } from '~/composables/useSandboxApi'
+import SandboxBars from '~/components/sandbox/SandboxBars.vue'
 
 const props = defineProps<{ sandbox: SandboxFleetRow }>()
 
@@ -43,7 +22,7 @@ const lines = computed(() => {
     const usage = props.sandbox.usage
     if (!usage) return []
     const limits = props.sandbox.limits || {}
-    const out: Array<{ key: string; label: string; text: string; ratio: number | null }> = []
+    const out: SandboxBarLine[] = []
     if (known(usage.cpu_percent)) {
         // 100% is one full CPU; the bar is the share of the CPUs it may use.
         const cpus = known(limits.cpus) && limits.cpus > 0 ? limits.cpus : null

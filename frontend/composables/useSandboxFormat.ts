@@ -60,7 +60,21 @@ export function useSandboxFormat(inLocale?: Ref<string>) {
     return new Intl.NumberFormat(locale.value, { style: 'percent', maximumFractionDigits: value < 10 ? 1 : 0 }).format(value / 100)
   }
 
-  return { formatDate, relative, duration, between, bytes, percent }
+  // Limits are set in MB of 1024.
+  const megabytes = (value: number) => bytes(value * 1024 * 1024)
+
+  const number = (value: number, digits = 2) =>
+    new Intl.NumberFormat(locale.value, { maximumFractionDigits: digits }).format(value)
+
+  // A whole length of time in its natural unit: "30 seconds", "2 hours", "7 days".
+  function span(seconds: number) {
+    const [value, unit] = seconds >= 86400 ? [seconds / 86400, 'day']
+      : seconds >= 3600 ? [seconds / 3600, 'hour']
+      : seconds >= 60 ? [seconds / 60, 'minute'] : [seconds, 'second']
+    return new Intl.NumberFormat(locale.value, { style: 'unit', unit, unitDisplay: 'long', maximumFractionDigits: 1 }).format(value)
+  }
+
+  return { formatDate, relative, duration, between, bytes, megabytes, number, span, percent }
 }
 
 export const SANDBOX_STATES = ['provisioning', 'ready', 'busy', 'idle', 'stopped', 'failed']

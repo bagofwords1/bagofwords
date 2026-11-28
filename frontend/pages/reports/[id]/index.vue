@@ -4568,6 +4568,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						nextTE.live_output = prevTE.live_output
 						if (!nextTE.progress_stage) nextTE.progress_stage = prevTE.progress_stage
 					}
+					// ... and for where a run_in_sandbox call said it runs (its first
+					// progress event), which the stored row gets only with the result.
+					if (incomingHasTE && prevTE?.sandbox_target && nextTE && !nextTE.sandbox_target &&
+						String(prevTE.id) === String(nextTE.id)) {
+						nextTE.sandbox_target = prevTE.sandbox_target
+					}
 					Object.assign(existing, merged)
 					reapplyVizRefinement(existing.tool_execution)
 				} else {
@@ -4804,6 +4810,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 								reason: payload.payload.reason || '',
 								// Who decided (mode, read-only rule, judge…), for the card's label.
 								decided_by: payload.payload.decided_by || null
+							}
+						}
+
+						// run_in_sandbox: its first progress event says where it will run,
+						// so the block can show it while the run is still going.
+						if (payload.tool_name === 'run_in_sandbox' && payload.payload.environment) {
+							;(lastBlock.tool_execution as any).sandbox_target = {
+								environment: payload.payload.environment,
+								network_policy: payload.payload.network_policy || null
 							}
 						}
 

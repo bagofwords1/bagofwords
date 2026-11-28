@@ -17,16 +17,7 @@
 
             <form class="space-y-5" @submit.prevent="save">
                 <!-- What the API said about this environment as saved. -->
-                <div
-                    v-if="environment?.warnings?.length"
-                    class="rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 flex items-start gap-3 text-sm text-amber-800 dark:text-amber-200"
-                    data-testid="sandbox-environment-warnings"
-                >
-                    <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 shrink-0 mt-0.5" />
-                    <ul class="min-w-0 space-y-1">
-                        <li v-for="warning in environment.warnings" :key="warning" dir="auto">{{ warning }}</li>
-                    </ul>
-                </div>
+                <SandboxEnvironmentWarnings v-if="environment" :environment="environment" detailed data-testid="sandbox-environment-warnings" />
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div class="flex flex-col">
@@ -108,6 +99,170 @@
                     <div v-if="form.network_policy === 'allowlist' && environment?.allowed_domains?.length" class="mt-2 flex flex-wrap gap-1" data-testid="sandbox-env-allowed-domains">
                         <UBadge v-for="domain in environment.allowed_domains" :key="domain" size="xs" color="gray"><span dir="ltr">{{ domain }}</span></UBadge>
                     </div>
+                </div>
+
+                <!-- Ask the person in the chat before a run -->
+                <div class="flex flex-col">
+                    <label for="sandbox-env-confirm" class="text-sm font-medium text-ink-2 mb-1.5">{{ $t('sandbox.environments.form.confirmRuns') }}</label>
+                    <USelect
+                        id="sandbox-env-confirm"
+                        v-model="form.confirm_runs"
+                        :options="confirmOptions"
+                        option-attribute="label"
+                        value-attribute="value"
+                        class="sm:max-w-xs"
+                        data-testid="sandbox-env-confirm-runs"
+                    />
+                    <p class="mt-1.5 text-xs text-ink-muted leading-relaxed" data-testid="sandbox-env-confirm-hint">{{ $t(`sandbox.environments.confirm.${confirmKey}Hint`) }}</p>
+                </div>
+
+                <!-- Hooks -->
+                <div data-testid="sandbox-env-hooks">
+                    <div class="text-sm font-semibold text-ink">
+                        {{ $t('sandbox.environments.form.hooks') }}
+                        <span class="font-normal text-ink-muted">{{ $t('common.optional') }}</span>
+                    </div>
+                    <p class="mt-0.5 mb-3 text-xs text-ink-muted leading-relaxed">{{ $t('sandbox.environments.form.hooksHint') }}</p>
+                    <div class="space-y-4">
+                        <div v-for="hook in HOOKS" :key="hook" class="flex flex-col">
+                            <label :for="`sandbox-env-${hook}`" class="text-sm font-medium text-ink-2 mb-1.5">{{ $t(`sandbox.environments.form.${hook}`) }}</label>
+                            <UTextarea
+                                :id="`sandbox-env-${hook}`"
+                                v-model="form[hook]"
+                                :rows="hook === 'setup_script' ? 4 : 2"
+                                autoresize
+                                :maxrows="14"
+                                dir="ltr"
+                                spellcheck="false"
+                                maxlength="20000"
+                                :placeholder="HOOK_PLACEHOLDERS[hook]"
+                                :ui="{ base: 'font-mono text-xs' }"
+                                :data-testid="`sandbox-env-${hook}`"
+                            />
+                            <p class="mt-1.5 text-xs text-ink-muted leading-relaxed">{{ $t(`sandbox.environments.form.${hook}Hint`) }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Volumes of a compute, mounted in every sandbox -->
+                <div data-testid="sandbox-env-mounts">
+                    <div class="text-sm font-semibold text-ink">
+                        {{ $t('sandbox.environments.mounts.title') }}
+                        <span class="font-normal text-ink-muted">{{ $t('common.optional') }}</span>
+                    </div>
+                    <p class="mt-0.5 mb-3 text-xs text-ink-muted leading-relaxed">{{ $t('sandbox.environments.mounts.hint') }}</p>
+                    <datalist id="sandbox-env-volume-names">
+                        <option v-for="volume in volumes" :key="volume.name" :value="volume.name">{{ volume.computes.join(', ') }}</option>
+                    </datalist>
+                    <div v-if="form.mounts.length" class="space-y-3">
+                        <div v-for="(mount, index) in form.mounts" :key="mount.key" class="rounded-lg border border-line p-3" data-testid="sandbox-env-mount-row">
+                            <div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-3 items-start">
+                                <div class="flex flex-col min-w-0">
+                                    <label :for="`sandbox-mount-volume-${mount.key}`" class="text-xs font-medium text-ink-2 mb-1">{{ $t('sandbox.environments.mounts.volume') }}</label>
+                                    <UInput
+                                        :id="`sandbox-mount-volume-${mount.key}`"
+                                        v-model="mount.volume"
+                                        list="sandbox-env-volume-names"
+                                        dir="ltr"
+                                        spellcheck="false"
+                                        autocomplete="off"
+                                        maxlength="40"
+                                        :placeholder="volumes[0]?.name || 'datasets'"
+                                        :ui="{ base: 'font-mono' }"
+                                        data-testid="sandbox-mount-volume"
+                                    />
+                                </div>
+                                <div class="flex flex-col min-w-0">
+                                    <label :for="`sandbox-mount-path-${mount.key}`" class="text-xs font-medium text-ink-2 mb-1">{{ $t('sandbox.environments.mounts.path') }}</label>
+                                    <UInput
+                                        :id="`sandbox-mount-path-${mount.key}`"
+                                        v-model="mount.path"
+                                        dir="ltr"
+                                        spellcheck="false"
+                                        maxlength="300"
+                                        placeholder="/data"
+                                        :color="mountErrors[mount.key] ? 'red' : undefined"
+                                        :ui="{ base: 'font-mono' }"
+                                        data-testid="sandbox-mount-path"
+                                    />
+                                </div>
+                                <UButton
+                                    type="button"
+                                    color="gray"
+                                    variant="ghost"
+                                    size="xs"
+                                    icon="i-heroicons-trash"
+                                    class="sm:mt-6"
+                                    :aria-label="$t('sandbox.environments.mounts.remove')"
+                                    data-testid="sandbox-mount-remove"
+                                    @click="form.mounts.splice(index, 1)"
+                                />
+                            </div>
+                            <!-- The server's own sentence about this row (a reserved path, a bad name). -->
+                            <p v-if="mountErrors[mount.key]" class="mt-1.5 text-xs text-red-600 dark:text-red-400 break-words" role="alert" dir="auto" data-testid="sandbox-mount-error">
+                                {{ mountErrors[mount.key] }}
+                            </p>
+                            <p v-else-if="mountNote(mount)" class="mt-1.5 text-xs text-ink-muted" data-testid="sandbox-mount-volume-note">{{ mountNote(mount) }}</p>
+                            <div class="mt-3 flex items-start justify-between gap-6">
+                                <div class="min-w-0">
+                                    <div class="text-sm font-medium text-ink-2">{{ $t('sandbox.environments.mounts.readOnly') }}</div>
+                                    <p class="mt-0.5 text-xs text-ink-muted leading-relaxed">{{ $t('sandbox.environments.mounts.readOnlyHint') }}</p>
+                                </div>
+                                <UToggle v-model="mount.read_only" class="shrink-0 mt-0.5" :aria-label="$t('sandbox.environments.mounts.readOnly')" data-testid="sandbox-mount-read-only" />
+                            </div>
+                            <!-- Writable: who sees what is written there. -->
+                            <fieldset v-if="!mount.read_only" class="mt-3 space-y-2" data-testid="sandbox-mount-sharing">
+                                <legend class="sr-only">{{ $t('sandbox.environments.mounts.sharing') }}</legend>
+                                <URadio
+                                    v-for="choice in SHARING"
+                                    :key="choice.key"
+                                    v-model="mount.sharing"
+                                    :value="choice.key"
+                                    :name="`sandbox-mount-sharing-${mount.key}`"
+                                    :data-testid="`sandbox-mount-sharing-${choice.key}`"
+                                >
+                                    <template #label>
+                                        <span class="text-sm text-ink-2">{{ $t(`sandbox.environments.mounts.${choice.key}`) }}</span>
+                                    </template>
+                                    <template #help>
+                                        <span class="text-xs text-ink-muted leading-relaxed">{{ $t(`sandbox.environments.mounts.${choice.key}Hint`) }}</span>
+                                    </template>
+                                </URadio>
+                                <p
+                                    v-if="mount.sharing === 'shared'"
+                                    class="rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-200 leading-relaxed"
+                                    data-testid="sandbox-mount-shared-warning"
+                                >
+                                    <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 shrink-0" />
+                                    <span>{{ $t('sandbox.environments.mounts.sharedWarning') }}</span>
+                                </p>
+                            </fieldset>
+                        </div>
+                    </div>
+                    <UButton
+                        type="button"
+                        color="gray"
+                        variant="soft"
+                        size="xs"
+                        icon="i-heroicons-plus"
+                        :class="form.mounts.length ? 'mt-3' : ''"
+                        :disabled="form.mounts.length >= 10"
+                        data-testid="sandbox-mount-add"
+                        @click="addMount"
+                    >
+                        {{ $t('sandbox.environments.mounts.add') }}
+                    </UButton>
+                    <p v-if="!volumes.length" class="mt-2 text-xs text-ink-muted" data-testid="sandbox-env-no-volumes">{{ $t('sandbox.environments.mounts.noVolumes') }}</p>
+                </div>
+
+                <!-- Which computes may run it -->
+                <div class="flex flex-col">
+                    <label for="sandbox-env-compute-labels" class="text-sm font-medium text-ink-2 mb-1.5">
+                        {{ $t('sandbox.environments.form.computeLabels') }}
+                        <span class="font-normal text-ink-muted">{{ $t('common.optional') }}</span>
+                    </label>
+                    <UInput id="sandbox-env-compute-labels" v-model="form.compute_labels" dir="ltr" placeholder="gpu, eu-west" class="sm:max-w-xs" data-testid="sandbox-env-compute-labels" />
+                    <p class="mt-1.5 text-xs text-ink-muted leading-relaxed">{{ $t('sandbox.environments.form.computeLabelsHint') }}</p>
                 </div>
 
                 <!-- Switches -->
@@ -193,7 +348,8 @@
 </template>
 
 <script setup lang="ts">
-import type { SandboxAccessGrant, SandboxEnvironment, SandboxPrincipalOption } from '~/composables/useSandboxApi'
+import type { SandboxAccessGrant, SandboxEnvironment, SandboxMount, SandboxPrincipalOption } from '~/composables/useSandboxApi'
+import SandboxEnvironmentWarnings from '~/components/sandbox/SandboxEnvironmentWarnings.vue'
 
 type PrincipalType = 'role' | 'group' | 'user'
 
@@ -203,6 +359,8 @@ const props = defineProps<{
     roles: SandboxPrincipalOption[]
     groups: SandboxPrincipalOption[]
     users: SandboxPrincipalOption[]
+    // The volume names that exist on any compute, and which computes have each.
+    volumes: Array<{ name: string; computes: string[] }>
 }>()
 const emit = defineEmits<{
     'update:modelValue': [value: boolean]
@@ -223,8 +381,51 @@ const DEFAULTS = {
     name: '', description: '', image: '',
     cpus: 1, memory_mb: 2048, disk_mb: 5120, run_timeout_seconds: 600,
     network_policy: 'none', require_strong_isolation: false, is_default: false, enabled: true,
+    confirm_runs: 'never', setup_script: '', start_script: '', stop_script: '', compute_labels: '',
 }
-const form = reactive({ ...DEFAULTS })
+const HOOKS = ['setup_script', 'start_script', 'stop_script'] as const
+const HOOK_PLACEHOLDERS: Record<typeof HOOKS[number], string> = {
+    setup_script: 'pip install -r /data/requirements.txt',
+    start_script: 'nohup my-service > /tmp/service.log 2>&1 &',
+    stop_script: 'my-service --flush',
+}
+const CONFIRM_RUNS = ['never', 'always', 'full_network', 'packages']
+const SHARING = [{ key: 'perReport' }, { key: 'shared' }] as const
+
+// `key` only tells the rows apart while they are edited.
+interface MountRow { key: number; volume: string; path: string; read_only: boolean; sharing: 'perReport' | 'shared' }
+let mountKey = 0
+
+const form = reactive({ ...DEFAULTS, mounts: [] as MountRow[] })
+// The server's refusal of one mount, by the row's key.
+const mountErrors = ref<Record<number, string>>({})
+
+function addMount() {
+    form.mounts.push({ key: ++mountKey, volume: '', path: '', read_only: true, sharing: 'perReport' })
+}
+const filledMounts = () => form.mounts.filter(mount => mount.volume.trim() || mount.path.trim())
+const mountsPayload = (): SandboxMount[] => filledMounts().map(mount => ({
+    volume: mount.volume.trim(),
+    path: mount.path.trim(),
+    read_only: mount.read_only,
+    // Only a writable mount can be shared.
+    shared: !mount.read_only && mount.sharing === 'shared',
+}))
+const mountsKey = (mounts: SandboxMount[]) =>
+    JSON.stringify(mounts.map(mount => [mount.volume, mount.path, !!mount.read_only, !!mount.shared]))
+
+// Which computes have the volume a row names, or that none does yet.
+function mountNote(mount: MountRow) {
+    const name = mount.volume.trim()
+    if (!name) return ''
+    const found = props.volumes.find(volume => volume.name === name)
+    return found
+        ? t('sandbox.environments.mounts.onComputes', { computes: found.computes.join(', ') })
+        : t('sandbox.environments.mounts.unknownVolume')
+}
+
+const confirmKey = computed(() => (CONFIRM_RUNS.includes(form.confirm_runs) ? form.confirm_runs : 'never'))
+const confirmOptions = computed(() => CONFIRM_RUNS.map(value => ({ value, label: t(`sandbox.environments.confirm.${value}`) })))
 const access = reactive<Record<PrincipalType, string[]>>({ role: [], group: [], user: [] })
 const saving = ref(false)
 const errorMessage = ref('')
@@ -291,17 +492,53 @@ watch(() => props.modelValue, (isOpen) => {
         cpus: env.cpus, memory_mb: env.memory_mb, disk_mb: env.disk_mb,
         run_timeout_seconds: env.run_timeout_seconds, network_policy: env.network_policy,
         require_strong_isolation: env.require_strong_isolation, is_default: env.is_default, enabled: env.enabled,
+        confirm_runs: env.confirm_runs || 'never',
+        setup_script: env.setup_script || '', start_script: env.start_script || '', stop_script: env.stop_script || '',
+        compute_labels: (env.compute_labels || []).join(', '),
     } : {})
+    mountErrors.value = {}
+    form.mounts = (env?.mounts || []).map(mount => ({
+        key: ++mountKey, volume: mount.volume, path: mount.path, read_only: mount.read_only !== false,
+        sharing: mount.shared ? 'shared' : 'perReport',
+    }))
     for (const type of ['role', 'group', 'user'] as PrincipalType[]) {
         access[type] = (env?.access || []).filter(grant => grant.principal_type === type).map(grant => grant.principal_id)
     }
 })
 
+// A validation refusal (422) lists each field it refused. What it says about a
+// mount goes under that mount's row; the rest is returned as one line, or ''
+// when everything was about mounts. `null`: not a validation refusal.
+function mountValidation(error: unknown, sent: MountRow[]): string | null {
+    const detail = (error as any)?.data?.detail
+    if (!Array.isArray(detail)) return null
+    const clean = (message: unknown) => String(message || '').replace(/^Value error, /, '')
+    const rows: Record<number, string> = {}
+    const other: string[] = []
+    for (const item of detail) {
+        const loc: unknown[] = Array.isArray(item?.loc) ? item.loc.filter((part: unknown) => part !== 'body') : []
+        const row = loc[0] === 'mounts' && typeof loc[1] === 'number' ? sent[loc[1]] : undefined
+        if (row) rows[row.key] = [rows[row.key], clean(item.msg)].filter(Boolean).join(' ')
+        else other.push(loc.length ? `${loc.join('.')}: ${clean(item.msg)}` : clean(item.msg))
+    }
+    mountErrors.value = rows
+    return other.slice(0, 5).join('; ')
+}
+
 async function save() {
     if (saving.value) return
-    saving.value = true
     errorMessage.value = ''
-    const body = {
+    mountErrors.value = {}
+    if (filledMounts().some(mount => !mount.volume.trim() || !mount.path.trim())) {
+        errorMessage.value = t('sandbox.environments.mounts.incomplete')
+        return
+    }
+    saving.value = true
+    const sentMounts = filledMounts()
+    const env = props.environment
+    // An emptied script is sent as null; one that was never set is left alone.
+    const script = (key: typeof HOOKS[number]) => form[key].trim() ? form[key] : null
+    const body: Record<string, any> = {
         name: form.name.trim(),
         description: form.description.trim() || null,
         image: form.image.trim(),
@@ -313,7 +550,15 @@ async function save() {
         require_strong_isolation: form.require_strong_isolation,
         is_default: form.is_default,
         enabled: form.enabled,
+        confirm_runs: form.confirm_runs,
+        compute_labels: form.compute_labels.split(',').map(label => label.trim()).filter(Boolean),
     }
+    for (const hook of HOOKS) {
+        if (script(hook) !== (env?.[hook] || null)) body[hook] = script(hook)
+    }
+    // The whole list, and only when it changed.
+    const mounts = mountsPayload()
+    if (mountsKey(mounts) !== mountsKey(env?.mounts || [])) body.mounts = mounts
     let saved: SandboxEnvironment | null = null
     try {
         const existingId = props.environment?.id || createdId.value
@@ -333,13 +578,17 @@ async function save() {
             title: props.environment ? t('sandbox.environments.toast.saved') : t('sandbox.environments.toast.created'),
             color: 'green',
         })
-        // Not errors: things the admin should know about it as saved.
+        // Not errors: things the admin should know about it as saved. They stay
+        // on its row in the list and at the top of this form.
         for (const warning of saved.warnings || []) {
             toast.add({ title: t('sandbox.environments.toast.warning'), description: warning, color: 'amber', icon: 'i-heroicons-exclamation-triangle', timeout: 12000 })
         }
         open.value = false
     } catch (error) {
-        errorMessage.value = getErrorMessage(error, t('sandbox.environments.toast.saveFailed'))
+        const rest = mountValidation(error, sentMounts)
+        errorMessage.value = rest === null
+            ? getErrorMessage(error, t('sandbox.environments.toast.saveFailed'))
+            : rest || t('sandbox.environments.mounts.fix')
         // The environment itself was saved and only the access change failed:
         // keep the list in step with the server.
         if (saved) emit('saved', saved)

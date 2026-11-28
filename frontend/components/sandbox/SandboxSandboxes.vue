@@ -66,16 +66,37 @@
                                             <UIcon name="i-heroicons-user" class="w-3.5 h-3.5 shrink-0" />
                                             <span class="truncate" dir="auto">{{ sandbox.user_name || $t('sandbox.sandboxes.noUser') }}</span>
                                         </div>
+                                        <UTooltip v-if="sandbox.pinned" :text="$t('sandbox.sandboxes.pinnedHint')" :ui="{ base: 'h-auto whitespace-normal max-w-xs' }" class="mt-1">
+                                            <UBadge size="xs" color="blue" variant="subtle" class="gap-1" data-testid="sandbox-pinned">
+                                                <UIcon name="i-heroicons-bookmark" class="w-3 h-3" />
+                                                {{ $t('sandbox.sandboxes.pinned') }}
+                                            </UBadge>
+                                        </UTooltip>
                                     </div>
                                 </td>
 
                                 <!-- Environment and what it may reach -->
                                 <td>
                                     <div class="text-sm text-ink-2 whitespace-nowrap" dir="auto" data-testid="sandbox-environment">{{ sandbox.environment_name || '—' }}</div>
-                                    <div v-if="networkLabel(sandbox)" class="mt-0.5 flex items-center gap-1 text-xs text-ink-muted whitespace-nowrap" data-testid="sandbox-network">
-                                        <UIcon :name="networkIcon(sandbox)" class="w-3.5 h-3.5 shrink-0" />
+                                    <div v-if="networkLabel(sandbox)" class="mt-0.5 flex items-start gap-1 max-w-[9rem] text-xs text-ink-muted" data-testid="sandbox-network">
+                                        <UIcon :name="networkIcon(sandbox)" class="w-3.5 h-3.5 shrink-0 mt-0.5" />
                                         {{ networkLabel(sandbox) }}
                                     </div>
+                                    <div
+                                        v-if="mountsOf(sandbox).length"
+                                        class="mt-0.5 flex items-center gap-1 text-xs text-ink-muted max-w-[12rem]"
+                                        :title="mountsTitle(sandbox)"
+                                        data-testid="sandbox-mounts"
+                                    >
+                                        <UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 shrink-0" />
+                                        <span class="truncate" dir="ltr">{{ mountsOf(sandbox).map(mount => mount.volume).join(', ') }}</span>
+                                    </div>
+                                    <UTooltip v-if="sandbox.setup_outdated" :text="$t('sandbox.sandboxes.setupOutdatedHint')" :ui="{ base: 'h-auto whitespace-normal max-w-xs' }" class="mt-1">
+                                        <UBadge size="xs" color="amber" variant="subtle" class="gap-1" data-testid="sandbox-setup-outdated">
+                                            <UIcon name="i-heroicons-clock" class="w-3 h-3" />
+                                            {{ $t('sandbox.sandboxes.setupOutdated') }}
+                                        </UBadge>
+                                    </UTooltip>
                                 </td>
 
                                 <!-- The server it runs on -->
@@ -85,7 +106,7 @@
                                 </td>
 
                                 <!-- State and what it is doing -->
-                                <td>
+                                <td class="min-w-[9rem]">
                                     <UBadge size="xs" variant="subtle" :color="sandboxStateColor(sandbox.state)" data-testid="sandbox-state">
                                         <Spinner v-if="sandbox.state === 'busy' || sandbox.state === 'provisioning'" class="w-3 h-3 me-1" />
                                         {{ stateLabel(sandbox.state) }}
@@ -103,16 +124,48 @@
                                         :title="activityTitle(sandbox)"
                                         data-testid="sandbox-activity"
                                     >{{ activity(sandbox) }}</div>
+                                    <div
+                                        v-if="keptWarm(sandbox)"
+                                        class="mt-0.5 flex items-start gap-1 max-w-[10rem] text-xs text-ink-muted nums"
+                                        :title="formatDate(sandbox.keep_warm_until)"
+                                        data-testid="sandbox-keep-warm"
+                                    >
+                                        <UIcon name="i-heroicons-fire" class="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
+                                        {{ $t('sandbox.sandboxes.keptWarm', { when: relative(sandbox.keep_warm_until!, now) }) }}
+                                    </div>
                                 </td>
 
                                 <!-- Last used, and when it is removed -->
-                                <td class="whitespace-nowrap">
-                                    <div v-if="sandbox.last_used_at" class="text-sm text-ink-2 nums" :title="formatDate(sandbox.last_used_at)" data-testid="sandbox-last-used">
+                                <td>
+                                    <div class="max-w-[11rem]">
+                                    <div v-if="sandbox.last_used_at" class="text-sm text-ink-2 nums whitespace-nowrap" :title="formatDate(sandbox.last_used_at)" data-testid="sandbox-last-used">
                                         {{ relative(sandbox.last_used_at, now) }}
                                     </div>
                                     <div v-else class="bow-cell-empty">—</div>
-                                    <div v-if="sandbox.expires_at" class="mt-0.5 text-xs text-ink-muted nums" :title="formatDate(sandbox.expires_at)" data-testid="sandbox-expires">
-                                        {{ $t('sandbox.sandboxes.expires', { when: relative(sandbox.expires_at, now) }) }}
+                                    <!-- When it is deleted on its own, and why -->
+                                    <div
+                                        v-if="sandbox.deletes_at"
+                                        class="mt-0.5 text-xs nums"
+                                        :class="deletesSoon(sandbox) ? 'text-amber-700 dark:text-amber-300' : 'text-ink-muted'"
+                                        :title="formatDate(sandbox.deletes_at)"
+                                        data-testid="sandbox-deletes"
+                                        :data-reason="sandbox.delete_reason || ''"
+                                    >
+                                        <div>{{ $t('sandbox.sandboxes.deletes', { when: relative(sandbox.deletes_at, now) }) }}</div>
+                                        <div v-if="deleteReason(sandbox)" class="text-ink-muted">{{ deleteReason(sandbox) }}</div>
+                                    </div>
+                                    <div v-else-if="sandbox.pinned" class="mt-0.5 text-xs text-ink-muted" data-testid="sandbox-not-deleted">
+                                        {{ $t('sandbox.sandboxes.notDeleted') }}
+                                    </div>
+                                    <div
+                                        v-if="sandbox.snapshot_at"
+                                        class="mt-0.5 flex items-start gap-1 text-xs text-ink-muted nums"
+                                        :title="formatDate(sandbox.snapshot_at)"
+                                        data-testid="sandbox-snapshot"
+                                    >
+                                        <UIcon name="i-heroicons-camera" class="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                        <span>{{ snapshotLabel(sandbox) }}</span>
+                                    </div>
                                     </div>
                                 </td>
 
@@ -149,6 +202,17 @@
                                                 {{ $t('sandbox.sandboxes.stop') }}
                                             </UButton>
                                         </UTooltip>
+                                        <UDropdown :items="moreActions(sandbox)" :popper="{ placement: 'bottom-end', strategy: 'fixed' }" :ui="{ width: 'w-60' }">
+                                            <UButton
+                                                color="gray"
+                                                variant="ghost"
+                                                size="xs"
+                                                icon="i-heroicons-ellipsis-horizontal"
+                                                :loading="acting.endsWith(`:${sandbox.id}`) && isMenuAction(acting)"
+                                                :aria-label="$t('sandbox.sandboxes.more')"
+                                                data-testid="sandbox-more"
+                                            />
+                                        </UDropdown>
                                         <UTooltip :text="$t('sandbox.sandboxes.details')">
                                             <UButton
                                                 color="gray"
@@ -193,17 +257,19 @@
 
         <SandboxDetailModal v-model="showDetail" :sandbox="selected" />
         <SandboxDeleteModal v-model="showDelete" :sandbox="selected" @deleted="onDeleted" />
+        <SandboxAmountModal v-model="showAmount" :sandbox="selected" :mode="amountMode" @done="upsert" @gone="onDeleted" />
     </div>
 </template>
 
 <script setup lang="ts">
-import type { SandboxFleetRow } from '~/composables/useSandboxApi'
+import { parseSandboxDate, type SandboxFleetRow } from '~/composables/useSandboxApi'
 import { sandboxStateColor, SANDBOX_STATES } from '~/composables/useSandboxFormat'
 import Spinner from '~/components/Spinner.vue'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SandboxUsageBars from '~/components/sandbox/SandboxUsageBars.vue'
 import SandboxDetailModal from '~/components/sandbox/SandboxDetailModal.vue'
 import SandboxDeleteModal from '~/components/sandbox/SandboxDeleteModal.vue'
+import SandboxAmountModal from '~/components/sandbox/SandboxAmountModal.vue'
 
 // Live usage costs one call to each server, so the list is never asked for
 // more often than this.
@@ -213,18 +279,20 @@ const { t, te } = useI18n()
 const toast = useToast()
 const { call } = useSandboxApi()
 const { getErrorMessage, getErrorCode } = useErrorMessage()
-const { formatDate, relative, between } = useSandboxFormat()
+const { formatDate, relative, between, bytes } = useSandboxFormat()
 
 const sandboxes = ref<SandboxFleetRow[]>([])
 const loading = ref(true)
 const refreshing = ref(false)
 const loadError = ref('')
 const loadedAt = ref(0)
-// `${action}:${sandbox id}` while a Stop or Stop run request is out.
+// `${action}:${sandbox id}` while a request for that row is out.
 const acting = ref('')
 
 const showDetail = ref(false)
 const showDelete = ref(false)
+const showAmount = ref(false)
+const amountMode = ref<'keepWarm' | 'extend'>('keepWarm')
 const selected = ref<SandboxFleetRow | null>(null)
 
 let inFlight: Promise<void> | null = null
@@ -278,8 +346,9 @@ onBeforeUnmount(() => {
     document.removeEventListener('visibilitychange', onVisibility)
 })
 
+// The actions answer without live usage: the row keeps what it showed.
 function upsert(row: SandboxFleetRow) {
-    sandboxes.value = sandboxes.value.map(item => (item.id === row.id ? { ...row, usage: row.usage ?? null } : item))
+    sandboxes.value = sandboxes.value.map(item => (item.id === row.id ? { ...row, usage: row.usage ?? item.usage ?? null } : item))
     if (selected.value?.id === row.id) selected.value = row
 }
 function drop(id: string) {
@@ -345,6 +414,109 @@ async function stopRun(sandbox: SandboxFleetRow) {
         await load()
         setTimeout(() => load(), 2000)
     }
+}
+
+// ── The row's menu: start, keep warm, pin, extend, snapshot ──────────────
+
+const MENU_ACTIONS = ['start', 'warm', 'pin', 'snapshot']
+const isMenuAction = (key: string) => MENU_ACTIONS.includes(key.split(':')[0])
+
+const keptWarm = (sandbox: SandboxFleetRow) =>
+    !!sandbox.keep_warm_until && parseSandboxDate(sandbox.keep_warm_until).getTime() > now.value
+
+function openAmount(sandbox: SandboxFleetRow, mode: 'keepWarm' | 'extend') {
+    selected.value = sandbox
+    amountMode.value = mode
+    showAmount.value = true
+}
+
+// One request, the fresh row back, a line saying what happened.
+async function act(sandbox: SandboxFleetRow, key: string, path: string, body: Record<string, any> | undefined, done: string, failed: string) {
+    if (acting.value) return
+    acting.value = `${key}:${sandbox.id}`
+    try {
+        upsert(await call<SandboxFleetRow>(`/sandboxes/${sandbox.id}/${path}`, { method: 'POST', body }))
+        toast.add({ title: t(done), color: 'green' })
+    } catch (error) {
+        if (!gone(error, sandbox)) {
+            // "Wait for it to finish" is written for the person whose run it is.
+            const message = getErrorCode(error) === 'sandbox.busy'
+                ? t('sandbox.sandboxes.toast.stopBusy')
+                : getErrorMessage(error, t(failed))
+            toast.add({ title: message, color: 'red' })
+        }
+    } finally {
+        acting.value = ''
+        load()
+    }
+}
+
+function moreActions(sandbox: SandboxFleetRow) {
+    const busy = !!acting.value
+    const alive = !['failed', 'deleted'].includes(sandbox.state)
+    const lifecycle: any[] = []
+    if (sandbox.state === 'stopped') {
+        lifecycle.push({
+            label: t('sandbox.sandboxes.start'), icon: 'i-heroicons-play', disabled: busy,
+            click: () => act(sandbox, 'start', 'start', undefined, 'sandbox.sandboxes.toast.started', 'sandbox.sandboxes.toast.startFailed'),
+        })
+    }
+    if (alive) {
+        lifecycle.push({
+            label: t(keptWarm(sandbox) ? 'sandbox.sandboxes.keepWarmChange' : 'sandbox.sandboxes.keepWarmAction'),
+            icon: 'i-heroicons-fire', disabled: busy, click: () => openAmount(sandbox, 'keepWarm'),
+        })
+        if (keptWarm(sandbox)) {
+            lifecycle.push({
+                label: t('sandbox.sandboxes.keepWarmClear'), icon: 'i-heroicons-x-mark', disabled: busy,
+                click: () => act(sandbox, 'warm', 'keep-warm', { hours: 0 }, 'sandbox.sandboxes.toast.keepWarmCleared', 'sandbox.sandboxes.keepWarm.failed'),
+            })
+        }
+    }
+    const keeping: any[] = [{
+        label: t(sandbox.pinned ? 'sandbox.sandboxes.unpin' : 'sandbox.sandboxes.pin'),
+        icon: sandbox.pinned ? 'i-heroicons-bookmark-slash' : 'i-heroicons-bookmark', disabled: busy,
+        click: () => act(sandbox, 'pin', 'pin', { pinned: !sandbox.pinned },
+            sandbox.pinned ? 'sandbox.sandboxes.toast.unpinned' : 'sandbox.sandboxes.toast.pinned', 'sandbox.sandboxes.toast.pinFailed'),
+    }]
+    if (alive) {
+        keeping.push({
+            label: t('sandbox.sandboxes.extendAction'), icon: 'i-heroicons-calendar-days', disabled: busy,
+            click: () => openAmount(sandbox, 'extend'),
+        })
+    }
+    const snapshot: any[] = []
+    if (['ready', 'idle', 'stopped', 'busy'].includes(sandbox.state)) {
+        snapshot.push({
+            label: t('sandbox.sandboxes.snapshotNow'), icon: 'i-heroicons-camera', disabled: busy,
+            click: () => act(sandbox, 'snapshot', 'snapshot', undefined, 'sandbox.sandboxes.toast.snapshotTaken', 'sandbox.sandboxes.toast.snapshotFailed'),
+        })
+    }
+    return [lifecycle, keeping, snapshot].filter(group => group.length)
+}
+
+// ── What the row says ────────────────────────────────────────────────────
+
+const mountsOf = (sandbox: SandboxFleetRow): Array<{ volume: string; path: string; read_only?: boolean }> =>
+    (Array.isArray(sandbox.limits?.mounts) ? sandbox.limits.mounts : []).filter((mount: any) => mount?.volume)
+const mountsTitle = (sandbox: SandboxFleetRow) => mountsOf(sandbox)
+    .map(mount => `${mount.volume} → ${mount.path} (${t(mount.read_only === false ? 'sandbox.sandboxes.mountWritable' : 'sandbox.sandboxes.mountReadOnly')})`)
+    .join('\n')
+
+const DELETE_REASONS: Record<string, string> = { expired: 'expired', 'stopped too long': 'stoppedTooLong' }
+function deleteReason(sandbox: SandboxFleetRow) {
+    const reason = sandbox.delete_reason || ''
+    return reason in DELETE_REASONS ? t(`sandbox.sandboxes.deleteReason.${DELETE_REASONS[reason]}`) : reason
+}
+// Within a day: the deletion has been, or is about to be, announced.
+const deletesSoon = (sandbox: SandboxFleetRow) =>
+    !!sandbox.deletes_at && parseSandboxDate(sandbox.deletes_at).getTime() - now.value < 24 * 3600 * 1000
+
+function snapshotLabel(sandbox: SandboxFleetRow) {
+    const when = relative(sandbox.snapshot_at!, now.value)
+    return typeof sandbox.snapshot_bytes === 'number'
+        ? t('sandbox.sandboxes.snapshotWithSize', { when, size: bytes(sandbox.snapshot_bytes) })
+        : t('sandbox.sandboxes.snapshot', { when })
 }
 
 const stateLabel = (state: string) =>

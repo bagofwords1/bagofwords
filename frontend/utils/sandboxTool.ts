@@ -7,7 +7,7 @@
 export const SANDBOX_LANGUAGES: string[] = ['python', 'node', 'go', 'bash']
 export const SANDBOX_NETWORK_POLICIES: string[] = ['none', 'registries', 'allowlist', 'full']
 /** Stages `run_in_sandbox` reports while it works (tool.progress). */
-export const SANDBOX_RUN_STAGES: string[] = ['created', 'resumed', 'installing_packages', 'running', 'collecting_artifacts']
+export const SANDBOX_RUN_STAGES: string[] = ['starting', 'created', 'resumed', 'installing_packages', 'running', 'collecting_artifacts']
 
 export type SandboxRunOutcome =
   | 'awaiting' | 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled'
@@ -78,13 +78,29 @@ export function sandboxCodeRedacted(args: any): boolean {
   return ['code', 'command'].some((k) => k in args) && args.code == null && args.command == null
 }
 
-export type SandboxNoteKind = 'fresh' | 'restored' | 'created' | 'resumed' | 'deletion' | 'background' | 'timeout' | 'cancelled' | 'skipped' | 'other'
+export type SandboxNoteKind =
+  | 'fresh' | 'restored' | 'filesRestored' | 'created' | 'resumed' | 'deletion' | 'background'
+  | 'timeout' | 'cancelled' | 'skipped' | 'other'
+
+/** The codes a run's result carries in `note_codes`, as the kinds this client shows. */
+export const SANDBOX_NOTE_CODES: Record<string, SandboxNoteKind> = {
+  created: 'created',
+  resumed: 'resumed',
+  recreated: 'fresh',
+  restored_snapshot: 'restored',
+  files_restored: 'filesRestored',
+  timeout: 'timeout',
+  cancelled: 'cancelled',
+  skipped_artifacts: 'skipped',
+  background_processes: 'background',
+  deletion_scheduled: 'deletion',
+}
 
 /**
- * What a note of a run is about. The tool returns its notes as plain English
- * sentences with no code, so they are recognized by their wording
- * (backend/app/ai/tools/implementations/agent_sandbox.py). An unrecognized
- * sentence is still shown, as itself.
+ * What a note of a run is about, from its English sentence. Only for results
+ * stored before the tool returned `note_codes`, and to tell which sentences in
+ * the notes list repeat what the block already says. An unrecognized sentence
+ * is still shown, as itself.
  */
 export function sandboxNoteKind(note: string): SandboxNoteKind {
   const s = String(note || '')
@@ -99,8 +115,22 @@ export function sandboxNoteKind(note: string): SandboxNoteKind {
   return 'other'
 }
 
+/**
+ * What a run's result says about its sandbox, in the order given. From
+ * `note_codes` when the result has them (a code this client does not know is
+ * left out); otherwise from the wording of `notes`, as older results need.
+ */
+export function sandboxResultNoteKinds(result: any): SandboxNoteKind[] {
+  const kinds: SandboxNoteKind[] = Array.isArray(result?.note_codes)
+    ? result.note_codes.map((code: unknown) => SANDBOX_NOTE_CODES[String(code)]).filter(Boolean)
+    : (Array.isArray(result?.notes) ? result.notes : []).map(sandboxNoteKind).filter((kind: SandboxNoteKind) => kind !== 'other')
+  return [...new Set(kinds)]
+}
+
 /** Notes that change what the reader should expect: shown on the collapsed row. */
 export const SANDBOX_WARNING_NOTES: SandboxNoteKind[] = ['fresh', 'restored', 'deletion', 'background']
+/** The kinds that get a chip under the row; the status line and the skipped list say the rest. */
+export const SANDBOX_CHIP_NOTES: SandboxNoteKind[] = ['fresh', 'restored', 'filesRestored', 'deletion', 'background', 'created', 'resumed']
 
 /** Why the card asks, as a locale key under tools.sandbox.confirm.reason, or
     '' for a sentence this client does not know (shown as sent). */

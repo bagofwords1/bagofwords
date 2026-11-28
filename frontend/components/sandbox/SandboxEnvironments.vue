@@ -41,14 +41,16 @@
                                         <UBadge v-if="env.is_default" size="xs" color="blue" variant="subtle" data-testid="sandbox-environment-default">
                                             {{ $t('sandbox.environments.defaultBadge') }}
                                         </UBadge>
-                                        <UTooltip v-if="env.warnings?.length" :ui="{ base: 'h-auto whitespace-normal max-w-sm' }">
-                                            <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 text-amber-500 dark:text-amber-400" data-testid="sandbox-environment-warning" :aria-label="env.warnings.join(' ')" />
-                                            <template #text>
-                                                <span v-for="warning in env.warnings" :key="warning" class="block">{{ warning }}</span>
-                                            </template>
-                                        </UTooltip>
                                     </div>
                                     <div v-if="env.description" dir="auto" class="mt-0.5 max-w-xs text-xs text-ink-muted line-clamp-2" :title="env.description">{{ env.description }}</div>
+                                    <SandboxEnvironmentWarnings :environment="env" class="mt-1.5 max-w-xs" data-testid="sandbox-environment-warning" />
+                                    <!-- What it adds to a plain sandbox: scripts, volumes, asking first. -->
+                                    <div v-if="extras(env).length" class="mt-1.5 flex flex-wrap gap-1" data-testid="sandbox-environment-extras">
+                                        <UBadge v-for="extra in extras(env)" :key="extra.key" size="xs" color="gray" :title="extra.title" class="gap-1" :data-extra="extra.key">
+                                            <UIcon :name="extra.icon" class="w-3 h-3" />
+                                            {{ extra.label }}
+                                        </UBadge>
+                                    </div>
                                 </td>
                                 <td>
                                     <code dir="ltr" class="font-mono text-xs text-ink-2 break-all">{{ env.image }}</code>
@@ -110,6 +112,7 @@
             :roles="roles"
             :groups="groups"
             :users="users"
+            :volumes="volumes"
             @saved="upsert"
         />
 
@@ -132,7 +135,8 @@
 </template>
 
 <script setup lang="ts">
-import type { SandboxEnvironment, SandboxPrincipalOption } from '~/composables/useSandboxApi'
+import type { SandboxCompute, SandboxEnvironment, SandboxPrincipalOption } from '~/composables/useSandboxApi'
+import SandboxEnvironmentWarnings from '~/components/sandbox/SandboxEnvironmentWarnings.vue'
 import Spinner from '~/components/Spinner.vue'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SandboxEnvironmentFormModal from '~/components/sandbox/SandboxEnvironmentFormModal.vue'
@@ -149,6 +153,8 @@ const loadError = ref('')
 const roles = ref<SandboxPrincipalOption[]>([])
 const groups = ref<SandboxPrincipalOption[]>([])
 const users = ref<SandboxPrincipalOption[]>([])
+// Volume names that exist on any compute, for the form's mounts.
+const volumes = ref<Array<{ name: string; computes: string[] }>>([])
 
 const showForm = ref(false)
 const editing = ref<SandboxEnvironment | null>(null)
@@ -168,6 +174,46 @@ async function load() {
     } finally {
         loading.value = false
     }
+}
+
+// Optional: without it the form still lets a volume name be typed.
+async function loadVolumes() {
+    try {
+        const byName = new Map<string, string[]>()
+        for (const compute of (await call<SandboxCompute[]>('/computes')) || []) {
+            for (const volume of compute.volumes || []) byName.set(volume.name, [...(byName.get(volume.name) || []), compute.name])
+        }
+        volumes.value = [...byName].map(([name, computes]) => ({ name, computes })).sort((a, b) => a.name.localeCompare(b.name))
+    } catch { volumes.value = [] }
+}
+
+function extras(environment: SandboxEnvironment) {
+    const out: Array<{ key: string; icon: string; label: string; title?: string }> = []
+    const hooks = (['setup_script', 'start_script', 'stop_script'] as const).filter(hook => environment[hook])
+    if (hooks.length) {
+        out.push({
+            key: 'hooks', icon: 'i-heroicons-command-line',
+            label: t('sandbox.environments.extras.hooks', { count: hooks.length }, hooks.length),
+            title: hooks.map(hook => t(`sandbox.environments.form.${hook}`)).join(', '),
+        })
+    }
+    for (const mount of environment.mounts || []) {
+        out.push({
+            key: `mount:${mount.path}`, icon: 'i-heroicons-circle-stack',
+            label: `${mount.volume} → ${mount.path}`,
+            title: t(mount.read_only ? 'sandbox.environments.mounts.readOnly'
+                : mount.shared ? 'sandbox.environments.mounts.shared' : 'sandbox.environments.mounts.perReport'),
+        })
+    }
+    const confirm = environment.confirm_runs
+    if (confirm && confirm !== 'never' && ['always', 'full_network', 'packages'].includes(confirm)) {
+        out.push({
+            key: 'confirm', icon: 'i-heroicons-hand-raised',
+            label: t('sandbox.environments.extras.asks'),
+            title: t(`sandbox.environments.confirm.${confirm}`),
+        })
+    }
+    return out
 }
 
 const cap = (name?: string) => (name ? name.charAt(0).toUpperCase() + name.slice(1) : '')
@@ -267,5 +313,5 @@ function formatDuration(seconds: number) {
     return new Intl.NumberFormat(locale.value, { style: 'unit', unit, unitDisplay: 'short' }).format(value)
 }
 
-onMounted(() => { load(); loadPrincipals() })
+onMounted(() => { load(); loadPrincipals(); loadVolumes() })
 </script>

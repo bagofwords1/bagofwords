@@ -17,7 +17,15 @@
       </template>
       <template #actions>
         <span class="flex min-w-0 flex-wrap items-center gap-1.5 text-chat-3 text-ink-muted" data-testid="sandbox-run-meta">
-          <span v-if="outcome === 'running' || outcome === 'awaiting'" data-testid="sandbox-run-stage">{{ stageLabel }}</span>
+          <template v-if="outcome === 'running' || outcome === 'awaiting'">
+            <span data-testid="sandbox-run-stage">{{ stageLabel }}</span>
+            <!-- Where it runs, known from the run's first progress event. -->
+            <template v-if="outcome === 'running' && environment">
+              <span aria-hidden="true">·</span>
+              <bdi data-testid="sandbox-run-where">{{ environment }}</bdi>
+              <template v-if="network"><span aria-hidden="true">·</span><span data-testid="sandbox-run-where-network">{{ network }}</span></template>
+            </template>
+          </template>
           <span v-else-if="outcome !== 'succeeded'" :class="chipClass(true)" data-testid="sandbox-run-outcome">{{ outcomeLabel }}</span>
           <span v-if="durationLabel" class="nums">{{ durationLabel }}</span>
         </span>
@@ -152,8 +160,8 @@ import AuthenticatedImage from '~/components/AuthenticatedImage.vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 import { formatBytes } from '~/utils/fileTree'
 import {
-  SANDBOX_LANGUAGES, SANDBOX_NETWORK_POLICIES, SANDBOX_RUN_STAGES, SANDBOX_WARNING_NOTES,
-  sandboxCodeRedacted, sandboxFileKind, sandboxNoteKind, sandboxRunOutcome, sandboxRunSummary,
+  SANDBOX_CHIP_NOTES, SANDBOX_LANGUAGES, SANDBOX_NETWORK_POLICIES, SANDBOX_RUN_STAGES, SANDBOX_WARNING_NOTES,
+  sandboxCodeRedacted, sandboxFileKind, sandboxNoteKind, sandboxResultNoteKinds, sandboxRunOutcome, sandboxRunSummary,
 } from '~/utils/sandboxTool'
 
 const STREAMS = ['stdout', 'stderr'] as const
@@ -199,9 +207,12 @@ const extraFiles = computed<{ path: string; content: string }[]>(() =>
 const packages = computed<string[]>(() => Array.isArray(args.value.packages) ? args.value.packages : [])
 const inputCount = computed(() => (Array.isArray(args.value.input_file_ids) ? args.value.input_file_ids.length : 0))
 
-const environment = computed(() => result.value.environment || confirmation.value.environment || '')
+// Where it runs: the result says so, an approval card before it, and the first
+// progress event of a run (`sandbox_target`) from the moment it starts.
+const target = computed<Record<string, any>>(() => props.toolExecution?.sandbox_target || {})
+const environment = computed(() => result.value.environment || confirmation.value.environment || target.value.environment || '')
 const network = computed(() => {
-  const policy = result.value.network_policy || confirmation.value.network_policy
+  const policy = result.value.network_policy || confirmation.value.network_policy || target.value.network_policy
   return SANDBOX_NETWORK_POLICIES.includes(policy) ? t(`sandbox.network.${policy}`) : (policy || '')
 })
 
@@ -251,7 +262,18 @@ const notes = computed(() => (Array.isArray(result.value.notes) ? result.value.n
   }))
 // The status line and the skipped list already say these three.
 const shownNotes = computed(() => notes.value.filter((n: any) => !['timeout', 'cancelled', 'skipped'].includes(n.kind)))
-const chips = computed(() => notes.value.filter((n: any) => ['fresh', 'restored', 'deletion', 'background', 'created', 'resumed'].includes(n.kind)))
+// The chips come from the result's codes (its sentences only for a result stored
+// before it had codes). A chip's tooltip is what it stands for, where the
+// result lists it, else the server's sentence about it.
+const chips = computed(() => sandboxResultNoteKinds(result.value)
+  .filter((kind) => SANDBOX_CHIP_NOTES.includes(kind))
+  .map((kind) => ({ kind, warning: SANDBOX_WARNING_NOTES.includes(kind), text: chipDetail(kind) })))
+function chipDetail(kind: string): string | undefined {
+  const list = kind === 'background' ? result.value.background_processes
+    : kind === 'filesRestored' ? result.value.restored_files : null
+  if (Array.isArray(list) && list.length) return list.slice(0, 20).join('\n')
+  return notes.value.find((n: any) => n.kind === kind)?.text
+}
 
 function chipClass(warning: boolean): string {
   return [

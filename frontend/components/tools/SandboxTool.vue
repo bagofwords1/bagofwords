@@ -44,6 +44,8 @@
           <li v-for="env in environments" :key="env.name" class="flex flex-wrap items-baseline gap-x-2">
             <bdi class="text-ink-2">{{ env.name }}</bdi>
             <span v-if="env.is_default" class="rounded bg-gray-100 px-1 py-0.5 text-2xs dark:bg-gray-800">{{ t('sandbox.environments.defaultBadge') }}</span>
+            <!-- The policy's name in the reader's language; the server's sentence for an older result. -->
+            <span v-if="environmentNetwork(env)" class="text-chat-3" data-testid="sandbox-tool-environment-network">{{ environmentNetwork(env) }}</span>
             <bdi v-if="env.description" class="min-w-0 break-words">{{ env.description }}</bdi>
           </li>
         </ul>
@@ -148,6 +150,11 @@ const facts = computed<Fact[]>(() => {
 const recentRuns = computed<any[]>(() => (done.value && Array.isArray(result.value.recent_runs) ? result.value.recent_runs : []))
 const environments = computed<any[]>(() => (done.value && Array.isArray(result.value.available_environments) ? result.value.available_environments : []))
 const hasDetails = computed(() => !!errorMessage.value || facts.value.length > 0 || recentRuns.value.length > 0 || environments.value.length > 0)
+
+function environmentNetwork(env: any): string {
+  if (SANDBOX_NETWORK_POLICIES.includes(env?.network_policy)) return t(`sandbox.network.${env.network_policy}`)
+  return typeof env?.network === 'string' ? env.network : ''
+}
 
 function languageLabel(language: string) {
   return SANDBOX_LANGUAGES.includes(language) ? t(`tools.sandbox.lang.${language}`) : language

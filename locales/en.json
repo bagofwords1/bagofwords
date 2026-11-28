@@ -2792,7 +2792,8 @@
         "created": "New sandbox",
         "resumed": "Resumed",
         "deletion": "Deletion scheduled",
-        "background": "Processes left running"
+        "background": "Processes left running",
+        "filesRestored": "Report files put back"
       },
       "create": {
         "running": "Creating the sandbox",
@@ -5181,7 +5182,9 @@
       "strong_isolation": "Strong isolation",
       "stop_resume": "Stop and resume",
       "domain_allowlist": "Domain allowlists",
-      "live_stats": "Live stats"
+      "live_stats": "Live stats",
+      "snapshot": "Snapshots",
+      "pause": "Pause when idle"
     },
     "network": {
       "none": "No network",
@@ -5227,7 +5230,6 @@
         "stopped": "Stopped {when}",
         "stoppedPlain": "Stopped"
       },
-      "expires": "Expires {when}",
       "usage": {
         "cpu": "CPU",
         "memory": "Memory",
@@ -5247,7 +5249,15 @@
         "runStopping": "The run is being stopped",
         "stopRunFailed": "The run could not be stopped.",
         "deleted": "Sandbox deleted",
-        "deleteFailed": "The sandbox could not be deleted."
+        "deleteFailed": "The sandbox could not be deleted.",
+        "started": "Sandbox started",
+        "startFailed": "The sandbox could not be started.",
+        "keepWarmCleared": "No longer kept warm",
+        "pinned": "Sandbox pinned",
+        "unpinned": "Sandbox unpinned",
+        "pinFailed": "The sandbox could not be changed.",
+        "snapshotTaken": "Snapshot taken",
+        "snapshotFailed": "The snapshot could not be taken."
       },
       "delete": {
         "title": "Delete this sandbox?",
@@ -5282,18 +5292,48 @@
           "created": "Created",
           "lastUsed": "Last used",
           "stopped": "Stopped",
-          "expires": "Expires",
+          "expires": "Lifetime ends",
           "limits": "Limits",
           "runTimeout": "Run time limit",
           "image": "Image",
-          "id": "Sandbox ID"
+          "id": "Sandbox ID",
+          "pinned": "Pinned",
+          "deletes": "Deleted",
+          "keepWarm": "Keep warm ends",
+          "snapshot": "Last snapshot"
         },
         "block": {
           "code": "Code",
           "command": "Command",
           "stdout": "Output",
           "stderr": "Errors"
-        }
+        },
+        "volumes": "Volumes",
+        "egress": "Domain log",
+        "egressHint": "The domains this sandbox reached or was refused. Refused ones first.",
+        "egressEmpty": "Nothing recorded yet. The log is collected every couple of minutes, and once more when the sandbox stops.",
+        "egressDomain": "Domain",
+        "egressDecision": "Result",
+        "egressCount": "Times",
+        "egressLast": "Last",
+        "egressFirst": "First: {when}",
+        "egressLastAt": "Last: {when}",
+        "decision": {
+          "allowed": "Allowed",
+          "refused": "Refused"
+        },
+        "processId": "process {id}",
+        "filesCount": "{count} file | {count} files",
+        "snapshotFor": {
+          "moved": "before moving off its compute"
+        },
+        "snapshotTaken": "taken {when}",
+        "extendedBy": "by {span}",
+        "expiresOn": "maximum lifetime now ends {when}",
+        "until": "until {when}",
+        "scriptOutput": "Show what it printed",
+        "filesList": "Show the files",
+        "backgroundProcesses": "{count} program still running after the run | {count} programs still running after the run"
       },
       "runStatus": {
         "running": "Running",
@@ -5314,9 +5354,66 @@
         "run_started": "Run started",
         "process_started": "Program started",
         "run_finished": "Run finished",
-        "run_killed": "Stop of the run requested",
+        "run_killed": "An admin asked to stop the run",
         "setup_script": "Setup script ran",
-        "packages_installed": "Packages installed"
+        "packages_installed": "Packages installed",
+        "idle_paused": "Idle: processes frozen in memory",
+        "expired": "Reached its maximum lifetime",
+        "start_script": "Start script ran",
+        "stop_script": "Stop script ran",
+        "files_restored": "Report files put back",
+        "snapshot": "Snapshot taken",
+        "snapshot_skipped": "Snapshot not taken",
+        "snapshot_restored": "Restored from a snapshot",
+        "snapshot_restore_failed": "The snapshot could not be restored",
+        "deletion_scheduled": "Deletion announced",
+        "pinned": "Pinned",
+        "unpinned": "Unpinned",
+        "extended": "Extended",
+        "keep_warm": "Kept warm",
+        "keep_warm_cleared": "No longer kept warm"
+      },
+      "pinned": "Pinned",
+      "pinnedHint": "Kept by an admin: it is not deleted for being stopped too long or for its age. It is still deleted with its report.",
+      "notDeleted": "Not deleted automatically",
+      "setupOutdated": "Old setup",
+      "setupOutdatedHint": "The environment's image or setup script changed after this sandbox was created. It stays as it was set up until it is deleted and created again.",
+      "keptWarm": "Kept warm, ends {when}",
+      "deletes": "Deleted {when}",
+      "deleteReason": {
+        "expired": "Reaches its maximum lifetime",
+        "stoppedTooLong": "Stopped too long"
+      },
+      "snapshot": "Snapshot: {when}",
+      "snapshotWithSize": "Snapshot: {when} · {size}",
+      "mountReadOnly": "read-only",
+      "mountWritable": "writable",
+      "more": "More actions",
+      "start": "Start",
+      "keepWarmAction": "Keep warm…",
+      "keepWarmChange": "Change keep warm…",
+      "keepWarmClear": "Stop keeping warm",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "extendAction": "Extend…",
+      "snapshotNow": "Snapshot now",
+      "keepWarm": {
+        "title": "Keep this sandbox warm",
+        "hint": "For this long the sandbox is not paused or stopped for being idle, so the next run starts at once. It keeps holding its CPU and memory meanwhile.",
+        "preset": "{count} hour | {count} hours",
+        "amount": "Hours",
+        "confirm": "Keep warm",
+        "done": "Sandbox kept warm",
+        "failed": "The sandbox could not be kept warm."
+      },
+      "extend": {
+        "title": "Extend this sandbox",
+        "hint": "Pushes its deletion later by this many days. For a stopped sandbox the \"stopped too long\" clock starts again too.",
+        "preset": "{count} day | {count} days",
+        "amount": "Days",
+        "confirm": "Extend",
+        "done": "Sandbox extended",
+        "failed": "The sandbox could not be extended."
       }
     },
     "computes": {
@@ -5338,9 +5435,9 @@
         "status": "Status",
         "supports": "Supports",
         "bootstrap": "Bootstrap",
-        "sandboxes": "Sandboxes",
         "enabled": "Enabled",
-        "actions": "Actions"
+        "actions": "Actions",
+        "resources": "Resources"
       },
       "status": {
         "unknown": "Unknown",
@@ -5368,8 +5465,8 @@
         "namePlaceholder": "For example: sandbox-01",
         "labels": "Labels",
         "labelsHint": "Separate with commas. Environments can ask for computes by label.",
-        "capacity": "Capacity",
-        "capacityHint": "Sandboxes running at once.",
+        "capacity": "Maximum sandboxes",
+        "capacityHint": "An upper bound on sandboxes running at once, on top of the resource rules above.",
         "stored": "Stored",
         "storedPlaceholder": "Leave empty to keep the stored value",
         "transient": "Used once, never stored",
@@ -5378,7 +5475,20 @@
         "createdHint": "One more step before you test the connection.",
         "publicKeyInstruction": "Add this public key to the authorized_keys file of the SSH user ({user}) on the server, so BoW can connect.",
         "publicKeyNext": "Then run Test connection, confirm the server's fingerprint, and bootstrap the compute.",
-        "done": "Done"
+        "done": "Done",
+        "allocation": {
+          "title": "Capacity rules",
+          "hint": "A compute is full when its resources are, not after a fixed number of sandboxes. Each sandbox counts with the limits of its environment.",
+          "default": "Default: {value}.",
+          "cpu_overcommit": "CPU overcommit",
+          "cpu_overcommitHint": "CPUs of sandbox limits allowed per real CPU. Sandboxes are idle most of the time, so more than 1 is safe.",
+          "memory_overcommit": "Memory overcommit",
+          "memory_overcommitHint": "1 means the memory limits of running sandboxes must fit in the server's memory. More than 1 risks out-of-memory kills.",
+          "reserve_memory_mb": "Memory kept free (MB)",
+          "reserve_memory_mbHint": "Left for the operating system and BoW's own services on the compute.",
+          "reserve_disk_mb": "Disk kept free (MB)",
+          "reserve_disk_mbHint": "Left for images, logs and the system on the workspace disk."
+        }
       },
       "test": {
         "title": "Test connection: {name}",
@@ -5432,6 +5542,46 @@
         "disabled": "Compute disabled",
         "deleted": "Compute deleted",
         "deleteFailed": "Could not delete the compute."
+      },
+      "resources": {
+        "hint": "What sandboxes hold out of what they may be given. These are the limits sandboxes were created with, not live usage. Running sandboxes hold CPU and memory. Every sandbox that still exists holds its disk, stopped ones too.",
+        "unknown": "The compute did not report this resource, so it is not counted.",
+        "running": "Running",
+        "notRunning": "{count} sandbox that is not running still holds its disk | {count} sandboxes that are not running still hold their disk"
+      },
+      "volumes": {
+        "title": "Volumes",
+        "hint": "Storage on this compute that environments can mount in their sandboxes, by name. A volume does not count against a sandbox's disk limit.",
+        "name": "Name",
+        "source": "Directory on the server",
+        "description": "Description",
+        "descriptionPlaceholder": "What is in it (optional)",
+        "add": "Add volume",
+        "remove": "Remove volume",
+        "sourceHint": "The directory must already exist on the server. You mount it there yourself: a local disk, NFS or an object store.",
+        "nameRule": "Use lowercase letters, digits, \"-\" and \"_\". Start with a letter or a digit. At most 40 characters.",
+        "nameTwice": "The volume \"{name}\" is listed twice.",
+        "incomplete": "Each volume needs a name and a directory on the server.",
+        "fixNames": "Fix the volume names first."
+      },
+      "evacuate": {
+        "action": "Evacuate",
+        "title": "Evacuate {name}?",
+        "hint": "Moves every sandbox off this compute, for maintenance or to retire it.",
+        "stepSnapshot": "Each sandbox is snapshotted and then removed from this compute.",
+        "stepRecreate": "The next run in its report recreates it on another compute, from the snapshot.",
+        "stepLeft": "A sandbox that is running something, or whose snapshot fails, stays where it is and is listed.",
+        "disableFirst": "Disable this compute first. Otherwise new sandboxes would land on it again.",
+        "count": "{count} sandbox is on this compute now. | {count} sandboxes are on this compute now.",
+        "countUnknown": "Every sandbox on this compute is moved.",
+        "confirm": "Evacuate",
+        "failed": "The compute could not be evacuated.",
+        "moved": "{count} sandbox was moved off. | {count} sandboxes were moved off.",
+        "nothing": "There was nothing to move.",
+        "movedHint": "Each one comes back on another compute the next time its report runs something.",
+        "left": "{count} sandbox was left on this compute | {count} sandboxes were left on this compute",
+        "leftHint": "Fix what is said above, or stop the run, and evacuate again.",
+        "doneTitle": "{name} evacuated"
       }
     },
     "environments": {
@@ -5489,7 +5639,18 @@
         "usersEmpty": "No members",
         "selectedCount": "{n} selected",
         "unknownPrincipal": "No longer exists",
-        "create": "Create environment"
+        "create": "Create environment",
+        "confirmRuns": "Ask before a run",
+        "hooks": "Scripts",
+        "hooksHint": "Shell scripts BoW runs inside each sandbox of this environment. Their output is in the sandbox's timeline.",
+        "setup_script": "Setup script",
+        "setup_scriptHint": "Runs once, when a sandbox is created. If it fails, the sandbox is not created.",
+        "start_script": "Start script",
+        "start_scriptHint": "Runs on every start: when a sandbox is created and each time it is resumed. It has 120 seconds.",
+        "stop_script": "Stop script",
+        "stop_scriptHint": "Runs before a sandbox is stopped or deleted. Best effort: it has 30 seconds, and a failure does not prevent the stop.",
+        "computeLabels": "Compute labels",
+        "computeLabelsHint": "Separate with commas. Sandboxes run only on computes that have every label listed. Empty: any compute."
       },
       "delete": {
         "title": "Delete {name}?",
@@ -5505,6 +5666,46 @@
         "deleted": "Environment deleted",
         "deleteFailed": "Could not delete the environment.",
         "warning": "Saved, with a warning"
+      },
+      "confirm": {
+        "never": "Never",
+        "always": "Always",
+        "full_network": "Only with full internet access",
+        "packages": "Only when the run installs packages",
+        "neverHint": "Runs start without asking the person in the chat.",
+        "alwaysHint": "The person in the chat must allow every run. A run nobody answers within four minutes does not happen.",
+        "full_networkHint": "The person is asked before every run while this environment has the \"Full internet\" network policy.",
+        "packagesHint": "The person is asked only before a run that installs packages."
+      },
+      "mounts": {
+        "title": "Volumes",
+        "hint": "Volumes of a compute, mounted in every sandbox of this environment. Sandboxes run only on a compute that has all of them.",
+        "volume": "Volume",
+        "path": "Path in the sandbox",
+        "add": "Mount a volume",
+        "remove": "Remove this mount",
+        "readOnly": "Read-only",
+        "readOnlyHint": "Code in the sandbox can read the volume but not change it.",
+        "sharing": "Who sees what is written",
+        "perReport": "Each report gets its own folder",
+        "perReportHint": "A sandbox sees only what its own report wrote. Sandboxes stay isolated from each other.",
+        "shared": "Shared by every sandbox",
+        "sharedHint": "Every sandbox of this environment writes to the same place.",
+        "sharedWarning": "Every sandbox of this environment can read and change what the others wrote there, across reports and people. Use it only for data everyone who may use this environment is allowed to see.",
+        "noVolumes": "No compute has a volume yet. Add one on the Compute tab, or type the name of one you will add.",
+        "onComputes": "On: {computes}",
+        "unknownVolume": "No compute has a volume with this name yet.",
+        "incomplete": "Each mount needs a volume and a path in the sandbox.",
+        "fix": "Fix the volumes marked above."
+      },
+      "hookFailing": {
+        "refused": "Its setup or start script failed {count} times in a row, so new sandboxes are refused. Change a script or the image and save: it will be tried again.",
+        "failing": "Its setup or start script failed the last time. After {cap} failures in a row, new sandboxes are refused until a script or the image changes. | Its setup or start script failed the last {count} times. After {cap} failures in a row, new sandboxes are refused until a script or the image changes.",
+        "lastError": "Last error"
+      },
+      "extras": {
+        "hooks": "{count} script | {count} scripts",
+        "asks": "Asks before a run"
       }
     },
     "settings": {
@@ -5537,13 +5738,28 @@
       "stoppedRetention": "Keep stopped sandboxes",
       "stoppedRetentionHint": "A stopped sandbox is deleted after this long.",
       "maxLifetime": "Maximum lifetime",
-      "maxLifetimeHint": "Any sandbox is deleted this long after it was created.",
+      "maxLifetimeHint": "Any sandbox is deleted this long after it was created, unless it is pinned.",
       "minutes": "minutes",
       "days": "days",
       "registriesSection": "Allowed outbound connections",
       "registriesSectionHint": "The domains a sandbox on the \"Allowed domains only\" network policy can reach. The defaults are the pip, npm and Go package registries. A domain added here is open to all traffic, not only package downloads.",
       "registryDomains": "Allowed domains",
-      "registryDomainsHint": "One domain per line, without a scheme, port or path."
+      "registryDomainsHint": "One domain per line, without a scheme, port or path.",
+      "maxLifetimeLimited": "Delete after a set time",
+      "maxLifetimeNone": "No maximum",
+      "maxLifetimeNoneHint": "Sandboxes are not deleted for their age. Stopped ones are still deleted after the time set under \"Keep stopped sandboxes\".",
+      "deleteWarning": "Announce a deletion",
+      "deleteWarningHint": "How long before a sandbox is deleted on its own this is announced: in its timeline, in the audit log, and to the agent on the next run. There is still time to pin or extend it. 0: no announcement.",
+      "hours": "hours",
+      "snapshotSection": "Snapshots",
+      "snapshotSectionHint": "A snapshot is a copy of everything in a sandbox's workspace: its files and the packages installed there.",
+      "snapshotWhere": "It is kept in BoW's own file store, not on the compute.",
+      "snapshotCost": "Taking one costs time and space in proportion to what the workspace holds.",
+      "snapshotWhy": "It is what lets a sandbox survive the loss of its compute: the sandbox is recreated elsewhere from its last snapshot. Without one, only the files saved to the report come back.",
+      "snapshotOnStop": "Snapshot when a sandbox stops",
+      "snapshotOnStopHint": "Takes a snapshot each time a sandbox is stopped. Off by default.",
+      "snapshotMax": "Largest snapshot",
+      "snapshotMaxHint": "A workspace whose snapshot would be larger than this is not snapshotted."
     }
   },
   "data": {

@@ -62,36 +62,143 @@
                     id-prefix="sandbox-credentials"
                 />
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div class="flex flex-col sm:col-span-2">
-                        <label for="sandbox-compute-labels" class="text-sm font-medium text-ink-2 mb-1.5">
-                            {{ $t('sandbox.computes.form.labels') }}
-                            <span class="font-normal text-ink-muted">{{ $t('common.optional') }}</span>
-                        </label>
-                        <UInput
-                            id="sandbox-compute-labels"
-                            v-model="form.labels"
-                            dir="ltr"
-                            placeholder="gpu, eu-west"
-                            data-testid="sandbox-compute-labels"
-                        />
-                        <p class="mt-1.5 text-xs text-ink-muted">{{ $t('sandbox.computes.form.labelsHint') }}</p>
+                <div class="flex flex-col">
+                    <label for="sandbox-compute-labels" class="text-sm font-medium text-ink-2 mb-1.5">
+                        {{ $t('sandbox.computes.form.labels') }}
+                        <span class="font-normal text-ink-muted">{{ $t('common.optional') }}</span>
+                    </label>
+                    <UInput
+                        id="sandbox-compute-labels"
+                        v-model="form.labels"
+                        dir="ltr"
+                        placeholder="gpu, eu-west"
+                        data-testid="sandbox-compute-labels"
+                    />
+                    <p class="mt-1.5 text-xs text-ink-muted">{{ $t('sandbox.computes.form.labelsHint') }}</p>
+                </div>
+
+                <!-- How much of the compute sandboxes may be given. -->
+                <div data-testid="sandbox-compute-allocation">
+                    <div class="text-sm font-semibold text-ink">{{ $t('sandbox.computes.form.allocation.title') }}</div>
+                    <p class="mt-0.5 mb-3 text-xs text-ink-muted leading-relaxed">{{ $t('sandbox.computes.form.allocation.hint') }}</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
+                        <div v-for="field in allocationFields" :key="field.key" class="flex flex-col">
+                            <label :for="`sandbox-compute-${field.key}`" class="text-sm font-medium text-ink-2 mb-1.5">{{ field.label }}</label>
+                            <UInput
+                                :id="`sandbox-compute-${field.key}`"
+                                v-model.number="form.allocation[field.key]"
+                                type="number"
+                                :min="field.min"
+                                :max="field.max"
+                                :step="field.step"
+                                dir="ltr"
+                                :data-testid="`sandbox-compute-${field.key}`"
+                            />
+                            <p class="mt-1.5 text-xs text-ink-muted leading-relaxed">
+                                {{ field.hint }}
+                                <span class="whitespace-nowrap">{{ $t('sandbox.computes.form.allocation.default', { value: field.default }) }}</span>
+                            </p>
+                        </div>
+                        <div class="flex flex-col sm:col-span-2">
+                            <label for="sandbox-compute-capacity" class="text-sm font-medium text-ink-2 mb-1.5">
+                                {{ $t('sandbox.computes.form.capacity') }}
+                            </label>
+                            <UInput
+                                id="sandbox-compute-capacity"
+                                v-model.number="form.capacity"
+                                type="number"
+                                min="1"
+                                max="1000"
+                                dir="ltr"
+                                class="sm:max-w-[10rem]"
+                                data-testid="sandbox-compute-capacity"
+                            />
+                            <p class="mt-1.5 text-xs text-ink-muted leading-relaxed">{{ $t('sandbox.computes.form.capacityHint') }}</p>
+                        </div>
                     </div>
-                    <div class="flex flex-col">
-                        <label for="sandbox-compute-capacity" class="text-sm font-medium text-ink-2 mb-1.5">
-                            {{ $t('sandbox.computes.form.capacity') }}
-                        </label>
-                        <UInput
-                            id="sandbox-compute-capacity"
-                            v-model.number="form.capacity"
-                            type="number"
-                            min="1"
-                            max="1000"
-                            dir="ltr"
-                            data-testid="sandbox-compute-capacity"
-                        />
-                        <p class="mt-1.5 text-xs text-ink-muted">{{ $t('sandbox.computes.form.capacityHint') }}</p>
+                </div>
+
+                <!-- Named storage on the compute that environments can mount. -->
+                <div data-testid="sandbox-compute-volumes-form">
+                    <div class="text-sm font-semibold text-ink">
+                        {{ $t('sandbox.computes.volumes.title') }}
+                        <span class="font-normal text-ink-muted">{{ $t('common.optional') }}</span>
                     </div>
+                    <p class="mt-0.5 mb-3 text-xs text-ink-muted leading-relaxed">{{ $t('sandbox.computes.volumes.hint') }}</p>
+                    <div v-if="form.volumes.length" class="space-y-3">
+                        <div
+                            v-for="(volume, index) in form.volumes"
+                            :key="volume.key"
+                            class="rounded-lg border border-line p-3"
+                            data-testid="sandbox-compute-volume-row"
+                        >
+                            <div class="grid grid-cols-1 sm:grid-cols-[10rem_minmax(0,1fr)_auto] gap-3 items-start">
+                                <div class="flex flex-col">
+                                    <label :for="`sandbox-volume-name-${volume.key}`" class="text-xs font-medium text-ink-2 mb-1">{{ $t('sandbox.computes.volumes.name') }}</label>
+                                    <UInput
+                                        :id="`sandbox-volume-name-${volume.key}`"
+                                        v-model="volume.name"
+                                        dir="ltr"
+                                        spellcheck="false"
+                                        maxlength="40"
+                                        placeholder="datasets"
+                                        :color="volumeNameError(index) ? 'red' : undefined"
+                                        :ui="{ base: 'font-mono' }"
+                                        data-testid="sandbox-volume-name"
+                                    />
+                                </div>
+                                <div class="flex flex-col min-w-0">
+                                    <label :for="`sandbox-volume-source-${volume.key}`" class="text-xs font-medium text-ink-2 mb-1">{{ $t('sandbox.computes.volumes.source') }}</label>
+                                    <UInput
+                                        :id="`sandbox-volume-source-${volume.key}`"
+                                        v-model="volume.source"
+                                        dir="ltr"
+                                        spellcheck="false"
+                                        maxlength="500"
+                                        placeholder="/mnt/datasets"
+                                        :ui="{ base: 'font-mono' }"
+                                        data-testid="sandbox-volume-source"
+                                    />
+                                </div>
+                                <UButton
+                                    type="button"
+                                    color="gray"
+                                    variant="ghost"
+                                    size="xs"
+                                    icon="i-heroicons-trash"
+                                    class="sm:mt-6"
+                                    :aria-label="$t('sandbox.computes.volumes.remove')"
+                                    data-testid="sandbox-volume-remove"
+                                    @click="form.volumes.splice(index, 1)"
+                                />
+                            </div>
+                            <UInput
+                                v-model="volume.description"
+                                class="mt-3"
+                                maxlength="300"
+                                :placeholder="$t('sandbox.computes.volumes.descriptionPlaceholder')"
+                                :aria-label="$t('sandbox.computes.volumes.description')"
+                                data-testid="sandbox-volume-description"
+                            />
+                            <p v-if="volumeNameError(index)" class="mt-1.5 text-xs text-red-600 dark:text-red-400" data-testid="sandbox-volume-name-error">
+                                {{ volumeNameError(index) }}
+                            </p>
+                        </div>
+                    </div>
+                    <UButton
+                        type="button"
+                        color="gray"
+                        variant="soft"
+                        size="xs"
+                        icon="i-heroicons-plus"
+                        :class="form.volumes.length ? 'mt-3' : ''"
+                        :disabled="form.volumes.length >= 20"
+                        data-testid="sandbox-volume-add"
+                        @click="addVolume"
+                    >
+                        {{ $t('sandbox.computes.volumes.add') }}
+                    </UButton>
+                    <p v-if="form.volumes.length" class="mt-2 text-xs text-ink-muted leading-relaxed">{{ $t('sandbox.computes.volumes.sourceHint') }}</p>
                 </div>
 
                 <!-- What the compute type filled in itself (e.g. the generated
@@ -136,7 +243,10 @@
 </template>
 
 <script setup lang="ts">
-import { sandboxFieldType, type SandboxCompute, type SandboxComputeType, type SandboxFormSchema } from '~/composables/useSandboxApi'
+import {
+    SANDBOX_ALLOCATION_DEFAULTS, SANDBOX_VOLUME_NAME, sandboxFieldType,
+    type SandboxAllocation, type SandboxCompute, type SandboxComputeType, type SandboxFormSchema,
+} from '~/composables/useSandboxApi'
 import SandboxSchemaFields from '~/components/sandbox/SandboxSchemaFields.vue'
 import SandboxReadonlyValues from '~/components/sandbox/SandboxReadonlyValues.vue'
 import SandboxCopyBox from '~/components/sandbox/SandboxCopyBox.vue'
@@ -153,6 +263,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { number } = useSandboxFormat()
 const toast = useToast()
 const { call } = useSandboxApi()
 const { getErrorMessage } = useErrorMessage()
@@ -173,7 +284,61 @@ const form = reactive({
     capacity: 20 as number | string,
     config: {} as Record<string, any>,
     credentials: {} as Record<string, any>,
+    allocation: { ...SANDBOX_ALLOCATION_DEFAULTS } as Record<keyof SandboxAllocation, number | string>,
+    volumes: [] as VolumeRow[],
 })
+
+// `key` only tells the rows apart while they are edited.
+interface VolumeRow { key: number; name: string; source: string; description: string }
+let volumeKey = 0
+function addVolume() {
+    form.volumes.push({ key: ++volumeKey, name: '', source: '', description: '' })
+}
+
+// A row left entirely empty is not sent.
+const filledVolumes = () => form.volumes.filter(volume => volume.name.trim() || volume.source.trim() || volume.description.trim())
+
+function volumeNameError(index: number) {
+    const volume = form.volumes[index]
+    const name = volume.name.trim()
+    if (!name) return ''
+    if (!SANDBOX_VOLUME_NAME.test(name)) return t('sandbox.computes.volumes.nameRule')
+    if (form.volumes.some((other, at) => at !== index && other.name.trim() === name)) return t('sandbox.computes.volumes.nameTwice', { name })
+    return ''
+}
+
+const volumesPayload = () => filledVolumes().map(volume => ({
+    name: volume.name.trim(),
+    source: volume.source.trim(),
+    description: volume.description.trim() || null,
+}))
+
+// Limits as the server checks them (capacity.py: Allocation).
+const allocationFields = computed(() => ([
+    { key: 'cpu_overcommit', min: 1, max: 32, step: 'any' },
+    { key: 'memory_overcommit', min: 1, max: 4, step: 'any' },
+    { key: 'reserve_memory_mb', min: 0, max: 1048576, step: 1 },
+    { key: 'reserve_disk_mb', min: 0, max: 104857600, step: 1 },
+] as Array<{ key: keyof SandboxAllocation; min: number; max: number; step: number | 'any' }>).map(field => ({
+    ...field,
+    label: t(`sandbox.computes.form.allocation.${field.key}`),
+    hint: t(`sandbox.computes.form.allocation.${field.key}Hint`),
+    default: number(SANDBOX_ALLOCATION_DEFAULTS[field.key]),
+})))
+
+// What the policy was when the form opened: only the keys that differ are sent,
+// so the server's default keeps applying to anything not touched.
+const allocationAtOpen = (): SandboxAllocation => ({ ...SANDBOX_ALLOCATION_DEFAULTS, ...(props.compute?.allocation || {}) })
+function allocationPayload() {
+    const initial = allocationAtOpen()
+    const out: Partial<SandboxAllocation> = {}
+    for (const key of Object.keys(SANDBOX_ALLOCATION_DEFAULTS) as Array<keyof SandboxAllocation>) {
+        const value = form.allocation[key]
+        if (value === '' || value === null || value === undefined) continue
+        if (Number(value) !== Number(initial[key])) out[key] = Number(value)
+    }
+    return out
+}
 
 const hasCredentialFields = computed(() =>
     Object.keys(selectedType.value?.credentials_schema?.properties || {}).length > 0
@@ -219,6 +384,10 @@ watch(() => props.modelValue, (isOpen) => {
     if (!isOpen) return
     created.value = null
     errorMessage.value = ''
+    form.allocation = { ...allocationAtOpen() }
+    form.volumes = (props.compute?.volumes || []).map(volume => ({
+        key: ++volumeKey, name: volume.name, source: volume.source, description: volume.description || '',
+    }))
     if (props.compute) {
         form.name = props.compute.name
         form.labels = (props.compute.labels || []).join(', ')
@@ -272,16 +441,26 @@ function labelsPayload() {
 
 async function save() {
     if (saving.value) return
-    saving.value = true
     errorMessage.value = ''
+    // A volume needs both a valid name and where it is on the compute.
+    const incomplete = filledVolumes().some(volume => !volume.name.trim() || !volume.source.trim())
+    if (incomplete || form.volumes.some((_, index) => volumeNameError(index))) {
+        errorMessage.value = t(incomplete ? 'sandbox.computes.volumes.incomplete' : 'sandbox.computes.volumes.fixNames')
+        return
+    }
+    saving.value = true
     try {
         const credentials = credentialsPayload()
+        const allocation = allocationPayload()
         if (props.compute) {
             const body: Record<string, any> = {
                 name: form.name.trim(),
                 labels: labelsPayload(),
                 capacity: Number(form.capacity),
+                // The whole list: a volume taken out here is removed.
+                volumes: volumesPayload(),
             }
+            if (Object.keys(allocation).length) body.allocation = allocation
             if (selectedType.value) body.config = configPayload()
             if (Object.keys(credentials).length) body.credentials = credentials
             const saved = await call<SandboxCompute>(`/computes/${props.compute.id}`, { method: 'PUT', body })
@@ -298,6 +477,8 @@ async function save() {
                     credentials,
                     labels: labelsPayload(),
                     capacity: Number(form.capacity),
+                    allocation,
+                    volumes: volumesPayload(),
                 },
             })
             emit('saved', saved)

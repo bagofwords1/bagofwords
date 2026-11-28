@@ -2751,7 +2751,8 @@
         "created": "Sandbox nuevo",
         "resumed": "Reanudado",
         "deletion": "Eliminación programada",
-        "background": "Procesos aún en ejecución"
+        "background": "Procesos aún en ejecución",
+        "filesRestored": "Archivos del informe restaurados"
       },
       "create": {
         "running": "Creando el sandbox",
@@ -5104,7 +5105,9 @@
       "strong_isolation": "Aislamiento fuerte",
       "stop_resume": "Detener y reanudar",
       "domain_allowlist": "Listas de dominios permitidos",
-      "live_stats": "Estadísticas en vivo"
+      "live_stats": "Estadísticas en vivo",
+      "snapshot": "Instantáneas",
+      "pause": "Pausa en inactividad"
     },
     "network": {
       "none": "Sin red",
@@ -5150,7 +5153,6 @@
         "stopped": "Detenido {when}",
         "stoppedPlain": "Detenido"
       },
-      "expires": "Caduca {when}",
       "usage": {
         "cpu": "CPU",
         "memory": "Memoria",
@@ -5170,7 +5172,15 @@
         "runStopping": "La ejecución se está deteniendo",
         "stopRunFailed": "No se pudo detener la ejecución.",
         "deleted": "Sandbox eliminado",
-        "deleteFailed": "No se pudo eliminar el sandbox."
+        "deleteFailed": "No se pudo eliminar el sandbox.",
+        "started": "Sandbox iniciado",
+        "startFailed": "No se pudo iniciar el sandbox.",
+        "keepWarmCleared": "Ya no se mantiene activo",
+        "pinned": "Sandbox fijado",
+        "unpinned": "El sandbox ya no está fijado",
+        "pinFailed": "No se pudo cambiar el sandbox.",
+        "snapshotTaken": "Instantánea tomada",
+        "snapshotFailed": "No se pudo tomar la instantánea."
       },
       "delete": {
         "title": "¿Eliminar este sandbox?",
@@ -5205,18 +5215,48 @@
           "created": "Creado",
           "lastUsed": "Último uso",
           "stopped": "Detenido",
-          "expires": "Caduca",
+          "expires": "Fin de la duración",
           "limits": "Límites",
           "runTimeout": "Tiempo máximo por ejecución",
           "image": "Imagen",
-          "id": "ID del sandbox"
+          "id": "ID del sandbox",
+          "pinned": "Fijado",
+          "deletes": "Se elimina",
+          "keepWarm": "Activo hasta",
+          "snapshot": "Última instantánea"
         },
         "block": {
           "code": "Código",
           "command": "Comando",
           "stdout": "Salida",
           "stderr": "Errores"
-        }
+        },
+        "volumes": "Volúmenes",
+        "egress": "Registro de dominios",
+        "egressHint": "Los dominios a los que este sandbox accedió o que se le rechazaron. Primero los rechazados.",
+        "egressEmpty": "Aún no hay nada registrado. El registro se recoge cada par de minutos, y una vez más cuando el sandbox se detiene.",
+        "egressDomain": "Dominio",
+        "egressDecision": "Resultado",
+        "egressCount": "Veces",
+        "egressLast": "Última vez",
+        "egressFirst": "Primera vez: {when}",
+        "egressLastAt": "Última vez: {when}",
+        "decision": {
+          "allowed": "Permitido",
+          "refused": "Rechazado"
+        },
+        "processId": "proceso {id}",
+        "filesCount": "{count} archivo | {count} archivos",
+        "snapshotFor": {
+          "moved": "antes de sacarlo de su servidor de cómputo"
+        },
+        "snapshotTaken": "tomada el {when}",
+        "extendedBy": "{span} más",
+        "expiresOn": "la duración máxima termina ahora el {when}",
+        "until": "hasta el {when}",
+        "scriptOutput": "Mostrar lo que imprimió",
+        "filesList": "Mostrar los archivos",
+        "backgroundProcesses": "{count} programa sigue en ejecución tras la ejecución | {count} programas siguen en ejecución tras la ejecución"
       },
       "runStatus": {
         "running": "En ejecución",
@@ -5237,9 +5277,66 @@
         "run_started": "Ejecución iniciada",
         "process_started": "Programa iniciado",
         "run_finished": "Ejecución terminada",
-        "run_killed": "Se pidió detener la ejecución",
+        "run_killed": "Un administrador pidió detener la ejecución",
         "setup_script": "Script de preparación ejecutado",
-        "packages_installed": "Paquetes instalados"
+        "packages_installed": "Paquetes instalados",
+        "idle_paused": "Inactivo: procesos congelados en memoria",
+        "expired": "Alcanzó su duración máxima",
+        "start_script": "Script de inicio ejecutado",
+        "stop_script": "Script de parada ejecutado",
+        "files_restored": "Archivos del informe restaurados",
+        "snapshot": "Instantánea tomada",
+        "snapshot_skipped": "Instantánea no tomada",
+        "snapshot_restored": "Restaurado desde una instantánea",
+        "snapshot_restore_failed": "No se pudo restaurar la instantánea",
+        "deletion_scheduled": "Eliminación anunciada",
+        "pinned": "Fijado",
+        "unpinned": "Ya no está fijado",
+        "extended": "Prorrogado",
+        "keep_warm": "Se mantiene activo",
+        "keep_warm_cleared": "Ya no se mantiene activo"
+      },
+      "pinned": "Fijado",
+      "pinnedHint": "Lo conserva un administrador: no se elimina por llevar mucho detenido ni por su antigüedad. Se sigue eliminando con su informe.",
+      "notDeleted": "No se elimina automáticamente",
+      "setupOutdated": "Preparación antigua",
+      "setupOutdatedHint": "La imagen o el script de preparación del entorno cambiaron después de crear este sandbox. Sigue como se preparó hasta que se elimine y se cree de nuevo.",
+      "keptWarm": "Se mantiene activo, termina {when}",
+      "deletes": "Se elimina {when}",
+      "deleteReason": {
+        "expired": "Alcanza su duración máxima",
+        "stoppedTooLong": "Demasiado tiempo detenido"
+      },
+      "snapshot": "Instantánea: {when}",
+      "snapshotWithSize": "Instantánea: {when} · {size}",
+      "mountReadOnly": "solo lectura",
+      "mountWritable": "con escritura",
+      "more": "Más acciones",
+      "start": "Iniciar",
+      "keepWarmAction": "Mantener activo…",
+      "keepWarmChange": "Cambiar mantener activo…",
+      "keepWarmClear": "Dejar de mantener activo",
+      "pin": "Fijar",
+      "unpin": "Dejar de fijar",
+      "extendAction": "Prorrogar…",
+      "snapshotNow": "Tomar instantánea ahora",
+      "keepWarm": {
+        "title": "Mantener activo este sandbox",
+        "hint": "Durante este tiempo el sandbox no se pausa ni se detiene por inactividad, así que la siguiente ejecución empieza al momento. Mientras tanto sigue ocupando su CPU y su memoria.",
+        "preset": "{count} hora | {count} horas",
+        "amount": "Horas",
+        "confirm": "Mantener activo",
+        "done": "El sandbox se mantiene activo",
+        "failed": "No se pudo mantener activo el sandbox."
+      },
+      "extend": {
+        "title": "Prorrogar este sandbox",
+        "hint": "Retrasa su eliminación este número de días. En un sandbox detenido también se reinicia el plazo de «demasiado tiempo detenido».",
+        "preset": "{count} día | {count} días",
+        "amount": "Días",
+        "confirm": "Prorrogar",
+        "done": "Sandbox prorrogado",
+        "failed": "No se pudo prorrogar el sandbox."
       }
     },
     "computes": {
@@ -5261,9 +5358,9 @@
         "status": "Estado",
         "supports": "Admite",
         "bootstrap": "Preparación",
-        "sandboxes": "Sandboxes",
         "enabled": "Activo",
-        "actions": "Acciones"
+        "actions": "Acciones",
+        "resources": "Recursos"
       },
       "status": {
         "unknown": "Desconocido",
@@ -5291,8 +5388,8 @@
         "namePlaceholder": "Por ejemplo: sandbox-01",
         "labels": "Etiquetas",
         "labelsHint": "Sepáralas con comas. Los entornos pueden pedir servidores de cómputo por etiqueta.",
-        "capacity": "Capacidad",
-        "capacityHint": "Sandboxes en ejecución a la vez.",
+        "capacity": "Máximo de sandboxes",
+        "capacityHint": "Un tope de sandboxes en ejecución a la vez, además de las reglas de recursos de arriba.",
         "stored": "Guardado",
         "storedPlaceholder": "Déjalo vacío para conservar el valor guardado",
         "transient": "Se usa una vez y no se guarda",
@@ -5301,7 +5398,20 @@
         "createdHint": "Falta un paso antes de probar la conexión.",
         "publicKeyInstruction": "Añade esta clave pública al archivo authorized_keys del usuario SSH ({user}) en el servidor para que BoW pueda conectarse.",
         "publicKeyNext": "Después ejecuta Probar conexión, confirma la huella del servidor y prepara el servidor de cómputo.",
-        "done": "Hecho"
+        "done": "Hecho",
+        "allocation": {
+          "title": "Reglas de capacidad",
+          "hint": "Un servidor de cómputo se llena cuando se agotan sus recursos, no tras un número fijo de sandboxes. Cada sandbox cuenta con los límites de su entorno.",
+          "default": "Predeterminado: {value}.",
+          "cpu_overcommit": "Sobreasignación de CPU",
+          "cpu_overcommitHint": "CPU de límites de sandbox permitidas por cada CPU real. Los sandboxes están inactivos casi siempre, así que más de 1 es seguro.",
+          "memory_overcommit": "Sobreasignación de memoria",
+          "memory_overcommitHint": "1 significa que los límites de memoria de los sandboxes en ejecución deben caber en la memoria del servidor. Más de 1 puede provocar cierres por falta de memoria.",
+          "reserve_memory_mb": "Memoria reservada (MB)",
+          "reserve_memory_mbHint": "Se deja para el sistema operativo y los servicios propios de BoW en el servidor de cómputo.",
+          "reserve_disk_mb": "Disco reservado (MB)",
+          "reserve_disk_mbHint": "Se deja para imágenes, registros y el sistema en el disco de trabajo."
+        }
       },
       "test": {
         "title": "Probar conexión: {name}",
@@ -5355,6 +5465,46 @@
         "disabled": "Servidor de cómputo desactivado",
         "deleted": "Servidor de cómputo eliminado",
         "deleteFailed": "No se pudo eliminar el servidor de cómputo."
+      },
+      "resources": {
+        "hint": "Lo que ocupan los sandboxes de lo que se les puede dar. Son los límites con los que se crearon los sandboxes, no el uso real. Los sandboxes en ejecución ocupan CPU y memoria. Todo sandbox que aún existe ocupa su disco, también los detenidos.",
+        "unknown": "El servidor de cómputo no informó de este recurso, así que no se cuenta.",
+        "running": "En ejecución",
+        "notRunning": "{count} sandbox que no está en ejecución sigue ocupando su disco | {count} sandboxes que no están en ejecución siguen ocupando su disco"
+      },
+      "volumes": {
+        "title": "Volúmenes",
+        "hint": "Almacenamiento de este servidor de cómputo que los entornos pueden montar en sus sandboxes, por nombre. Un volumen no cuenta para el límite de disco de un sandbox.",
+        "name": "Nombre",
+        "source": "Directorio en el servidor",
+        "description": "Descripción",
+        "descriptionPlaceholder": "Qué contiene (opcional)",
+        "add": "Añadir volumen",
+        "remove": "Quitar volumen",
+        "sourceHint": "El directorio ya debe existir en el servidor. Lo montas tú allí: un disco local, NFS o un almacén de objetos.",
+        "nameRule": "Usa letras minúsculas, dígitos, «-» y «_». Empieza por una letra o un dígito. Como mucho 40 caracteres.",
+        "nameTwice": "El volumen «{name}» aparece dos veces.",
+        "incomplete": "Cada volumen necesita un nombre y un directorio en el servidor.",
+        "fixNames": "Corrige primero los nombres de los volúmenes."
+      },
+      "evacuate": {
+        "action": "Evacuar",
+        "title": "¿Evacuar {name}?",
+        "hint": "Saca todos los sandboxes de este servidor de cómputo, para mantenimiento o para retirarlo.",
+        "stepSnapshot": "De cada sandbox se toma una instantánea y luego se quita de este servidor de cómputo.",
+        "stepRecreate": "La siguiente ejecución en su informe lo vuelve a crear en otro servidor de cómputo, a partir de la instantánea.",
+        "stepLeft": "Un sandbox que está ejecutando algo, o cuya instantánea falla, se queda donde está y aparece en la lista.",
+        "disableFirst": "Desactiva primero este servidor de cómputo. Si no, volverían a llegar sandboxes nuevos.",
+        "count": "Ahora hay {count} sandbox en este servidor de cómputo. | Ahora hay {count} sandboxes en este servidor de cómputo.",
+        "countUnknown": "Se mueven todos los sandboxes de este servidor de cómputo.",
+        "confirm": "Evacuar",
+        "failed": "No se pudo evacuar el servidor de cómputo.",
+        "moved": "Se sacó {count} sandbox. | Se sacaron {count} sandboxes.",
+        "nothing": "No había nada que mover.",
+        "movedHint": "Cada uno vuelve en otro servidor de cómputo la próxima vez que su informe ejecute algo.",
+        "left": "{count} sandbox se quedó en este servidor de cómputo | {count} sandboxes se quedaron en este servidor de cómputo",
+        "leftHint": "Corrige lo que se indica arriba, o detén la ejecución, y vuelve a evacuar.",
+        "doneTitle": "{name} evacuado"
       }
     },
     "environments": {
@@ -5412,7 +5562,18 @@
         "usersEmpty": "Sin miembros",
         "selectedCount": "{n} seleccionados",
         "unknownPrincipal": "Ya no existe",
-        "create": "Crear entorno"
+        "create": "Crear entorno",
+        "confirmRuns": "Preguntar antes de ejecutar",
+        "hooks": "Scripts",
+        "hooksHint": "Scripts de shell que BoW ejecuta dentro de cada sandbox de este entorno. Su salida queda en la cronología del sandbox.",
+        "setup_script": "Script de preparación",
+        "setup_scriptHint": "Se ejecuta una vez, al crear un sandbox. Si falla, el sandbox no se crea.",
+        "start_script": "Script de inicio",
+        "start_scriptHint": "Se ejecuta en cada inicio: al crear un sandbox y cada vez que se reanuda. Tiene 120 segundos.",
+        "stop_script": "Script de parada",
+        "stop_scriptHint": "Se ejecuta antes de detener o eliminar un sandbox. Sin garantías: tiene 30 segundos, y un fallo no impide la parada.",
+        "computeLabels": "Etiquetas de servidor de cómputo",
+        "computeLabelsHint": "Sepáralas con comas. Los sandboxes solo se ejecutan en servidores de cómputo que tengan todas las etiquetas. Vacío: cualquiera."
       },
       "delete": {
         "title": "¿Eliminar {name}?",
@@ -5428,6 +5589,46 @@
         "deleted": "Entorno eliminado",
         "deleteFailed": "No se pudo eliminar el entorno.",
         "warning": "Guardado, con un aviso"
+      },
+      "confirm": {
+        "never": "Nunca",
+        "always": "Siempre",
+        "full_network": "Solo con acceso completo a internet",
+        "packages": "Solo cuando la ejecución instala paquetes",
+        "neverHint": "Las ejecuciones empiezan sin preguntar a la persona en el chat.",
+        "alwaysHint": "La persona en el chat debe permitir cada ejecución. Una ejecución que nadie responde en cuatro minutos no se realiza.",
+        "full_networkHint": "Se pregunta a la persona antes de cada ejecución mientras este entorno tenga la política de red «Internet completo».",
+        "packagesHint": "Solo se pregunta a la persona antes de una ejecución que instala paquetes."
+      },
+      "mounts": {
+        "title": "Volúmenes",
+        "hint": "Volúmenes de un servidor de cómputo, montados en cada sandbox de este entorno. Los sandboxes solo se ejecutan en un servidor de cómputo que los tenga todos.",
+        "volume": "Volumen",
+        "path": "Ruta en el sandbox",
+        "add": "Montar un volumen",
+        "remove": "Quitar este montaje",
+        "readOnly": "Solo lectura",
+        "readOnlyHint": "El código del sandbox puede leer el volumen pero no cambiarlo.",
+        "sharing": "Quién ve lo que se escribe",
+        "perReport": "Cada informe tiene su propia carpeta",
+        "perReportHint": "Un sandbox solo ve lo que escribió su propio informe. Los sandboxes siguen aislados entre sí.",
+        "shared": "Compartido por todos los sandboxes",
+        "sharedHint": "Todos los sandboxes de este entorno escriben en el mismo sitio.",
+        "sharedWarning": "Cada sandbox de este entorno puede leer y cambiar lo que escribieron los demás, entre informes y personas. Úsalo solo para datos que pueda ver todo el que pueda usar este entorno.",
+        "noVolumes": "Ningún servidor de cómputo tiene un volumen todavía. Añade uno en la pestaña Cómputo, o escribe el nombre de uno que vayas a añadir.",
+        "onComputes": "En: {computes}",
+        "unknownVolume": "Ningún servidor de cómputo tiene todavía un volumen con este nombre.",
+        "incomplete": "Cada montaje necesita un volumen y una ruta en el sandbox.",
+        "fix": "Corrige los volúmenes marcados arriba."
+      },
+      "hookFailing": {
+        "refused": "Su script de preparación o de inicio falló {count} veces seguidas, así que se rechazan sandboxes nuevos. Cambia un script o la imagen y guarda: se volverá a intentar.",
+        "failing": "Su script de preparación o de inicio falló la última vez. Tras {cap} fallos seguidos se rechazan sandboxes nuevos hasta que cambie un script o la imagen. | Su script de preparación o de inicio falló las últimas {count} veces. Tras {cap} fallos seguidos se rechazan sandboxes nuevos hasta que cambie un script o la imagen.",
+        "lastError": "Último error"
+      },
+      "extras": {
+        "hooks": "{count} script | {count} scripts",
+        "asks": "Pregunta antes de ejecutar"
       }
     },
     "settings": {
@@ -5460,13 +5661,28 @@
       "stoppedRetention": "Conservar sandboxes detenidos",
       "stoppedRetentionHint": "Un sandbox detenido se elimina pasado este tiempo.",
       "maxLifetime": "Duración máxima",
-      "maxLifetimeHint": "Cualquier sandbox se elimina pasado este tiempo desde su creación.",
+      "maxLifetimeHint": "Cualquier sandbox se elimina pasado este tiempo desde su creación, salvo que esté fijado.",
       "minutes": "minutos",
       "days": "días",
       "registriesSection": "Conexiones salientes permitidas",
       "registriesSectionHint": "Los dominios a los que puede acceder un sandbox con la política de red «Solo dominios permitidos». Los valores predeterminados son los registros de paquetes de pip, npm y Go. Un dominio añadido aquí queda abierto a todo el tráfico, no solo a la descarga de paquetes.",
       "registryDomains": "Dominios permitidos",
-      "registryDomainsHint": "Un dominio por línea, sin esquema, puerto ni ruta."
+      "registryDomainsHint": "Un dominio por línea, sin esquema, puerto ni ruta.",
+      "maxLifetimeLimited": "Eliminar tras un tiempo fijo",
+      "maxLifetimeNone": "Sin máximo",
+      "maxLifetimeNoneHint": "Los sandboxes no se eliminan por su antigüedad. Los detenidos se siguen eliminando pasado el tiempo de «Conservar sandboxes detenidos».",
+      "deleteWarning": "Avisar de una eliminación",
+      "deleteWarningHint": "Con cuánta antelación se avisa de que un sandbox se va a eliminar solo: en su cronología, en el registro de auditoría y al agente en la siguiente ejecución. Aún hay tiempo de fijarlo o prorrogarlo. 0: sin aviso.",
+      "hours": "horas",
+      "snapshotSection": "Instantáneas",
+      "snapshotSectionHint": "Una instantánea es una copia de todo lo que hay en el espacio de trabajo de un sandbox: sus archivos y los paquetes instalados allí.",
+      "snapshotWhere": "Se guarda en el almacén de archivos propio de BoW, no en el servidor de cómputo.",
+      "snapshotCost": "Tomar una cuesta tiempo y espacio en proporción a lo que contiene el espacio de trabajo.",
+      "snapshotWhy": "Es lo que permite que un sandbox sobreviva a la pérdida de su servidor de cómputo: se vuelve a crear en otro sitio a partir de su última instantánea. Sin ella, solo vuelven los archivos guardados en el informe.",
+      "snapshotOnStop": "Tomar una instantánea al detener un sandbox",
+      "snapshotOnStopHint": "Toma una instantánea cada vez que se detiene un sandbox. Desactivado de forma predeterminada.",
+      "snapshotMax": "Instantánea más grande",
+      "snapshotMaxHint": "De un espacio de trabajo cuya instantánea superaría este tamaño no se toma instantánea."
     }
   },
   "data": {

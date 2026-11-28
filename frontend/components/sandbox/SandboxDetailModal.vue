@@ -49,6 +49,26 @@
                     <div v-if="current.usage" class="mt-3 max-w-xs">
                         <SandboxUsageBars :sandbox="current" />
                     </div>
+                    <!-- Volumes of the compute mounted in it -->
+                    <div v-if="mounts.length" class="mt-3" data-testid="sandbox-detail-mounts">
+                        <div class="text-sm text-ink-muted">{{ $t('sandbox.sandboxes.detail.volumes') }}</div>
+                        <ul class="mt-1 space-y-0.5 text-sm">
+                            <li v-for="mount in mounts" :key="mount.path" class="flex flex-wrap items-baseline gap-x-2">
+                                <UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 self-center text-ink-muted" />
+                                <span class="font-medium text-ink-2" dir="ltr">{{ mount.volume }}</span>
+                                <code class="font-mono text-xs text-ink-2" dir="ltr">{{ mount.path }}</code>
+                                <span class="text-xs text-ink-muted">{{ $t(mount.read_only === false ? 'sandbox.sandboxes.mountWritable' : 'sandbox.sandboxes.mountReadOnly') }}</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <p
+                        v-if="current.setup_outdated"
+                        class="mt-3 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-200 leading-relaxed"
+                        data-testid="sandbox-detail-setup-outdated"
+                    >
+                        <UIcon name="i-heroicons-clock" class="w-4 h-4 shrink-0" />
+                        <span>{{ $t('sandbox.sandboxes.setupOutdatedHint') }}</span>
+                    </p>
                 </section>
 
                 <!-- Recent runs -->
@@ -113,16 +133,60 @@
                     </ul>
                 </section>
 
+                <!-- Domains it reached or was refused, refused first -->
+                <section data-testid="sandbox-detail-egress">
+                    <h4 class="text-sm font-semibold text-ink">{{ $t('sandbox.sandboxes.detail.egress') }}</h4>
+                    <p class="text-xs text-ink-muted">{{ $t('sandbox.sandboxes.detail.egressHint') }}</p>
+                    <p v-if="detail && !egress.length" class="mt-3 text-sm text-ink-muted" data-testid="sandbox-detail-egress-empty">
+                        {{ $t('sandbox.sandboxes.detail.egressEmpty') }}
+                    </p>
+                    <div v-else-if="detail" class="mt-3 rounded-lg border border-line overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="text-xs text-ink-muted text-start border-b border-line">
+                                    <th class="px-3 py-1.5 font-medium text-start">{{ $t('sandbox.sandboxes.detail.egressDomain') }}</th>
+                                    <th class="px-3 py-1.5 font-medium text-start">{{ $t('sandbox.sandboxes.detail.egressDecision') }}</th>
+                                    <th class="px-3 py-1.5 font-medium text-end">{{ $t('sandbox.sandboxes.detail.egressCount') }}</th>
+                                    <th class="px-3 py-1.5 font-medium text-end">{{ $t('sandbox.sandboxes.detail.egressLast') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-line">
+                                <tr v-for="row in egress" :key="`${row.decision}:${row.domain}`" data-testid="sandbox-egress-row" :data-decision="row.decision">
+                                    <td class="px-3 py-1.5"><code class="font-mono text-xs text-ink-2 break-all" dir="ltr">{{ row.domain }}</code></td>
+                                    <td class="px-3 py-1.5 whitespace-nowrap">
+                                        <UBadge size="xs" variant="subtle" :color="row.decision === 'refused' ? 'red' : row.decision === 'allowed' ? 'green' : 'gray'">
+                                            {{ decisionLabel(row.decision) }}
+                                        </UBadge>
+                                    </td>
+                                    <td class="px-3 py-1.5 text-end nums text-ink-2">{{ number(row.count, 0) }}</td>
+                                    <td class="px-3 py-1.5 text-end nums text-xs text-ink-muted whitespace-nowrap" :title="egressTitle(row)">
+                                        {{ row.last_at ? relative(row.last_at, now) : '—' }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
                 <!-- Timeline, newest first -->
                 <section data-testid="sandbox-detail-events">
                     <h4 class="text-sm font-semibold text-ink">{{ $t('sandbox.sandboxes.detail.timeline') }}</h4>
                     <p v-if="detail && !detail.events.length" class="mt-3 text-sm text-ink-muted">{{ $t('sandbox.sandboxes.detail.noEvents') }}</p>
                     <ol v-else-if="detail" class="mt-3 space-y-2">
                         <li v-for="event in detail.events" :key="event.id" class="flex items-start gap-3 text-sm" data-testid="sandbox-event" :data-type="event.type">
-                            <span class="mt-1.5 w-2 h-2 rounded-full shrink-0" :class="eventDot(event.type)" />
+                            <span class="mt-1.5 w-2 h-2 rounded-full shrink-0" :class="eventDot(event)" />
                             <div class="min-w-0 flex-1">
-                                <span class="text-ink-2">{{ eventLabel(event.type) }}</span>
+                                <span class="text-ink-2">{{ eventLabel(event) }}</span>
                                 <span v-if="eventNote(event)" class="text-xs text-ink-muted break-words" dir="auto"> · {{ eventNote(event) }}</span>
+                                <!-- What a script printed, the files put back, the programs left running. -->
+                                <details v-if="eventBody(event)" class="mt-1" data-testid="sandbox-event-body">
+                                    <summary class="cursor-pointer text-xs text-blue-600 dark:text-blue-400 hover:underline">{{ eventBody(event)!.label }}</summary>
+                                    <pre
+                                        dir="ltr"
+                                        class="mt-1 max-h-48 overflow-auto rounded-md bg-surface-muted px-3 py-2 text-xs font-mono whitespace-pre-wrap break-words text-start"
+                                        :class="eventFailed(event) ? 'text-red-700 dark:text-red-300' : 'text-ink-2'"
+                                    >{{ eventBody(event)!.text }}</pre>
+                                </details>
                             </div>
                             <span v-if="event.created_at" class="shrink-0 text-xs text-ink-muted nums whitespace-nowrap" :title="formatDate(event.created_at)">
                                 {{ relative(event.created_at, now) }}
@@ -143,7 +207,7 @@
 </template>
 
 <script setup lang="ts">
-import type { SandboxDetail, SandboxEvent, SandboxFleetRow, SandboxRun } from '~/composables/useSandboxApi'
+import { parseSandboxDate, type SandboxDetail, type SandboxEgress, type SandboxEvent, type SandboxFleetRow, type SandboxRun } from '~/composables/useSandboxApi'
 import { sandboxStateColor, SANDBOX_STATES } from '~/composables/useSandboxFormat'
 import { useCanViewCode } from '~/composables/usePermissions'
 import Spinner from '~/components/Spinner.vue'
@@ -155,7 +219,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const { t, te } = useI18n()
 const { call } = useSandboxApi()
 const { getErrorMessage } = useErrorMessage()
-const { formatDate, relative, between, duration } = useSandboxFormat()
+const { formatDate, relative, between, duration, bytes, number, span } = useSandboxFormat()
 const canViewCode = useCanViewCode()
 
 const open = computed({
@@ -225,7 +289,20 @@ const facts = computed<Fact[]>(() => {
     when('created', row.created_at)
     when('lastUsed', row.last_used_at)
     when('stopped', row.stopped_at)
-    when('expires', row.expires_at)
+    if (row.pinned) add('pinned', t('sandbox.sandboxes.notDeleted'))
+    else if (row.deletes_at) {
+        const reason = deleteReasonLabel(row.delete_reason)
+        add('deletes', reason ? `${relative(row.deletes_at, now.value)} · ${reason}` : relative(row.deletes_at, now.value), { title: formatDate(row.deletes_at) })
+    }
+    // The maximum lifetime, when the deletion above is for another reason.
+    if (row.expires_at && row.expires_at !== row.deletes_at) when('expires', row.expires_at)
+    if (row.keep_warm_until && parseSandboxDate(row.keep_warm_until).getTime() > now.value) {
+        add('keepWarm', relative(row.keep_warm_until, now.value), { title: formatDate(row.keep_warm_until) })
+    }
+    if (row.snapshot_at) {
+        const taken = relative(row.snapshot_at, now.value)
+        add('snapshot', typeof row.snapshot_bytes === 'number' ? `${taken} · ${bytes(row.snapshot_bytes)}` : taken, { title: formatDate(row.snapshot_at) })
+    }
     const resources = [
         limits.cpus != null ? t('sandbox.sandboxes.detail.cpus', { count: limits.cpus }) : '',
         limits.memory_mb != null ? t('sandbox.sandboxes.detail.memory', { mb: limits.memory_mb }) : '',
@@ -265,33 +342,133 @@ function blocks(run: SandboxRun) {
     return out
 }
 
+const mounts = computed<Array<{ volume: string; path: string; read_only?: boolean }>>(() => {
+    const list = current.value?.limits?.mounts
+    return Array.isArray(list) ? list.filter((mount: any) => mount?.volume) : []
+})
+
+const DELETE_REASONS: Record<string, string> = { expired: 'expired', 'stopped too long': 'stoppedTooLong' }
+const deleteReasonLabel = (reason?: string | null) =>
+    (reason && reason in DELETE_REASONS ? t(`sandbox.sandboxes.deleteReason.${DELETE_REASONS[reason]}`) : (reason || ''))
+
+// ── Domain log ───────────────────────────────────────────────────────────
+
+const egress = computed<SandboxEgress[]>(() => detail.value?.egress || [])
+const decisionLabel = (decision: string) =>
+    (['allowed', 'refused'].includes(decision) ? t(`sandbox.sandboxes.detail.decision.${decision}`) : decision)
+const egressTitle = (row: SandboxEgress) => [
+    row.first_at ? t('sandbox.sandboxes.detail.egressFirst', { when: formatDate(row.first_at) }) : '',
+    row.last_at ? t('sandbox.sandboxes.detail.egressLastAt', { when: formatDate(row.last_at) }) : '',
+].filter(Boolean).join('\n')
+
+// ── Timeline ─────────────────────────────────────────────────────────────
+
 const EVENT_TYPES = [
-    'created', 'resumed', 'ready', 'busy', 'idle', 'stopped', 'failed', 'deleted',
-    'run_started', 'process_started', 'run_finished', 'run_killed', 'setup_script', 'packages_installed',
+    'created', 'resumed', 'ready', 'busy', 'idle', 'stopped', 'failed', 'deleted', 'expired',
+    'run_started', 'process_started', 'run_finished', 'run_killed', 'packages_installed',
+    'setup_script', 'start_script', 'stop_script', 'files_restored',
+    'snapshot', 'snapshot_skipped', 'snapshot_restored', 'snapshot_restore_failed',
+    'deletion_scheduled', 'pinned', 'unpinned', 'extended', 'keep_warm',
 ]
-const eventLabel = (type: string) =>
-    (EVENT_TYPES.includes(type) ? t(`sandbox.sandboxes.event.${type}`) : type.replace(/_/g, ' '))
-function eventDot(type: string) {
-    if (type === 'failed') return 'bg-red-500'
-    if (type === 'run_killed' || type === 'stopped' || type === 'deleted') return 'bg-amber-500'
-    if (type === 'created' || type === 'resumed') return 'bg-green-500'
+const HOOK_EVENTS = ['setup_script', 'start_script', 'stop_script']
+// Why it was taken, where the event says so unambiguously.
+const SNAPSHOT_REASONS = ['moved']
+
+function eventLabel(event: SandboxEvent) {
+    const type = event.type
+    // Frozen in memory rather than only marked; keep warm set or cleared.
+    if (type === 'idle' && event.details?.paused) return t('sandbox.sandboxes.event.idle_paused')
+    if (type === 'keep_warm' && !event.details?.until) return t('sandbox.sandboxes.event.keep_warm_cleared')
+    return EVENT_TYPES.includes(type) ? t(`sandbox.sandboxes.event.${type}`) : type.replace(/_/g, ' ')
+}
+
+const eventFailed = (event: SandboxEvent) => {
+    const status = event.details?.status
+    return event.type === 'failed' || event.type === 'snapshot_restore_failed'
+        || ((HOOK_EVENTS.includes(event.type) || event.type === 'run_finished' || event.type === 'packages_installed')
+            && !!status && status !== 'succeeded')
+}
+
+function eventDot(event: SandboxEvent) {
+    const type = event.type
+    if (eventFailed(event) && type !== 'run_finished') return 'bg-red-500'
+    if (['run_killed', 'stopped', 'deleted', 'expired', 'deletion_scheduled', 'snapshot_skipped'].includes(type)) return 'bg-amber-500'
+    if (['created', 'resumed', 'snapshot_restored', 'files_restored'].includes(type)) return 'bg-green-500'
     if (type.startsWith('run_') || type === 'process_started') return 'bg-blue-500'
     return 'bg-line-strong'
 }
-// The few details worth a glance; the reason is the server's own sentence.
+
+// The few details worth a glance. A reason or an error is the server's own sentence.
 function eventNote(event: SandboxEvent) {
     const details = event.details || {}
+    const type = event.type
     const parts: string[] = []
+    const size = (value: unknown) => { if (typeof value === 'number') parts.push(bytes(value)) }
+    switch (type) {
+        case 'process_started':
+            if (details.process_id != null) parts.push(t('sandbox.sandboxes.detail.processId', { id: details.process_id }))
+            return parts.join(' · ')
+        case 'files_restored':
+            if (typeof details.count === 'number') parts.push(t('sandbox.sandboxes.detail.filesCount', { count: details.count }, details.count))
+            size(details.bytes)
+            return parts.join(' · ')
+        case 'snapshot':
+            size(details.bytes)
+            if (SNAPSHOT_REASONS.includes(details.for)) parts.push(t(`sandbox.sandboxes.detail.snapshotFor.${details.for}`))
+            if (typeof details.duration_seconds === 'number') parts.push(duration(details.duration_seconds * 1000))
+            return parts.join(' · ')
+        case 'snapshot_restored':
+            size(details.bytes)
+            if (details.taken_at) parts.push(t('sandbox.sandboxes.detail.snapshotTaken', { when: formatDate(details.taken_at) }))
+            return parts.join(' · ')
+        case 'deletion_scheduled':
+            if (details.at) parts.push(formatDate(details.at))
+            if (details.reason) parts.push(deleteReasonLabel(String(details.reason)))
+            return parts.join(' · ')
+        case 'extended':
+            if (typeof details.seconds === 'number') parts.push(t('sandbox.sandboxes.detail.extendedBy', { span: span(details.seconds) }))
+            if (details.expires_at) parts.push(t('sandbox.sandboxes.detail.expiresOn', { when: formatDate(details.expires_at) }))
+            return parts.join(' · ')
+        case 'keep_warm':
+            return details.until ? t('sandbox.sandboxes.detail.until', { when: formatDate(details.until) }) : ''
+        case 'expired':
+        case 'idle':
+        case 'pinned':
+        case 'unpinned':
+        case 'run_killed':
+            return ''
+    }
     if (details.status) parts.push(runStatusLabel(String(details.status)))
     if (details.exit_code !== null && details.exit_code !== undefined) {
         parts.push(t('sandbox.sandboxes.detail.exitCode', { code: details.exit_code }))
     }
     if (typeof details.duration_seconds === 'number') parts.push(duration(details.duration_seconds * 1000))
+    if (type === 'run_finished' && typeof details.artifacts === 'number' && details.artifacts > 0) {
+        parts.push(t('sandbox.sandboxes.detail.filesSaved', { count: details.artifacts }, details.artifacts))
+    }
     if (Array.isArray(details.packages) && details.packages.length) parts.push(details.packages.join(', '))
     if (details.environment) parts.push(String(details.environment))
     if (details.reason) parts.push(String(details.reason))
     if (details.error) parts.push(String(details.error))
     return parts.join(' · ')
+}
+
+// The longer part of an event, behind a toggle.
+function eventBody(event: SandboxEvent): { label: string; text: string } | null {
+    const details = event.details || {}
+    if (HOOK_EVENTS.includes(event.type) && details.output) {
+        return { label: t('sandbox.sandboxes.detail.scriptOutput'), text: String(details.output) }
+    }
+    if (event.type === 'files_restored' && Array.isArray(details.files) && details.files.length) {
+        return { label: t('sandbox.sandboxes.detail.filesList'), text: details.files.join('\n') }
+    }
+    if (event.type === 'run_finished' && Array.isArray(details.background_processes) && details.background_processes.length) {
+        return {
+            label: t('sandbox.sandboxes.detail.backgroundProcesses', { count: details.background_processes.length }, details.background_processes.length),
+            text: details.background_processes.join('\n'),
+        }
+    }
+    return null
 }
 
 watch(() => [props.modelValue, props.sandbox?.id] as const, ([isOpen]) => {

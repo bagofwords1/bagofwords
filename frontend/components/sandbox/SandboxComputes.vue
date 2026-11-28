@@ -20,7 +20,14 @@
                             <th>{{ $t('sandbox.computes.col.status') }}</th>
                             <th>{{ $t('sandbox.computes.col.supports') }}</th>
                             <th>{{ $t('sandbox.computes.col.bootstrap') }}</th>
-                            <th>{{ $t('sandbox.computes.col.sandboxes') }}</th>
+                            <th>
+                                <span class="inline-flex items-center gap-1">
+                                    {{ $t('sandbox.computes.col.resources') }}
+                                    <UTooltip :text="$t('sandbox.computes.resources.hint')" :ui="{ base: 'h-auto whitespace-normal max-w-xs font-normal normal-case tracking-normal' }">
+                                        <UIcon name="i-heroicons-information-circle" class="w-3.5 h-3.5 text-ink-muted" :aria-label="$t('sandbox.computes.resources.hint')" data-testid="sandbox-compute-resources-hint" />
+                                    </UTooltip>
+                                </span>
+                            </th>
                             <th>{{ $t('sandbox.computes.col.enabled') }}</th>
                             <th class="text-end"><span class="sr-only">{{ $t('sandbox.computes.col.actions') }}</span></th>
                         </tr>
@@ -48,6 +55,14 @@
                                             <div v-if="compute.labels?.length" class="mt-1 flex flex-wrap gap-1">
                                                 <UBadge v-for="label in compute.labels" :key="label" size="xs" color="gray">{{ label }}</UBadge>
                                             </div>
+                                            <!-- Named storage environments can mount. -->
+                                            <ul v-if="compute.volumes?.length" class="mt-1.5 space-y-0.5 text-xs text-ink-muted max-w-[14rem]" data-testid="sandbox-compute-volumes" :aria-label="$t('sandbox.computes.volumes.title')">
+                                                <li v-for="volume in compute.volumes" :key="volume.name" class="flex items-center gap-1 min-w-0" :title="volume.description || undefined">
+                                                    <UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 shrink-0" />
+                                                    <span class="text-ink-2 font-medium" dir="ltr">{{ volume.name }}</span>
+                                                    <code class="truncate font-mono" dir="ltr">{{ volume.source }}</code>
+                                                </li>
+                                            </ul>
                                         </div>
                                     </div>
                                 </td>
@@ -64,7 +79,7 @@
                                         :title="compute.last_error"
                                         data-testid="sandbox-compute-last-error"
                                     >{{ compute.last_error }}</div>
-                                    <div class="mt-1 text-xs text-ink-muted whitespace-nowrap nums" data-testid="sandbox-compute-last-check">
+                                    <div class="mt-1 max-w-[8rem] text-xs text-ink-muted nums" data-testid="sandbox-compute-last-check">
                                         <span v-if="compute.last_checked_at" :title="formatDate(compute.last_checked_at)">{{ $t('sandbox.computes.checkedAgo', { when: timeAgo(compute.last_checked_at) }) }}</span>
                                         <span v-else>{{ $t('sandbox.computes.neverChecked') }}</span>
                                     </div>
@@ -98,7 +113,7 @@
                                             class="mt-1 max-w-[11rem] text-xs text-amber-700 dark:text-amber-300 line-clamp-2"
                                             :title="compute.info.isolation_detail"
                                         >{{ compute.info.isolation_detail }}</div>
-                                        <div v-if="otherCapabilities(compute).length" class="mt-1 w-40 text-xs text-ink-muted" data-testid="sandbox-compute-capabilities">
+                                        <div v-if="otherCapabilities(compute).length" class="mt-1 w-36 text-xs text-ink-muted" data-testid="sandbox-compute-capabilities">
                                             {{ otherCapabilities(compute).join(' · ') }}
                                         </div>
                                     </template>
@@ -121,9 +136,9 @@
                                     </button>
                                 </td>
 
-                                <!-- Running sandboxes out of capacity -->
-                                <td class="whitespace-nowrap nums" data-testid="sandbox-compute-usage">
-                                    <span dir="ltr">{{ compute.running_sandboxes }} / {{ compute.capacity }}</span>
+                                <!-- What its sandboxes hold, out of what they may be given -->
+                                <td data-testid="sandbox-compute-usage">
+                                    <SandboxComputeResources :compute="compute" />
                                 </td>
 
                                 <!-- Enable / disable. Enabling needs a finished bootstrap. -->
@@ -143,7 +158,9 @@
                                     </UTooltip>
                                 </td>
 
+                                <!-- Two short lines, so the row fits without scrolling sideways. -->
                                 <td class="whitespace-nowrap text-end">
+                                    <div class="inline-flex flex-col items-end gap-1">
                                     <div class="inline-flex items-center gap-1">
                                         <UTooltip :text="$t('sandbox.computes.testConnection')">
                                             <UButton
@@ -168,6 +185,25 @@
                                         >
                                             {{ isBootstrapped(compute) ? $t('sandbox.computes.repair') : $t('sandbox.computes.bootstrapAction') }}
                                         </UButton>
+                                    </div>
+                                    <div class="inline-flex items-center gap-1">
+                                        <!-- Moving sandboxes off needs the compute disabled first. -->
+                                        <UTooltip
+                                            v-if="isBootstrapped(compute)"
+                                            :text="compute.enabled ? $t('sandbox.computes.evacuate.disableFirst') : $t('sandbox.computes.evacuate.action')"
+                                            :ui="{ base: 'h-auto whitespace-normal max-w-xs' }"
+                                        >
+                                            <UButton
+                                                color="gray"
+                                                variant="ghost"
+                                                size="xs"
+                                                icon="i-heroicons-arrow-right-on-rectangle"
+                                                :disabled="compute.enabled"
+                                                :aria-label="$t('sandbox.computes.evacuate.action')"
+                                                data-testid="sandbox-compute-evacuate"
+                                                @click="openEvacuate(compute)"
+                                            />
+                                        </UTooltip>
                                         <UTooltip :text="$t('common.edit')">
                                             <UButton
                                                 color="gray"
@@ -190,6 +226,7 @@
                                                 @click="openDelete(compute)"
                                             />
                                         </UTooltip>
+                                    </div>
                                     </div>
                                 </td>
                             </tr>
@@ -216,6 +253,7 @@
         <SandboxComputeTestModal v-model="showTest" :compute="selected" @updated="upsert" />
         <SandboxComputeBootstrapModal v-model="showBootstrap" :compute="selected" :auto-start="bootstrapAutoStart" @updated="upsert" />
         <SandboxComputeDeleteModal v-model="showDelete" :compute="selected" @deleted="onDeleted" />
+        <SandboxComputeEvacuateModal v-model="showEvacuate" :compute="selected" @done="upsert" />
     </div>
 </template>
 
@@ -227,6 +265,8 @@ import SandboxComputeFormModal from '~/components/sandbox/SandboxComputeFormModa
 import SandboxComputeTestModal from '~/components/sandbox/SandboxComputeTestModal.vue'
 import SandboxComputeBootstrapModal from '~/components/sandbox/SandboxComputeBootstrapModal.vue'
 import SandboxComputeDeleteModal from '~/components/sandbox/SandboxComputeDeleteModal.vue'
+import SandboxComputeEvacuateModal from '~/components/sandbox/SandboxComputeEvacuateModal.vue'
+import SandboxComputeResources from '~/components/sandbox/SandboxComputeResources.vue'
 
 const { t, te, locale } = useI18n()
 const toast = useToast()
@@ -242,6 +282,7 @@ const showForm = ref(false)
 const showTest = ref(false)
 const showBootstrap = ref(false)
 const showDelete = ref(false)
+const showEvacuate = ref(false)
 const bootstrapAutoStart = ref(false)
 const editing = ref<SandboxCompute | null>(null)
 const selected = ref<SandboxCompute | null>(null)
@@ -292,6 +333,7 @@ function openCreate() { editing.value = null; showForm.value = true }
 function openEdit(compute: SandboxCompute) { editing.value = compute; showForm.value = true }
 function openTest(compute: SandboxCompute) { selected.value = compute; showTest.value = true }
 function openDelete(compute: SandboxCompute) { selected.value = compute; showDelete.value = true }
+function openEvacuate(compute: SandboxCompute) { selected.value = compute; showEvacuate.value = true }
 function openBootstrap(compute: SandboxCompute, autoStart: boolean) {
     selected.value = compute
     bootstrapAutoStart.value = autoStart && compute.bootstrap_status !== 'running'
