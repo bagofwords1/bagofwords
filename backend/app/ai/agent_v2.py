@@ -11410,6 +11410,7 @@ class AgentV2:
                         # fetches the step after tool.finished; this commit precedes it.
                         await self.project_manager.finalize_tool_step(
                             fresh_db, step_obj,
+                            organization_id=self.organization.id if self.organization else None,
                             code=code,
                             data=widget_data,
                             data_model=merged,

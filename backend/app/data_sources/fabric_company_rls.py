@@ -137,12 +137,34 @@ def _odbc_bindings(statement, values, expected_count):
     return "".join(parts), tuple(bindings)
 
 
-def _exact_text(value):
+def _exact_text(value, dialect):
     # Explicit binary collation keeps case and accents significant even in a
     # warehouse using a linguistic, case-insensitive default.
     # A terminator also distinguishes trailing blanks under T-SQL equality.
+    if dialect == "tsql":
+        # Compare Unicode before applying the older non-UTF8 binary collation.
+        value = exp.cast(value, "NVARCHAR(MAX)", dialect="tsql")
     terminated = exp.Anonymous(this="CONCAT", expressions=[value, exp.Literal.string("|")])
-    return exp.Collate(this=terminated, expression=exp.Var(this="Latin1_General_100_BIN2_UTF8"))
+    return exp.Collate(this=terminated, expression=exp.Var(this="Latin1_General_100_BIN2_UTF8" if dialect == "fabric" else "Latin1_General_100_BIN2"))
+
+
+def _native_guid_match(rule, key, allowed, bind, dialect):
+    # Only native GUIDs have case-insensitive identity. Check the live column
+    # type in this statement so changing a GUID key to text restores exact matching.
+    guids = [value.upper() for value in allowed if re.fullmatch(
+        r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", value
+    )]
+    if not guids:
+        return None
+    schema, table = rule.table.split(".")
+    metadata = exp.select(exp.Literal.number(1)).from_("INFORMATION_SCHEMA.COLUMNS")
+    for field, value in (("TABLE_SCHEMA", schema), ("TABLE_NAME", table),
+                         ("COLUMN_NAME", rule.company_column), ("DATA_TYPE", "uniqueidentifier")):
+        name = _exact_text(exp.column(field), dialect)
+        metadata = metadata.where(name.eq(_exact_text(exp.Literal.string(value), dialect)))
+    canonical_key = _exact_text(exp.Upper(this=key.copy()), dialect)
+    matches = canonical_key.isin(*[_exact_text(bind(value), dialect) for value in guids])
+    return exp.and_(exp.Exists(this=metadata), matches)
 
 
 def preview_projection(schema, rule, employee, identity, checked_column):
@@ -204,7 +226,7 @@ def protect_query(sql: str, policy: CompanyPolicy, employee: str | None, *, iden
 
     def exact(value):
         if dialect in {"fabric", "tsql"}:
-            return _exact_text(value)
+            return _exact_text(value, dialect)
         if dialect == "postgres":
             return exp.Collate(this=exp.cast(value, "TEXT"), expression=exp.to_identifier("C", quoted=True))
         # Binary comparison is independent of Oracle session NLS settings.
@@ -218,6 +240,10 @@ def protect_query(sql: str, policy: CompanyPolicy, employee: str | None, *, iden
                 raise ValueError("Too many policy values")
             predicate = (exact(key).isin(*[exact(bind(v)) for v in allowed])
                          if allowed else exp.EQ(this=exp.Literal.number(1), expression=exp.Literal.number(0)))
+            if dialect in {"fabric", "tsql"}:
+                guid_match = _native_guid_match(rule, key, allowed, bind, dialect)
+                if guid_match is not None:
+                    predicate = exp.or_(predicate, guid_match)
         else:
             grants = exp.to_table(policy.grants_table).as_("g")
             principals = ([employee] if policy.grant_principal == "user.email" else

@@ -139,3 +139,37 @@ def test_a_session_still_reading_standard_strings_is_kept(scs):
     prepare_pg_session(conn, BACKSLASH_READ)
     verify_pg_session_after(conn)
     assert conn.invalidated is False
+
+
+def test_protected_read_checks_literal_mode_before_sending_sql():
+    from contextlib import nullcontext
+    from app.data_sources.clients._protected_sql import ProtectedSql
+    from app.data_sources.fabric_company_rls import CompanyPolicy
+
+    conn = FakeConn(FakeDbapi("off"), becomes="off")
+    client = ProtectedSql()
+    client.policy_dialect = "postgres"
+    client._policy_session = lambda **kwargs: nullcontext(conn)
+    policy = CompanyPolicy.model_validate({"tables": [
+        {"table": "demo.sales", "company_column": "company", "row_attribute": "groups"}
+    ]})
+    with pytest.raises(ValueError, match="Protected query unavailable"):
+        client.execute_company_query(BACKSLASH_READ + " FROM demo.sales", policy, "viewer")
+    assert conn.sent == [SWITCH]
+
+
+def test_protected_session_discards_changed_connections_on_driver_error():
+    from app.data_sources.clients._protected_sql import ProtectedSql
+
+    conn = FakeConn(FakeDbapi("on"))
+
+    def fail_read(sql, bindings):
+        conn.connection.dbapi_connection.status[SCS] = "off"
+        raise RuntimeError("driver read failed")
+
+    conn.exec_driver_sql = fail_read
+    client = ProtectedSql()
+    client.policy_dialect = "postgres"
+    with pytest.raises(RuntimeError, match="driver read failed"):
+        client._execute_protected(conn, PLAIN_READ, {})
+    assert conn.invalidated

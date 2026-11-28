@@ -177,13 +177,13 @@ class PostgresqlClient(ProtectedSql, DataSourceClient):
         # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
-        if self.company_filtered:
-            return self.execute_company_query(sql, *self._company_reader)
         """Execute SQL statement and return the result as a DataFrame.
 
         `sql` is sent exactly as given (the read-only guard returned it), in
         a read-only transaction on a session that reads literals as the
         guard did."""
+        if self.company_filtered:
+            return self.execute_company_query(sql, *self._company_reader)
         try:
             with self.connect(read_only=True) as conn:
                 prepare_pg_session(conn, sql)

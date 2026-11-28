@@ -442,9 +442,9 @@ class MSSQLClient(ProtectedSql, DataSourceClient):
     DEADLOCK_RETRIES = 1
 
     def execute_query(self, sql: str) -> pd.DataFrame:
+        """Execute SQL statement and return the result as a DataFrame."""
         if self.company_filtered:
             return self.execute_company_query(sql, *self._company_reader)
-        """Execute SQL statement and return the result as a DataFrame."""
         attempt = 0
         while True:
             try:

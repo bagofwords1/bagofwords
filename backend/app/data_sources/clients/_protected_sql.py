@@ -1,6 +1,7 @@
 """Live row and column policy entry points for SQLAlchemy-backed sources."""
 
 import pandas as pd
+from app.data_sources.clients._pg_session import prepare_pg_session, verify_pg_session_after
 from app.data_sources.policy_history import record_protected_execution
 
 from app.data_sources.fabric_company_rls import protect_query
@@ -28,6 +29,15 @@ class ProtectedSql:
             return self._policy_session(read_only=True)
         return self._policy_session()
 
+    def _execute_protected(self, conn, statement, bindings):
+        if self.policy_dialect != "postgres":
+            return conn.exec_driver_sql(statement, bindings)
+        prepare_pg_session(conn, statement)
+        try:
+            return conn.exec_driver_sql(statement, bindings)
+        finally:
+            verify_pg_session_after(conn)
+
     def has_company_grant(self, rule):
         from app.data_sources.fabric_company_rls import protect_query
         from app.data_sources.fast.rls import resolve_source
@@ -44,7 +54,7 @@ class ProtectedSql:
             grant_probe=True,
         )
         with self._read_session() as conn:
-            return bool(conn.exec_driver_sql(statement, bindings).scalar_one())
+            return bool(self._execute_protected(conn, statement, bindings).scalar_one())
 
     @record_protected_execution
     def execute_company_query(self, sql, policy, employee, identity=None, *, preview_columns=None):
@@ -57,7 +67,7 @@ class ProtectedSql:
             text, bindings = protect_query(sql, policy, employee, identity=identity, dialect=self.policy_dialect, preview_columns=preview_columns)
             with self._read_session() as conn:
                 record_policy(policy, text)
-                result = conn.exec_driver_sql(text, bindings)
+                result = self._execute_protected(conn, text, bindings)
                 columns = [field[0] for field in result.cursor.description]
                 return pd.DataFrame.from_records(result.fetchall(), columns=columns)
         except Exception:

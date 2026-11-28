@@ -3445,7 +3445,10 @@ class StreamingCodeExecutor:
             
             # Update step with data
             try:
-                await self.project_manager.update_step_with_data(self.db, current_step, widget_data)
+                await self.project_manager.update_step_with_data(
+                    self.db, current_step, widget_data,
+                    organization_id=getattr(self.usage_context, "organization_id", None),
+                )
             except Exception as e:
                 if self.logger:
                     self.logger.error(f"Error updating step with data: {str(e)}")

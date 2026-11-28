@@ -191,3 +191,42 @@ def test_wide_preview_selects_only_visible_sample_columns(policy):
     hidden_key = rule.model_copy(update={"columns": {"field_997": None}})
     assert preview_projection(names, hidden_key, "reader", None, None) == (1, ("field_997",))
     assert preview_projection(names, rule.model_copy(update={"columns": {}}), "reader", None, None) == (0, ())
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
+def test_guid_attributes_only_fold_case_for_native_guid_keys(dialect):
+    from app.data_sources.fast.rls import Identity
+    guid = "3822651a-ea84-4f50-8df6-d0c6f59f20c2"
+    policy = CompanyPolicy.model_validate({"tables": [
+        {"table": "demo.sales", "company_column": "company", "row_attribute": "custom.keys"}
+    ]})
+    identity = Identity(user_id="viewer", custom_attributes={"keys": [guid]})
+    sql, params = protect_query("SELECT * FROM demo.sales", policy, "viewer", dialect=dialect, identity=identity)
+    assert "INFORMATION_SCHEMA" in sql and "uniqueidentifier" in sql
+    assert guid in params and guid.upper() in params
+    assert ("BIN2_UTF8" in sql) == (dialect == "fabric")
+
+
+def test_changing_a_guid_key_to_text_immediately_restores_case_sensitive_matching():
+    from app.data_sources.fast.rls import Identity
+
+    guid = "3822651a-ea84-4f50-8df6-d0c6f59f20c2"
+    policy = CompanyPolicy.model_validate({"tables": [
+        {"table": "demo.sales", "company_column": "company", "row_attribute": "custom.keys"}
+    ]})
+    identity = Identity(user_id="viewer", custom_attributes={"keys": [guid]})
+    sql, params = protect_query("SELECT * FROM demo.sales", policy, "viewer", identity=identity)
+    with sqlite3.connect(":memory:") as db:
+        db.create_function("CONCAT", 2, lambda value, suffix: str(value) + suffix)
+        db.create_collation("Latin1_General_100_BIN2_UTF8", lambda a, b: (a > b) - (a < b))
+        db.executescript("""
+            ATTACH ':memory:' AS demo;
+            ATTACH ':memory:' AS INFORMATION_SCHEMA;
+            CREATE TABLE demo.sales(company TEXT);
+            CREATE TABLE INFORMATION_SCHEMA.COLUMNS(TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE);
+            INSERT INTO INFORMATION_SCHEMA.COLUMNS VALUES ('demo','sales','company','uniqueidentifier');
+        """)
+        db.execute("INSERT INTO demo.sales VALUES (?)", (guid.upper(),))
+        assert db.execute(sql, params).fetchall() == [(guid.upper(),)]
+        db.execute("UPDATE INFORMATION_SCHEMA.COLUMNS SET DATA_TYPE='varchar'")
+        assert db.execute(sql, params).fetchall() == []

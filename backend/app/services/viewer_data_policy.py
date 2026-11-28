@@ -605,15 +605,24 @@ async def org_has_company_policy(db, organization_id) -> bool:
     )))
 
 
-async def withhold_step_storage(db, step):
+async def withhold_step_storage(db, step, *, organization_id=None):
+    from app.models.artifact_release import ArtifactRelease
+    from app.models.organization import Organization
     from app.models.query import Query
     from app.models.report import Report
-    from app.services.row_owner import step_report_id
+    from app.services.row_owner import step_owner
 
     org = await db.scalar(select(Query.organization_id).where(Query.id == str(step.query_id))) if step.query_id else None
     if not org:
-        report_id = await step_report_id(db, step)
-        org = await db.scalar(select(Report.organization_id).where(Report.id == str(report_id)))
+        owner = await step_owner(db, step)
+        if owner:
+            model = Report if owner.kind == "report" else ArtifactRelease
+            org = await db.scalar(select(model.organization_id).where(model.id == owner.id))
+    if org and organization_id and str(org) != str(organization_id):
+        return True
+    # Only server-side execution context can identify a detached step's workspace.
+    if not org and organization_id:
+        org = await db.scalar(select(Organization.id).where(Organization.id == str(organization_id)))
     return not org or await org_has_company_policy(db, org)
 
 

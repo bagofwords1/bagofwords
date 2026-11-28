@@ -612,7 +612,7 @@ class ProjectManager:
     
     async def finalize_tool_step(
         self, db, step, *, code, data, data_model=None, parameters=None,
-        applied_params=None, status="success",
+        applied_params=None, status="success", organization_id=None,
     ):
         """Persist a finished tool's step in ONE commit, without refresh.
 
@@ -631,7 +631,7 @@ class ProjectManager:
             step.data_model = data_model
         step.code = code
         from app.services.viewer_data_policy import withhold_step_storage
-        withheld = await withhold_step_storage(db, step)
+        withheld = await withhold_step_storage(db, step, organization_id=organization_id)
         step.data = {} if withheld else _to_json_safe(data)
         step.status = status
         step.status_reason = None
@@ -765,9 +765,9 @@ class ProjectManager:
                 pass
             raise
 
-    async def update_step_with_data(self, db, step, data):
+    async def update_step_with_data(self, db, step, data, *, organization_id=None):
         from app.services.viewer_data_policy import withhold_step_storage
-        withheld = await withhold_step_storage(db, step)
+        withheld = await withhold_step_storage(db, step, organization_id=organization_id)
         safe_data = {} if withheld else _to_json_safe(data)
         try:
             step.data = safe_data
