@@ -541,6 +541,7 @@ async def delete_compute(
 
 from app.schemas.sandbox_schema import (  # noqa: E402
     SandboxDetail,
+    SandboxEgressSchema,
     SandboxEventSchema,
     SandboxFleetRow,
     SandboxRunSchema,
@@ -650,6 +651,7 @@ async def get_sandbox(
         runs=[SandboxRunSchema.from_model(r, include_code=include_code, include_output=include_code)
               for r in await service.recent_runs(db, sandbox.id, limit=20)],
         events=[SandboxEventSchema.from_model(e) for e in events.scalars().all()],
+        egress=[SandboxEgressSchema.from_model(r) for r in await service.egress(db, sandbox.id)],
     )
 
 

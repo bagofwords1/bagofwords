@@ -35,7 +35,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.sandbox import Sandbox, SandboxCompute, SandboxEnvironment, SandboxEvent, SandboxRun
+from app.models.sandbox import Sandbox, SandboxCompute, SandboxEgressLog, SandboxEnvironment, SandboxEvent, SandboxRun
 from app.services.sandbox import computes as compute_service
 from app.services.sandbox import environments as environment_service
 from app.services.sandbox import capacity, errors
@@ -74,6 +74,7 @@ TRANSITIONS: Dict[str, frozenset] = {
     "deleted": frozenset(),
 }
 
+MAX_LISTED_PROCESSES = 20
 KILL_GRACE_SECONDS = 5  # between SIGTERM and SIGKILL when an admin stops a run
 
 WORKSPACE_OUTPUTS = "outputs"
@@ -174,6 +175,9 @@ class RunOutcome:
     created: bool = False
     resumed: bool = False
     recreated: bool = False
+    # Programs the run started that are still running in the sandbox after it
+    # ended (a server left in the background, for example): "pid command".
+    background_processes: List[str] = field(default_factory=list)
 
 
 # save_artifact(name, size, chunks) -> the saved file's id (or None when not saved)
@@ -822,6 +826,7 @@ class SandboxService:
                     outcome.stderr_truncated = result.stderr_bytes > MODEL_OUTPUT_TAIL_BYTES
                     await progress("collecting_artifacts")
                     await self._collect_artifacts(runtime, before, outcome, save_artifact, run_began)
+                    outcome.background_processes = await _left_running(runtime)
             finally:
                 await driver.close()
         except SandboxError as exc:
@@ -871,6 +876,8 @@ class SandboxService:
             "run_id": run.id, "status": run.status, "exit_code": run.exit_code,
             "duration_seconds": outcome.duration_seconds, "artifacts": len(outcome.artifacts),
             "error": error.message[:300] if error else None,
+            # What outlives the run is not in any run's record otherwise.
+            "background_processes": outcome.background_processes[:MAX_LISTED_PROCESSES],
         })
         await audit(db, report.organization_id, "sandbox.run", actor_id, "sandbox", sandbox.id, {
             "title": report.title or report.id, "report_id": report.id, "run_id": run.id,
@@ -1008,6 +1015,39 @@ class SandboxService:
                 logger.debug("could not read sandbox stats from compute %s", compute_id, exc_info=True)
         return out
 
+    async def collect_egress(self, db: AsyncSession, driver: SandboxDriver, sandbox: Sandbox) -> int:
+        """Store which domains this sandbox reached or was refused since the last
+        collection (``sandbox_egress_log``, one row per domain and decision).
+        Returns how many new requests were added. The caller commits."""
+        if (sandbox.limits or {}).get("network_policy", POLICY_NONE) == POLICY_NONE or not sandbox.driver_ref:
+            return 0
+        rows = await db.execute(select(SandboxEgressLog).where(SandboxEgressLog.sandbox_id == sandbox.id))
+        known = {(r.domain, r.decision): r for r in rows.scalars().all()}
+        last = max((r.last_at for r in known.values() if r.last_at), default=None)
+        # Strictly after what is already counted, so nothing is counted twice.
+        since = last + timedelta(milliseconds=1) if last else sandbox.created_at
+        added = 0
+        for record in await driver.egress_log(self._handle(sandbox), since):
+            if since is not None and record.last_at is not None and record.last_at < since:
+                continue
+            row = known.get((record.domain[:255], record.decision))
+            if row is None:
+                row = SandboxEgressLog(sandbox_id=sandbox.id, domain=record.domain[:255], decision=record.decision,
+                                       count=0, first_at=record.first_at, last_at=record.last_at)
+                db.add(row)
+                known[(row.domain, row.decision)] = row
+            row.count = int(row.count or 0) + int(record.count or 0)
+            row.last_at = max(filter(None, (row.last_at, record.last_at)), default=row.last_at)
+            added += int(record.count or 0)
+        return added
+
+    async def egress(self, db: AsyncSession, sandbox_id: str) -> List[SandboxEgressLog]:
+        rows = await db.execute(
+            select(SandboxEgressLog).where(SandboxEgressLog.sandbox_id == sandbox_id)
+            .order_by(SandboxEgressLog.decision.desc(), SandboxEgressLog.count.desc())
+        )
+        return list(rows.scalars().all())
+
     async def _stopped_on_compute(self, db: AsyncSession, sandbox: Sandbox) -> bool:
         """Whether the sandbox still exists on its compute but is not running."""
         try:
@@ -1129,6 +1169,7 @@ class SandboxService:
                     return sandbox
                 raise errors.busy()
             await self._stop_hook(db, driver, sandbox, actor_id)
+            await self._final_egress(db, driver, sandbox)
             try:
                 await driver.stop(self._handle(sandbox))
             except SandboxNotFound:
@@ -1169,6 +1210,15 @@ class SandboxService:
         except Exception:  # noqa: BLE001
             logger.warning("the stop script of sandbox %s could not be run", sandbox.id)
 
+    async def _final_egress(self, db: AsyncSession, driver: SandboxDriver, sandbox: Sandbox) -> None:
+        """Collect the domain log one last time before a sandbox goes away."""
+        try:
+            await self.collect_egress(db, driver, sandbox)
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            logger.warning("could not collect the last domain log of sandbox %s", sandbox.id)
+
     async def _remove(self, db: AsyncSession, sandbox: Sandbox, actor_id: Optional[str], *, reason: str,
                       title: Optional[str] = None) -> None:
         compute = await db.get(SandboxCompute, sandbox.compute_id) if sandbox.compute_id else None
@@ -1181,6 +1231,8 @@ class SandboxService:
                 try:
                     if sandbox.state in ("ready", "idle"):
                         await self._stop_hook(db, driver, sandbox, actor_id)
+                    if sandbox.state in ("ready", "idle", "busy"):
+                        await self._final_egress(db, driver, sandbox)
                     await driver.delete(self._handle(sandbox))
                 finally:
                     await driver.close()
@@ -1318,6 +1370,34 @@ def _not_before(modified_at: Optional[str], moment: Optional[str]) -> bool:
     if modified_at[19:].lstrip(".0123456789") != moment[19:].lstrip(".0123456789"):
         return False  # different zone notation: not comparable as text
     return modified_at[:19] >= moment[:19]
+
+
+# Lists what is still running in the sandbox, from /proc: no image is required
+# to ship `ps`. It prints nothing unless sandboxd is process 1, which is what
+# makes /proc "this sandbox's processes" and not a whole machine's.
+_LIST_PROCESSES = (
+    'grep -qa sandboxd /proc/1/cmdline 2>/dev/null || exit 0; '
+    'for d in /proc/[0-9]*; do p=${d#/proc/}; '
+    '[ "$p" = 1 ] && continue; [ "$p" = "$$" ] && continue; '
+    'c=$(tr "\\0" " " < "$d/cmdline" 2>/dev/null | cut -c1-160); '
+    '[ -n "$c" ] && echo "$p $c"; done; exit 0'
+)
+
+
+async def _left_running(runtime) -> List[str]:
+    """Processes still running in the sandbox once a run has ended. Best effort."""
+    try:
+        result = await runtime.run(["sh", "-c", _LIST_PROCESSES], timeout=10)
+    except Exception:  # noqa: BLE001 - a record, never a reason to fail the run
+        return []
+    found = []
+    for line in result.stdout.decode("utf-8", "replace").splitlines():
+        command = line.split(" ", 1)[1].strip() if " " in line else ""
+        # The listing's own helpers show up while it runs.
+        if not command or command.startswith(("tr ", "cut -c1-160", "sh -c grep -qa sandboxd")):
+            continue
+        found.append(line.strip())
+    return found[:MAX_LISTED_PROCESSES]
 
 
 def _reason(exc: Exception) -> str:

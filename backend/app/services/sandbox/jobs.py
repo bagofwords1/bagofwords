@@ -200,11 +200,35 @@ async def compute_health_tick(session_factory=None, now: Optional[datetime] = No
                     continue  # its sandboxes cannot be judged while the compute is unreachable
                 counts["healthy"] += 1 if health.healthy else 0
                 await _check_sandboxes(db, service, compute, counts)
+                await _collect_egress(db, service, compute, counts)
             except Exception:  # noqa: BLE001
                 counts["errors"] += 1
                 await db.rollback()
                 logger.exception("sandbox compute health check failed for compute %s", compute_id)
     return counts
+
+
+async def _collect_egress(db, service: SandboxService, compute: SandboxCompute, counts: Dict[str, int]) -> None:
+    """Store the domain log of every sandbox on this compute that can reach the
+    network. This is the record of where code in a sandbox connected to."""
+    rows = await db.execute(
+        select(Sandbox).where(Sandbox.compute_id == compute.id, Sandbox.deleted_at.is_(None),
+                              Sandbox.state.in_(("ready", "busy", "idle")))
+    )
+    sandboxes = [s for s in rows.scalars().all() if (s.limits or {}).get("network_policy", "none") != "none"]
+    if not sandboxes:
+        return
+    driver = await compute_service.build_driver(db, compute)
+    try:
+        for sandbox in sandboxes:
+            try:
+                counts["egress_requests"] = counts.get("egress_requests", 0) + await service.collect_egress(db, driver, sandbox)
+                await db.commit()
+            except Exception:  # noqa: BLE001 - one sandbox's log must not stop the others
+                await db.rollback()
+                logger.warning("could not collect the domain log of sandbox %s", sandbox.id, exc_info=True)
+    finally:
+        await driver.close()
 
 
 async def _check_sandboxes(db, service: SandboxService, compute: SandboxCompute, counts: Dict[str, int]) -> None:

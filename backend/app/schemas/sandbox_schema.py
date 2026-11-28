@@ -510,3 +510,6 @@ class SandboxFleetRow(SandboxSchema):
 class SandboxDetail(SandboxFleetRow):
     runs: List[SandboxRunSchema] = []
     events: List[SandboxEventSchema] = []
+    # Domains it reached or was refused, most refused first. Collected every
+    # couple of minutes and once more when it stops, so it can lag a little.
+    egress: List[SandboxEgressSchema] = []

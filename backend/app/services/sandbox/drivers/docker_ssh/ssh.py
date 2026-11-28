@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shlex
+import time
 from dataclasses import dataclass
 from typing import Optional, Sequence, Union
 
@@ -28,6 +29,16 @@ from app.services.sandbox.drivers.base import SandboxDriverError
 # is dozens of lines per sandbox run, and command lines do not belong in the
 # application log. Warnings and errors still come through.
 logging.getLogger("asyncssh").setLevel(logging.WARNING)
+
+# The record of what BoW ran on a server. Its own logger, so it can be sent
+# somewhere else or turned down without touching the rest of the logging.
+commands_log = logging.getLogger("bow.sandbox.commands")
+
+
+def _summary(command: str, limit: int = 300) -> str:
+    """A command line cut to a readable length."""
+    return command if len(command) <= limit else command[:limit] + " …"
+
 
 MODE_ROOT = "root"
 MODE_SUDO = "sudo"
@@ -228,7 +239,15 @@ class SSHHost:
         command = shlex.join([str(part) for part in argv])
         if not as_user and await self.detect_mode() == MODE_SUDO:
             command = "sudo -n -- " + command
+        started = time.monotonic()
         result = await self._exec(command, input=input, timeout=timeout)
+        # One line per command run on the server, for the operator's record.
+        # Commands are fixed templates; anything secret travels on standard
+        # input and is never part of the command line (see the module docstring).
+        commands_log.info(
+            "sandbox command on %s: %s -> exit %s in %.2fs", self.address, _summary(command),
+            result.exit_status, time.monotonic() - started,
+        )
         if check and not result.ok:
             label = " ".join(str(part) for part in argv[:2])
             raise SSHError(
